@@ -1,0 +1,37 @@
+{
+    "importMap": "import_map.json",
+    "compilerOptions": {
+        "lib": [
+            "deno.window"
+        ],
+        "types": [
+            "https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts"
+        ]
+    },
+    "lint": {
+        "files": {
+            "include": [
+                "**/*.ts"
+            ]
+        },
+        "rules": {
+            "tags": [
+                "recommended"
+            ]
+        }
+    },
+    "fmt": {
+        "files": {
+            "include": [
+                "**/*.ts"
+            ]
+        },
+        "options": {
+            "useTabs": false,
+            "lineWidth": 100,
+            "indentWidth": 2,
+            "singleQuote": true,
+            "proseWrap": "preserve"
+        }
+    }
+}
