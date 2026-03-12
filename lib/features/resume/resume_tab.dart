@@ -112,24 +112,51 @@ class _ResumeTabState extends State<ResumeTab> {
     return completer.future;
   }
 
+  bool _isModalShowing = false;
+  late ResumeViewModel _resumeVM;
+
+  void _checkAIConsentAutomatically() async {
+    if (!mounted) return;
+    final vm = context.read<ResumeViewModel>();
+    final userVM = context.read<UserViewModel>();
+    
+    // Auto-trigger only if: Course Completed AND Resume is empty/placeholder AND no consent yet
+    if (vm.isCourseCompleted && 
+        vm.isResumeEmpty && 
+        userVM.user != null && 
+        !userVM.user!.aiConsent && 
+        !_isModalShowing) {
+      
+      _isModalShowing = true;
+      final accepted = await _checkAndShowAIConsent(context, vm);
+      _isModalShowing = false;
+      
+      if (accepted && mounted) {
+        // Trigger actual generation after consent
+        context.read<ResumeViewModel>().loadResumeData();
+      }
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    // Refresh data when tab opens to ensure latest answers (Area detection) are picked up
+    _resumeVM = context.read<ResumeViewModel>();
+    
+    // Refresh data when tab opens
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final vm = context.read<ResumeViewModel>();
-      final userVM = context.read<UserViewModel>();
-      
-      // If course is completed but no resume content exists, we'll need AI.
-      // Check for consent BEFORE triggering loadResumeData which might trigger AI.
-      if (vm.isCourseCompleted && vm.resumeContent == null) {
-        if (await _checkAndShowAIConsent(context, vm)) {
-          vm.loadResumeData();
-        }
-      } else {
-        vm.loadResumeData();
-      }
+      _resumeVM.loadResumeData();
+      _checkAIConsentAutomatically();
     });
+
+    // Also listen for changes (e.g. from completion in other tabs)
+    _resumeVM.addListener(_checkAIConsentAutomatically);
+  }
+
+  @override
+  void dispose() {
+    _resumeVM.removeListener(_checkAIConsentAutomatically);
+    super.dispose();
   }
 
   @override

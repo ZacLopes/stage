@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../data/models/models.dart';
 import '../../data/supabase_repository.dart';
 
@@ -13,7 +14,35 @@ class HomeViewModel extends ChangeNotifier {
   bool _isLoading = true;
 
   HomeViewModel(this._repository) {
-    _loadData();
+    _init();
+  }
+
+  void _init() {
+    // Listen to auth state changes to clear/reload data
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      final AuthChangeEvent event = data.event;
+      if (event == AuthChangeEvent.signedIn) {
+        _repository.clearCache();
+        _loadData();
+      } else if (event == AuthChangeEvent.signedOut) {
+        _clearData();
+      }
+    });
+
+    // Load immediately if user is already logged in
+    if (Supabase.instance.client.auth.currentUser != null) {
+      _loadData();
+    }
+  }
+
+  void _clearData() {
+    _tracks = [];
+    _phasesByTrack.clear();
+    _completedTrackIds.clear();
+    _completedPhaseIds.clear();
+    _pendingTabIndex = null;
+    _isLoading = false;
+    notifyListeners();
   }
 
   List<Track> get tracks => _tracks;
@@ -30,12 +59,21 @@ class HomeViewModel extends ChangeNotifier {
       
       // Load phases for each track and check completion
       for (var track in _tracks) {
-        final phases = await _repository.getPhases(track.id);
-        _phasesByTrack[track.id] = phases;
+        final allPhases = await _repository.getPhases(track.id);
         
-        // Check if all phases in this track are completed
-        if (phases.isNotEmpty && 
-            phases.every((phase) => _completedPhaseIds.contains(phase.id))) {
+        // --- FILTER OBSOLETE PHASES (Align with GamificationViewModel) ---
+        final activePhases = allPhases.where((p) => 
+          p.id != 't1_p4' && 
+          p.title != 'Revisão' &&
+          p.title != 'O Cronômetro da Jornada' &&
+          p.title != 'O que você fez'
+        ).toList();
+        
+        _phasesByTrack[track.id] = activePhases;
+        
+        // Check if all ACTIVE phases in this track are completed
+        if (activePhases.isNotEmpty && 
+            activePhases.every((phase) => _completedPhaseIds.contains(phase.id))) {
           _completedTrackIds.add(track.id);
         }
       }
@@ -96,5 +134,19 @@ class HomeViewModel extends ChangeNotifier {
 
   Future<void> refresh() async {
     await _loadData();
+  }
+
+  // ── Tab-change request (used by deep navigation screens) ──────────────────
+  int? _pendingTabIndex;
+  int? get pendingTabIndex => _pendingTabIndex;
+
+  void requestTabChange(int index) {
+    _pendingTabIndex = index;
+    notifyListeners();
+  }
+
+  void clearPendingTabChange() {
+    _pendingTabIndex = null;
+    // No notifyListeners() to avoid rebuild loops
   }
 }

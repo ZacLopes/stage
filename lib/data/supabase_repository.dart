@@ -392,12 +392,21 @@ class SupabaseRepository {
 
   Future<bool> isTrackCompleted(String trackId) async {
     try {
-      final phases = await getPhases(trackId);
+      final allPhases = await getPhases(trackId);
+      
+      // Filter obsolete phases
+      final phases = allPhases.where((p) => 
+        p.id != 't1_p4' && 
+        p.title != 'Revisão' &&
+        p.title != 'O Cronômetro da Jornada' &&
+        p.title != 'O que você fez'
+      ).toList();
+
       if (phases.isEmpty) return false;
 
       final completedPhases = await getCompletedPhaseIds();
       
-      // Check if all phases in this track are completed
+      // Check if all active phases in this track are completed
       return phases.every((phase) => completedPhases.contains(phase.id));
     } catch (e) {
       print('Error checking track completion: $e');
@@ -407,10 +416,27 @@ class SupabaseRepository {
 
   Future<bool> isEntireCourseCompleted() async {
     try {
-      final completedPhases = await getCompletedPhaseIds();
       final totalPhases = await getTotalPhaseCount();
+      if (totalPhases <= 0) return false;
+
+      final tracks = await getTracks();
+      final Set<String> activePhaseIds = {};
+      for (var track in tracks) {
+        final phases = await getPhases(track.id);
+        activePhaseIds.addAll(
+          phases.where((p) => 
+            p.id != 't1_p4' && 
+            p.title != 'Revisão' &&
+            p.title != 'O Cronômetro da Jornada' &&
+            p.title != 'O que você fez'
+          ).map((p) => p.id)
+        );
+      }
+
+      final completedPhases = await getCompletedPhaseIds();
+      final completedActive = completedPhases.where((id) => activePhaseIds.contains(id)).length;
       
-      return completedPhases.length >= totalPhases && totalPhases > 0;
+      return completedActive >= activePhaseIds.length && activePhaseIds.isNotEmpty;
     } catch (e) {
       print('Error checking entire course completion: $e');
       return false;
@@ -437,19 +463,24 @@ class SupabaseRepository {
 
   Future<int> getTotalPhaseCount() async {
     try {
-      // If we have cached phases, count them
+      // Fetch all phases to apply filter
+      final List<Phase> allPhases = [];
       if (_isCacheInitialized) {
-        int count = 0;
-        _cachedPhases.forEach((_, phases) => count += phases.length);
-        if (count > 0) return count;
+        _cachedPhases.forEach((_, phases) => allPhases.addAll(phases));
+      } else {
+        final response = await _client.from('phases').select();
+        allPhases.addAll((response as List).map((e) => Phase.fromMap(e)).toList());
       }
-
-      // Fallback: Fetch count from DB
-      final response = await _client
-          .from('phases')
-          .count(); // Count only
       
-      return response;
+      // APPLY HARD FILTER (Align with ViewModels)
+      final activePhases = allPhases.where((p) => 
+        p.id != 't1_p4' && 
+        p.title != 'Revisão' &&
+        p.title != 'O Cronômetro da Jornada' &&
+        p.title != 'O que você fez'
+      );
+      
+      return activePhases.length;
     } catch (e) {
       print('Error getting total phase count: $e');
       // Fallback if count() fails or if using older Postgrest

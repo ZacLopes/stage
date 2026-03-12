@@ -121,14 +121,35 @@ class GamificationViewModel extends ChangeNotifier {
 
   Future<void> _loadGlobalProgress() async {
     try {
-      final totalPhases = await _repository.getTotalPhaseCount();
-      final completedCount = _completedPhaseIds.length;
+      final tracks = await _repository.getTracks();
+      final Set<String> activePhaseIds = {};
       
-      if (totalPhases > 0) {
-        _totalCareerProgress = completedCount / totalPhases;
+      for (var track in tracks) {
+        final phases = await _repository.getPhases(track.id);
+        
+        // Define active phases (same logic as loadPhases)
+        final activePhasesInTrack = phases.where((p) => 
+          p.id != 't1_p4' && 
+          p.title != 'Revisão' &&
+          p.title != 'O Cronômetro da Jornada' &&
+          p.title != 'O que você fez'
+        );
+        
+        for (var p in activePhasesInTrack) {
+          activePhaseIds.add(p.id);
+        }
+      }
+
+      // Filter completed IDs to only count those that are still in active phases
+      final completedActiveCount = _completedPhaseIds.where((id) => activePhaseIds.contains(id)).length;
+      
+      if (activePhaseIds.isNotEmpty) {
+        _totalCareerProgress = completedActiveCount / activePhaseIds.length;
       } else {
         _totalCareerProgress = 0.0;
       }
+      
+      print('📊 Global Progress updated: $completedActiveCount / ${activePhaseIds.length} = $_totalCareerProgress');
       notifyListeners();
     } catch (e) {
       print('Error loading global progress: $e');
@@ -461,8 +482,9 @@ class GamificationViewModel extends ChangeNotifier {
       }
 
 
-      // Refresh completed phase IDs to update UI
+      // Refresh completed phase IDs and recalculate global progress to update UI
       _completedPhaseIds = await _repository.getCompletedPhaseIds();
+      await _loadGlobalProgress(); 
       notifyListeners();
     } catch (e) {
       print('Error saving progress: $e');

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../profile/profile_screen.dart';
 import 'tracks_tab.dart';
 import '../resume/resume_tab.dart';
+import '../resume/resume_viewmodel.dart';
+import 'home_viewmodel.dart';
 
 import '../../services/tutorial_service.dart';
 import '../../core/constants/tutorial_keys.dart';
@@ -20,8 +23,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // Removed late initialization
-    
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       TutorialService().showTutorialIfNeeded(
         context,
@@ -29,12 +31,15 @@ class _HomeScreenState extends State<HomeScreen> {
           _navigateToPage(index);
         },
       );
+
+      // Listen for tab-change requests coming from deep navigation screens
+      context.read<HomeViewModel>().addListener(_onHomeViewModelChange);
     });
-    
+
     TutorialService.tutorialTrigger.addListener(() {
       if (mounted) {
         _navigateToPage(0);
-        
+
         Future.delayed(const Duration(milliseconds: 500), () {
           print("Iniciando tutorial...");
           TutorialService().showTutorial(
@@ -48,6 +53,15 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  void _onHomeViewModelChange() {
+    if (!mounted) return;
+    final homeVM = context.read<HomeViewModel>();
+    if (homeVM.pendingTabIndex != null) {
+      _navigateToPage(homeVM.pendingTabIndex!);
+      homeVM.clearPendingTabChange();
+    }
+  }
+
   void _navigateToPage(int index) {
     setState(() {
       _currentIndex = index;
@@ -57,10 +71,19 @@ class _HomeScreenState extends State<HomeScreen> {
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
     );
+
+    // Refresh resume data if switching to that tab
+    if (index == 1) {
+       context.read<ResumeViewModel>().loadResumeData();
+    }
   }
 
   @override
   void dispose() {
+    // Remove the listener safely — the viewmodel outlives this widget
+    try {
+      context.read<HomeViewModel>().removeListener(_onHomeViewModelChange);
+    } catch (_) {}
     _pageController.dispose();
     super.dispose();
   }

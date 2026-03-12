@@ -159,10 +159,13 @@ class ResumeViewModel extends ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get isGeneratingResume => _isGeneratingResume;
   bool get isSaving => _isSaving;
-  String? get error => _error;
-  
   String get selectedTemplateType => _selectedTemplateType;
   String get detectedArea => _detectedArea;
+
+  bool get isResumeEmpty => _resumeContent == null || 
+      (_resumeContent!.summary.isEmpty && 
+       _resumeContent!.experiences.isEmpty && 
+       _resumeContent!.education.isEmpty);
 
   void setTemplateType(String type) {
     if (_selectedTemplateType != type) {
@@ -246,11 +249,19 @@ class ResumeViewModel extends ChangeNotifier {
         print('Error detecting area on load: $e');
       }
 
-      if (_resumeContent != null) {
+      if (_resumeContent != null && !isResumeEmpty) {
         _resumeData = _convertToResumeData(_resumeContent!);
         await _updateHeaderInfo();
       } else {
-        await generateResumeWithAI();
+        // Only trigger AI if consent is already given, otherwise Tab will handle modal
+        final userProfile = await _repository.getUserProfile();
+        if (userProfile != null && userProfile.aiConsent) {
+          await generateResumeWithAI();
+        } else if (_resumeContent != null) {
+          // Keep what we have but it's empty
+          _resumeData = _convertToResumeData(_resumeContent!);
+          await _updateHeaderInfo();
+        }
       }
     } catch (e) {
       _error = 'Erro ao carregar currículo: $e';

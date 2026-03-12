@@ -192,6 +192,15 @@ class UserViewModel extends ChangeNotifier {
   // Logout
   Future<void> logout() async {
     try {
+      // Clear repository cache before sign out so other ViewModels
+      // don't see stale data from the previous user session
+      _repository.clearCache();
+
+      // Clear local SQLite data
+      try {
+        await DatabaseHelper.instance.clearAllUserData();
+      } catch (e) { print('Local DB cleanup on logout: $e'); }
+
       await _supabase.auth.signOut();
       _user = null;
       notifyListeners();
@@ -256,7 +265,10 @@ class UserViewModel extends ChangeNotifier {
         // We still proceed to sign out to at least disconnect the user.
       }
 
-      // 5. Hard sign out and clear state
+      // 5. Clear repository cache
+      _repository.clearCache();
+
+      // 6. Hard sign out and clear state
       await _supabase.auth.signOut();
       _user = null;
       print('👋 Account $userId disconnected and cleanup attempted.');
