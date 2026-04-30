@@ -211,6 +211,10 @@ enum QuestionType {
   experienceForm,       // M3.1 Q2
   learningVault,        // M3.2 Q2
   email,                // M5.1 Q3
+  // Phase 3 merged forms (indices 36, 37, 38 — must stay at end)
+  academicForm,         // M2_1_1_Q1: institution+dates+semester+period
+  toolsCatalog,         // M4_1_1_Q1: 8 categories with inline level
+  contactForm,          // M5_1_1_Q1: LinkedIn+portfolio+email+phone
 }
 
 class Question {

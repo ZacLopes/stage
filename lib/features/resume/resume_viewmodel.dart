@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -376,13 +377,30 @@ class ResumeViewModel extends ChangeNotifier {
       return val.toString();
     }
 
-    String linkedin = getAnswer('M5_1_1_Q1') ?? '';
-    if (linkedin.isEmpty && userProfile != null) {
-       linkedin = 'linkedin.com/in/${userProfile.name.replaceAll(' ', '').toLowerCase()}';
+    String linkedin = '';
+    String email = userProfile?.email ?? 'email@exemplo.com';
+    String phone = '(11) 99999-9999';
+
+    // M5_1_1_Q1 is now a merged contactForm JSON
+    final contactRaw = getAnswer('M5_1_1_Q1');
+    if (contactRaw != null) {
+      try {
+        final contact = jsonDecode(contactRaw);
+        linkedin = (contact['linkedin'] as String?)?.trim() ?? '';
+        final contactEmail = (contact['email'] as String?)?.trim() ?? '';
+        if (contactEmail.isNotEmpty) email = contactEmail;
+        final contactPhone = (contact['phone'] as String?)?.trim() ?? '';
+        if (contactPhone.isNotEmpty) phone = contactPhone;
+      } catch (_) {
+        // If old format (plain URL string), treat as linkedin
+        linkedin = contactRaw.trim();
+      }
     }
 
-    String email = getAnswer('M5_1_1_Q3') ?? userProfile?.email ?? 'email@exemplo.com';
-    String phone = getAnswer('M5_1_1_Q4') ?? '(11) 99999-9999';
+    if (linkedin.isEmpty && userProfile != null) {
+      linkedin = 'linkedin.com/in/${userProfile.name.replaceAll(' ', '').toLowerCase()}';
+    }
+
     String location = getAnswer('M5_2_1_Q1') ?? 'São Paulo, SP';
 
     if (userProfile != null) {

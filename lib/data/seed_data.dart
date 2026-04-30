@@ -52,16 +52,14 @@ class SeedData {
       // --- MUNDO 1: Direção ---
       Phase(id: 't1_p3', trackId: 'track_1', orderIndex: 1, title: 'Direção', description: 'Área, tipo de vaga e norte profissional.', xpReward: 100),
 
-      // --- MUNDO 2 (ATUALIZADO) ---
-      Phase(id: 't2_p1', trackId: 'track_2', orderIndex: 1, title: 'Minha Guilda', description: 'Instituição e Curso.', xpReward: 120),
-      Phase(id: 't2_p2', trackId: 'track_2', orderIndex: 2, title: 'Datas e Logística', description: 'Cronograma do curso.', xpReward: 120),
+      // --- MUNDO 2 ---
+      Phase(id: 't2_p1', trackId: 'track_2', orderIndex: 1, title: 'Minha Guilda', description: 'Formação acadêmica completa.', xpReward: 120),
+      Phase(id: 't2_p2', trackId: 'track_2', orderIndex: 2, title: 'Cursos', description: 'Cursos e certificações externas.', xpReward: 120),
       Phase(id: 't2_p3', trackId: 'track_2', orderIndex: 3, title: 'Medalhas de Honra', description: 'Conquistas acadêmicas.', xpReward: 120),
 
-
       // --- MUNDO 3 ---
-      // --- MUNDO 3 (ATUALIZADO) ---
       Phase(id: 't3_p1', trackId: 'track_3', orderIndex: 1, title: 'O Ponto de Partida', description: 'Valide suas vivências.', xpReward: 150),
-      Phase(id: 't3_p2', trackId: 'track_3', orderIndex: 2, title: 'Cursos & Certificações', description: 'Sua estante de aprendizado.', xpReward: 150),
+      Phase(id: 't3_p2', trackId: 'track_3', orderIndex: 2, title: 'Atividades', description: 'Atividades extracurriculares.', xpReward: 150),
       // Phase 4 removed as requested
 
       // --- MUNDO 4 (ATUALIZADO) ---
@@ -84,45 +82,25 @@ class SeedData {
       Question(id: 'M1_3_1_Q25', phaseId: 't1_p3', type: QuestionType.multipleChoice, content: 'Que tipo de oportunidade você está buscando agora?', options: ['Estágio', 'Trainee', 'Primeiro emprego (CLT)', 'Estágio internacional ou intercâmbio com trabalho', 'Freelance / projetos pontuais', 'Ainda explorando']),
       Question(id: 'M1_3_1_Q3', phaseId: 't1_p3', type: QuestionType.text, content: 'Pensando nos próximos 2-3 anos, o que você quer construir profissionalmente?', options: ['Ex: quero entrar em uma empresa de tecnologia que valorize desenvolvimento técnico e crescer em produtos digitais...']),
 
-      // --- M2.1: Minha Guilda ---
-      // --- M2.1: Minha Guilda ---
-      // Removed Q1: Education Level (Deleted)
-      Question(id: 'M2_1_1_Q1', phaseId: 't2_p1', type: QuestionType.idCardBuilder, content: 'Onde você estuda e qual o seu curso?', options: []),
+      // --- M2.1: Minha Guilda (formulário único) ---
+      Question(id: 'M2_1_1_Q1', phaseId: 't2_p1', type: QuestionType.academicForm, content: 'Me conta sobre a sua formação acadêmica.', options: []),
       Question(id: 'M2_1_1_Q2', phaseId: 't2_p1', type: QuestionType.binaryChoice, content: 'Além da sua formação atual, você tem outra bagagem acadêmica?', options: []),
       Question(id: 'M2_1_1_Q3', phaseId: 't2_p1', type: QuestionType.retroIdCard, content: 'Onde você estudou e qual foi o curso?', options: []),
-      Question(id: 'M2_1_1_Q4', phaseId: 't2_p1', type: QuestionType.bridgeText, content: 'Mudar de curso ou somar áreas diferentes é sinal de repertório. Como essa sua passagem por [Curso Anterior] ajuda você a ser um profissional melhor hoje?', options: []),
 
-      // --- M2.2: Datas e Logística ---
-      Question(id: 'M2_2_1_Q1', phaseId: 't2_p2', type: QuestionType.dualWheelDate, content: 'Quando seu curso começou e quando termina?', options: []),
-      Question(id: 'M2_2_1_Q2', phaseId: 't2_p2', type: QuestionType.stepSlider, content: 'Em qual semestre você está agora?', options: ['1º Sem', '2º Sem', '3º Sem', '4º Sem', '5º Sem', '6º Sem', '7º Sem', '8º Sem', 'Finalizando']),
-      Question(id: 'M2_2_1_Q3', phaseId: 't2_p2', type: QuestionType.iconSelect, content: 'Em qual período você estuda?', options: ['Matutino', 'Vespertino', 'Noturno', 'Integral', 'EAD']),
+      // --- M2.2: Cursos (movidos de M3) ---
+      Question(id: 'M3_2_1_Q1', phaseId: 't2_p2', type: QuestionType.binaryChoice, content: 'Além da formação acadêmica, você fez algum curso com certificação?', options: ['Sim, investi em cursos', 'Não, foquei em outras experiências']),
+      Question(id: 'M3_2_1_Q2', phaseId: 't2_p2', type: QuestionType.learningVault, content: 'Quais são as conquistas da sua estante de aprendizado?', options: []),
 
       // --- M2.3: Medalhas de Honra ---
       Question(id: 'M2_3_1_Q1', phaseId: 't2_p3', type: QuestionType.rewardCardSelect, content: 'Você conquistou alguma bolsa de estudos por mérito?', options: ['Sim, 100%', 'Sim, Parcial', 'Não']),
-      Question(
-        id: 'M2_3_1_Q2', 
-        phaseId: 't2_p3', 
-        type: QuestionType.activitiesGrid, 
-        content: 'Além das aulas, você realizou alguma dessas atividades?', 
-        options: [
-          '{"id": "ligas", "label": "Ligas", "icon": "groups", "detailTitle": "Qual foi a Liga? (Ex: Tech, Marketing...)", "reflectiveTitle": "Qual foi seu papel e sua maior entrega lá?"}',
-          '{"id": "lodges", "label": "Lodges", "icon": "public", "detailTitle": "Para qual destino você foi?", "reflectiveTitle": "Qual foi o maior aprendizado dessa imersão?"}',
-          '{"id": "startup_school", "label": "Startup School", "icon": "rocket_launch", "detailTitle": "Qual era o nome do projeto/startup?", "reflectiveTitle": "Qual marco você atingiu (MVP, Venda, Pitch)?"}',
-          '{"id": "esportes", "label": "Esportes", "icon": "sports_soccer", "detailTitle": "Qual modalidade?", "reflectiveTitle": "Como essa disciplina ajuda você no trabalho?"}',
-          '{"id": "outros", "label": "Outros", "icon": "star", "detailTitle": "Qual o nome da iniciativa?", "reflectiveTitle": "O que exatamente você desenvolveu nesse projeto?"}',
-          '{"id": "none", "label": "Não participei", "icon": "block", "detailTitle": "", "reflectiveTitle": ""}'
-        ]
-      ),
-      Question(id: 'M2_3_1_Q3', phaseId: 't2_p3', type: QuestionType.miniTextBox, content: 'Qual foi o seu maior desafio ou conquista nessas atividades? (Opcional)', options: []),
       Question(id: 'M2_3_1_Q4', phaseId: 't2_p3', type: QuestionType.yesNoWithDetail, content: 'Algum professor já te deu um destaque ou você ganhou algum prêmio acadêmico?', options: []),
 
       // --- M3.1: O Ponto de Partida ---
-      // --- M3.1: O Ponto de Partida ---
       Question(
-        id: 'M3_1_1_Q1', 
-        phaseId: 't3_p1', 
-        type: QuestionType.experienceTypeSelect, 
-        content: 'Qual dessas experiências você já realizou (mesmo que sem carteira assinada)?', 
+        id: 'M3_1_1_Q1',
+        phaseId: 't3_p1',
+        type: QuestionType.experienceTypeSelect,
+        content: 'Qual dessas experiências você já realizou (mesmo que sem carteira assinada)?',
         options: [
           '{"id": "corporate", "label": "Experiência Corporativa", "description": "Estágios ou empregos com contrato formal.", "icon": "business"}',
           '{"id": "startup", "label": "Startup ou Venture Própria", "description": "Criei meu próprio negócio, app ou projeto.", "icon": "rocket_launch"}',
@@ -134,71 +112,54 @@ class SeedData {
       ),
       Question(id: 'M3_1_1_Q2', phaseId: 't3_p1', type: QuestionType.experienceForm, content: 'Conte mais sobre essa experiência!', options: []),
 
-      // --- M3.2: Cursos (Portal de Entrada & Learning Vault) ---
+      // --- M3.2: Atividades extracurriculares (movidas de M2) ---
       Question(
-        id: 'M3_2_1_Q1', 
-        phaseId: 't3_p2', 
-        type: QuestionType.binaryChoice, 
-        content: 'Além da formação acadêmica, você fez algum curso com certificação?', 
-        options: ['Sim, investi em cursos', 'Não, foquei em outras experiências']
+        id: 'M2_3_1_Q2',
+        phaseId: 't3_p2',
+        type: QuestionType.activitiesGrid,
+        content: 'Além das aulas, você realizou alguma dessas atividades?',
+        options: [
+          '{"id": "ligas", "label": "Ligas", "icon": "groups", "detailTitle": "Qual foi a Liga? (Ex: Tech, Marketing...)", "reflectiveTitle": "Qual foi seu papel e sua maior entrega lá?"}',
+          '{"id": "lodges", "label": "Lodges", "icon": "public", "detailTitle": "Para qual destino você foi?", "reflectiveTitle": "Qual foi o maior aprendizado dessa imersão?"}',
+          '{"id": "startup_school", "label": "Startup School", "icon": "rocket_launch", "detailTitle": "Qual era o nome do projeto/startup?", "reflectiveTitle": "Qual marco você atingiu (MVP, Venda, Pitch)?"}',
+          '{"id": "esportes", "label": "Esportes", "icon": "sports_soccer", "detailTitle": "Qual modalidade?", "reflectiveTitle": "Como essa disciplina ajuda você no trabalho?"}',
+          '{"id": "outros", "label": "Outros", "icon": "star", "detailTitle": "Qual o nome da iniciativa?", "reflectiveTitle": "O que exatamente você desenvolveu nesse projeto?"}',
+          '{"id": "none", "label": "Não participei", "icon": "block", "detailTitle": "", "reflectiveTitle": ""}'
+        ]
       ),
+
+
+
+
+      // --- M4.1: Ferramentas (chip + nível inline) ---
       Question(
-        id: 'M3_2_1_Q2', 
-        phaseId: 't3_p2', 
-        type: QuestionType.learningVault, 
-        content: 'Quais são as conquistas da sua estante de aprendizado?', 
-        options: []
+        id: 'M4_1_1_Q1',
+        phaseId: 't4_p1',
+        type: QuestionType.toolsCatalog,
+        content: 'Quais dessas áreas você domina? Selecione e escolha seu nível.',
+        options: [
+          'Pacote Office / Administrativo',
+          'Design & Criatividade',
+          'Programação & Tech',
+          'Dados & Análise',
+          'Redes Sociais & Marketing',
+          'Gestão de Projetos',
+          'Vendas & Negociação',
+          'Outros',
+        ],
       ),
-
-
-
-
-      // --- M4.1: Minhas Ferramentas Técnicas ---
-      Question(id: 'M4_1_1_Q1', phaseId: 't4_p1', type: QuestionType.dynamicList, content: 'Se abríssemos sua "caixa de ferramentas", quais dessas categorias você domina?', options: [
-        'Pacote Office / Administrativo',
-        'Design & Criatividade',
-        'Programação & Tech',
-        'Dados & Finanças',
-        'Redes Sociais & Marketing',
-        'Vendas & Negociação',
-        'Recursos Humanos (RH)',
-        'Direito & Legislação',
-        'Saúde & Medicina',
-        'Engenharia & Construção',
-        'Logística & Supply Chain',
-        'Educação & Ensino',
-        'Gastronomia & Culinária',
-        'Turismo & Hospitalidade',
-        'Meio Ambiente & Sustentabilidade',
-        'Música & Áudio',
-        'Redação & Tradução',
-        'Ciência & Pesquisa',
-        'Manutenção & Reparos',
-        'Agricultura & Pecuária',
-        'Games & Esports',
-        'Moda & Estilo',
-        'Gestão de Projetos',
-        'Segurança & Defesa',
-      ]),
-      Question(id: 'M4_1_1_Q2', phaseId: 't4_p1', type: QuestionType.dynamicList, content: 'Agora, liste os softwares específicos que você mais usa (ex: Excel, Figma):', options: []),
-      Question(id: 'M4_1_1_Q3', phaseId: 't4_p1', type: QuestionType.stepSlider, content: 'Qual o seu nível de domínio em {tool}?', options: ['Básico', 'Intermediário', 'Avançado']),
 
       // --- M4.2: Idiomas ---
       Question(id: 'M4_2_1_Q1', phaseId: 't4_p2', type: QuestionType.badgeMultiSelect, content: 'Além do Português, quais idiomas você domina ou está estudando?', options: ['Inglês', 'Espanhol', 'Francês', 'Alemão', 'Japonês', 'Outro']),
       Question(id: 'M4_2_1_Q2', phaseId: 't4_p2', type: QuestionType.stepSlider, content: 'Qual é o seu nível de conhecimento em {language}?', options: ['Básico', 'Intermediário', 'Avançado', 'Fluente']),
-      Question(id: 'M4_2_1_Q3', phaseId: 't4_p2', type: QuestionType.rewardCardSelect, content: 'Qual dessas situações melhor descreve como você usa esse idioma hoje?', options: ['Consumo de Conteúdo', 'Comunicação Escrita', 'Conversação']),
       Question(id: 'M4_2_1_Q4', phaseId: 't4_p2', type: QuestionType.yesNoWithDetail, content: 'Você possui alguma certificação oficial (como TOEFL, IELTS ou Cambridge)?', options: []),
 
-      // --- M5.1: Presença Digital ---
-      Question(id: 'M5_1_1_Q1', phaseId: 't5_p1', type: QuestionType.linkInput, content: 'Qual é o link do seu perfil no LinkedIn?', options: ['linkedin']),
-      Question(id: 'M5_1_1_Q2', phaseId: 't5_p1', type: QuestionType.platformSelect, content: 'Você tem algum lugar onde mostra seus projetos ou trabalhos na prática?', options: ['GitHub', 'Behance', 'Dribbble', 'Portfólio Pessoal', 'Instagram Profissional', 'Outro', 'Não tenho']),
-      Question(id: 'M5_1_1_Q3', phaseId: 't5_p1', type: QuestionType.email, content: 'Qual é o seu e-mail profissional?', options: []),
-      Question(id: 'M5_1_1_Q4', phaseId: 't5_p1', type: QuestionType.phoneInput, content: 'Qual o seu número de WhatsApp para contato?', options: []),
+      // --- M5.1: Presença Digital (formulário único) ---
+      Question(id: 'M5_1_1_Q1', phaseId: 't5_p1', type: QuestionType.contactForm, content: 'Vamos conectar você ao mercado. Preencha seus dados de contato.', options: []),
 
       // --- M5.2: Logística Final ---
       Question(id: 'M5_2_1_Q1', phaseId: 't5_p2', type: QuestionType.cityStateInput, content: 'Onde você mora atualmente? (Cidade e Estado)', options: []),
       Question(id: 'M5_2_1_Q2', phaseId: 't5_p2', type: QuestionType.licenseSelect, content: 'Você possui Carteira de Habilitação (CNH)?', options: []),
-      Question(id: 'M5_2_1_Q3', phaseId: 't5_p2', type: QuestionType.text, content: 'Alguma observação final que você gostaria que o recrutador soubesse?', options: []),
     ];
   }
 }

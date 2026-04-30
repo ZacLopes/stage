@@ -43,6 +43,9 @@ import 'widgets/startup_form_widget.dart';
 import 'widgets/freelance_form_widget.dart';
 import 'widgets/social_form_widget.dart';
 import 'widgets/learning_vault_widget.dart';
+import 'widgets/academic_form_widget.dart';
+import 'widgets/tools_catalog_widget.dart';
+import 'widgets/contact_form_widget.dart';
 
 class QuestionScreen extends StatefulWidget {
   final Phase phase;
@@ -268,7 +271,7 @@ class _QuestionScreenState extends State<QuestionScreen> {
         // -------------------------------
 
         // --- CONDITIONAL LOGIC FOR MODULE 2 (M2_1_1) ---
-        if (question.id == 'M2_1_1_Q3' || question.id == 'M2_1_1_Q4') {
+        if (question.id == 'M2_1_1_Q3') {
           final q2Answer = viewModel.getAnswer('M2_1_1_Q2');
           if (q2Answer == 'Não') {
             Future.microtask(() => viewModel.answerQuestion('SKIPPED'));
@@ -276,30 +279,7 @@ class _QuestionScreenState extends State<QuestionScreen> {
           }
         }
 
-        // --- CONDITIONAL LOGIC FOR MODULE 2 (M2_3_1_Q3) ---
-        if (question.id == 'M2_3_1_Q3') {
-           final q2Answer = viewModel.getAnswer('M2_3_1_Q2');
-           bool shouldSkip = false;
-           // Check if answer is empty list
-           if (q2Answer != null) {
-             if (q2Answer is List && q2Answer.isEmpty) shouldSkip = true;
-             // If stored as string "[]" or empty string
-             if (q2Answer is String && (q2Answer.isEmpty || q2Answer == '[]')) shouldSkip = true;
-           } else {
-             // If null (not answered?), safely assume skip or let user decide?
-             // Usually it should be answered previously. If null, maybe we just started Q3 directly?
-             // Let's assume skip to be safe if no badges selected.
-             shouldSkip = true;
-           }
 
-           if (shouldSkip) {
-             WidgetsBinding.instance.addPostFrameCallback((_) {
-               viewModel.answerQuestion('skipped');
-             });
-             return const Scaffold(body: Center(child: CircularProgressIndicator(color: Color(0xFF58CC02))));
-           }
-        }
-        
 
 
         // --- CONDITIONAL LOGIC FOR MODULE 3.2 (M3_2_1_Q2) ---
@@ -313,22 +293,7 @@ class _QuestionScreenState extends State<QuestionScreen> {
            }
         }
 
-        // Dynamic Text Replacement logic
-        String displayContent = question.content;
-        if (question.id == 'M2_1_1_Q4') {
-             final prevAnswer = viewModel.getAnswer('M2_1_1_Q3');
-             if (prevAnswer != null && prevAnswer is String) {
-                 try {
-                     final Map<String, dynamic> data = jsonDecode(prevAnswer);
-                     final String? course = data['course'];
-                     if (course != null && course.isNotEmpty) {
-                         displayContent = displayContent.replaceAll('[Curso Anterior]', course);
-                     }
-                 } catch (e) {
-                     print('Error parsing previous answer for dynamic text: $e');
-                 }
-             }
-        }
+        final String displayContent = question.content;
 
         return Scaffold(
           backgroundColor: Colors.white,
@@ -685,13 +650,9 @@ class _QuestionScreenState extends State<QuestionScreen> {
           initialValue: _selectedOptions.isNotEmpty ? _selectedOptions.first : null,
         );
       case QuestionType.yesNoWithDetail:
-         // Custom config for Module 4 certificates
          String? label;
          String? hint;
-         if (question.id == 'M4_1_1_Q4') {
-           label = 'Nome do Curso e Instituição';
-           hint = 'Ex: Excel Avançado - Fundação Bradesco';
-         } else if (question.id == 'M4_2_1_Q4') {
+         if (question.id == 'M4_2_1_Q4') {
            label = 'Nome da Certificação';
            hint = 'Ex: TOEFL iBT - Score 105';
          }
@@ -832,8 +793,27 @@ class _QuestionScreenState extends State<QuestionScreen> {
           },
         );
 
+      case QuestionType.academicForm:
+        return AcademicFormWidget(
+          onSelect: (val) => _handleOptionSelect(val, question.type),
+          initialValue: _selectedOptions.isNotEmpty ? _selectedOptions.first : null,
+        );
+
+      case QuestionType.toolsCatalog:
+        return ToolsCatalogWidget(
+          categories: question.options,
+          onSelect: (val) => _handleOptionSelect(val, question.type),
+          initialValue: _selectedOptions.isNotEmpty ? _selectedOptions.first : null,
+        );
+
+      case QuestionType.contactForm:
+        return ContactFormWidget(
+          onSelect: (val) => _handleOptionSelect(val, question.type),
+          initialValue: _selectedOptions.isNotEmpty ? _selectedOptions.first : null,
+        );
+
       default:
-        return const Center(child: Text('Unknown Question Type')); // Placeholder
+        return const Center(child: Text('Unknown Question Type'));
     }
   }
 
@@ -845,11 +825,6 @@ class _QuestionScreenState extends State<QuestionScreen> {
     
     try {
       bool isEnabled = _selectedOptions.isNotEmpty; // Re-evaluate isEnabled for _handleContinue context
-
-    // Optional Question: M5_2_1_Q3 (Observação final)
-    if (viewModel.currentQuestion?.id == 'M5_2_1_Q3') {
-      isEnabled = true;
-    }
 
     // Validate mandatory detail for RewardCardSelect (Scholarships)
     if (isEnabled && viewModel.currentQuestion?.type == QuestionType.rewardCardSelect) {
@@ -897,49 +872,6 @@ class _QuestionScreenState extends State<QuestionScreen> {
        if (link == null || link.trim().isEmpty) {
          isEnabled = false;
        }
-    }
-
-    // Check if we need to skip questions based on answer
-    // M2_1_1_Q2 (Faculdade/Curso type check) handled elsewhere?
-    
-    // NEW SKIP LOGIC for Submodule 2.3
-    if (viewModel.currentQuestion?.id == 'M2_3_1_Q2') {
-       if (_selectedOptions.isNotEmpty) {
-         try {
-           final data = jsonDecode(_selectedOptions.first);
-           if (data['id'] == 'none') {
-             // Skip Next Question (Q3)
-             // We need to tell ViewModel to skip? Or manually increment index?
-             // ViewModel has `answerQuestion` which increments by 1.
-             // We can chain another increment? Or use a method `skipQuestion`.
-             // But simplest hack for now: 
-             // Call answerQuestion, wait for it, then if next is Q3, answer matches, skip it.
-             // Better: ViewModel logic should handle simple logic or Screen calls 'skip'.
-             
-             // Let's implement a 'forceSkip' param in answerQuestion or call next twice?
-             // Calling twice is risky.
-             // We can check next question ID.
-             // Actually, `answerQuestion` takes us to next. 
-             // If we want to skip Q3, we should answer Q3 as well (with 'skipped' val) and move on.
-             
-             await viewModel.answerQuestion(_selectedOptions.first); // Answers Q2
-             
-             // Now current is Q3? Wait, `answerQuestion` is async.
-             // After await, view model updates.
-             // If next question is M2_3_1_Q3, we answer it automatically with empty/skipped.
-             
-             if (viewModel.currentQuestion?.id == 'M2_3_1_Q3') {
-               await viewModel.answerQuestion('skipped');
-             }
-             return;
-           }
-         } catch (_) {}
-       }
-    }
-
-    if (viewModel.currentQuestion?.type == QuestionType.bridgeText) {
-       // already handled in widget? No, widget calls this.
-       // proceed.
     }
 
     // --- MODULE 3.1: NO EXPERIENCE SKIP ---
@@ -1029,11 +961,6 @@ class _QuestionScreenState extends State<QuestionScreen> {
 
   Widget _buildBottomBar(BuildContext context, GamificationViewModel viewModel) {
     bool isEnabled = _selectedOptions.isNotEmpty;
-
-    // Optional Question: M5_2_1_Q3 (Observação final)
-    if (viewModel.currentQuestion?.id == 'M5_2_1_Q3') {
-      isEnabled = true;
-    }
 
     // Email Validation in Bottom Bar (to disable button visually)
     if (isEnabled && viewModel.currentQuestion?.type == QuestionType.email) {

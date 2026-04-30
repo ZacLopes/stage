@@ -105,7 +105,7 @@ class UserViewModel extends ChangeNotifier {
         
         _user = userProfile;
         if (_user != null) {
-          _currentCampaign = await _repository.getLatestCampaign(_user!.id);
+          _currentCampaign = await _repository.getLatestCampaign(_user!.id!);
         }
       } else {
         _user = null;
@@ -204,7 +204,7 @@ class UserViewModel extends ChangeNotifier {
 
   Future<void> clearM1ResetNotice() async {
     if (_user == null || !showM1ResetNotice) return;
-    await _repository.clearM1ResetNotice(_user!.id);
+    await _repository.clearM1ResetNotice(_user!.id!);
     final updatedData = Map<String, dynamic>.from(_user!.gamificationData)
       ..remove('show_m1_reset_notice');
     _user = _user!.copyWith(gamificationData: updatedData);
@@ -219,7 +219,7 @@ class UserViewModel extends ChangeNotifier {
   }) async {
     if (_user == null) return;
     _currentCampaign = await _repository.createCampaignWithTargetJob(
-      userId: _user!.id,
+      userId: _user!.id!,
       jobTitle: jobTitle,
       descriptionText: descriptionText,
       sourceUrl: sourceUrl,

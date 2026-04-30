@@ -236,15 +236,28 @@ class GamificationViewModel extends ChangeNotifier {
       final answerStr = answer is List ? answer.join(',') : answer.toString();
       await _repository.saveAnswer(currentQ.id, answerStr);
 
-      // Dual-write to raw_responses for M1 (Direção)
+      // Dual-write to raw_responses for all modules
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
-        const _m1PhaseLabels = {
-          'M1_3_1_Q2': 'm1.1',
-          'M1_3_1_Q25': 'm1.2',
-          'M1_3_1_Q3': 'm1.3',
+        const _phaseLabels = {
+          // M1 Direção
+          'M1_3_1_Q2': 'm1.1', 'M1_3_1_Q25': 'm1.2', 'M1_3_1_Q3': 'm1.3',
+          // M2 Formação
+          'M2_1_1_Q1': 'm2.1', 'M2_1_1_Q2': 'm2.1b', 'M2_1_1_Q3': 'm2.1c',
+          'M3_2_1_Q1': 'm2.2a', 'M3_2_1_Q2': 'm2.2b',
+          'M2_3_1_Q1': 'm2.3a', 'M2_3_1_Q4': 'm2.3b',
+          // M3 Experiências
+          'M3_1_1_Q1': 'm3.1',
+          'M2_3_1_Q2': 'm3.2',
+          // M4 Habilidades
+          'M4_1_1_Q1': 'm4.1',
+          'M4_2_1_Q1': 'm4.2a', 'M4_2_1_Q4': 'm4.2b',
+          // M5 Contatos
+          'M5_1_1_Q1': 'm5.1',
+          'M5_2_1_Q1': 'm5.2a', 'M5_2_1_Q2': 'm5.2b',
         };
-        final rawPhaseId = _m1PhaseLabels[currentQ.id];
+        final rawPhaseId = _phaseLabels[currentQ.id] ??
+            (currentQ.id.startsWith('M3_1_1_Q2_') ? 'm3.1exp' : null);
         if (rawPhaseId != null) {
           String answerType;
           if (currentQ.type == QuestionType.text || currentQ.type == QuestionType.miniTextBox) {
@@ -343,37 +356,6 @@ class GamificationViewModel extends ChangeNotifier {
        }
     }
 
-    // --- MODULE 4.1: TOOLS LIST (Q2) -> GENERATE LEVEL QUESTIONS (Q3) ---
-    if (currentQuestionId == 'M4_1_1_Q2') {
-      final tools = parseAnswerList(answer);
-      
-      // 1. Find insertion point (Index of Q2 + 1)
-      final insertionIndex = _questions.indexWhere((q) => q.id == 'M4_1_1_Q2') + 1;
-      if (insertionIndex == 0) return; // Should not happen if we are processing Q2
-
-      // 2. Remove any previously generated Q3 variants (id starts with M4_1_1_Q3)
-      // We look ahead from insertion point until we hit something else
-      while (insertionIndex < _questions.length && _questions[insertionIndex].id.startsWith('M4_1_1_Q3')) {
-        _questions.removeAt(insertionIndex);
-      }
-
-      // 3. Generate New Questions
-      if (tools.isNotEmpty) {
-        List<Question> newQuestions = [];
-        for (int i = 0; i < tools.length; i++) {
-          final toolName = tools[i];
-          newQuestions.add(Question(
-            id: 'M4_1_1_Q3_$i',
-            phaseId: 't4_p1',
-            type: QuestionType.stepSlider,
-            content: 'Qual o seu nível de domínio em $toolName?',
-            options: ['Básico', 'Intermediário', 'Avançado'],
-          ));
-        }
-        _questions.insertAll(insertionIndex, newQuestions);
-      }
-    }
-    
     // --- MODULE 4.2: LANGUAGES (Q1) -> GENERATE LEVEL QUESTIONS (Q2) ---
     if (currentQuestionId == 'M4_2_1_Q1') {
        final languages = parseAnswerList(answer);
