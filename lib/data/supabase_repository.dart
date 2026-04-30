@@ -567,8 +567,6 @@ class SupabaseRepository {
                // Dynamic Context Injection based on ID patterns
                if (qId.startsWith("M3_2_1_Q2_COURSE")) {
                  content = "Curso/Certificação (${item['question_id']})";
-               } else if (qId.contains("M1_1_1_Q1")) {
-                 content = "Qual é o seu papel em projetos? (Ex: Arquiteto, Engenheiro...)";
                }
              }
            } catch (_) {}
@@ -589,7 +587,6 @@ class SupabaseRepository {
         if (content == null) {
            if (qId == 'M3_2_1_Q2') content = "Quais são as conquistas da sua estante de aprendizado?";
            else if (qId.startsWith('M3_1_1_Q2')) content = "Curso Extra / Certificação";
-           else if (qId == 'M1_1_1_Q1') content = "Qual é o seu papel em projetos?";
         }
 
         // --- KEY COLLISION HANDLING (Fixing Overwrite issue) ---
@@ -741,6 +738,47 @@ class SupabaseRepository {
     } catch (e) {
       print('Error updating AI consent: $e');
       rethrow;
+    }
+  }
+
+  Future<void> saveRawResponse({
+    required String userId,
+    required String phaseId,
+    required String question,
+    required String answer,
+    required String answerType,
+    required int questionOrder,
+  }) async {
+    try {
+      await _client.from('raw_responses').upsert({
+        'user_id': userId,
+        'phase_id': phaseId,
+        'question': question,
+        'answer': answer,
+        'answer_type': answerType,
+        'question_order': questionOrder,
+      }, onConflict: 'user_id,phase_id');
+    } catch (e) {
+      print('Error saving raw response: $e');
+    }
+  }
+
+  Future<void> clearM1ResetNotice(String userId) async {
+    try {
+      final data = await _client
+          .from('user_profiles')
+          .select('gamification_data')
+          .eq('id', userId)
+          .single();
+      final Map<String, dynamic> gData =
+          Map<String, dynamic>.from(data['gamification_data'] ?? {});
+      gData.remove('show_m1_reset_notice');
+      await _client
+          .from('user_profiles')
+          .update({'gamification_data': gData})
+          .eq('id', userId);
+    } catch (e) {
+      print('Error clearing M1 reset notice: $e');
     }
   }
 

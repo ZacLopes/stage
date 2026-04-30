@@ -36,6 +36,8 @@ class UserViewModel extends ChangeNotifier {
   bool get isEmailVerified => _supabase.auth.currentUser?.emailConfirmedAt != null;
   Campaign? get currentCampaign => _currentCampaign;
   bool get hasCampaign => _currentCampaign != null;
+  bool get showM1ResetNotice =>
+      _user?.gamificationData['show_m1_reset_notice'] == true;
 
   void _init() {
     // Listen to auth state changes
@@ -198,6 +200,15 @@ class UserViewModel extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  Future<void> clearM1ResetNotice() async {
+    if (_user == null || !showM1ResetNotice) return;
+    await _repository.clearM1ResetNotice(_user!.id);
+    final updatedData = Map<String, dynamic>.from(_user!.gamificationData)
+      ..remove('show_m1_reset_notice');
+    _user = _user!.copyWith(gamificationData: updatedData);
+    notifyListeners();
   }
 
   Future<void> createCampaign({

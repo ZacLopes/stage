@@ -556,7 +556,9 @@ class _QuestionScreenState extends State<QuestionScreen> {
           },
           maxLines: 5,
           decoration: InputDecoration(
-            hintText: 'Digite sua resposta aqui...',
+            hintText: question.options.isNotEmpty
+                ? question.options.first
+                : 'Digite sua resposta aqui...',
             filled: true,
             fillColor: const Color(0xFFF3F4F6),
             border: OutlineInputBorder(
@@ -588,18 +590,8 @@ class _QuestionScreenState extends State<QuestionScreen> {
           initialValue: _selectedOptions.isNotEmpty ? _selectedOptions.first : null,
         );
       case QuestionType.dragAndDrop:
-        List<String> options = [];
-        if (question.id == 'M1_3_1_Q1') {
-          options = [
-            'Mestria — “Aprender muito e virar referência técnica”',
-            'Impacto — “Sentir que meu trabalho muda a vida das pessoas”',
-            'Ascensão — “Crescer rápido e assumir liderança”',
-            'Estabilidade — “Segurança financeira e equilíbrio”',
-            'Autonomia — “Liberdade para fazer do meu jeito”',
-          ];
-        }
         return DragAndDropWidget(
-          options: options,
+          options: question.options,
           onSelect: (val) => _handleOptionSelect(val, question.type),
         );
       case QuestionType.vibeSelect:

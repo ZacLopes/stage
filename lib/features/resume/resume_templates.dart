@@ -67,7 +67,7 @@ class BasicResumeTemplate extends ResumeTemplate {
           _buildSectionTitle('RESUMO PROFISSIONAL'),
           _buildSectionContent(
             (resume?.summary ?? '').isEmpty
-                ? 'Complete os mundos "Quem eu sou" e "Síntese" para gerar seu resumo profissional.'
+                ? 'Complete os mundos "Direção" e "Síntese" para gerar seu resumo profissional.'
                 : resume!.summary,
           ),
           const SizedBox(height: 20),

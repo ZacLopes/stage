@@ -233,10 +233,37 @@ class GamificationViewModel extends ChangeNotifier {
       // Sync dynamic questions on the fly to avoid Foreign Key errors
       await _repository.ensureQuestionExists(currentQ);
 
-      await _repository.saveAnswer(
-        currentQ.id,
-        answer is List ? answer.join(',') : answer.toString(),
-      );
+      final answerStr = answer is List ? answer.join(',') : answer.toString();
+      await _repository.saveAnswer(currentQ.id, answerStr);
+
+      // Dual-write to raw_responses for M1 (Direção)
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId != null) {
+        const _m1PhaseLabels = {
+          'M1_3_1_Q2': 'm1.1',
+          'M1_3_1_Q25': 'm1.2',
+          'M1_3_1_Q3': 'm1.3',
+        };
+        final rawPhaseId = _m1PhaseLabels[currentQ.id];
+        if (rawPhaseId != null) {
+          String answerType;
+          if (currentQ.type == QuestionType.text || currentQ.type == QuestionType.miniTextBox) {
+            answerType = 'free_text';
+          } else if (currentQ.type == QuestionType.singleChoice || currentQ.type == QuestionType.scale) {
+            answerType = 'single_choice';
+          } else {
+            answerType = 'multi_choice';
+          }
+          await _repository.saveRawResponse(
+            userId: userId,
+            phaseId: rawPhaseId,
+            question: currentQ.content,
+            answer: answerStr,
+            answerType: answerType,
+            questionOrder: _currentQuestionIndex,
+          );
+        }
+      }
     } catch (e) {
       print('Error saving answer: $e');
     }

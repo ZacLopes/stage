@@ -45,7 +45,7 @@ const Map<String, Color> _trackColors = {
 };
 
 const Map<String, String> _trackNames = {
-  'track_1': 'Quem eu sou',
+  'track_1': 'Direção',
   'track_2': 'Minha Base',
   'track_3': 'Minhas Experiências',
   'track_4': 'Hard Skills & Idiomas',

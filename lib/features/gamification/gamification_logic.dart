@@ -3,178 +3,24 @@ import '../../data/models/models.dart';
 
 class GamificationLogic {
   static Map<String, dynamic> processModule1Answers(Map<String, dynamic> answers) {
-    // Initialize result structure
     final Map<String, dynamic> result = {
       'soft_skills': <String>[],
       'traits': <String, dynamic>{},
     };
-    
+
     final Set<String> softSkills = {};
-    
-    // --- M1.1: Meus Pontos Fortes ---
-    
-    // Q1: Role Profile
-    final roleAnswer = answers['M1_1_1_Q1'];
-    if (roleAnswer != null) {
-      result['traits']['role_profile'] = roleAnswer;
-      switch (roleAnswer) {
-        case 'architect':
-          softSkills.add('Organização e Planejamento');
-          result['traits']['technical_adjectives'] = 'Perfil analítico e focado em estruturação de negócios';
-          break;
-        case 'visionary':
-          softSkills.add('Criatividade e Inovação');
-          result['traits']['technical_adjectives'] = 'Perfil criativo e focado em inovação e diferenciação';
-          break;
-        case 'chief':
-          softSkills.add('Liderança');
-          softSkills.add('Gestão de Pessoas');
-          result['traits']['technical_adjectives'] = 'Perfil de liderança e focado em resultados e gestão';
-          break;
-        case 'builder':
-          softSkills.add('Proatividade');
-          softSkills.add('Foco em Resultados');
-          result['traits']['technical_adjectives'] = 'Perfil técnico e focado em execução e qualidade';
-          break;
-        case 'negotiator':
-          softSkills.add('Trabalho em Equipe');
-          softSkills.add('Inteligência Emocional');
-          result['traits']['technical_adjectives'] = 'Perfil colaborativo e focado em comunicação e união';
-          break;
-      }
-    }
 
-    // Q2: Crisis Response
-    final crisisAnswer = answers['M1_1_1_Q2'];
-    if (crisisAnswer != null) {
-      result['traits']['crisis_response'] = crisisAnswer;
-      switch (crisisAnswer) {
-        case 'prioritize_execute':
-          softSkills.add('Adaptabilidade');
-          softSkills.add('Agilidade');
-          break;
-        case 'investigate_cause':
-          softSkills.add('Pensamento Analítico');
-          softSkills.add('Resolução de Problemas');
-          break;
-        case 'seek_support':
-          softSkills.add('Comunicação');
-          softSkills.add('Humildade Intelectual');
-          break;
-        case 'negotiate':
-          softSkills.add('Negociação');
-          softSkills.add('Visão Estratégica');
-          break;
-      }
-    }
-
-    // Q3: Attention (Slider)
-    final attentionAnswer = answers['M1_1_1_Q3'];
-    if (attentionAnswer != null) {
-      final double val = double.tryParse(attentionAnswer.toString()) ?? 50.0;
-      result['traits']['attention_slider'] = val;
-      
-      if (val <= 35) {
-        result['traits']['attention_profile'] = 'Detalhista / Rigor';
-        softSkills.add('Atenção aos Detalhes');
-      } else if (val >= 65) {
-        result['traits']['attention_profile'] = 'Visão do Todo / Agilidade';
-        softSkills.add('Visão Sistêmica');
-      } else {
-        result['traits']['attention_profile'] = 'Equilibrado';
-        softSkills.add('Equilíbrio');
-      }
-    }
-
-    // Q4: Communication Rank
-    final commAnswer = answers['M1_1_1_Q4'];
-    if (commAnswer != null && commAnswer is List) {
-      result['traits']['communication_rank'] = commAnswer;
-      if (commAnswer.isNotEmpty) {
-        final top1 = commAnswer[0].toString();
-        if (top1.contains('Falar')) softSkills.add('Oratória');
-        if (top1.contains('Escrever')) softSkills.add('Comunicação Escrita');
-        if (top1.contains('Visualizar')) softSkills.add('Criatividade Visual');
-        if (top1.contains('Ouvir')) softSkills.add('Escuta Ativa');
-      }
-    }
-    
-    // --- M1.2: Culture ---
-    
-    // Q1: Environment
-    final envAnswer = answers['M1_2_1_Q1'];
-    if (envAnswer != null) {
-      result['traits']['culture_env'] = envAnswer;
-      switch (envAnswer) {
-        case 'laboratory':
-          softSkills.add('Concentração');
-          break;
-        case 'arena':
-          softSkills.add('Competitividade Saudável');
-          break;
-        case 'community':
-          softSkills.add('Colaboração');
-          break;
-        case 'stage':
-          softSkills.add('Relacionamento Interpessoal');
-          break;
-      }
-    }
-    
-    // Q2: Learning Style
-    final learnAnswer = answers['M1_2_1_Q2'];
-    if (learnAnswer != null) {
-       result['traits']['learnability_style'] = learnAnswer;
-       switch (learnAnswer) {
-         case 'self_research':
-           softSkills.add('Autodidatismo');
-           break;
-         case 'consult_expert':
-           softSkills.add('Networking');
-           break;
-         case 'trial_error':
-           softSkills.add('Learning agility');
-           break;
-         case 'read_manual':
-           softSkills.add('Compliance');
-           break;
-       }
-    }
-
-
-
-    // --- M1.3: Compass ---
-
-    // Q1: Success Driver
-    // Q1: Success Driver
-    final successAnswer = answers['M1_3_1_Q1'];
-    if (successAnswer != null && successAnswer is List) {
-       result['traits']['success_rank'] = successAnswer;
-       if (successAnswer.isNotEmpty) {
-         final top1 = successAnswer[0].toString().toLowerCase();
-         String driver = 'unknown';
-         if (top1.contains('mestria')) driver = 'mastery';
-         else if (top1.contains('impacto')) driver = 'impact';
-         else if (top1.contains('ascensão')) driver = 'ascension';
-         else if (top1.contains('estabilidade')) driver = 'stability';
-         else if (top1.contains('autonomia')) driver = 'autonomy';
-         
-         result['traits']['success_driver_top1'] = driver;
-       }
-    }
-    
-    // Q2: Interest Areas
+    // --- Etapa 1.1: Área de foco ---
     final interestsAnswer = answers['M1_3_1_Q2'];
-    if (interestsAnswer != null && interestsAnswer is List) {
-      result['traits']['interest_areas'] = interestsAnswer;
-      
-      final List<String> areas = (interestsAnswer).map((e) => e.toString()).toList();
-      bool isExploring = areas.any((element) => element.contains('Ainda estou explorando'));
-      
-      if (isExploring) {
+    if (interestsAnswer != null) {
+      final List<String> areas = interestsAnswer is List
+          ? interestsAnswer.map((e) => e.toString()).toList()
+          : interestsAnswer.toString().split(',').map((e) => e.trim()).toList();
+      result['traits']['interest_areas'] = areas;
+
+      if (areas.any((e) => e.contains('Ainda estou explorando'))) {
         result['traits']['resume_tone'] = 'generalist_learner';
         result['traits']['highlight_soft_skills'] = true;
-        // Generic soft skills for explorers
         softSkills.add('Vontade de Aprender');
         softSkills.add('Curiosidade Intelectual');
         softSkills.add('Adaptabilidade');
@@ -183,32 +29,19 @@ class GamificationLogic {
       }
     }
 
-    // Q3: Vision
+    // --- Etapa 1.2: Tipo de oportunidade ---
+    final oppAnswer = answers['M1_3_1_Q25'];
+    if (oppAnswer != null) {
+      final List<String> types = oppAnswer is List
+          ? oppAnswer.map((e) => e.toString()).toList()
+          : oppAnswer.toString().split(',').map((e) => e.trim()).toList();
+      result['traits']['opportunity_types'] = types;
+    }
+
+    // --- Etapa 1.3: Norte profissional (texto livre) ---
     final visionAnswer = answers['M1_3_1_Q3'];
-    if (visionAnswer != null) {
-      result['traits']['future_vision'] = visionAnswer;
-      switch (visionAnswer) {
-        case 'founder':
-          softSkills.add('Mentalidade Empreendedora');
-          softSkills.add('Validação de MVP');
-          softSkills.add('Proatividade');
-          break;
-        case 'ceo':
-          softSkills.add('Gestão de Projetos');
-          softSkills.add('Comunicação Assertiva');
-          softSkills.add('Foco em Resultados');
-          break;
-        case 'master':
-          softSkills.add('Busca por Excelência Técnica');
-          softSkills.add('Resolução de Problemas Complexos');
-          softSkills.add('Especialização');
-          break;
-        case 'strategist':
-          softSkills.add('Pensamento Analítico');
-          softSkills.add('Visão de Mercado');
-          softSkills.add('Eficiência Operacional');
-          break;
-      }
+    if (visionAnswer != null && visionAnswer.toString().isNotEmpty) {
+      result['traits']['future_vision_text'] = visionAnswer.toString();
     }
 
     result['soft_skills'] = softSkills.toList();

@@ -5,8 +5,8 @@ class SeedData {
     return [
       Track(
         id: 'track_1',
-        title: 'Quem eu sou',
-        description: 'Meu momento, estilo e valores.',
+        title: 'Direção',
+        description: 'Sua direção profissional.',
         color: 0xFF4F46E5, // Indigo
         iconAsset: 'assets/icons/user.svg',
         orderIndex: 1,
@@ -49,9 +49,8 @@ class SeedData {
 
   static List<Phase> getPhases() {
     return [
-      // --- MUNDO 1 (ATUALIZADO) ---
-      Phase(id: 't1_p1', trackId: 'track_1', orderIndex: 1, title: 'Meus Pontos Fortes', description: 'Descubra seus talentos naturais.', xpReward: 100),
-      Phase(id: 't1_p3', trackId: 'track_1', orderIndex: 2, title: 'Minha Bússola', description: 'Motivação e Objetivos.', xpReward: 100),
+      // --- MUNDO 1: Direção ---
+      Phase(id: 't1_p3', trackId: 'track_1', orderIndex: 1, title: 'Direção', description: 'Área, tipo de vaga e norte profissional.', xpReward: 100),
 
       // --- MUNDO 2 (ATUALIZADO) ---
       Phase(id: 't2_p1', trackId: 'track_2', orderIndex: 1, title: 'Minha Guilda', description: 'Instituição e Curso.', xpReward: 120),
@@ -80,15 +79,10 @@ class SeedData {
     return [
       // ... (Existing questions omitted for brevity, keeping only Secret World updates below)
 
-      // --- M1.1: Meus Pontos Fortes ---
-      Question(id: 'M1_1_1_Q1', phaseId: 't1_p1', type: QuestionType.characterSelect, content: 'Em projetos e novos negócios, qual é o seu papel?', options: []),
-      Question(id: 'M1_1_1_Q2', phaseId: 't1_p1', type: QuestionType.interactiveStory, content: 'Faltam 24h para a entrega final de um projeto e um problema crítico aconteceu. Qual é a sua reação instintiva?', options: []),
-      Question(id: 'M1_1_1_Q3', phaseId: 't1_p1', type: QuestionType.balanceSlider, content: 'Como você prefere lidar com informações e tarefas?', options: []),
-      Question(id: 'M1_1_1_Q4', phaseId: 't1_p1', type: QuestionType.dragAndDrop, content: 'Onde você se sente mais confortável se comunicando?', options: ['Falando e Apresentando', 'Escrevendo e Estruturando', 'Visualizando e Criando', 'Ouvindo e Pesquisando']),
-      
-      // --- M1.3: Minha Bússola ---
+      // --- M1: Direção (3 etapas) ---
       Question(id: 'M1_3_1_Q2', phaseId: 't1_p3', type: QuestionType.dynamicList, content: 'Em qual área você quer focar agora? (Selecione até 2)', options: ['Vendas & Novos Negócios', 'Marketing & Branding', 'Finanças & Controladoria', 'Venture Capital & Private Equity', 'Administração & Processos', 'Tecnologia & Programação', 'Dados & Business Intelligence', 'Produto & UX Design', 'Recursos Humanos & Cultura', 'Operações & Logística', 'Consultoria Estratégica', 'Ainda estou explorando / Aberto a oportunidades']),
-      Question(id: 'M1_3_1_Q3', phaseId: 't1_p3', type: QuestionType.visionCards, content: 'Como você visualiza o seu futuro ideal daqui a alguns anos?', options: []),
+      Question(id: 'M1_3_1_Q25', phaseId: 't1_p3', type: QuestionType.multipleChoice, content: 'Que tipo de oportunidade você está buscando agora?', options: ['Estágio', 'Trainee', 'Primeiro emprego (CLT)', 'Estágio internacional ou intercâmbio com trabalho', 'Freelance / projetos pontuais', 'Ainda explorando']),
+      Question(id: 'M1_3_1_Q3', phaseId: 't1_p3', type: QuestionType.text, content: 'Pensando nos próximos 2-3 anos, o que você quer construir profissionalmente?', options: ['Ex: quero entrar em uma empresa de tecnologia que valorize desenvolvimento técnico e crescer em produtos digitais...']),
 
       // --- M2.1: Minha Guilda ---
       // --- M2.1: Minha Guilda ---

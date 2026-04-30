@@ -5,6 +5,7 @@ import '../../data/models/models.dart';
 import '../gamification/question_screen.dart';
 import 'gamification_viewmodel.dart';
 import '../../core/utils/app_notifications.dart';
+import '../auth/user_viewmodel.dart';
 
 class GamifiedPhaseList extends StatelessWidget {
   final List<Phase> phases;
@@ -20,6 +21,9 @@ class GamifiedPhaseList extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<GamificationViewModel>(
       builder: (context, viewModel, child) {
+        final userVm = context.watch<UserViewModel>();
+        final showResetBanner = track.id == 'track_1' && userVm.showM1ResetNotice;
+
         return Stack(
           fit: StackFit.expand,
           children: [
@@ -40,7 +44,7 @@ class GamifiedPhaseList extends StatelessWidget {
                 ),
               ),
             ),
-            
+
             // Content
             LayoutBuilder(
               builder: (context, constraints) {
@@ -50,7 +54,42 @@ class GamifiedPhaseList extends StatelessWidget {
                     children: [
                       // Custom Header
                       _WorldHeader(track: track),
-                      
+
+                      // Banner para usuários existentes cujo M1 foi atualizado
+                      if (showResetBanner)
+                        Container(
+                          margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF3C7), // âmbar suave
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFF59E0B), width: 1),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.auto_awesome_rounded,
+                                  color: Color(0xFFF59E0B), size: 20),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Atualizamos algumas perguntas para deixar seu CV ainda melhor — vamos refinar juntos.',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.brown.shade800,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              GestureDetector(
+                                onTap: () => userVm.clearM1ResetNotice(),
+                                child: const Icon(Icons.close_rounded,
+                                    size: 18, color: Color(0xFFF59E0B)),
+                              ),
+                            ],
+                          ),
+                        ),
+
                       const SizedBox(height: 20),
 
                       // Phase Map
@@ -527,8 +566,8 @@ class _WorldHeader extends StatelessWidget {
                          String collectionText = "";
                          
                          if (track.id == 'track_1') {
-                            infoText = "Neste mundo, vamos explorar quem você é para além do currículo.";
-                            collectionText = "Coletaremos informações sobre seus pontos fortes, estilo de trabalho e motivações pessoais.";
+                            infoText = "Aqui definimos sua direção profissional para calibrar o CV à vaga certa.";
+                            collectionText = "Coletaremos sua área de foco, tipo de oportunidade buscada e seu norte profissional para os próximos anos.";
                          } else if (track.id == 'track_2') {
                             infoText = "Aqui vamos construir a base sólida da sua formação.";
                             collectionText = "Coletaremos dados sobre sua escolaridade, cursos, datas importantes e conquistas acadêmicas.";
@@ -637,7 +676,7 @@ class _WorldHeader extends StatelessWidget {
 
   IconData _getTrackIcon(String trackId) {
     switch (trackId) {
-      case 'track_1': // Quem eu sou
+      case 'track_1': // Direção
         return Icons.person_rounded;
       case 'track_2': // Minha Base (Formação)
         return Icons.school_rounded;
