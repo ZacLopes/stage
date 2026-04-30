@@ -1,4 +1,7 @@
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../data/models/models.dart';
 import '../../data/supabase_repository.dart';
@@ -189,6 +192,87 @@ class UserViewModel extends ChangeNotifier {
     }
   }
 
+  // Sign in with OAuth Provider (Google, Apple, etc.)
+  Future<void> signInWithOAuth(OAuthProvider provider) async {
+    _isLoading = true;
+    notifyListeners();
+    
+    try {
+      await _supabase.auth.signInWithOAuth(
+        provider,
+        redirectTo: 'io.supabase.stage://login-callback',
+        queryParams: {
+          'prompt': 'select_account',
+        },
+      );
+    } catch (e) {
+      print('Error signing in with OAuth ($provider): $e');
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // Native Apple Sign In
+  Future<void> signInWithApple() async {
+    _isLoading = true;
+    notifyListeners();
+    
+    try {
+      final rawNonce = _supabase.auth.generateRawNonce();
+      final hashedNonce = sha256.convert(utf8.encode(rawNonce)).toString();
+
+      final credential = await SignInWithApple.getAppleIDCredential(
+        scopes: [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+        nonce: hashedNonce,
+      );
+
+      final idToken = credential.identityToken;
+      if (idToken == null) {
+        throw Exception('Apple Id token missing.');
+      }
+
+      await _supabase.auth.signInWithIdToken(
+        provider: OAuthProvider.apple,
+        idToken: idToken,
+        nonce: rawNonce,
+      );
+
+      // Load user profile first so _user is populated
+      await _loadUser();
+
+      // Apple only sends the real name on the FIRST authorization.
+      // Capture it immediately and persist if the profile still has
+      // the generic "User" fallback (or is empty).
+      final givenName = credential.givenName ?? '';
+      final familyName = credential.familyName ?? '';
+      final appleName = '$givenName $familyName'.trim();
+
+      if (appleName.isNotEmpty &&
+          (_user == null || (_user!.name ?? '').isEmpty || _user!.name == 'User')) {
+        // Update profile table with the real name from Apple
+        await _repository.updateUserProfile(
+          _user!.copyWith(name: appleName),
+        );
+        _user = _user!.copyWith(name: appleName);
+        notifyListeners();
+      }
+
+    } catch (e) {
+      print('Error signing in with Apple natively: $e');
+      rethrow;
+    } finally {
+      if (!_isDisposed) {
+        _isLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
   // Logout
   Future<void> logout() async {
     try {
@@ -347,6 +431,7 @@ class UserViewModel extends ChangeNotifier {
     int? age,
     String? email,
     String? password,
+    Map<String, dynamic>? gamificationData,
   }) async {
     if (_user == null) return;
     _isLoading = true;
@@ -375,25 +460,26 @@ class UserViewModel extends ChangeNotifier {
       // unless SupabaseRepository filters it or UserProfile.toMap includes/excludes it.
       // Currently UserProfile.toMap DOES NOT include 'age', so it is safe.
       
-      if (name != null || course != null || semester != null || university != null || age != null) {
+      if (name != null || course != null || semester != null || university != null || age != null || gamificationData != null) {
         
-        // Handle university update via gamificationData
-        Map<String, dynamic> currentGamificationData = Map.from(_user!.gamificationData);
+        // Merge gamification data
+        Map<String, dynamic> mergedGamificationData = Map.from(_user!.gamificationData);
+        if (gamificationData != null) {
+          mergedGamificationData.addAll(gamificationData);
+        }
         if (university != null) {
-          currentGamificationData['university'] = university;
+          mergedGamificationData['university'] = university;
         }
 
-        // We update the local object fully (including Age) so UI updates immediately
         final updatedProfile = _user!.copyWith(
           name: name,
           course: course,
           semester: semester,
-          age: age, // Update in memory
+          age: age,
           email: email, 
-          gamificationData: currentGamificationData,
+          gamificationData: mergedGamificationData,
         );
         
-        // Sync with DB (will ignore age if toMap excludes it)
         await _repository.updateUserProfile(updatedProfile);
         _user = updatedProfile;
       } 

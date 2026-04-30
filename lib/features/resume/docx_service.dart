@@ -38,10 +38,112 @@ class DocxService {
         return _buildCreativeHtml(user, resume);
       case 'executive':
         return _buildExecutiveHtml(user, resume);
+      case 'harvard_ats':
+        return _buildHarvardAtsHtml(user, resume);
       case 'basic':
       default:
         return _buildBasicHtml(user, resume);
     }
+  }
+
+  // --- 6. Harvard ATS Brasil Template (MCS Style) ---
+  static String _buildHarvardAtsHtml(UserProfile? user, ResumeData resume) {
+    String buildCenteredTitle(String title) {
+      return '''
+        <div style="text-align: center; font-size: 11pt; font-weight: bold; margin-top: 15pt; margin-bottom: 8pt; text-transform: uppercase;">
+          $title
+        </div>
+      ''';
+    }
+
+    String buildEntryRow(String left, String right, {bool isBold = false, bool isItalic = false}) {
+      String style = "font-size: 10pt;";
+      if (isBold) style += " font-weight: bold;";
+      if (isItalic) style += " font-style: italic;";
+      
+      return '''
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 2pt;">
+          <tr>
+            <td style="$style text-align: left;">$left</td>
+            <td style="font-size: 10pt; text-align: right;">$right</td>
+          </tr>
+        </table>
+      ''';
+    }
+
+    String contact = [
+      resume.location,
+      resume.phone,
+      resume.email,
+      resume.linkedin.replaceAll('https://', '').replaceAll('www.', '')
+    ].where((s) => s.isNotEmpty).join(' &bull; ');
+
+    String education = resume.education.map((edu) => '''
+      <div style="margin-bottom: 8pt;">
+        ${buildEntryRow(edu.institution, resume.location, isBold: true)}
+        ${buildEntryRow(edu.degree, edu.period)}
+        ${edu.details.isNotEmpty ? '<div style="font-size: 9pt; margin-top: 1pt;">${edu.details}</div>' : ''}
+      </div>
+    ''').join('');
+
+    String experiences = resume.experiences.map((exp) => '''
+      <div style="margin-bottom: 10pt;">
+        ${buildEntryRow(exp.company, resume.location, isBold: true)}
+        ${buildEntryRow(exp.role, exp.period, isItalic: true)}
+        <ul style="margin-top: 3pt; margin-bottom: 0; padding-left: 15pt;">
+          ${exp.description.split('\n').where((l) => l.trim().isNotEmpty).map((l) => '<li style="font-size: 10pt;">${l.replaceAll('•', '').trim()}</li>').join('')}
+        </ul>
+      </div>
+    ''').join('');
+
+    String activities = [
+      ...resume.academicProjects.map((p) => '''
+        <div style="margin-bottom: 8pt;">
+          ${buildEntryRow(p.title, p.period, isBold: true)}
+          <div style="font-size: 10pt; font-style: italic;">${p.role}</div>
+          <div style="font-size: 9pt; margin-top: 1pt;">${p.description}</div>
+        </div>
+      '''),
+      ...resume.leadership.map((l) => '''
+        <div style="margin-bottom: 8pt;">
+          ${buildEntryRow(l.organization, l.period, isBold: true)}
+          <div style="font-size: 10pt; font-style: italic;">${l.role}</div>
+          <div style="font-size: 9pt; margin-top: 1pt;">${l.description}</div>
+        </div>
+      ''')
+    ].join('');
+
+    String skills = '';
+    if (resume.skills.isNotEmpty) skills += '<div><b>Técnico:</b> ${resume.skills.join(", ")}</div>';
+    if (resume.languages.isNotEmpty) skills += '<div><b>Idiomas:</b> ${resume.languages.map((l) => "${l.language} (${l.level})").join(", ")}</div>';
+    if (resume.courses.isNotEmpty) skills += '<div><b>Certificações:</b> ${resume.courses.map((c) => c.title).join(", ")}</div>';
+    if (resume.interests.isNotEmpty) skills += '<div><b>Interesses:</b> ${resume.interests.join(", ")}</div>';
+
+    return '''
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        body { font-family: "Calibri", "Arial", sans-serif; color: #000; margin: 0.5in; line-height: 1.15; }
+        h1 { font-size: 16pt; text-align: center; margin-bottom: 4pt; margin-top: 0; }
+        .contact { font-size: 9pt; text-align: center; margin-bottom: 4pt; }
+        .divider { border-top: 1px solid #000; margin-bottom: 12pt; }
+        ul { margin: 0; }
+      </style>
+    </head>
+    <body>
+      <h1>${user?.name.toUpperCase() ?? 'SEU NOME'}</h1>
+      <div class="contact">$contact</div>
+      <div class="divider"></div>
+      
+      ${resume.education.isNotEmpty ? buildCenteredTitle('FORMAÇÃO ACADÊMICA') + education : ''}
+      ${resume.experiences.isNotEmpty ? buildCenteredTitle('EXPERIÊNCIA PROFISSIONAL') + experiences : ''}
+      ${activities.isNotEmpty ? buildCenteredTitle('PROJETOS, LIDERANÇA E ATIVIDADES') + activities : ''}
+      ${skills.isNotEmpty ? buildCenteredTitle('HABILIDADES E INTERESSES') + '<div style="font-size: 10pt;">' + skills + '</div>' : ''}
+    </body>
+    </html>
+    ''';
   }
 
   // --- 1. Basic Template ---

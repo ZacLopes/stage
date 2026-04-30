@@ -8,8 +8,6 @@ import '../gamification/level_progress_screen.dart';
 import '../gamification/level_system.dart';
 import '../gamification/gamification_viewmodel.dart';
 
-import '../../core/constants/tutorial_keys.dart';
-
 class TracksTab extends StatelessWidget {
   const TracksTab({super.key});
 
@@ -48,7 +46,6 @@ class TracksTab extends StatelessWidget {
         final percentage = (progress * 100).toInt();
         
         return Container(
-          key: TutorialKeys.xpHeaderKey,
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
             color: Colors.white,

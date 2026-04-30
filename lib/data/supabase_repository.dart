@@ -103,7 +103,6 @@ class SupabaseRepository {
   Future<List<Track>> getTracks() async {
     // Return cache if available
     if (_cachedTracks != null && _cachedTracks!.isNotEmpty) {
-      print('📦 Returning cached tracks');
       return _cachedTracks!;
     }
 
@@ -129,19 +128,16 @@ class SupabaseRepository {
   Future<List<Phase>> getPhases(String trackId) async {
     // Return cache if available
     if (_cachedPhases.containsKey(trackId)) {
-      print('📦 Returning cached phases for track $trackId');
       return _cachedPhases[trackId]!;
     }
 
     try {
-      print('Fetching phases for track: $trackId');
       final response = await _client
           .from('phases')
           .select()
           .eq('track_id', trackId)
           .order('order_index', ascending: true);
       
-      print('Phases found: ${(response as List).length}');
       return (response as List).map((e) => Phase.fromMap(e)).toList();
     } catch (e) {
       print('Error fetching phases: $e');
@@ -156,19 +152,16 @@ class SupabaseRepository {
   Future<List<Question>> getQuestions(String phaseId) async {
     // Return cache if available
     if (_cachedQuestions.containsKey(phaseId)) {
-      print('📦 Returning cached questions for phase $phaseId');
       return _cachedQuestions[phaseId]!;
     }
 
     try {
-      print('Fetching questions for phase: $phaseId');
       final response = await _client
           .from('questions')
           .select()
           .eq('phase_id', phaseId)
           .order('id', ascending: true);
       
-      print('Questions found: ${(response as List).length}');
       return (response as List).map((e) => Question.fromMap(e)).toList();
     } catch (e) {
       print('Error fetching questions: $e');
@@ -392,15 +385,7 @@ class SupabaseRepository {
 
   Future<bool> isTrackCompleted(String trackId) async {
     try {
-      final allPhases = await getPhases(trackId);
-      
-      // Filter obsolete phases
-      final phases = allPhases.where((p) => 
-        p.id != 't1_p4' && 
-        p.title != 'Revisão' &&
-        p.title != 'O Cronômetro da Jornada' &&
-        p.title != 'O que você fez'
-      ).toList();
+      final phases = await getPhases(trackId);
 
       if (phases.isEmpty) return false;
 
@@ -423,14 +408,7 @@ class SupabaseRepository {
       final Set<String> activePhaseIds = {};
       for (var track in tracks) {
         final phases = await getPhases(track.id);
-        activePhaseIds.addAll(
-          phases.where((p) => 
-            p.id != 't1_p4' && 
-            p.title != 'Revisão' &&
-            p.title != 'O Cronômetro da Jornada' &&
-            p.title != 'O que você fez'
-          ).map((p) => p.id)
-        );
+        activePhaseIds.addAll(phases.map((p) => p.id));
       }
 
       final completedPhases = await getCompletedPhaseIds();
@@ -472,15 +450,7 @@ class SupabaseRepository {
         allPhases.addAll((response as List).map((e) => Phase.fromMap(e)).toList());
       }
       
-      // APPLY HARD FILTER (Align with ViewModels)
-      final activePhases = allPhases.where((p) => 
-        p.id != 't1_p4' && 
-        p.title != 'Revisão' &&
-        p.title != 'O Cronômetro da Jornada' &&
-        p.title != 'O que você fez'
-      );
-      
-      return activePhases.length;
+      return allPhases.length;
     } catch (e) {
       print('Error getting total phase count: $e');
       // Fallback if count() fails or if using older Postgrest
@@ -544,10 +514,21 @@ class SupabaseRepository {
           .eq('user_id', userId);
       
       // 2. Fetch all question contents for lookup
-      final questionsResp = await _client.from('questions').select('id, content');
       final Map<String, String> qContentMap = {};
-      for(var q in questionsResp as List) {
-         qContentMap[q['id'].toString()] = q['content'].toString();
+      
+      if (_isCacheInitialized) {
+        // Use cached questions if available
+        for (var questions in _cachedQuestions.values) {
+          for (var q in questions) {
+            qContentMap[q.id] = q.content;
+          }
+        }
+      } else {
+        // Fallback to direct fetch if cache not ready
+        final questionsResp = await _client.from('questions').select('id, content');
+        for(var q in questionsResp as List) {
+           qContentMap[q['id'].toString()] = q['content'].toString();
+        }
       }
 
       final answersMap = <String, String>{};
@@ -673,42 +654,6 @@ class SupabaseRepository {
       await _client.from('questions').upsert(question.toMap());
     } catch (e) {
       print('Error ensuring question exists: $e');
-    }
-  }
-
-  // TEMPORARY FIX HELPER
-  Future<void> deletePhase(String phaseId) async {
-    try {
-      await _client.from('phases').delete().eq('id', phaseId);
-    } catch (e) {
-      print('Error deleting phase: $e');
-    }
-  }
-
-  Future<void> deletePhaseByTitle(String title) async {
-    try {
-      await _client.from('phases').delete().eq('title', title);
-    } catch (e) {
-      print('Error deleting phase by title: $e');
-    }
-  }
-
-  // Cleanup helper for obsolete questions
-  Future<void> deleteQuestionsByContent(String contentSnippet) async {
-    try {
-      print('🗑️ Cleaning up questions containing: "$contentSnippet"');
-      await _client.from('questions').delete().ilike('content', '%$contentSnippet%');
-    } catch (e) {
-      print('Error deleting questions by content: $e');
-    }
-  }
-
-  Future<void> deleteQuestionById(String questionId) async {
-    try {
-      print('🗑️ Deleting question by ID: $questionId');
-      await _client.from('questions').delete().eq('id', questionId);
-    } catch (e) {
-      print('Error deleting question by ID: $e');
     }
   }
 

@@ -88,12 +88,14 @@ class ExperienceItem {
   final String company;
   final String period;
   final String description;
+  final String location;
 
   ExperienceItem({
     required this.role,
     required this.company,
     required this.period,
     required this.description,
+    this.location = '',
   });
 }
 
@@ -102,12 +104,14 @@ class EducationItem {
   final String institution;
   final String period;
   final String details;
+  final String location;
 
   EducationItem({
     required this.degree,
     required this.institution,
     required this.period,
     this.details = '',
+    this.location = '',
   });
 }
 
@@ -142,6 +146,16 @@ class ResumeViewModel extends ChangeNotifier {
     loadResumeData();
   }
 
+  String _selectedTemplateId = 'harvard_ats';
+  String get selectedTemplateId => _selectedTemplateId;
+
+  void setSelectedTemplateId(String id) {
+    if (_selectedTemplateId != id) {
+      _selectedTemplateId = id;
+      notifyListeners();
+    }
+  }
+
   void _clearData() {
     _resumeData = null;
     _resumeContent = null;
@@ -171,6 +185,58 @@ class ResumeViewModel extends ChangeNotifier {
     if (_selectedTemplateType != type) {
       _selectedTemplateType = type;
       notifyListeners();
+    }
+  }
+
+  List<String> getResumeWarnings() {
+    final warnings = <String>[];
+    if (_resumeData == null) return warnings;
+
+    // 1. Essential fields
+    if (_resumeData!.fullName.isEmpty) warnings.add('Nome completo está faltando.');
+    if (_resumeData!.email.isEmpty) warnings.add('E-mail está faltando.');
+    if (_resumeData!.phone.isEmpty) warnings.add('Telefone está faltando.');
+    if (_resumeData!.experiences.isEmpty) warnings.add('Adicione pelo menos uma experiência profissional.');
+    if (_resumeData!.education.isEmpty) warnings.add('Adicione sua formação acadêmica.');
+
+    // 2. Long bullets
+    for (var exp in _resumeData!.experiences) {
+      final lines = exp.description.split('\n');
+      for (var line in lines) {
+        if (line.length > 200) {
+          warnings.add('Um dos pontos da experiência na ${exp.company} está muito longo. Tente ser mais conciso.');
+          break;
+        }
+      }
+    }
+
+    // 3. Empty sections (already hidden, but good to alert)
+    if (_resumeData!.summary.isEmpty) warnings.add('Seção "Resumo Profissional" está vazia.');
+
+    // 4. Page count heuristic
+    final totalItems = _resumeData!.experiences.length + 
+                       _resumeData!.education.length + 
+                       _resumeData!.academicProjects.length + 
+                       _resumeData!.leadership.length;
+    
+    if (totalItems > 12) {
+      warnings.add('Seu currículo tem muito conteúdo e pode passar de 2 páginas. Considere manter apenas o mais relevante.');
+    }
+
+    return warnings;
+  }
+
+  int _lastGeneratedPageCount = 1;
+  int get lastGeneratedPageCount => _lastGeneratedPageCount;
+
+  Future<void> updatePageCountHeuristic(UserProfile? user) async {
+    if (_resumeData == null) return;
+    try {
+      final bytes = await PdfService.generateResumeBytes(user, _resumeData!, _selectedTemplateId);
+      // We don't have an easy way to count pages from bytes without parsing, 
+      // but we can modify PdfService to return page count.
+    } catch (e) {
+      print('Error updating page count: $e');
     }
   }
 
@@ -218,11 +284,18 @@ class ResumeViewModel extends ChangeNotifier {
   bool _isCourseCompleted = false;
   bool get isCourseCompleted => _isCourseCompleted;
 
-  Future<void> loadResumeData() async {
+  Future<void> loadResumeData({bool forceRefresh = false}) async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) {
       _clearData();
       return;
+    }
+
+    // If we already have data and are NOT forcing a refresh, skip the 'loading' state
+    // to avoid UI flicker/fetching indicator. We still update in the background.
+    if (!forceRefresh && _resumeContent != null && _resumeData != null) {
+       _performSilentLoad(userId);
+       return;
     }
 
     _isLoading = true;
@@ -230,6 +303,25 @@ class ResumeViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
+      await _internalLoad(userId);
+    } catch (e) {
+      _error = 'Erro ao carregar currículo: $e';
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _performSilentLoad(String userId) async {
+    try {
+      await _internalLoad(userId);
+      notifyListeners();
+    } catch (e) {
+      print('Silent load error: $e');
+    }
+  }
+
+  Future<void> _internalLoad(String userId) async {
       _isCourseCompleted = await _repository.isEntireCourseCompleted();
       
       if (!_isCourseCompleted) {
@@ -263,12 +355,6 @@ class ResumeViewModel extends ChangeNotifier {
           await _updateHeaderInfo();
         }
       }
-    } catch (e) {
-      _error = 'Erro ao carregar currículo: $e';
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
   }
 
   Future<void> _updateHeaderInfo() async {
@@ -492,7 +578,7 @@ class ResumeViewModel extends ChangeNotifier {
 
     try {
       // 1. Generate PDF bytes
-      final bytes = await PdfService.generateResumeBytes(user, _resumeData!, 'quickcv');
+      final bytes = await PdfService.generateResumeBytes(user, _resumeData!, _selectedTemplateId);
       
       // 2. Save to Supabase
       await _repository.saveResume(title, bytes);

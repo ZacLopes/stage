@@ -10,6 +10,7 @@ import 'web_service.dart';
 import 'resume_edit_screen.dart';
 import 'resume_templates.dart';
 import 'widgets/ai_consent_modal.dart';
+import 'widgets/resume_template_selector.dart';
 import 'dart:async';
 
 class ResumeTab extends StatefulWidget {
@@ -30,11 +31,7 @@ class _ResumeTabState extends State<ResumeTab> {
     try {
       // Resolve Template ID
       final vm = context.read<ResumeViewModel>();
-      String finalTemplateId = 'quickcv';
-
-
-      // Standard/QuickCV is the default behavior.
-      // Removed area-based template logic.
+      String finalTemplateId = vm.selectedTemplateId;
 
       print('DEBUG: Calling PdfService with templateId: $finalTemplateId');
       await PdfService.generateResume(user, resume, finalTemplateId);
@@ -143,9 +140,8 @@ class _ResumeTabState extends State<ResumeTab> {
     super.initState();
     _resumeVM = context.read<ResumeViewModel>();
     
-    // Refresh data when tab opens
+    // Check AI consent when tab opens
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      _resumeVM.loadResumeData();
       _checkAIConsentAutomatically();
     });
 
@@ -231,7 +227,7 @@ class _ResumeTabState extends State<ResumeTab> {
                                        child: ElevatedButton.icon(
                                          onPressed: () {
                                             if (widget.onTabChange != null) {
-                                              widget.onTabChange!(0);
+                                              widget.onTabChange!(1);
                                             }
                                          },
                                          style: ElevatedButton.styleFrom(
@@ -275,6 +271,53 @@ class _ResumeTabState extends State<ResumeTab> {
                              ),
                              const SizedBox(height: 12),
                              
+                             // Warnings Section
+                             if (resumeVM.getResumeWarnings().isNotEmpty) ...[
+                               Container(
+                                 padding: const EdgeInsets.all(16),
+                                 decoration: BoxDecoration(
+                                   color: Colors.amber[50],
+                                   borderRadius: BorderRadius.circular(16),
+                                   border: Border.all(color: Colors.amber[200]!),
+                                 ),
+                                 child: Column(
+                                   crossAxisAlignment: CrossAxisAlignment.start,
+                                   children: [
+                                     Row(
+                                       children: [
+                                         Icon(Icons.warning_amber_rounded, color: Colors.amber[800], size: 20),
+                                         const SizedBox(width: 8),
+                                         Text(
+                                           'Sugestões de Melhoria',
+                                           style: TextStyle(
+                                             fontWeight: FontWeight.bold,
+                                             color: Colors.amber[900],
+                                           ),
+                                         ),
+                                       ],
+                                     ),
+                                     const SizedBox(height: 12),
+                                     ...resumeVM.getResumeWarnings().map((w) => Padding(
+                                       padding: const EdgeInsets.only(bottom: 4),
+                                       child: Row(
+                                         crossAxisAlignment: CrossAxisAlignment.start,
+                                         children: [
+                                           Text('• ', style: TextStyle(color: Colors.amber[900])),
+                                           Expanded(
+                                             child: Text(
+                                               w,
+                                               style: TextStyle(fontSize: 13, color: Colors.amber[900]),
+                                             ),
+                                           ),
+                                         ],
+                                       ),
+                                     )),
+                                   ],
+                                 ),
+                               ),
+                               const SizedBox(height: 24),
+                             ],
+                             
                               // Document Preview
                               Container(
                                 width: double.infinity,
@@ -315,8 +358,22 @@ class _ResumeTabState extends State<ResumeTab> {
                                                     switchOutCurve: Curves.easeIn,
                                                     child: Builder(
                                                       builder: (context) {
-                                                        // Always return QuickCV Template
-                                                        return QuickCvResumeTemplate(user: user, resume: resume);
+                                                        switch (resumeVM.selectedTemplateId) {
+                                                          case 'clean':
+                                                            return CleanResumeTemplate(user: user, resume: resume);
+                                                          case 'modern':
+                                                            return ModernResumeTemplate(user: user, resume: resume);
+                                                          case 'creative':
+                                                            return CreativeResumeTemplate(user: user, resume: resume);
+                                                          case 'executive':
+                                                            return ExecutiveResumeTemplate(user: user, resume: resume);
+                                                          case 'harvard_ats':
+                                                            return HarvardAtsBrasilTemplate(user: user, resume: resume);
+                                                          case 'quickcv':
+                                                            return QuickCvResumeTemplate(user: user, resume: resume);
+                                                          default:
+                                                            return BasicResumeTemplate(user: user, resume: resume);
+                                                        }
                                                       },
                                                     ),
                                                   ),
@@ -360,29 +417,33 @@ class _ResumeTabState extends State<ResumeTab> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Seu Currículo',
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF111827),
-                  fontFamily: 'Outfit',
-                  letterSpacing: -0.5,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Seu Currículo',
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF111827),
+                    fontFamily: 'Outfit',
+                    letterSpacing: -0.5,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Gerado com IA baseado na sua jornada',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[600],
-                  fontWeight: FontWeight.w500,
+                const SizedBox(height: 4),
+                Text(
+                  'Gerado com IA baseado na sua jornada',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           // AI Actions Menu
           Consumer<ResumeViewModel>(
@@ -399,35 +460,72 @@ class _ResumeTabState extends State<ResumeTab> {
                  return const SizedBox.shrink();
                }
 
-               return PopupMenuButton<String>(
-                  icon: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF3F4F6),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.auto_awesome, color: Color(0xFF4F46E5)),
-                  ),
-                  tooltip: 'IA: Atualizar ou Reescrever',
-                  onSelected: (value) async {
-                    if (value == 'update') {
-                      if (await _checkAndShowAIConsent(context, vm)) {
-                        vm.updateResumeWithAI();
-                      }
-                    } else if (value == 'rewrite') {
-                      _showRewriteConfirmation(context, vm);
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: 'rewrite',
-                      child: Row(children: [
-                        Icon(Icons.autorenew, color: Colors.orange, size: 20),
-                        SizedBox(width: 8),
-                        Text('Reescrever tudo (Zero)'),
-                      ]),
-                    ),
-                  ],
+               return Row(
+                 children: [
+                   // Template Selection Button
+                   GestureDetector(
+                     onTap: () {
+                       showModalBottomSheet(
+                         context: context,
+                         isScrollControlled: true,
+                         backgroundColor: Colors.transparent,
+                         builder: (context) => const ResumeTemplateSelector(),
+                       );
+                     },
+                     child: Container(
+                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                       decoration: BoxDecoration(
+                         color: const Color(0xFFF3F4F6),
+                         borderRadius: BorderRadius.circular(12),
+                       ),
+                       child: Row(
+                         children: [
+                           const Icon(Icons.style_outlined, color: Color(0xFF4F46E5), size: 20),
+                           const SizedBox(width: 6),
+                           Text(
+                             'Modelo',
+                             style: GoogleFonts.inter(
+                               fontSize: 13,
+                               fontWeight: FontWeight.bold,
+                               color: const Color(0xFF4F46E5),
+                             ),
+                           ),
+                         ],
+                       ),
+                     ),
+                   ),
+                   const SizedBox(width: 12),
+                   PopupMenuButton<String>(
+                      icon: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3F4F6),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.auto_awesome, color: Color(0xFF4F46E5)),
+                      ),
+                      tooltip: 'IA: Atualizar ou Reescrever',
+                      onSelected: (value) async {
+                        if (value == 'update') {
+                          if (await _checkAndShowAIConsent(context, vm)) {
+                            vm.updateResumeWithAI();
+                          }
+                        } else if (value == 'rewrite') {
+                          _showRewriteConfirmation(context, vm);
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: 'rewrite',
+                          child: Row(children: [
+                            Icon(Icons.autorenew, color: Colors.orange, size: 20),
+                            SizedBox(width: 8),
+                            Text('Reescrever tudo (Zero)'),
+                          ]),
+                        ),
+                      ],
+                   ),
+                 ],
                );
             }
           ),

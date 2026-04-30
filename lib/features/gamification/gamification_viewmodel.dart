@@ -73,21 +73,10 @@ class GamificationViewModel extends ChangeNotifier {
       _completedPhaseIds = await _repository.getCompletedPhaseIds();
       await _loadGlobalProgress(); // Initial load of progress
       
-      // FIRE & FORGET CLEANUP
-      _cleanupObsoleteData();
-      
       notifyListeners();
     } catch (e) {
       print('Error loading completed phases: $e');
     }
-  }
-
-  Future<void> _cleanupObsoleteData() async {
-    // Cleanup questions the user explicitly asked to remove
-    await _repository.deleteQuestionsByContent("qual era a sua função");
-    await _repository.deleteQuestionsByContent("Onde essa experiência aconteceu");
-    // Force reload of questions next time
-    _repository.clearCache();
   }
 
   void _clearData() {
@@ -127,15 +116,7 @@ class GamificationViewModel extends ChangeNotifier {
       for (var track in tracks) {
         final phases = await _repository.getPhases(track.id);
         
-        // Define active phases (same logic as loadPhases)
-        final activePhasesInTrack = phases.where((p) => 
-          p.id != 't1_p4' && 
-          p.title != 'Revisão' &&
-          p.title != 'O Cronômetro da Jornada' &&
-          p.title != 'O que você fez'
-        );
-        
-        for (var p in activePhasesInTrack) {
+        for (var p in phases) {
           activePhaseIds.add(p.id);
         }
       }
@@ -156,20 +137,11 @@ class GamificationViewModel extends ChangeNotifier {
     }
   }
 
-  // Load Phases for a Track
   Future<void> loadPhases(String trackId) async {
     _isLoadingPhases = true;
     notifyListeners();
     try {
-      _repository.clearCache(); // Force fresh data when switching worlds
-      final allPhases = await _repository.getPhases(trackId);
-      // HARD FILTER: Remove obsolete phase by ID OR Title
-      _phases = allPhases.where((p) => 
-        p.id != 't1_p4' && 
-        p.title != 'Revisão' &&
-        p.title != 'O Cronômetro da Jornada' &&
-        p.title != 'O que você fez'
-      ).toList();
+      _phases = await _repository.getPhases(trackId);
       _completedPhaseIds = await _repository.getCompletedPhaseIds();
     } catch (e) {
       print('Error loading phases: $e');
@@ -222,12 +194,8 @@ class GamificationViewModel extends ChangeNotifier {
     
     try {
       final fetchedQuestions = await _repository.getQuestions(phaseId);
-      // HARD FILTER: Remove persistent unwanted questions & Strip Emojis from options
-      _questions = fetchedQuestions.where((q) {
-        final content = q.content.toLowerCase();
-        return !content.contains("qual era a sua função") &&
-               !content.contains("onde essa experiência aconteceu");
-      }).map((q) {
+      // Strip emojis from options
+      _questions = fetchedQuestions.map((q) {
         // Strip emojis from options for a cleaner look
         final sanitizedOptions = q.options.map((opt) {
           return opt.replaceAll(RegExp(r'[\u{1f300}-\u{1f5ff}\u{1f600}-\u{1f64f}\u{1f680}-\u{1f6ff}\u{1f1e6}-\u{1f1ff}\u{2600}-\u{26ff}\u{2700}-\u{27bf}\u{1f900}-\u{1f9ff}\u{1f018}-\u{1f270}\u{1f300}-\u{1f5ff}\u{1f900}-\u{1f9ff}\u{1f600}-\u{1f64f}\u{1f680}-\u{1f6ff}\u{1f1e6}-\u{1f1ff}]', unicode: true), '').trim();

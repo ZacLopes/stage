@@ -1289,3 +1289,303 @@ class QuickCvResumeTemplate extends ResumeTemplate {
     );
   }
 }
+
+// --- 7. Harvard ATS Brasil Template (MCS Style) ---
+class HarvardAtsBrasilTemplate extends ResumeTemplate {
+  const HarvardAtsBrasilTemplate({super.key, required super.user, required super.resume});
+
+  @override
+  Widget build(BuildContext context) {
+    if (resume == null) return const SizedBox.shrink();
+
+    // Font style that mimics Calibri (Sans-serif, clean)
+    final textStyle = GoogleFonts.arimo(color: Colors.black);
+
+    return Container(
+      width: double.infinity,
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 40),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header - Centralized
+          Center(
+            child: Column(
+              children: [
+                Text(
+                  user?.name ?? 'Seu Nome',
+                  style: textStyle.copyWith(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _buildContactString(),
+                  style: textStyle.copyWith(fontSize: 9),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Divider(height: 1, thickness: 1, color: Colors.black),
+          const SizedBox(height: 12),
+
+          // SECTIONS
+          _buildCenteredTitle('Educação', textStyle),
+          ...resume!.education.map((edu) => _buildEducationItem(edu, textStyle)),
+          const SizedBox(height: 8),
+
+          _buildCenteredTitle('Experiência', textStyle),
+          ...resume!.experiences.map((exp) => _buildExperienceItem(exp, textStyle)),
+          const SizedBox(height: 8),
+
+          if (resume!.academicProjects.isNotEmpty || resume!.leadership.isNotEmpty) ...[
+            _buildCenteredTitle('Liderança & Atividades', textStyle),
+            ...resume!.academicProjects.map((p) => _buildProjectItem(p, textStyle)),
+            ...resume!.leadership.map((l) => _buildLeadershipItem(l, textStyle)),
+            const SizedBox(height: 8),
+          ],
+
+          _buildCenteredTitle('Habilidades & Interesses', textStyle),
+          _buildSkillsSection(textStyle),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCenteredTitle(String title, TextStyle style) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Text(
+          title,
+          style: style.copyWith(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _buildContactString() {
+    final parts = <String>[];
+    if (resume?.location.isNotEmpty == true) parts.add(resume!.location);
+    if (resume?.phone.isNotEmpty == true) parts.add(resume!.phone);
+    if (resume?.email.isNotEmpty == true) parts.add(resume!.email);
+    if (resume?.linkedin.isNotEmpty == true) {
+      parts.add(resume!.linkedin.replaceAll('https://', '').replaceAll('www.', ''));
+    }
+    return parts.join('  •  ');
+  }
+
+  Widget _buildEducationItem(EducationItem edu, TextStyle style) {
+    final location = edu.location.isNotEmpty ? edu.location : (resume?.location ?? '');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                edu.institution,
+                style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                location,
+                style: style.copyWith(fontSize: 10),
+              ),
+            ],
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                edu.degree,
+                style: style.copyWith(fontSize: 10),
+              ),
+              Text(
+                edu.period,
+                style: style.copyWith(fontSize: 10),
+              ),
+            ],
+          ),
+          if (edu.details.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                edu.details,
+                style: style.copyWith(fontSize: 9),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExperienceItem(ExperienceItem exp, TextStyle style) {
+    final location = exp.location.isNotEmpty ? exp.location : (resume?.location ?? '');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                exp.company,
+                style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                location,
+                style: style.copyWith(fontSize: 10),
+              ),
+            ],
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                exp.role,
+                style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                exp.period,
+                style: style.copyWith(fontSize: 10),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          _buildBulletsFromDescription(exp.description, style),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProjectItem(ResumeProject proj, TextStyle style) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                proj.title,
+                style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                proj.period,
+                style: style.copyWith(fontSize: 10),
+              ),
+            ],
+          ),
+          Text(
+            proj.role,
+            style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            proj.description,
+            style: style.copyWith(fontSize: 9),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLeadershipItem(ResumeLeadership lead, TextStyle style) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                lead.organization,
+                style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                lead.period,
+                style: style.copyWith(fontSize: 10),
+              ),
+            ],
+          ),
+          Text(
+            lead.role,
+            style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            lead.description,
+            style: style.copyWith(fontSize: 9),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSkillsSection(TextStyle style) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (resume!.skills.isNotEmpty)
+          _buildSkillCategory('Técnico', resume!.skills.join(', '), style),
+        if (resume!.languages.isNotEmpty)
+          _buildSkillCategory('Idiomas', resume!.languages.map((l) => '${l.language} (${l.level})').join(', '), style),
+        if (resume!.courses.isNotEmpty)
+          _buildSkillCategory('Certificações', resume!.courses.map((c) => c.title).join(', '), style),
+        if (resume!.interests.isNotEmpty)
+          _buildSkillCategory('Interesses', resume!.interests.join(', '), style),
+      ],
+    );
+  }
+
+  Widget _buildSkillCategory(String label, String content, TextStyle style) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: RichText(
+        text: TextSpan(
+          style: style.copyWith(fontSize: 10, color: Colors.black),
+          children: [
+            TextSpan(text: '$label: ', style: const TextStyle(fontWeight: FontWeight.bold)),
+            TextSpan(text: content),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBulletsFromDescription(String description, TextStyle style) {
+    final lines = description.split('\n').where((l) => l.trim().isNotEmpty).toList();
+    return Column(
+      children: lines.map((line) {
+        final cleanLine = line.replaceAll('•', '').trim();
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 2),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(width: 12),
+              const Text('• ', style: TextStyle(fontSize: 10)),
+              Expanded(
+                child: Text(
+                  cleanLine,
+                  style: style.copyWith(fontSize: 10),
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+}

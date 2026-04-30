@@ -51,8 +51,7 @@ class SeedData {
     return [
       // --- MUNDO 1 (ATUALIZADO) ---
       Phase(id: 't1_p1', trackId: 'track_1', orderIndex: 1, title: 'Meus Pontos Fortes', description: 'Descubra seus talentos naturais.', xpReward: 100),
-      Phase(id: 't1_p2', trackId: 'track_1', orderIndex: 2, title: 'Minha cultura e trabalho', description: 'Onde você brilha mais.', xpReward: 100),
-      Phase(id: 't1_p3', trackId: 'track_1', orderIndex: 3, title: 'Minha Bússola', description: 'Motivação e Objetivos.', xpReward: 100),
+      Phase(id: 't1_p3', trackId: 'track_1', orderIndex: 2, title: 'Minha Bússola', description: 'Motivação e Objetivos.', xpReward: 100),
 
       // --- MUNDO 2 (ATUALIZADO) ---
       Phase(id: 't2_p1', trackId: 'track_2', orderIndex: 1, title: 'Minha Guilda', description: 'Instituição e Curso.', xpReward: 120),
@@ -87,13 +86,7 @@ class SeedData {
       Question(id: 'M1_1_1_Q3', phaseId: 't1_p1', type: QuestionType.balanceSlider, content: 'Como você prefere lidar com informações e tarefas?', options: []),
       Question(id: 'M1_1_1_Q4', phaseId: 't1_p1', type: QuestionType.dragAndDrop, content: 'Onde você se sente mais confortável se comunicando?', options: ['Falando e Apresentando', 'Escrevendo e Estruturando', 'Visualizando e Criando', 'Ouvindo e Pesquisando']),
       
-      // --- M1.2: Minha Cultura e Trabalho ---
-      Question(id: 'M1_2_1_Q1', phaseId: 't1_p2', type: QuestionType.vibeSelect, content: 'Em qual destes ambientes você sente que produziria melhor?', options: []),
-      Question(id: 'M1_2_1_Q2', phaseId: 't1_p2', type: QuestionType.quickTimeEvent, content: 'Você recebeu uma tarefa que nunca fez antes. Qual é seu primeiro passo?', options: []),
-
-
       // --- M1.3: Minha Bússola ---
-      Question(id: 'M1_3_1_Q1', phaseId: 't1_p3', type: QuestionType.dragAndDrop, content: 'O que é "Sucesso" para você neste momento da carreira?', options: []),
       Question(id: 'M1_3_1_Q2', phaseId: 't1_p3', type: QuestionType.dynamicList, content: 'Em qual área você quer focar agora? (Selecione até 2)', options: ['Vendas & Novos Negócios', 'Marketing & Branding', 'Finanças & Controladoria', 'Venture Capital & Private Equity', 'Administração & Processos', 'Tecnologia & Programação', 'Dados & Business Intelligence', 'Produto & UX Design', 'Recursos Humanos & Cultura', 'Operações & Logística', 'Consultoria Estratégica', 'Ainda estou explorando / Aberto a oportunidades']),
       Question(id: 'M1_3_1_Q3', phaseId: 't1_p3', type: QuestionType.visionCards, content: 'Como você visualiza o seu futuro ideal daqui a alguns anos?', options: []),
 

@@ -4,10 +4,10 @@ import '../profile/profile_screen.dart';
 import 'tracks_tab.dart';
 import '../resume/resume_tab.dart';
 import '../resume/resume_viewmodel.dart';
+import '../jobs/screens/jobs_swipe_screen.dart';
 import 'home_viewmodel.dart';
 
 import '../../services/tutorial_service.dart';
-import '../../core/constants/tutorial_keys.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -38,7 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     TutorialService.tutorialTrigger.addListener(() {
       if (mounted) {
-        _navigateToPage(0);
+        _navigateToPage(1);
 
         Future.delayed(const Duration(milliseconds: 500), () {
           print("Iniciando tutorial...");
@@ -63,6 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _navigateToPage(int index) {
+    if (!mounted) return; // Guard: state may be stale from an old closure
     setState(() {
       _currentIndex = index;
     });
@@ -73,7 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     // Refresh resume data if switching to that tab
-    if (index == 1) {
+    if (index == 2) {
        context.read<ResumeViewModel>().loadResumeData();
     }
   }
@@ -92,6 +93,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     // Rebuild tabs to pass callbacks
     final List<Widget> tabs = [
+      const JobsSwipeScreen(),
       const TracksTab(),
       ResumeTab(
         onTabChange: (index) {
@@ -139,17 +141,22 @@ class _HomeScreenState extends State<HomeScreen> {
           elevation: 0,
           items: [
             BottomNavigationBarItem(
+              icon: const Icon(Icons.work_outline),
+              activeIcon: const Icon(Icons.work),
+              label: 'Vagas',
+            ),
+            BottomNavigationBarItem(
               icon: const Icon(Icons.map_outlined),
-              activeIcon: Icon(Icons.map, key: TutorialKeys.tracksTabKey),
+              activeIcon: const Icon(Icons.map),
               label: 'Trilha',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.description_outlined, key: TutorialKeys.resumeTabKey),
+              icon: const Icon(Icons.description_outlined),
               activeIcon: const Icon(Icons.description),
               label: 'Currículo',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline, key: TutorialKeys.profileTabKey),
+              icon: const Icon(Icons.person_outline),
               activeIcon: const Icon(Icons.person),
               label: 'Perfil',
             ),

@@ -33,6 +33,12 @@ class PdfService {
     String templateId,
   ) async {
     print('DEBUG: PdfService.generateResumeBytes START');
+    if (templateId == 'harvard_ats') {
+      return await Printing.convertHtml(
+        html: _buildHarvardMcsHtml(user, resume),
+        format: PdfPageFormat.a4,
+      );
+    }
     try {
       final pdf = pw.Document();
       
@@ -965,5 +971,157 @@ class PdfService {
     );
   }
 
+  // --- 7. Harvard MCS Template (HTML → PDF via Printing.convertHtml) ---
+  static String _buildHarvardMcsHtml(UserProfile? user, ResumeData resume) {
+    final eduItems = resume.education
+        .map((e) => _buildHarvardEducationItemHtml(e, resume))
+        .join('');
+    final educationHtml = resume.education.isNotEmpty
+        ? '<div class="sec">Educação</div>$eduItems'
+        : '';
 
+    final expItems = resume.experiences
+        .map((e) => _buildHarvardExperienceItemHtml(e, resume))
+        .join('');
+    final experienceHtml = resume.experiences.isNotEmpty
+        ? '<div class="sec">Experiência</div>$expItems'
+        : '';
+
+    final projectItems = resume.academicProjects
+        .map((p) => _buildHarvardActivityItemHtml(p.title, p.period, p.role, '', p.description))
+        .join('');
+    final leadItems = resume.leadership
+        .map((l) => _buildHarvardActivityItemHtml(
+              l.organization,
+              l.location.isNotEmpty ? l.location : resume.location,
+              l.role,
+              l.period,
+              l.description,
+            ))
+        .join('');
+    final activitiesHtml = (resume.academicProjects.isNotEmpty || resume.leadership.isNotEmpty)
+        ? '<div class="sec">Liderança &amp; Atividades</div>$projectItems$leadItems'
+        : '';
+
+    final skillParts = <String>[];
+    if (resume.skills.isNotEmpty) {
+      final skillsText = resume.skills.join(', ');
+      skillParts.add('<div class="sk"><b>Técnico:</b> $skillsText</div>');
+    }
+    if (resume.languages.isNotEmpty) {
+      final langText = resume.languages.map((l) => '${l.language} (${l.level})').join(', ');
+      skillParts.add('<div class="sk"><b>Idiomas:</b> $langText</div>');
+    }
+    if (resume.courses.isNotEmpty) {
+      final courseText = resume.courses.map((c) => c.title).join(', ');
+      skillParts.add('<div class="sk"><b>Certificações:</b> $courseText</div>');
+    }
+    if (resume.interests.isNotEmpty) {
+      final interestsText = resume.interests.join(', ');
+      skillParts.add('<div class="sk"><b>Interesses:</b> $interestsText</div>');
+    }
+    final skillsContent = skillParts.join('');
+    final skillsHtml = skillParts.isNotEmpty
+        ? '<div class="sec">Habilidades &amp; Interesses</div>$skillsContent'
+        : '';
+
+    return '''<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    @page { size: A4; margin: 0.5in; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Times New Roman', Times, serif; font-size: 11pt; color: #000; line-height: 1.2; }
+    .header { text-align: center; margin-bottom: 5pt; }
+    .name { font-weight: bold; font-size: 14pt; }
+    .contact { font-size: 9.5pt; margin-top: 3pt; }
+    hr { border: none; border-top: 1px solid #000; margin: 5pt 0 10pt; }
+    .sec { text-align: center; font-weight: bold; font-size: 11pt; margin: 10pt 0 4pt; }
+    .row { display: flex; justify-content: space-between; font-size: 11pt; }
+    .row .r { white-space: nowrap; margin-left: 8pt; }
+    .bold .l { font-weight: bold; }
+    .entry { margin-bottom: 6pt; }
+    ul { margin: 3pt 0 0 16pt; }
+    li { font-size: 11pt; margin-bottom: 1pt; }
+    .sk { font-size: 11pt; margin-bottom: 2pt; }
+    .detail { font-size: 9.5pt; margin-top: 1pt; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="name">${user?.name ?? "Seu Nome"}</div>
+    <div class="contact">${_buildHarvardContactString(resume)}</div>
+  </div>
+  <hr>
+  $educationHtml
+  $experienceHtml
+  $activitiesHtml
+  $skillsHtml
+</body>
+</html>''';
+  }
+
+  static String _buildHarvardEducationItemHtml(EducationItem edu, ResumeData resume) {
+    final location = edu.location.isNotEmpty ? edu.location : resume.location;
+    final detailsHtml = edu.details.isNotEmpty
+        ? '<div class="detail">${edu.details}</div>'
+        : '';
+    return '<div class="entry">'
+        '<div class="row bold"><span class="l">${edu.institution}</span>'
+        '<span class="r">$location</span></div>'
+        '<div class="row"><span class="l">${edu.degree}</span>'
+        '<span class="r">${edu.period}</span></div>'
+        '$detailsHtml'
+        '</div>';
+  }
+
+  static String _buildHarvardExperienceItemHtml(ExperienceItem exp, ResumeData resume) {
+    final location = exp.location.isNotEmpty ? exp.location : resume.location;
+    return '<div class="entry">'
+        '<div class="row bold"><span class="l">${exp.company}</span>'
+        '<span class="r">$location</span></div>'
+        '<div class="row bold"><span class="l">${exp.role}</span>'
+        '<span class="r">${exp.period}</span></div>'
+        '${_buildHarvardBulletsHtml(exp.description)}'
+        '</div>';
+  }
+
+  static String _buildHarvardActivityItemHtml(
+    String leftTop,
+    String rightTop,
+    String leftBot,
+    String rightBot,
+    String description,
+  ) {
+    final botRow = (leftBot.isNotEmpty || rightBot.isNotEmpty)
+        ? '<div class="row"><span class="l">$leftBot</span><span class="r">$rightBot</span></div>'
+        : '';
+    return '<div class="entry">'
+        '<div class="row bold"><span class="l">$leftTop</span><span class="r">$rightTop</span></div>'
+        '$botRow'
+        '${_buildHarvardBulletsHtml(description)}'
+        '</div>';
+  }
+
+  static String _buildHarvardBulletsHtml(String description) {
+    final lines = description.split('\n').where((l) => l.trim().isNotEmpty).toList();
+    if (lines.isEmpty) return '';
+    final items = lines.map((line) {
+      final clean = line.replaceAll('•', '').trim();
+      return '<li>$clean</li>';
+    }).join('');
+    return '<ul>$items</ul>';
+  }
+
+  static String _buildHarvardContactString(ResumeData resume) {
+    final parts = <String>[];
+    if (resume.location.isNotEmpty) parts.add(resume.location);
+    if (resume.phone.isNotEmpty) parts.add(resume.phone);
+    if (resume.email.isNotEmpty) parts.add(resume.email);
+    if (resume.linkedin.isNotEmpty) {
+      parts.add(resume.linkedin.replaceAll('https://', '').replaceAll('www.', ''));
+    }
+    return parts.join(' • ');
+  }
 }

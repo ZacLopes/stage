@@ -22,7 +22,6 @@ class HomeViewModel extends ChangeNotifier {
     Supabase.instance.client.auth.onAuthStateChange.listen((data) {
       final AuthChangeEvent event = data.event;
       if (event == AuthChangeEvent.signedIn) {
-        _repository.clearCache();
         _loadData();
       } else if (event == AuthChangeEvent.signedOut) {
         _clearData();
@@ -59,20 +58,11 @@ class HomeViewModel extends ChangeNotifier {
       
       // Load phases for each track and check completion
       for (var track in _tracks) {
-        final allPhases = await _repository.getPhases(track.id);
-        
-        // --- FILTER OBSOLETE PHASES (Align with GamificationViewModel) ---
-        final activePhases = allPhases.where((p) => 
-          p.id != 't1_p4' && 
-          p.title != 'Revisão' &&
-          p.title != 'O Cronômetro da Jornada' &&
-          p.title != 'O que você fez'
-        ).toList();
-        
+        final activePhases = await _repository.getPhases(track.id);
+
         _phasesByTrack[track.id] = activePhases;
-        
-        // Check if all ACTIVE phases in this track are completed
-        if (activePhases.isNotEmpty && 
+
+        if (activePhases.isNotEmpty &&
             activePhases.every((phase) => _completedPhaseIds.contains(phase.id))) {
           _completedTrackIds.add(track.id);
         }

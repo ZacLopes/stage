@@ -39,6 +39,7 @@ class AuthErrorFormatter {
     }
 
     final errorStr = e.toString().toLowerCase();
+    
     if (errorStr.contains('socketexception') || errorStr.contains('handshakeexception')) {
       return 'Sem conexão com a internet. Verifique seu sinal e tente novamente.';
     }
@@ -47,6 +48,14 @@ class AuthErrorFormatter {
       return 'Erro de rede. Verifique sua conexão.';
     }
 
+    if (errorStr.contains('invalid login credentials') || errorStr.contains('invalid_credentials')) {
+      return 'E-mail ou senha incorretos.';
+    }
+
+    if (errorStr.contains('user not found') || errorStr.contains('email not found') || errorStr.contains('user_not_found')) {
+      return 'Não existe nenhuma conta com o e-mail informado.';
+    }
+    
     return 'Ocorreu um problema. Tente novamente.';
   }
 }

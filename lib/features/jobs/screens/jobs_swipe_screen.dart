@@ -1,0 +1,951 @@
+import 'dart:ui';
+import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_card_swiper/flutter_card_swiper.dart';
+import 'package:provider/provider.dart';
+import '../jobs_viewmodel.dart';
+import '../models/job.dart';
+import '../widgets/job_card.dart';
+import 'job_details_sheet.dart';
+import 'job_preferences_screen.dart';
+
+class JobsSwipeScreen extends StatefulWidget {
+  const JobsSwipeScreen({super.key});
+
+  @override
+  State<JobsSwipeScreen> createState() => _JobsSwipeScreenState();
+}
+
+class _JobsSwipeScreenState extends State<JobsSwipeScreen>
+    with TickerProviderStateMixin {
+  final CardSwiperController _swiperController = CardSwiperController();
+  bool _initialized = false;
+
+  // Action button press animations
+  late final Map<String, AnimationController> _btnControllers;
+  late final Map<String, Animation<double>> _btnScales;
+
+  // Swipe drag tracking (updated by Listener, NOT inside cardBuilder)
+  // Range: -1.0 (full reject) .. 0.0 (center) .. +1.0 (full like)
+  double _swipeFraction = 0.0;
+  double _dragStartX = 0.0;
+  // How many px of drag = fraction 1.0  (tuned to feel natural)
+  static const double _dragScale = 130.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _btnControllers = {
+      'undo': AnimationController(vsync: this, duration: const Duration(milliseconds: 120)),
+      'reject': AnimationController(vsync: this, duration: const Duration(milliseconds: 120)),
+      'ai': AnimationController(vsync: this, duration: const Duration(milliseconds: 150)),
+      'like': AnimationController(vsync: this, duration: const Duration(milliseconds: 120)),
+      'share': AnimationController(vsync: this, duration: const Duration(milliseconds: 120)),
+    };
+    _btnScales = _btnControllers.map((key, ctrl) => MapEntry(
+          key,
+          Tween<double>(begin: 1.0, end: 0.88).animate(
+            CurvedAnimation(parent: ctrl, curve: Curves.easeInOut),
+          ),
+        ));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_initialized) {
+      _initialized = true;
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        context.read<JobsViewModel>().init();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _swiperController.dispose();
+    for (final c in _btnControllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  void _openPreferences() {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const JobPreferencesScreen(),
+    );
+  }
+
+  void _openJobDetails(Job job) {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => JobDetailsSheet(job: job),
+    );
+  }
+
+  bool _onSwipe(
+    int previousIndex,
+    int? currentIndex,
+    CardSwiperDirection direction,
+  ) {
+    final vm = context.read<JobsViewModel>();
+    final action = direction == CardSwiperDirection.right ? 'liked' : 'rejected';
+    if (action == 'liked') {
+      HapticFeedback.mediumImpact();
+    } else {
+      HapticFeedback.lightImpact();
+    }
+    vm.onSwipe(previousIndex, action);
+    // Reset overlay immediately (no setState needed — Listener already stopped)
+    if (mounted) setState(() => _swipeFraction = 0.0);
+    return true;
+  }
+
+  Future<void> _pressButton(String key, VoidCallback action) async {
+    HapticFeedback.lightImpact();
+    await _btnControllers[key]!.forward();
+    action();
+    await _btnControllers[key]!.reverse();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final vm = context.watch<JobsViewModel>();
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF1F5F9),
+      extendBodyBehindAppBar: true,
+      appBar: _buildAppBar(),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFFEEF2FF),
+              Color(0xFFF1F5F9),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              const SizedBox(height: 4),
+              if (!vm.isLoading && vm.jobs.isNotEmpty)
+                _buildCounterBadge(vm.jobs.length),
+
+              // Stack so we can draw the fixed swipe overlay on top of the cards
+              Expanded(
+                child: Stack(
+                  children: [
+                    _buildBody(vm),
+                    // Fixed overlay — never rotates, perfectly centered on the card area
+                    if (!vm.isLoading && vm.jobs.isNotEmpty)
+                      _buildSwipeOverlay(),
+                  ],
+                ),
+              ),
+
+              if (!vm.isLoading && vm.jobs.isNotEmpty)
+                _buildActionBar(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(kToolbarHeight),
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: AppBar(
+            title: ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+              ).createShader(bounds),
+              child: const Text(
+                'Vagas',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 22,
+                  letterSpacing: -0.5,
+                ),
+              ),
+            ),
+            centerTitle: true,
+            backgroundColor: Colors.white.withOpacity(0.75),
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: GestureDetector(
+                  onTap: _openPreferences,
+                  child: Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF4F46E5).withOpacity(0.35),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(Icons.tune_rounded, color: Colors.white, size: 18),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCounterBadge(int count) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.06),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF10B981),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '$count vagas disponíveis',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF334155),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBody(JobsViewModel vm) {
+    // Loading state
+    if (vm.isLoading) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                ),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF4F46E5).withOpacity(0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: const Center(
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 3,
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Buscando as melhores vagas\npara o seu perfil...',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Color(0xFF475569),
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Error state
+    if (vm.errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF2F2),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFFECACA), width: 2),
+                ),
+                child: const Icon(Icons.wifi_off_rounded, size: 36, color: Color(0xFFEF4444)),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                vm.errorMessage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: Color(0xFF475569),
+                  fontWeight: FontWeight.w500,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 24),
+              _buildGradientButton(
+                label: 'Tentar novamente',
+                icon: Icons.refresh_rounded,
+                onTap: () => vm.init(),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Empty state
+    if (vm.jobs.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      const Color(0xFF4F46E5).withOpacity(0.08),
+                      const Color(0xFF7C3AED).withOpacity(0.08),
+                    ],
+                  ),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.rocket_launch_rounded,
+                  size: 48,
+                  color: Color(0xFF4F46E5),
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Você explorou tudo!',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF0F172A),
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Ajuste seus filtros ou volte\nmais tarde para novas oportunidades.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: Color(0xFF64748B),
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 32),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildOutlinedActionButton(
+                    label: 'Filtros',
+                    icon: Icons.tune_rounded,
+                    onTap: _openPreferences,
+                  ),
+                  const SizedBox(width: 12),
+                  _buildGradientButton(
+                    label: 'Recarregar',
+                    icon: Icons.refresh_rounded,
+                    onTap: () => vm.reloadJobs(),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Listener wraps the CardSwiper at the RAW pointer level.
+    // It does NOT compete with CardSwiper's GestureDetector because
+    // Listener never enters the gesture arena — it only observes.
+    // This guarantees the overlay works on every card, not just the first.
+    // ─────────────────────────────────────────────────────────────
+    return Listener(
+      onPointerDown: (e) {
+        _dragStartX = e.localPosition.dx;
+      },
+      onPointerMove: (e) {
+        final delta = e.localPosition.dx - _dragStartX;
+        final newFraction = (delta / _dragScale).clamp(-1.0, 1.0);
+        if ((newFraction - _swipeFraction).abs() > 0.015) {
+          setState(() => _swipeFraction = newFraction);
+        }
+      },
+      onPointerUp: (_) {
+        // If the swipe wasn't committed (card snaps back), reset the indicator.
+        // If it WAS committed, _onSwipe resets it.
+        // We delay slightly so the card snap-back finishes before we hide overlay.
+        Future.delayed(const Duration(milliseconds: 180), () {
+          if (mounted) setState(() => _swipeFraction = 0.0);
+        });
+      },
+      onPointerCancel: (_) {
+        if (mounted) setState(() => _swipeFraction = 0.0);
+      },
+      child: CardSwiper(
+        controller: _swiperController,
+        cardsCount: vm.jobs.length,
+        onSwipe: _onSwipe,
+        // Horizontal only — no accidental vertical swipes
+        allowedSwipeDirection: const AllowedSwipeDirection.only(
+          left: true,
+          right: true,
+        ),
+        threshold: 50,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        numberOfCardsDisplayed: vm.jobs.length > 1 ? 2 : 1,
+        // ─── scale: 1.0 is the FIX for cards appearing smaller over time.
+        // With scale < 1.0, each back card is multiplied by scale^n,
+        // and the advance animation sometimes doesn't fully complete,
+        // leaving each new front card slightly smaller than the last.
+        // scale: 1.0 = all cards identical size. Depth via backCardOffset only.
+        scale: 1.0,
+        backCardOffset: const Offset(0, -12),
+        cardBuilder: (context, index, percentThresholdX, percentThresholdY) {
+          if (index >= vm.jobs.length) return const SizedBox();
+          return GestureDetector(
+            onTap: () => _openJobDetails(vm.jobs[index]),
+            child: JobCard(job: vm.jobs[index]),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Premium swipe overlay — fixed, never rotates, works on every card.
+  Widget _buildSwipeOverlay() {
+    final f = _swipeFraction;
+    // Ease the raw fraction so the overlay feels responsive but smooth
+    final likeT  = f > 0 ? Curves.easeOutCubic.transform(f.clamp(0.0, 1.0))  : 0.0;
+    final rejectT = f < 0 ? Curves.easeOutCubic.transform(f.abs().clamp(0.0, 1.0)) : 0.0;
+
+    if (likeT < 0.03 && rejectT < 0.03) return const SizedBox.shrink();
+
+    return IgnorePointer(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // ── Ambient gradient wash ──────────────────────────
+          // A very subtle directional color from the side being swiped toward,
+          // giving the card area a sense of colored light without hiding content.
+          if (likeT > 0.03)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(28),
+                  gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [
+                      const Color(0xFF10B981).withOpacity(likeT * 0.18),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          if (rejectT > 0.03)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(28),
+                  gradient: LinearGradient(
+                    begin: Alignment.centerRight,
+                    end: Alignment.centerLeft,
+                    colors: [
+                      const Color(0xFFEF4444).withOpacity(rejectT * 0.18),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+          // ── Stamp badges ──────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 32),
+            child: Stack(
+              children: [
+                if (likeT > 0.03)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    child: _SwipeStamp(
+                      icon: Icons.favorite_rounded,
+                      label: 'APLICAR',
+                      color: const Color(0xFF10B981),
+                      t: likeT,
+                      flipSign: -1,
+                    ),
+                  ),
+                if (rejectT > 0.03)
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: _SwipeStamp(
+                      icon: Icons.arrow_back_rounded,
+                      label: 'PULAR',
+                      color: const Color(0xFFEF4444),
+                      t: rejectT,
+                      flipSign: 1,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionBar() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Undo
+          _buildActionButton(
+            key: 'undo',
+            icon: Icons.undo_rounded,
+            size: 50,
+            iconSize: 22,
+            bgColor: Colors.white,
+            fgColor: const Color(0xFF94A3B8),
+            shadowColor: Colors.black.withOpacity(0.08),
+            onTap: () async {
+              final vm = context.read<JobsViewModel>();
+              await vm.undoLastSwipe();
+              try {
+                _swiperController.undo();
+              } catch (_) {}
+            },
+          ),
+
+          // Reject
+          _buildActionButton(
+            key: 'reject',
+            icon: Icons.close_rounded,
+            size: 62,
+            iconSize: 28,
+            bgColor: const Color(0xFFFEF2F2),
+            fgColor: const Color(0xFFEF4444),
+            shadowColor: const Color(0xFFEF4444).withOpacity(0.2),
+            onTap: () => _swiperController.swipe(CardSwiperDirection.left),
+          ),
+
+          // AI (Center - largest)
+          _buildGradientActionButton(
+            key: 'ai',
+            icon: Icons.auto_awesome_rounded,
+            size: 70,
+            iconSize: 30,
+            colors: [const Color(0xFF4F46E5), const Color(0xFF7C3AED)],
+            shadowColor: const Color(0xFF4F46E5).withOpacity(0.45),
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Row(
+                    children: [
+                      Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 18),
+                      SizedBox(width: 10),
+                      Text('Adaptação com IA em breve!'),
+                    ],
+                  ),
+                  backgroundColor: const Color(0xFF4F46E5),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+          ),
+
+          // Like
+          _buildActionButton(
+            key: 'like',
+            icon: Icons.favorite_rounded,
+            size: 62,
+            iconSize: 28,
+            bgColor: const Color(0xFFF0FDF4),
+            fgColor: const Color(0xFF10B981),
+            shadowColor: const Color(0xFF10B981).withOpacity(0.2),
+            onTap: () => _swiperController.swipe(CardSwiperDirection.right),
+          ),
+
+          // Share
+          _buildActionButton(
+            key: 'share',
+            icon: Icons.ios_share_rounded,
+            size: 50,
+            iconSize: 22,
+            bgColor: Colors.white,
+            fgColor: const Color(0xFF94A3B8),
+            shadowColor: Colors.black.withOpacity(0.08),
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Row(
+                    children: [
+                      Icon(Icons.ios_share_rounded, color: Colors.white, size: 18),
+                      SizedBox(width: 10),
+                      Text('Compartilhamento em breve!'),
+                    ],
+                  ),
+                  backgroundColor: const Color(0xFF334155),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButton({
+    required String key,
+    required IconData icon,
+    required double size,
+    required double iconSize,
+    required Color bgColor,
+    required Color fgColor,
+    required Color shadowColor,
+    required VoidCallback onTap,
+  }) {
+    return ScaleTransition(
+      scale: _btnScales[key]!,
+      child: GestureDetector(
+        onTapDown: (_) => _btnControllers[key]!.forward(),
+        onTapUp: (_) {
+          _btnControllers[key]!.reverse();
+          onTap();
+        },
+        onTapCancel: () => _btnControllers[key]!.reverse(),
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: bgColor,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: shadowColor,
+                blurRadius: 12,
+                spreadRadius: 0,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Icon(icon, color: fgColor, size: iconSize),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGradientActionButton({
+    required String key,
+    required IconData icon,
+    required double size,
+    required double iconSize,
+    required List<Color> colors,
+    required Color shadowColor,
+    required VoidCallback onTap,
+  }) {
+    return ScaleTransition(
+      scale: _btnScales[key]!,
+      child: GestureDetector(
+        onTapDown: (_) => _btnControllers[key]!.forward(),
+        onTapUp: (_) {
+          _btnControllers[key]!.reverse();
+          onTap();
+        },
+        onTapCancel: () => _btnControllers[key]!.reverse(),
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: colors,
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: shadowColor,
+                blurRadius: 18,
+                spreadRadius: 0,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Icon(icon, color: Colors.white, size: iconSize),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGradientButton({
+    required String label,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+          ),
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF4F46E5).withOpacity(0.3),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: Colors.white, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 15,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOutlinedActionButton({
+    required String label,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: const Color(0xFF475569), size: 18),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF475569),
+                fontWeight: FontWeight.w700,
+                fontSize: 15,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Premium swipe stamp
+//  t: 0.0 = invisible/tiny → 1.0 = full size; flipSign: -1 left, +1 right
+// ─────────────────────────────────────────────────────────────
+class _SwipeStamp extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  /// Eased progress 0.0 → 1.0
+  final double t;
+  /// -1 = tilt left (like), +1 = tilt right (skip)
+  final int flipSign;
+
+  const _SwipeStamp({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.t,
+    required this.flipSign,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Stamp scales from 0.55 → 1.0
+    final scale = 0.55 + 0.45 * t;
+    // Fixed slight tilt — decorative, NOT tied to grab point
+    final tilt = 0.15 * flipSign;
+
+    final Alignment scaleAnchor =
+        flipSign < 0 ? Alignment.topLeft : Alignment.topRight;
+
+    return Opacity(
+      opacity: t.clamp(0.0, 1.0),
+      child: Transform.scale(
+        scale: scale,
+        alignment: scaleAnchor,
+        child: Transform.rotate(
+          angle: tilt,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Outer glow ring
+              Container(
+                width: 90,
+                height: 90,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: color.withOpacity(0.35 * t),
+                    width: 2,
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: Container(
+                  width: 70,
+                  height: 70,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: color,
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withOpacity(0.55 * t),
+                        blurRadius: 22,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 34),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Label pill
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: color.withOpacity(0.4 * t),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13,
+                    letterSpacing: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

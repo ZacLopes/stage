@@ -15,6 +15,10 @@ import 'features/home/home_viewmodel.dart';
 import 'features/gamification/gamification_viewmodel.dart';
 import 'features/profile/profile_viewmodel.dart';
 import 'features/resume/resume_viewmodel.dart';
+import 'features/jobs/jobs_viewmodel.dart';
+import 'features/jobs/data/job_repository.dart';
+import 'features/jobs/data/swipe_repository.dart';
+import 'features/jobs/data/preferences_repository.dart';
 import 'services/ai_service.dart';
 import 'features/splash/splash_screen.dart';
 
@@ -70,6 +74,13 @@ void main() async {
         ),
         ChangeNotifierProvider<ResumeViewModel>(
           create: (_) => ResumeViewModel(repository, aiService, localStorageRepository),
+        ),
+        ChangeNotifierProvider<JobsViewModel>(
+          create: (_) => JobsViewModel(
+            JobRepository(),
+            SwipeRepository(),
+            PreferencesRepository(),
+          ),
         ),
       ],
       child: const CareerGamificationApp(),

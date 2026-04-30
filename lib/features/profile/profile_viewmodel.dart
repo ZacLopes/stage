@@ -100,4 +100,16 @@ class ProfileViewModel extends ChangeNotifier {
       return null;
     }
   }
+
+  Future<void> saveResume(String title, List<int> pdfBytes) async {
+    try {
+      await _repository.saveResume(title, pdfBytes);
+      await loadSavedResumes(); // Refresh list
+    } catch (e) {
+      print('Error saving resume: $e');
+      _error = 'Erro ao salvar currículo';
+      notifyListeners();
+      rethrow;
+    }
+  }
 }
