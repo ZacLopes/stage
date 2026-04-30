@@ -756,3 +756,70 @@ class SavedResume {
     );
   }
 }
+
+class TargetJob {
+  final String id;
+  final String userId;
+  final String? title;
+  final String? descriptionText;
+  final String? sourceUrl;
+  final bool isSkipped;
+  final DateTime createdAt;
+
+  const TargetJob({
+    required this.id,
+    required this.userId,
+    this.title,
+    this.descriptionText,
+    this.sourceUrl,
+    required this.isSkipped,
+    required this.createdAt,
+  });
+
+  factory TargetJob.fromJson(Map<String, dynamic> json) {
+    return TargetJob(
+      id: json['id'] as String,
+      userId: json['user_id'] as String,
+      title: json['title'] as String?,
+      descriptionText: json['description_text'] as String?,
+      sourceUrl: json['source_url'] as String?,
+      isSkipped: json['is_skipped'] as bool? ?? false,
+      createdAt: DateTime.parse(json['created_at'] as String),
+    );
+  }
+}
+
+class Campaign {
+  final String id;
+  final String userId;
+  final String? targetJobId;
+  final String name;
+  final String status;
+  final String templateId;
+  final DateTime createdAt;
+  final DateTime lastEditedAt;
+
+  const Campaign({
+    required this.id,
+    required this.userId,
+    this.targetJobId,
+    required this.name,
+    required this.status,
+    required this.templateId,
+    required this.createdAt,
+    required this.lastEditedAt,
+  });
+
+  factory Campaign.fromJson(Map<String, dynamic> json) {
+    return Campaign(
+      id: json['id'] as String,
+      userId: json['user_id'] as String,
+      targetJobId: json['target_job_id'] as String?,
+      name: json['name'] as String,
+      status: json['status'] as String,
+      templateId: json['template_id'] as String,
+      createdAt: DateTime.parse(json['created_at'] as String),
+      lastEditedAt: DateTime.parse(json['last_edited_at'] as String),
+    );
+  }
+}

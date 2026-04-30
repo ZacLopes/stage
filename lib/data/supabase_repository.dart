@@ -743,5 +743,50 @@ class SupabaseRepository {
       rethrow;
     }
   }
+
+  Future<Campaign?> getLatestCampaign(String userId) async {
+    try {
+      final data = await _client
+          .from('campaigns')
+          .select()
+          .eq('user_id', userId)
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+      return data != null ? Campaign.fromJson(data) : null;
+    } catch (e) {
+      print('Error fetching campaign: $e');
+      return null;
+    }
+  }
+
+  Future<Campaign> createCampaignWithTargetJob({
+    required String userId,
+    String? jobTitle,
+    String? descriptionText,
+    String? sourceUrl,
+    bool isSkipped = false,
+  }) async {
+    final jobData = await _client.from('target_jobs').insert({
+      'user_id': userId,
+      'title': jobTitle,
+      'description_text': descriptionText,
+      'source_url': sourceUrl,
+      'is_skipped': isSkipped,
+    }).select().single();
+
+    final targetJob = TargetJob.fromJson(jobData);
+    final campaignName =
+        (jobTitle != null && jobTitle.isNotEmpty) ? jobTitle : 'Campanha 1';
+
+    final campaignData = await _client.from('campaigns').insert({
+      'user_id': userId,
+      'target_job_id': targetJob.id,
+      'name': campaignName,
+      'status': 'draft',
+    }).select().single();
+
+    return Campaign.fromJson(campaignData);
+  }
 }
 

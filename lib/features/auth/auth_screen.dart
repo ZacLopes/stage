@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/stage_colors.dart';
 import '../../core/utils/auth_error_formatter.dart';
 import '../home/home_screen.dart';
+import 'target_job_screen.dart';
 import 'user_viewmodel.dart';
 import 'email_signup_screen.dart';
 // Note: We'll see profile setup and completion screen navigation from here or signUp
@@ -59,7 +60,9 @@ class _AuthScreenState extends State<AuthScreen>
       } catch (_) {}
 
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
+        MaterialPageRoute(
+          builder: (_) => vm.hasCampaign ? const HomeScreen() : const TargetJobScreen(),
+        ),
         (route) => false,
       );
     }
@@ -393,14 +396,13 @@ class _LoginBottomSheetState extends State<_LoginBottomSheet> {
         password: _passwordController.text,
       );
 
-      if (mounted) {
-        if (vm.isLoggedIn) {
-          // Send them to home screen (existing accounts skip profile setup)
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const HomeScreen()),
-            (route) => false,
-          );
-        }
+      if (mounted && vm.isLoggedIn) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (_) => vm.hasCampaign ? const HomeScreen() : const TargetJobScreen(),
+          ),
+          (route) => false,
+        );
       }
     } catch (e) {
       if (mounted) {

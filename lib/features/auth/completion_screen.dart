@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import '../../core/constants/stage_colors.dart';
 import '../home/home_screen.dart';
 import '../home/home_viewmodel.dart';
+import 'target_job_screen.dart';
 import '../auth/user_viewmodel.dart';
 import '../../services/tutorial_service.dart';
 import '../home/ai_score_screen.dart';
@@ -56,14 +57,12 @@ class _CompletionScreenState extends State<CompletionScreen>
     await TutorialService().markAsSeen();
     if (!mounted) return;
 
+    // Pré-agenda a aba de trilha; HomeScreen vai ler ao inicializar.
+    context.read<HomeViewModel>().requestTabChange(1);
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
+      MaterialPageRoute(builder: (_) => const TargetJobScreen()),
       (route) => false,
     );
-    // 1 = Trilha
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<HomeViewModel>().requestTabChange(1);
-    });
   }
 
   Future<void> _uploadResumePath() async {

@@ -16,6 +16,7 @@ class UserViewModel extends ChangeNotifier {
   
   UserProfile? _user;
   bool _isLoading = true;
+  Campaign? _currentCampaign;
 
   UserViewModel(this._repository, this._localStorage) {
     _init();
@@ -33,6 +34,8 @@ class UserViewModel extends ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get isLoggedIn => _user != null && _supabase.auth.currentUser != null;
   bool get isEmailVerified => _supabase.auth.currentUser?.emailConfirmedAt != null;
+  Campaign? get currentCampaign => _currentCampaign;
+  bool get hasCampaign => _currentCampaign != null;
 
   void _init() {
     // Listen to auth state changes
@@ -42,6 +45,7 @@ class UserViewModel extends ChangeNotifier {
         _loadUser();
       } else if (event == AuthChangeEvent.signedOut) {
         _user = null;
+        _currentCampaign = null;
         notifyListeners();
       }
     });
@@ -98,8 +102,12 @@ class UserViewModel extends ChangeNotifier {
         }
         
         _user = userProfile;
+        if (_user != null) {
+          _currentCampaign = await _repository.getLatestCampaign(_user!.id);
+        }
       } else {
         _user = null;
+        _currentCampaign = null;
       }
     } catch (e) {
       print('Error loading user: $e');
@@ -190,6 +198,23 @@ class UserViewModel extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  Future<void> createCampaign({
+    String? jobTitle,
+    String? descriptionText,
+    String? sourceUrl,
+    bool isSkipped = false,
+  }) async {
+    if (_user == null) return;
+    _currentCampaign = await _repository.createCampaignWithTargetJob(
+      userId: _user!.id,
+      jobTitle: jobTitle,
+      descriptionText: descriptionText,
+      sourceUrl: sourceUrl,
+      isSkipped: isSkipped,
+    );
+    notifyListeners();
   }
 
   // Sign in with OAuth Provider (Google, Apple, etc.)
