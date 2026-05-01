@@ -849,5 +849,109 @@ class SupabaseRepository {
 
     return Campaign.fromJson(campaignData);
   }
+
+  // ============================================================
+  // Phase 5 — Bullet & summary persistence
+  // ============================================================
+
+  /// Save an approved bullet chosen (or written) by the user.
+  Future<ApprovedBullet> approveBullet({
+    required String campaignId,
+    required String finalText,
+    required String source,
+    required String experiencePhaseId,
+    String? bulletVersionId,
+    int displayOrder = 0,
+  }) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('User not authenticated');
+
+    // Mark the chosen bullet_version as was_chosen
+    if (bulletVersionId != null && source != 'user_written') {
+      await _client.from('bullet_versions').update({'was_chosen': true}).eq('id', bulletVersionId);
+    }
+
+    final data = await _client.from('approved_bullets').insert({
+      'campaign_id': campaignId,
+      'user_id': userId,
+      'bullet_version_id': bulletVersionId,
+      'final_text': finalText,
+      'display_order': displayOrder,
+      'source': source,
+      'experience_phase_id': experiencePhaseId,
+      'is_active': true,
+      'approved_at': DateTime.now().toIso8601String(),
+    }).select().single();
+
+    return ApprovedBullet.fromJson(data);
+  }
+
+  /// Fetch all active approved bullets for a campaign, ordered.
+  Future<List<ApprovedBullet>> getApprovedBullets(String campaignId) async {
+    try {
+      final response = await _client
+          .from('approved_bullets')
+          .select()
+          .eq('campaign_id', campaignId)
+          .eq('is_active', true)
+          .order('display_order', ascending: true);
+      return (response as List).map((e) => ApprovedBullet.fromJson(e)).toList();
+    } catch (e) {
+      print('Error fetching approved bullets: $e');
+      return [];
+    }
+  }
+
+  /// Save a chosen/edited professional summary to section_versions.
+  Future<void> saveSectionVersion({
+    required String campaignId,
+    required String content,
+    required int versionNumber,
+    String? versionId,
+    bool wasEdited = false,
+    String? editedContent,
+  }) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('User not authenticated');
+
+    if (versionId != null) {
+      await _client.from('section_versions').update({
+        'was_chosen': true,
+        'was_edited': wasEdited,
+        'edited_content': editedContent,
+      }).eq('id', versionId);
+    } else {
+      await _client.from('section_versions').insert({
+        'campaign_id': campaignId,
+        'user_id': userId,
+        'section_type': 'resumo_profissional',
+        'content': content,
+        'version_number': versionNumber,
+        'model_used': 'user_written',
+        'was_chosen': true,
+        'was_edited': wasEdited,
+        'edited_content': editedContent,
+      });
+    }
+  }
+
+  /// Fetch the approved (was_chosen) professional summary for a campaign.
+  Future<SectionVersion?> getApprovedSummary(String campaignId) async {
+    try {
+      final response = await _client
+          .from('section_versions')
+          .select()
+          .eq('campaign_id', campaignId)
+          .eq('section_type', 'resumo_profissional')
+          .eq('was_chosen', true)
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+      return response != null ? SectionVersion.fromJson(response) : null;
+    } catch (e) {
+      print('Error fetching approved summary: $e');
+      return null;
+    }
+  }
 }
 

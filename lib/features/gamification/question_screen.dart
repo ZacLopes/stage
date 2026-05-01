@@ -49,6 +49,8 @@ import 'widgets/contact_form_widget.dart';
 import 'widgets/experience_inventory_widget.dart';
 import 'widgets/experience_quantity_widget.dart';
 import 'widgets/experience_detail_form_widget.dart';
+import 'bullet_review_screen.dart';
+import 'summary_generation_screen.dart';
 
 class QuestionScreen extends StatefulWidget {
   final Phase phase;
@@ -65,6 +67,10 @@ class _QuestionScreenState extends State<QuestionScreen> {
   bool _isSaving = false;
   bool _isReverseAnimation = false;
   String? _lastQuestionId;
+
+  // Phase 5 — prevent double-navigation while async push is in flight
+  bool _isNavigatingToBullet = false;
+  bool _isNavigatingToSummary = false;
 
   final TextEditingController _textController = TextEditingController();
 
@@ -187,6 +193,36 @@ class _QuestionScreenState extends State<QuestionScreen> {
 
         if (viewModel.isCurrentPhaseFinished) {
           return _buildCompletionScreen(context, viewModel);
+        }
+
+        // Phase 5 — bullet generation pending after D5 answer
+        if (viewModel.pendingBulletExperienceId != null && !_isNavigatingToBullet) {
+          _isNavigatingToBullet = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            if (!mounted) return;
+            final phaseId = viewModel.pendingBulletExperienceId!;
+            final campaignId = context.read<UserViewModel>().currentCampaign?.id ?? '';
+            await Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => BulletReviewScreen(
+                experiencePhaseId: phaseId,
+                campaignId: campaignId,
+              ),
+            ));
+            if (mounted) setState(() => _isNavigatingToBullet = false);
+          });
+        }
+
+        // Phase 5 — summary generation pending after t5_p2 finishes
+        if (viewModel.pendingSummaryGeneration && !_isNavigatingToSummary) {
+          _isNavigatingToSummary = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            if (!mounted) return;
+            final campaignId = context.read<UserViewModel>().currentCampaign?.id ?? '';
+            await Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => SummaryGenerationScreen(campaignId: campaignId),
+            ));
+            if (mounted) setState(() => _isNavigatingToSummary = false);
+          });
         }
 
         final question = viewModel.currentQuestion;

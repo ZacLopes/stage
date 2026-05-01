@@ -831,3 +831,141 @@ class Campaign {
     );
   }
 }
+
+// ============================================================
+// Phase 5 — Bullet generation models
+// ============================================================
+
+class BulletVersion {
+  final String id;
+  final String campaignId;
+  final String experiencePhaseId;
+  final String content;
+  final String angle; // 'resultado' | 'processo' | 'habilidade'
+  final double confidence;
+  final bool wasChosen;
+  final bool wasEdited;
+  final String? editedContent;
+
+  const BulletVersion({
+    required this.id,
+    required this.campaignId,
+    required this.experiencePhaseId,
+    required this.content,
+    required this.angle,
+    required this.confidence,
+    this.wasChosen = false,
+    this.wasEdited = false,
+    this.editedContent,
+  });
+
+  factory BulletVersion.fromJson(Map<String, dynamic> json) => BulletVersion(
+    id: json['id'] as String? ?? '',
+    campaignId: json['campaign_id'] as String? ?? '',
+    experiencePhaseId: json['experience_phase_id'] as String? ?? '',
+    content: json['content'] as String,
+    angle: json['angle'] as String,
+    confidence: (json['confidence'] as num?)?.toDouble() ?? 0.8,
+    wasChosen: json['was_chosen'] as bool? ?? false,
+    wasEdited: json['was_edited'] as bool? ?? false,
+    editedContent: json['edited_content'] as String?,
+  );
+}
+
+class ApprovedBullet {
+  final String id;
+  final String campaignId;
+  final String? bulletVersionId;
+  final String finalText;
+  final int displayOrder;
+  final String source; // 'ai_chosen' | 'ai_edited' | 'user_written' | 'ai_mixed'
+  final String? experiencePhaseId;
+  final bool isActive;
+  final DateTime approvedAt;
+
+  const ApprovedBullet({
+    required this.id,
+    required this.campaignId,
+    this.bulletVersionId,
+    required this.finalText,
+    required this.displayOrder,
+    required this.source,
+    this.experiencePhaseId,
+    this.isActive = true,
+    required this.approvedAt,
+  });
+
+  factory ApprovedBullet.fromJson(Map<String, dynamic> json) => ApprovedBullet(
+    id: json['id'] as String,
+    campaignId: json['campaign_id'] as String,
+    bulletVersionId: json['bullet_version_id'] as String?,
+    finalText: json['final_text'] as String,
+    displayOrder: json['display_order'] as int? ?? 0,
+    source: json['source'] as String? ?? 'ai_chosen',
+    experiencePhaseId: json['experience_phase_id'] as String?,
+    isActive: json['is_active'] as bool? ?? true,
+    approvedAt: DateTime.parse(json['approved_at'] as String),
+  );
+}
+
+class SectionVersion {
+  final String id;
+  final String campaignId;
+  final String sectionType;
+  final String content;
+  final int versionNumber;
+  final bool wasChosen;
+  final bool wasEdited;
+  final String? editedContent;
+  final DateTime createdAt;
+
+  const SectionVersion({
+    required this.id,
+    required this.campaignId,
+    required this.sectionType,
+    required this.content,
+    required this.versionNumber,
+    this.wasChosen = false,
+    this.wasEdited = false,
+    this.editedContent,
+    required this.createdAt,
+  });
+
+  factory SectionVersion.fromJson(Map<String, dynamic> json) => SectionVersion(
+    id: json['id'] as String,
+    campaignId: json['campaign_id'] as String,
+    sectionType: json['section_type'] as String,
+    content: json['content'] as String,
+    versionNumber: json['version_number'] as int? ?? 1,
+    wasChosen: json['was_chosen'] as bool? ?? false,
+    wasEdited: json['was_edited'] as bool? ?? false,
+    editedContent: json['edited_content'] as String?,
+    createdAt: DateTime.parse(json['created_at'] as String),
+  );
+}
+
+/// Transient result from generate-bullets Edge Function (not persisted directly).
+class BulletGenerationResult {
+  final List<BulletVersion> bullets;
+  final BulletClarification? needsClarification;
+
+  const BulletGenerationResult({required this.bullets, this.needsClarification});
+}
+
+class BulletClarification {
+  final String question;
+  final String reason;
+  final String? targetAngle;
+
+  const BulletClarification({
+    required this.question,
+    required this.reason,
+    this.targetAngle,
+  });
+
+  factory BulletClarification.fromJson(Map<String, dynamic> json) => BulletClarification(
+    question: json['question'] as String,
+    reason: json['reason'] as String? ?? '',
+    targetAngle: json['target_angle'] as String?,
+  );
+}

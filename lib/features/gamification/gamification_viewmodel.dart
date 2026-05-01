@@ -48,6 +48,14 @@ class GamificationViewModel extends ChangeNotifier {
   bool _isPhaseCompleted = false;
   int _earnedXp = 0;
 
+  // Phase 5 — bullet & summary generation flags
+  String? _pendingBulletExperienceId; // set after D5; cleared by BulletReviewScreen
+  bool _pendingSummaryGeneration = false; // set after last t5 phase
+  String? get pendingBulletExperienceId => _pendingBulletExperienceId;
+  bool get pendingSummaryGeneration => _pendingSummaryGeneration;
+  void clearBulletPending() { _pendingBulletExperienceId = null; notifyListeners(); }
+  void clearSummaryPending() { _pendingSummaryGeneration = false; notifyListeners(); }
+
   GamificationViewModel(this._repository) {
     _init();
   }
@@ -89,6 +97,8 @@ class GamificationViewModel extends ChangeNotifier {
     _isLoadingQuestions = false;
     _isPhaseCompleted = false;
     _earnedXp = 0;
+    _pendingBulletExperienceId = null;
+    _pendingSummaryGeneration = false;
     notifyListeners();
   }
 
@@ -321,7 +331,29 @@ class GamificationViewModel extends ChangeNotifier {
 
     // --- Dynamic Question Generation Logic ---
     _handleDynamicQuestionGeneration(currentQ.id, answer);
-    
+
+    // --- Phase 5: Intercept D5 answers → trigger bullet generation ---
+    final d5Match = RegExp(r'^M3_D5_(\w+)_(\d+)$').firstMatch(currentQ.id);
+    if (d5Match != null) {
+      final cat = d5Match.group(1)!;
+      final n = d5Match.group(2)!;
+      _pendingBulletExperienceId = 'm3.$cat.$n';
+      notifyListeners();
+      return; // Don't advance yet — BulletReviewScreen calls resumeAfterBullet()
+    }
+
+    if (_currentQuestionIndex < _questions.length - 1) {
+      _currentQuestionIndex++;
+      notifyListeners();
+    } else {
+      await _finishPhase();
+    }
+  }
+
+  /// Called by BulletReviewScreen after a bullet is approved (or skipped).
+  /// Advances the question flow to the next question or finishes the phase.
+  Future<void> resumeAfterBullet() async {
+    _pendingBulletExperienceId = null;
     if (_currentQuestionIndex < _questions.length - 1) {
       _currentQuestionIndex++;
       notifyListeners();
@@ -457,7 +489,40 @@ class GamificationViewModel extends ChangeNotifier {
     'spo': 'Esporte',
   }[cat] ?? cat;
 
-  List<Question> _buildDQuestions(String cat, int n, String label, String suffix) => [
+  static const _d2Content = {
+    'stage': ('Em poucas palavras, o que essa empresa faz?',
+        'Recrutador pode não conhecer. Em 1-2 frases, ajude ele a entender.',
+        'Ex: Startup de pagamentos B2B que atende pequenas varejistas...'),
+    'emp':   ('Em poucas palavras, o que essa empresa faz?',
+        'Recrutador pode não conhecer. Em 1-2 frases, ajude ele a entender.',
+        'Ex: Empresa de consultoria de RH com 200+ clientes corporativos...'),
+    'free':  ('Em poucas palavras, qual era o projeto ou cliente?',
+        'Descreva o contexto: tipo de cliente, nicho ou produto que você entregou.',
+        'Ex: Prestei serviço de design gráfico para 3 marcas locais de moda...'),
+    'proj':  ('Em poucas palavras, qual era o projeto e para quem?',
+        'Descreva a ideia e o público: quem usaria ou se beneficiaria disso.',
+        'Ex: App de controle financeiro pessoal que criei para aprender Flutter...'),
+    'lead':  ('Em poucas palavras, o que essa entidade faz?',
+        'Recrutador pode não conhecer. Em 1-2 frases, ajude ele a entender.',
+        'Ex: Liga acadêmica de finanças que conecta estudantes de Administração...'),
+    'vol':   ('Em poucas palavras, qual é a missão dessa organização?',
+        'Recrutador pode não conhecer. Em 1-2 frases, ajude ele a entender.',
+        'Ex: ONG que ensina programação para jovens de periferia em SP...'),
+    'res':   ('Em poucas palavras, qual era o tema da pesquisa?',
+        'Descreva o problema estudado e o contexto acadêmico.',
+        'Ex: Pesquisa sobre impacto de políticas públicas na renda de MEIs...'),
+    'spo':   ('Em poucas palavras, qual era o contexto do esporte?',
+        'Descreva o nível, a equipe ou a competição em que você participava.',
+        'Ex: Jogava tênis em nível estadual, treinando 5x por semana em clube...'),
+  };
+
+  List<Question> _buildDQuestions(String cat, int n, String label, String suffix) {
+    final d2 = _d2Content[cat] ?? (
+      'Em poucas palavras, o que essa experiência envolvia?',
+      'Recrutador pode não conhecer. Em 1-2 frases, ajude ele a entender.',
+      'Ex: Organização voltada para...',
+    );
+    return [
     Question(
       id: 'M3_D1_${cat}_$n', phaseId: 't3_p1',
       type: QuestionType.experienceDetailForm,
@@ -467,11 +532,8 @@ class GamificationViewModel extends ChangeNotifier {
     Question(
       id: 'M3_D2_${cat}_$n', phaseId: 't3_p1',
       type: QuestionType.text,
-      content: 'Em poucas palavras, o que essa organização faz?',
-      options: [
-        'Recrutador pode não conhecer. Em 1-2 frases, ajude ele a entender.',
-        'Ex: Liga acadêmica de finanças que conecta estudantes de Administração...',
-      ],
+      content: d2.$1,
+      options: [d2.$2, d2.$3],
     ),
     Question(
       id: 'M3_D3_${cat}_$n', phaseId: 't3_p1',
@@ -500,14 +562,27 @@ class GamificationViewModel extends ChangeNotifier {
         'Ex: A área de research passou a publicar relatórios mensais que viraram referência...',
       ],
     ),
-  ];
+  ];}
 
   Future<void> _finishPhase() async {
+    // Phase 5: after t5_p2 (last M5 phase), trigger summary generation before completion
+    final lastPhaseId = _questions.isNotEmpty ? _questions.first.phaseId : '';
+    if (lastPhaseId == 't5_p2') {
+      _pendingSummaryGeneration = true;
+      notifyListeners();
+      return; // SummaryGenerationScreen calls completePhasAfterSummary()
+    }
+
     _isPhaseCompleted = true;
-    
-    // Calculate XP
     _earnedXp = 50 + (_questions.length * 10);
-    
+    notifyListeners();
+  }
+
+  /// Called by SummaryGenerationScreen after the summary is approved/skipped.
+  Future<void> completePhaseAfterSummary() async {
+    _pendingSummaryGeneration = false;
+    _isPhaseCompleted = true;
+    _earnedXp = 50 + (_questions.length * 10);
     notifyListeners();
   }
   

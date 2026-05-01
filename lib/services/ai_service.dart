@@ -214,4 +214,75 @@ class AIService {
       };
     }
   }
+
+  // ============================================================
+  // Phase 5 — Bullet & summary generation
+  // ============================================================
+
+  Future<BulletGenerationResult> generateBullets({
+    required String experiencePhaseId,
+    required String campaignId,
+    String? clarificationAnswer,
+  }) async {
+    try {
+      final response = await _client.functions.invoke(
+        'generate-bullets',
+        body: {
+          'experience_phase_id': experiencePhaseId,
+          'campaign_id': campaignId,
+          if (clarificationAnswer != null) 'clarification_answer': clarificationAnswer,
+        },
+      );
+
+      if (response.status != 200) {
+        throw Exception('generate-bullets error: ${response.status}');
+      }
+
+      final data = Map<String, dynamic>.from(response.data as Map);
+      final rawBullets = data['bullets'] as List?;
+      final rawClarification = data['needs_clarification'];
+
+      final bullets = (rawBullets ?? []).map((b) {
+        final map = Map<String, dynamic>.from(b as Map);
+        return BulletVersion(
+          id: map['version_id'] as String? ?? '',
+          campaignId: campaignId,
+          experiencePhaseId: experiencePhaseId,
+          content: map['content'] as String,
+          angle: map['angle'] as String,
+          confidence: (map['confidence'] as num?)?.toDouble() ?? 0.8,
+        );
+      }).toList();
+
+      BulletClarification? clarification;
+      if (rawClarification != null) {
+        clarification = BulletClarification.fromJson(
+          Map<String, dynamic>.from(rawClarification as Map),
+        );
+      }
+
+      return BulletGenerationResult(bullets: bullets, needsClarification: clarification);
+    } catch (e) {
+      print('Error generating bullets: $e');
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> generateSummary(String campaignId) async {
+    try {
+      final response = await _client.functions.invoke(
+        'generate-summary',
+        body: {'campaign_id': campaignId},
+      );
+
+      if (response.status != 200) {
+        throw Exception('generate-summary error: ${response.status}');
+      }
+
+      return Map<String, dynamic>.from(response.data as Map);
+    } catch (e) {
+      print('Error generating summary: $e');
+      rethrow;
+    }
+  }
 }

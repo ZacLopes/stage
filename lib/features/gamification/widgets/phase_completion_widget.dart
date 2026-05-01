@@ -246,14 +246,22 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
           ),
 
           SafeArea(
-            child: Column(
+            child: SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: MediaQuery.of(context).size.height -
+                      MediaQuery.of(context).padding.top -
+                      MediaQuery.of(context).padding.bottom,
+                ),
+                child: IntrinsicHeight(
+                  child: Column(
               children: [
                 const Spacer(flex: 2),
 
                 // ── Animated checkmark icon ─────────────────────────────
                 SizedBox(
-                  width: 200,
-                  height: 200,
+                  width: 160,
+                  height: 160,
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
@@ -261,8 +269,8 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
                       AnimatedBuilder(
                         animation: _pulseCtrl,
                         builder: (_, __) => Container(
-                          width: 140 + _pulseCtrl.value * 10,
-                          height: 140 + _pulseCtrl.value * 10,
+                          width: 110 + _pulseCtrl.value * 10,
+                          height: 110 + _pulseCtrl.value * 10,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: const Color(0xFF58CC02)
@@ -299,7 +307,7 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
                   ),
                 ),
 
-                const SizedBox(height: 40),
+                const SizedBox(height: 20),
 
                 // ── Text block ──────────────────────────────────────────
                 AnimatedBuilder(
@@ -432,6 +440,9 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
                   ),
                 ),
               ],
+                  ),
+                ),
+              ),
             ),
           ),
         ],
