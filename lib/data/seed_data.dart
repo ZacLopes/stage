@@ -58,9 +58,8 @@ class SeedData {
       Phase(id: 't2_p3', trackId: 'track_2', orderIndex: 3, title: 'Medalhas de Honra', description: 'Conquistas acadêmicas.', xpReward: 120),
 
       // --- MUNDO 3 ---
-      Phase(id: 't3_p1', trackId: 'track_3', orderIndex: 1, title: 'O Ponto de Partida', description: 'Valide suas vivências.', xpReward: 150),
-      Phase(id: 't3_p2', trackId: 'track_3', orderIndex: 2, title: 'Atividades', description: 'Atividades extracurriculares.', xpReward: 150),
-      // Phase 4 removed as requested
+      Phase(id: 't3_p1', trackId: 'track_3', orderIndex: 1, title: 'O Ponto de Partida', description: 'Suas experiências práticas.', xpReward: 150),
+      // t3_p2 removed — activities absorbed into inventory as 'lead'
 
       // --- MUNDO 4 (ATUALIZADO) ---
       Phase(id: 't4_p1', trackId: 'track_4', orderIndex: 1, title: 'Minhas Ferramentas Técnicas', description: 'O que você domina.', xpReward: 180),
@@ -95,38 +94,23 @@ class SeedData {
       Question(id: 'M2_3_1_Q1', phaseId: 't2_p3', type: QuestionType.rewardCardSelect, content: 'Você conquistou alguma bolsa de estudos por mérito?', options: ['Sim, 100%', 'Sim, Parcial', 'Não']),
       Question(id: 'M2_3_1_Q4', phaseId: 't2_p3', type: QuestionType.yesNoWithDetail, content: 'Algum professor já te deu um destaque ou você ganhou algum prêmio acadêmico?', options: []),
 
-      // --- M3.1: O Ponto de Partida ---
+      // --- M3.1: O Ponto de Partida (Phase 4 redesign) ---
       Question(
         id: 'M3_1_1_Q1',
         phaseId: 't3_p1',
-        type: QuestionType.experienceTypeSelect,
-        content: 'Qual dessas experiências você já realizou (mesmo que sem carteira assinada)?',
-        options: [
-          '{"id": "corporate", "label": "Experiência Corporativa", "description": "Estágios ou empregos com contrato formal.", "icon": "business"}',
-          '{"id": "startup", "label": "Startup ou Venture Própria", "description": "Criei meu próprio negócio, app ou projeto.", "icon": "rocket_launch"}',
-          '{"id": "freelance", "label": "Freelance ou \\"Bicos\\"", "description": "Serviços autônomos e projetos extras.", "icon": "handshake"}',
-          '{"id": "social", "label": "Voluntariado ou Social", "description": "Impacto em ONGs ou comunidades.", "icon": "volunteer_activism"}',
-          '{"id": "other", "label": "Outro", "description": "Algo diferente que também conta.", "icon": "edit"}',
-          '{"id": "none", "label": "Buscando a primeira experiência", "description": "Ainda não tive vivências práticas.", "icon": "school"}'
-        ]
+        type: QuestionType.experienceInventory,
+        content: 'Quais tipos de experiência você já teve (mesmo que curta, informal ou sem salário)?',
+        options: [],
       ),
-      Question(id: 'M3_1_1_Q2', phaseId: 't3_p1', type: QuestionType.experienceForm, content: 'Conte mais sobre essa experiência!', options: []),
-
-      // --- M3.2: Atividades extracurriculares (movidas de M2) ---
       Question(
-        id: 'M2_3_1_Q2',
-        phaseId: 't3_p2',
-        type: QuestionType.activitiesGrid,
-        content: 'Além das aulas, você realizou alguma dessas atividades?',
-        options: [
-          '{"id": "ligas", "label": "Ligas", "icon": "groups", "detailTitle": "Qual foi a Liga? (Ex: Tech, Marketing...)", "reflectiveTitle": "Qual foi seu papel e sua maior entrega lá?"}',
-          '{"id": "lodges", "label": "Lodges", "icon": "public", "detailTitle": "Para qual destino você foi?", "reflectiveTitle": "Qual foi o maior aprendizado dessa imersão?"}',
-          '{"id": "startup_school", "label": "Startup School", "icon": "rocket_launch", "detailTitle": "Qual era o nome do projeto/startup?", "reflectiveTitle": "Qual marco você atingiu (MVP, Venda, Pitch)?"}',
-          '{"id": "esportes", "label": "Esportes", "icon": "sports_soccer", "detailTitle": "Qual modalidade?", "reflectiveTitle": "Como essa disciplina ajuda você no trabalho?"}',
-          '{"id": "outros", "label": "Outros", "icon": "star", "detailTitle": "Qual o nome da iniciativa?", "reflectiveTitle": "O que exatamente você desenvolveu nesse projeto?"}',
-          '{"id": "none", "label": "Não participei", "icon": "block", "detailTitle": "", "reflectiveTitle": ""}'
-        ]
+        id: 'M3_1_1_QCount',
+        phaseId: 't3_p1',
+        type: QuestionType.experienceQuantity,
+        content: 'Quantas experiências você teve em cada categoria?',
+        options: [],
       ),
+      // D1-D5 questions per (category, index) are generated dynamically in GamificationViewModel
+      // and saved via ensureQuestionExists() before saveAnswer().
 
 
 

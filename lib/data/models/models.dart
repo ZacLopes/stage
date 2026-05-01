@@ -215,6 +215,10 @@ enum QuestionType {
   academicForm,         // M2_1_1_Q1: institution+dates+semester+period
   toolsCatalog,         // M4_1_1_Q1: 8 categories with inline level
   contactForm,          // M5_1_1_Q1: LinkedIn+portfolio+email+phone
+  // Phase 4 M3 redesign (indices 39, 40, 41 — must stay at end)
+  experienceInventory,  // M3_1_1_Q1: multi-select 9 experience categories
+  experienceQuantity,   // M3_1_1_QCount: count per category chips 1-5+
+  experienceDetailForm, // M3_D1_*: org+role+dates+city for each experience
 }
 
 class Question {

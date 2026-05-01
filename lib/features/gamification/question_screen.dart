@@ -46,6 +46,9 @@ import 'widgets/learning_vault_widget.dart';
 import 'widgets/academic_form_widget.dart';
 import 'widgets/tools_catalog_widget.dart';
 import 'widgets/contact_form_widget.dart';
+import 'widgets/experience_inventory_widget.dart';
+import 'widgets/experience_quantity_widget.dart';
+import 'widgets/experience_detail_form_widget.dart';
 
 class QuestionScreen extends StatefulWidget {
   final Phase phase;
@@ -103,7 +106,11 @@ class _QuestionScreenState extends State<QuestionScreen> {
           type == QuestionType.cityStateInput ||
           type == QuestionType.binaryChoice ||
           type == QuestionType.retroIdCard ||
-          type == QuestionType.bridgeText
+          type == QuestionType.bridgeText ||
+          // Phase 4 M3 new types — all emit a JSON string
+          type == QuestionType.experienceInventory ||
+          type == QuestionType.experienceQuantity ||
+          type == QuestionType.experienceDetailForm
           ) {
         _selectedOptions.clear();
         _selectedOptions.add(answer.toString());
@@ -376,7 +383,19 @@ class _QuestionScreenState extends State<QuestionScreen> {
                             height: 1.3,
                           ),
                         ),
-                        const SizedBox(height: 48),
+                        // Subtexto for D2-D5 narrative questions (options[0] = helper context)
+                        if (question.type == QuestionType.text && question.options.length >= 2) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            question.options[0],
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Color(0xFF9CA3AF),
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 32),
                         _buildQuestionContent(context, question, viewModel, displayContent),
                       ],
                     ),
@@ -509,6 +528,11 @@ class _QuestionScreenState extends State<QuestionScreen> {
             style: const TextStyle(fontSize: 18),
         );
       case QuestionType.text:
+        // When options has 2+ entries: options[0] = helper subtitle (shown above),
+        // options[1] = placeholder in the text field.
+        final textPlaceholder = question.options.length >= 2
+            ? question.options[1]
+            : (question.options.isNotEmpty ? question.options[0] : 'Digite sua resposta aqui...');
         return TextField(
           controller: _textController,
           onChanged: (value) {
@@ -521,9 +545,7 @@ class _QuestionScreenState extends State<QuestionScreen> {
           },
           maxLines: 5,
           decoration: InputDecoration(
-            hintText: question.options.isNotEmpty
-                ? question.options.first
-                : 'Digite sua resposta aqui...',
+            hintText: textPlaceholder,
             filled: true,
             fillColor: const Color(0xFFF3F4F6),
             border: OutlineInputBorder(
@@ -812,6 +834,29 @@ class _QuestionScreenState extends State<QuestionScreen> {
           initialValue: _selectedOptions.isNotEmpty ? _selectedOptions.first : null,
         );
 
+      case QuestionType.experienceInventory:
+        return ExperienceInventoryWidget(
+          onSelect: (val) => _handleOptionSelect(val, question.type),
+          initialValue: _selectedOptions.isNotEmpty ? _selectedOptions.first : null,
+        );
+
+      case QuestionType.experienceQuantity:
+        // question.options contains the category codes from the inventory answer
+        return ExperienceQuantityWidget(
+          categories: question.options,
+          onSelect: (val) => _handleOptionSelect(val, question.type),
+          initialValue: _selectedOptions.isNotEmpty ? _selectedOptions.first : null,
+        );
+
+      case QuestionType.experienceDetailForm:
+        // question.options[0] is the category code (e.g. 'stage', 'emp')
+        final catCode = question.options.isNotEmpty ? question.options[0] : 'stage';
+        return ExperienceDetailFormWidget(
+          categoryCode: catCode,
+          onSelect: (val) => _handleOptionSelect(val, question.type),
+          initialValue: _selectedOptions.isNotEmpty ? _selectedOptions.first : null,
+        );
+
       default:
         return const Center(child: Text('Unknown Question Type'));
     }
@@ -872,19 +917,6 @@ class _QuestionScreenState extends State<QuestionScreen> {
        if (link == null || link.trim().isEmpty) {
          isEnabled = false;
        }
-    }
-
-    // --- MODULE 3.1: NO EXPERIENCE SKIP ---
-    if (viewModel.currentQuestion?.id == 'M3_1_1_Q1' && _selectedOptions.isNotEmpty) {
-       // Check for No Experience
-       if (_selectedOptions.first == 'NO_EXPERIENCE') {
-          await viewModel.answerQuestion('NO_EXPERIENCE');
-          while (viewModel.currentQuestion != null && viewModel.currentQuestion!.id.startsWith('M3')) {
-             await viewModel.answerQuestion('skipped');
-          }
-          return;
-       }
-       // Custom 'Other' experience is now handled in ViewModel by not generating next questions
     }
 
     // --- MODULE 3.1: FORM VALIDATION ---

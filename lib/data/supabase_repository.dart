@@ -484,6 +484,29 @@ class SupabaseRepository {
     }
   }
 
+  /// Returns a map of {questionId → answer} for the given question IDs.
+  /// Used by GamificationViewModel to restore partial phase progress.
+  Future<Map<String, String>> getAnswersForQuestions(
+      List<String> questionIds) async {
+    if (questionIds.isEmpty) return {};
+    try {
+      final userId = _client.auth.currentUser?.id;
+      if (userId == null) return {};
+      final response = await _client
+          .from('user_answers')
+          .select('question_id, answer')
+          .eq('user_id', userId)
+          .inFilter('question_id', questionIds);
+      return {
+        for (final row in response as List<dynamic>)
+          row['question_id'] as String: row['answer'] as String,
+      };
+    } catch (e) {
+      print('Error fetching answers for questions: $e');
+      return {};
+    }
+  }
+
   Future<List<Map<String, dynamic>>> getUserAnswers() async {
     try {
       final userId = _client.auth.currentUser?.id;
