@@ -71,7 +71,17 @@ class _EditExperienceScreenState extends State<EditExperienceScreen> {
   }
 
   Future<void> _saveD1() async {
-    if (_d1Json.isEmpty || _d1Json == _initialD1Json) return;
+    if (_d1Json.isEmpty || _d1Json == _initialD1Json) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Nenhuma alteração para salvar.'),
+            duration: Duration(milliseconds: 1200),
+          ),
+        );
+      }
+      return;
+    }
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
     final qid = 'M3_D1_${_cat}_$_idx';
@@ -86,13 +96,26 @@ class _EditExperienceScreenState extends State<EditExperienceScreen> {
     );
     _initialD1Json = _d1Json;
     if (mounted) {
-      context.read<ResumeViewModel>();
-      // Use unawaited mark-stale via update method indirectly: nothing to
-      // update yet since D1 doesn't have a dedicated VM method. We trigger
-      // stale by reusing updateContact-style flag — simplest: regenerate on
-      // exit. For now, signal via SnackBar.
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Detalhes salvos. Toque em Regerar para aplicar.')),
+      // Flag the resume as needing regeneration so the parent screen shows
+      // the "Regerar com IA" prompt.
+      context.read<ResumeViewModel>().markStale();
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Row(
+            children: const [
+              Icon(Icons.check_circle, color: Colors.white, size: 18),
+              SizedBox(width: 10),
+              Text('Detalhes salvos · clique em Regerar para refletir no CV'),
+            ],
+          ),
+          backgroundColor: const Color(0xFF059669),
+          duration: const Duration(milliseconds: 2200),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
       );
     }
   }
@@ -300,14 +323,28 @@ class _EditExperienceScreenState extends State<EditExperienceScreen> {
                   color: const Color(0xFFEEF2FF),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.info_outline,
+                child: const Icon(Icons.edit_note,
                     color: Color(0xFF4F46E5), size: 20),
               ),
               const SizedBox(width: 12),
-              Text(
-                'Detalhes da experiência',
-                style: GoogleFonts.inter(
-                    fontSize: 16, fontWeight: FontWeight.bold),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Dados básicos',
+                      style: GoogleFonts.inter(
+                          fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      'Edite organização, cargo, datas e local',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: const Color(0xFF6B7280),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

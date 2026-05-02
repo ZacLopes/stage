@@ -26,6 +26,7 @@ class ResumeData {
   final String summary;
   final List<String> skills;
   final List<ToolWithLevel> tools;
+  final String toolsText; // AI-generated pre-formatted Harvard-style tools string (overrides `tools` when non-empty)
   final List<ExperienceItem> experiences;
   final List<EducationItem> education;
   final List<String> achievements;
@@ -47,6 +48,7 @@ class ResumeData {
     this.summary = '',
     this.skills = const [],
     this.tools = const [],
+    this.toolsText = '',
     this.experiences = const [],
     this.education = const [],
     this.achievements = const [],
@@ -69,6 +71,7 @@ class ResumeData {
     String? summary,
     List<String>? skills,
     List<ToolWithLevel>? tools,
+    String? toolsText,
     List<ExperienceItem>? experiences,
     List<EducationItem>? education,
     List<String>? achievements,
@@ -90,6 +93,7 @@ class ResumeData {
       summary: summary ?? this.summary,
       skills: skills ?? this.skills,
       tools: tools ?? this.tools,
+      toolsText: toolsText ?? this.toolsText,
       experiences: experiences ?? this.experiences,
       education: education ?? this.education,
       achievements: achievements ?? this.achievements,
@@ -488,6 +492,11 @@ class ResumeViewModel extends ChangeNotifier {
     }
   }
 
+  /// Public hook to flag the resume as needing regeneration. Used by ad-hoc
+  /// edit screens (e.g. EditExperienceScreen's D1 form) that don't go through
+  /// one of the dedicated update methods.
+  void markStale() => _markStale();
+
   void _clearStale() {
     if (_hasPendingEdits) {
       _hasPendingEdits = false;
@@ -634,8 +643,11 @@ class ResumeViewModel extends ChangeNotifier {
     _markStale();
   }
 
-  /// Removes an entire experience: soft-deletes its approved bullets and
-  /// hard-deletes its raw_responses + user_answers (D1-D6).
+  /// Removes an entire experience: soft-deletes its approved bullets,
+  /// hard-deletes its raw_responses + user_answers (D1-D6), decrements the
+  /// M3 inventory/count so the AI doesn't hallucinate a phantom entry, and
+  /// surgically removes the matching item from the cached `_resumeContent`
+  /// so it doesn't reappear after the next AI regeneration.
   Future<void> deleteExperience({
     required String cat,
     required int idx,
@@ -643,13 +655,125 @@ class ResumeViewModel extends ChangeNotifier {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
     final phaseId = 'm3.$cat.$idx';
+
+    // 1. Approved bullets — soft delete (preserves history)
     final campaign = await _repository.getLatestCampaign(userId);
     if (campaign != null) {
       await _repository.softDeleteAllBulletsForPhase(campaign.id, phaseId);
     }
+    // 2. Raw responses — hard delete
     await _repository.deleteRawResponsesForPhase(phaseId);
+    // 3. user_answers M3_D1..D6 — hard delete (also removes legacy duplicates)
     await _repository.deleteExperienceUserAnswers(cat, idx);
+
+    // 4. Decrement M3_1_1_QCount and clean M3_1_1_Q1 inventory so the AI
+    //    doesn't see a phantom count when regenerating. WITHOUT this the
+    //    AI sometimes hallucinates a replacement entry from other context.
+    await _decrementInventoryCount(cat);
+
+    // 5. Surgically remove the matching item from the cached resume content
+    //    so the local preview reflects the change immediately AND so the
+    //    NEXT regeneration starts from a clean slate (avoids the merge logic
+    //    in updateResumeWithAI accidentally re-introducing the entry).
+    _removeFromCachedResumeContent(phaseId);
+
     _markStale();
+  }
+
+  /// Decrements M3_1_1_QCount[cat] by 1 (clamped to 0). Removes [cat] from
+  /// M3_1_1_Q1 inventory list when the count reaches 0.
+  Future<void> _decrementInventoryCount(String cat) async {
+    try {
+      final answers = await _repository.getUserAnswers();
+      String? findA(String qid) {
+        for (final a in answers) {
+          if (a['question_id'] == qid) return a['answer'] as String?;
+        }
+        return null;
+      }
+
+      // Decrement count
+      final countRaw = findA('M3_1_1_QCount');
+      final counts = <String, int>{};
+      if (countRaw != null && countRaw.trim().isNotEmpty) {
+        try {
+          final v = jsonDecode(countRaw);
+          if (v is Map) {
+            v.forEach((k, val) {
+              counts[k.toString()] = (val is int)
+                  ? val
+                  : int.tryParse(val.toString()) ?? 0;
+            });
+          }
+        } catch (_) {}
+      }
+      final current = counts[cat] ?? 0;
+      final next = current - 1;
+      if (next <= 0) {
+        counts.remove(cat);
+      } else {
+        counts[cat] = next;
+      }
+      await _repository.replaceAnswer('M3_1_1_QCount', jsonEncode(counts));
+
+      // Remove from inventory set if no more entries of that cat
+      if (next <= 0) {
+        final invRaw = findA('M3_1_1_Q1');
+        final inv = <String>{};
+        if (invRaw != null && invRaw.trim().isNotEmpty) {
+          try {
+            final v = jsonDecode(invRaw);
+            if (v is List) inv.addAll(v.map((e) => e.toString()));
+          } catch (_) {}
+        }
+        if (inv.remove(cat)) {
+          await _repository.replaceAnswer('M3_1_1_Q1', jsonEncode(inv.toList()));
+        }
+      }
+    } catch (e) {
+      // Non-fatal — even if this fails the main delete already happened
+      print('Error decrementing M3 inventory: $e');
+    }
+  }
+
+  /// Removes any cached experience/leadership/project entries whose
+  /// `experiencePhaseId` matches [phaseId]. Persists the cleaned content
+  /// back to localStorage so the next regeneration's merge logic doesn't
+  /// re-introduce the deleted item.
+  void _removeFromCachedResumeContent(String phaseId) {
+    if (_resumeContent == null) return;
+    final newExps = _resumeContent!.experiences
+        .where((e) => e.experiencePhaseId != phaseId)
+        .toList();
+    final newLeads = _resumeContent!.leadership
+        .where((l) => l.experiencePhaseId != phaseId)
+        .toList();
+    final newProjs = _resumeContent!.academicProjects
+        .where((p) => p.experiencePhaseId != phaseId)
+        .toList();
+    final didChange = newExps.length != _resumeContent!.experiences.length ||
+        newLeads.length != _resumeContent!.leadership.length ||
+        newProjs.length != _resumeContent!.academicProjects.length;
+    if (!didChange) return;
+    _resumeContent = ResumeContent(
+      summary: _resumeContent!.summary,
+      skills: _resumeContent!.skills,
+      toolsText: _resumeContent!.toolsText,
+      experiences: newExps,
+      education: _resumeContent!.education,
+      achievements: _resumeContent!.achievements,
+      interests: _resumeContent!.interests,
+      academicProjects: newProjs,
+      leadership: newLeads,
+      courses: _resumeContent!.courses,
+      languages: _resumeContent!.languages,
+      awards: _resumeContent!.awards,
+    );
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId != null) {
+      // Best-effort persist; safe if it fails.
+      _localStorage.saveResumeContent(userId, _resumeContent!, language: _language);
+    }
   }
 
   /// Triggers a fresh AI regeneration of the resume using all the latest
@@ -753,10 +877,15 @@ class ResumeViewModel extends ChangeNotifier {
     
     final userProfile = await _repository.getUserProfile();
     final rawAnswers = await _repository.getUserAnswers();
-    
+
+    // BUG FIX: rawAnswers is ordered by answered_at DESC (most recent first).
+    // Using `[key] = value` assignment OVERWRITES on duplicates, so the LAST
+    // iteration wins — which would be the OLDEST row. Use putIfAbsent to keep
+    // the FIRST occurrence (= most recent), so duplicate rows from the legacy
+    // saveAnswer-without-onConflict bug don't surface stale data.
     final Map<String, dynamic> answersMap = {};
     for (var item in rawAnswers) {
-      answersMap[item['question_id']] = item['answer'];
+      answersMap.putIfAbsent(item['question_id'], () => item['answer']);
     }
 
     String? getAnswer(String qId) {
@@ -789,6 +918,7 @@ class ResumeViewModel extends ChangeNotifier {
     }
 
     String location = getAnswer('M5_2_1_Q1') ?? 'São Paulo, SP';
+    location = _LocationNormalizer.normalize(location, lang: _language);
 
     if (userProfile != null) {
       _resumeData = _resumeData!.copyWith(
@@ -885,6 +1015,7 @@ class ResumeViewModel extends ChangeNotifier {
         _resumeContent = ResumeContent(
           summary: _shouldUpdateString(_resumeContent!.summary, newContent.summary) ? newContent.summary : _resumeContent!.summary,
           skills: _shouldUpdateString(_resumeContent!.skills, newContent.skills) ? newContent.skills : _resumeContent!.skills,
+          toolsText: _shouldUpdateString(_resumeContent!.toolsText, newContent.toolsText) ? newContent.toolsText : _resumeContent!.toolsText,
           experiences: _shouldUpdateList(_resumeContent!.experiences, newContent.experiences) ? newContent.experiences : _resumeContent!.experiences,
           education: _shouldUpdateList(_resumeContent!.education, newContent.education) ? newContent.education : _resumeContent!.education,
           achievements: _shouldUpdateString(_resumeContent!.achievements, newContent.achievements) ? newContent.achievements : _resumeContent!.achievements,
@@ -987,6 +1118,7 @@ class ResumeViewModel extends ChangeNotifier {
       _resumeContent = ResumeContent(
         summary: _resumeContent!.summary,
         skills: _resumeContent!.skills,
+        toolsText: _resumeContent!.toolsText,
         experiences: _resumeContent!.experiences,
         education: _resumeContent!.education,
         achievements: _resumeContent!.achievements,
@@ -1091,6 +1223,10 @@ class ResumeViewModel extends ChangeNotifier {
       final raw = await _localStorage.getResumeContent(userId, language: _language);
       if (raw != null) _resumeContent = raw;
 
+      // Safety net: enforce summary 3-line cap (~290 chars in prompt; allow 320 here).
+      // Applies to both PT and EN. Truncates to last sentence boundary when possible.
+      _enforceSummaryLengthCap();
+
       // PT is the source of truth for the user's raw answers; for EN we let
       // the AI translate everything and skip frontend overrides that would
       // re-inject PT content (dates, bullets, summary, sport phrase, etc.).
@@ -1180,7 +1316,7 @@ class ResumeViewModel extends ChangeNotifier {
     if (s.isEmpty && e.isEmpty) return '';
     if (s.isEmpty) return e;
     if (e.isEmpty) return s;
-    return '$s - $e';
+    return '$s – $e';
   }
 
   Future<({Map<String, _D1Entry> byKey, Map<String, List<_D1Entry>> byCat})>
@@ -1188,6 +1324,10 @@ class ResumeViewModel extends ChangeNotifier {
     final answers = await _repository.getUserAnswers();
     final byKey = <String, _D1Entry>{};
     final byCat = <String, List<_D1Entry>>{};
+    // Dedup by phase_id since rawAnswers can contain multiple rows per
+    // question_id (legacy saveAnswer-without-onConflict bug). DESC ordering
+    // means the FIRST occurrence is the most recent — keep only that one.
+    final seenPhaseIds = <String>{};
     final re = RegExp(r'^M3_D1_([a-z]+)_(\d+)$');
 
     for (final a in answers) {
@@ -1200,6 +1340,9 @@ class ResumeViewModel extends ChangeNotifier {
         final j = jsonDecode(raw) as Map<String, dynamic>;
         final cat = m.group(1)!;
         final idx = int.parse(m.group(2)!);
+        final phaseId = 'm3.$cat.$idx';
+        if (seenPhaseIds.contains(phaseId)) continue; // skip stale duplicates
+        seenPhaseIds.add(phaseId);
         final entry = _D1Entry(
           cat: cat,
           idx: idx,
@@ -1210,10 +1353,10 @@ class ResumeViewModel extends ChangeNotifier {
           ongoing: j['ongoing'] == true,
           city: (j['city'] as String?)?.trim(),
           // Canonical phase id used in approved_bullets table: 'm3.lead.0'
-          phaseId: 'm3.$cat.$idx',
+          phaseId: phaseId,
         );
         if (entry.org.isNotEmpty || entry.role.isNotEmpty) {
-          byKey['${entry.org}|${entry.role}'.toLowerCase()] = entry;
+          byKey.putIfAbsent('${entry.org}|${entry.role}'.toLowerCase(), () => entry);
         }
         byCat.putIfAbsent(entry.cat, () => []).add(entry);
       } catch (_) {}
@@ -1308,6 +1451,7 @@ class ResumeViewModel extends ChangeNotifier {
         description: (approved != null && approved.isNotEmpty)
             ? bulletsAsDescription(approved)
             : exp.description,
+        experiencePhaseId: match.phaseId,
       ));
     }
 
@@ -1331,6 +1475,8 @@ class ResumeViewModel extends ChangeNotifier {
         description: (approved != null && approved.isNotEmpty)
             ? bulletsAsDescription(approved)
             : lead.description,
+        relevantWork: lead.relevantWork,
+        experiencePhaseId: match.phaseId,
       ));
     }
 
@@ -1359,6 +1505,8 @@ class ResumeViewModel extends ChangeNotifier {
             ? bulletsAsDescription(approved)
             : proj.description,
         location: proj.location.isNotEmpty ? proj.location : (match.city ?? ''),
+        relevantWork: proj.relevantWork,
+        experiencePhaseId: match.phaseId,
       ));
       projD1Map.add(match);
     }
@@ -1591,6 +1739,7 @@ class ResumeViewModel extends ChangeNotifier {
     _resumeContent = ResumeContent(
       summary: _resumeContent!.summary,
       skills: _resumeContent!.skills,
+      toolsText: _resumeContent!.toolsText,
       experiences: dedupExp,
       education: _resumeContent!.education,
       achievements: _resumeContent!.achievements,
@@ -1621,6 +1770,7 @@ class ResumeViewModel extends ChangeNotifier {
       _resumeContent = ResumeContent(
         summary: finalText,
         skills: _resumeContent!.skills,
+        toolsText: _resumeContent!.toolsText,
         experiences: _resumeContent!.experiences,
         education: _resumeContent!.education,
         achievements: _resumeContent!.achievements,
@@ -1631,9 +1781,39 @@ class ResumeViewModel extends ChangeNotifier {
         languages: _resumeContent!.languages,
         awards: _resumeContent!.awards,
       );
+      _enforceSummaryLengthCap();
     } catch (e) {
       print('Error overriding summary: $e');
     }
+  }
+
+  /// Truncates summary to a 3-line cap (~320 chars). Tries to end at the last
+  /// sentence boundary within the cap so the truncated summary doesn't end
+  /// mid-word. Applied to both PT and EN.
+  void _enforceSummaryLengthCap() {
+    if (_resumeContent == null) return;
+    const maxChars = 320;
+    final summary = _resumeContent!.summary;
+    if (summary.length <= maxChars) return;
+    final cut = summary.substring(0, maxChars);
+    final lastDot = cut.lastIndexOf('.');
+    final clean = lastDot > 200
+        ? summary.substring(0, lastDot + 1)
+        : '${cut.trimRight()}…';
+    _resumeContent = ResumeContent(
+      summary: clean,
+      skills: _resumeContent!.skills,
+      toolsText: _resumeContent!.toolsText,
+      experiences: _resumeContent!.experiences,
+      education: _resumeContent!.education,
+      achievements: _resumeContent!.achievements,
+      interests: _resumeContent!.interests,
+      academicProjects: _resumeContent!.academicProjects,
+      leadership: _resumeContent!.leadership,
+      courses: _resumeContent!.courses,
+      languages: _resumeContent!.languages,
+      awards: _resumeContent!.awards,
+    );
   }
 
 
@@ -1678,17 +1858,20 @@ class ResumeViewModel extends ChangeNotifier {
         })
         .toList();
 
+    String normLoc(String s) => _LocationNormalizer.normalize(s, lang: _language);
+
     return ResumeData(
       fullName: _resumeData?.fullName ?? '',
       email: _resumeData?.email ?? '',
       phone: _resumeData?.phone ?? '',
       linkedin: _resumeData?.linkedin ?? '',
-      location: _resumeData?.location ?? '',
+      location: normLoc(_resumeData?.location ?? ''),
       address: _resumeData?.address ?? '',
       language: _language,
       summary: content.summary,
       skills: filteredSkills,
       tools: tools,
+      toolsText: content.toolsText,
       experiences: content.experiences.map((e) => ExperienceItem(
         role: e.role,
         company: e.company,
@@ -1725,8 +1908,24 @@ class ResumeViewModel extends ChangeNotifier {
       }).toList(),
       achievements: processList(content.achievements),
       interests: processList(content.interests),
-      academicProjects: content.academicProjects,
-      leadership: content.leadership,
+      academicProjects: content.academicProjects.map((p) => ResumeProject(
+        title: p.title,
+        role: p.role,
+        period: p.period,
+        description: p.description,
+        location: normLoc(p.location),
+        relevantWork: p.relevantWork,
+        experiencePhaseId: p.experiencePhaseId,
+      )).toList(),
+      leadership: content.leadership.map((l) => ResumeLeadership(
+        role: l.role,
+        organization: l.organization,
+        period: l.period,
+        location: normLoc(l.location),
+        description: l.description,
+        relevantWork: l.relevantWork,
+        experiencePhaseId: l.experiencePhaseId,
+      )).toList(),
       courses: content.courses,
       languages: content.languages,
       awards: content.awards,
@@ -1799,6 +1998,127 @@ class ResumeViewModel extends ChangeNotifier {
       _isSaving = false;
       notifyListeners();
     }
+  }
+}
+
+/// Normalizes location strings to a single canonical format `City, ST/Brazil`
+/// (or `City, ST/Brasil` in PT). Handles common input variations:
+///   "São Paulo - SP"        → "São Paulo, SP/Brazil"
+///   "São Paulo, SP"         → "São Paulo, SP/Brazil"
+///   "São Paulo, Brazil"     → "São Paulo, SP/Brazil"  (via city→state lookup)
+///   "São Paulo"             → "São Paulo, SP/Brazil"  (via city→state lookup)
+///   "São Paulo, SP/Brazil"  → kept as-is
+///   "Madrid, Spain"         → "Madrid, Spain"          (foreign — preserved)
+class _LocationNormalizer {
+  // Top BR cities → state abbreviation (lowercase keys, uppercase values).
+  static const _brCityToState = {
+    'são paulo': 'SP', 'sao paulo': 'SP',
+    'rio de janeiro': 'RJ',
+    'belo horizonte': 'MG',
+    'brasília': 'DF', 'brasilia': 'DF',
+    'salvador': 'BA',
+    'curitiba': 'PR',
+    'porto alegre': 'RS',
+    'recife': 'PE',
+    'fortaleza': 'CE',
+    'manaus': 'AM',
+    'goiânia': 'GO', 'goiania': 'GO',
+    'belém': 'PA', 'belem': 'PA',
+    'campinas': 'SP',
+    'florianópolis': 'SC', 'florianopolis': 'SC',
+    'vitória': 'ES', 'vitoria': 'ES',
+    'natal': 'RN',
+    'maceió': 'AL', 'maceio': 'AL',
+    'são luís': 'MA', 'sao luis': 'MA',
+    'teresina': 'PI',
+    'cuiabá': 'MT', 'cuiaba': 'MT',
+    'campo grande': 'MS',
+    'são josé dos campos': 'SP', 'sao jose dos campos': 'SP',
+    'ribeirão preto': 'SP', 'ribeirao preto': 'SP',
+    'santos': 'SP', 'osasco': 'SP', 'guarulhos': 'SP',
+    'são bernardo do campo': 'SP', 'sao bernardo do campo': 'SP',
+    'santo andré': 'SP', 'santo andre': 'SP',
+    'niterói': 'RJ', 'niteroi': 'RJ',
+    'londrina': 'PR',
+    'joão pessoa': 'PB', 'joao pessoa': 'PB',
+    'aracaju': 'SE',
+    'porto velho': 'RO',
+    'macapá': 'AP', 'macapa': 'AP',
+    'rio branco': 'AC',
+    'boa vista': 'RR',
+    'palmas': 'TO',
+    'sorocaba': 'SP',
+    'são josé do rio preto': 'SP', 'sao jose do rio preto': 'SP',
+    'uberlândia': 'MG', 'uberlandia': 'MG',
+    'juiz de fora': 'MG',
+  };
+
+  static const _validBrStates = {
+    'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO',
+    'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI',
+    'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO',
+  };
+
+  static String normalize(String raw, {String lang = 'pt'}) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return trimmed;
+
+    final brazilLabel = lang == 'en' ? 'Brazil' : 'Brasil';
+
+    // Already in target format "City, ST/Country" — preserve exactly
+    final canonical = RegExp(r'^[^,]+,\s*[A-Z]{2}\s*/\s*[A-Za-zÁÂÃÉÊÍÓÔÕÚáâãéêíóôõú]+\s*$');
+    if (canonical.hasMatch(trimmed)) {
+      // Re-emit with consistent spacing + correct PT/EN label for Brazil
+      final m = RegExp(r'^([^,]+),\s*([A-Z]{2})\s*/\s*(\S+)\s*$').firstMatch(trimmed);
+      if (m != null) {
+        final city = m.group(1)!.trim();
+        final st = m.group(2)!;
+        final country = m.group(3)!;
+        final isBr = country.toLowerCase() == 'brazil' || country.toLowerCase() == 'brasil';
+        return isBr ? '$city, $st/$brazilLabel' : '$city, $st/$country';
+      }
+      return trimmed;
+    }
+
+    // "City - ST" or "City – ST" (en-dash)
+    final dashMatch = RegExp(r'^(.+?)\s*[-–]\s*([A-Za-z]{2})\s*$').firstMatch(trimmed);
+    if (dashMatch != null) {
+      final city = dashMatch.group(1)!.trim();
+      final st = dashMatch.group(2)!.toUpperCase();
+      if (_validBrStates.contains(st)) return '$city, $st/$brazilLabel';
+      return '$city, $st';
+    }
+
+    // "City, X" — comma separator
+    final commaMatch = RegExp(r'^(.+?),\s*(.+)$').firstMatch(trimmed);
+    if (commaMatch != null) {
+      final city = commaMatch.group(1)!.trim();
+      final rest = commaMatch.group(2)!.trim();
+
+      // Rest is a 2-letter state code
+      if (RegExp(r'^[A-Za-z]{2}$').hasMatch(rest)) {
+        final st = rest.toUpperCase();
+        if (_validBrStates.contains(st)) return '$city, $st/$brazilLabel';
+        return '$city, $st';
+      }
+
+      // Rest mentions Brazil/Brasil → use city→state lookup
+      final restLower = rest.toLowerCase();
+      if (restLower == 'brazil' || restLower == 'brasil' ||
+          restLower.contains('brazil') || restLower.contains('brasil')) {
+        final st = _brCityToState[city.toLowerCase()];
+        if (st != null) return '$city, $st/$brazilLabel';
+        return '$city, $brazilLabel';
+      }
+
+      // Foreign country — preserve as-is
+      return '$city, $rest';
+    }
+
+    // Just a city — try lookup
+    final st = _brCityToState[trimmed.toLowerCase()];
+    if (st != null) return '$trimmed, $st/$brazilLabel';
+    return '$trimmed, $brazilLabel';
   }
 }
 

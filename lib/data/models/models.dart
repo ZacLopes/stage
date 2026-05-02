@@ -345,12 +345,15 @@ class ResumeExperience {
   final String company;
   final String period;
   final String description;
+  /// See ResumeProject.experiencePhaseId — same purpose for experiences.
+  final String experiencePhaseId;
 
   ResumeExperience({
     required this.role,
     required this.company,
     required this.period,
     required this.description,
+    this.experiencePhaseId = '',
   });
 
   factory ResumeExperience.fromJson(Map<String, dynamic> json) {
@@ -359,6 +362,7 @@ class ResumeExperience {
       company: json['empresa'] ?? '',
       period: json['periodo'] ?? '',
       description: _parseList(json['descricao']),
+      experiencePhaseId: (json['experience_phase_id'] ?? '').toString(),
     );
   }
 
@@ -368,6 +372,7 @@ class ResumeExperience {
       'empresa': company,
       'periodo': period,
       'descricao': description,
+      'experience_phase_id': experiencePhaseId,
     };
   }
 
@@ -440,6 +445,12 @@ class ResumeProject {
   final String period;
   final String description;
   final String location;
+  final String relevantWork; // Optional Harvard MCS intro line shown before bullets
+  /// Stable identifier of the source D1 entry (e.g. 'm3.proj.0'). Set when
+  /// the override pipeline matched this AI-generated item to a D1 wizard
+  /// entry. Used by the edit screen for unambiguous delete/edit actions
+  /// (no string-matching on translated org/role).
+  final String experiencePhaseId;
 
   ResumeProject({
     required this.title,
@@ -447,6 +458,8 @@ class ResumeProject {
     required this.period,
     required this.description,
     this.location = '',
+    this.relevantWork = '',
+    this.experiencePhaseId = '',
   });
 
   factory ResumeProject.fromJson(Map<String, dynamic> json) {
@@ -456,6 +469,8 @@ class ResumeProject {
       period: json['periodo'] ?? '',
       description: json['descricao'] ?? '',
       location: (json['local'] ?? json['localizacao'] ?? '').toString(),
+      relevantWork: (json['trabalho_relevante'] ?? json['relevant_work'] ?? '').toString(),
+      experiencePhaseId: (json['experience_phase_id'] ?? '').toString(),
     );
   }
 
@@ -466,6 +481,8 @@ class ResumeProject {
       'periodo': period,
       'descricao': description,
       'local': location,
+      'trabalho_relevante': relevantWork,
+      'experience_phase_id': experiencePhaseId,
     };
   }
 }
@@ -476,6 +493,12 @@ class ResumeLeadership {
   final String period;
   final String location;
   final String description;
+  final String relevantWork; // Optional Harvard MCS intro line shown before bullets
+  /// Stable identifier of the source D1 entry (e.g. 'm3.lead.0'). Set when
+  /// the override pipeline matched this AI-generated item to a D1 wizard
+  /// entry. Used by the edit screen for unambiguous delete/edit actions
+  /// (no string-matching on translated org/role).
+  final String experiencePhaseId;
 
   ResumeLeadership({
     required this.role,
@@ -483,6 +506,8 @@ class ResumeLeadership {
     required this.period,
     required this.location,
     required this.description,
+    this.relevantWork = '',
+    this.experiencePhaseId = '',
   });
 
   factory ResumeLeadership.fromJson(Map<String, dynamic> json) {
@@ -492,6 +517,8 @@ class ResumeLeadership {
       period: json['periodo'] ?? '',
       location: json['local'] ?? '',
       description: json['descricao'] ?? '',
+      relevantWork: (json['trabalho_relevante'] ?? json['relevant_work'] ?? '').toString(),
+      experiencePhaseId: (json['experience_phase_id'] ?? '').toString(),
     );
   }
 
@@ -502,6 +529,8 @@ class ResumeLeadership {
       'periodo': period,
       'local': location,
       'descricao': description,
+      'trabalho_relevante': relevantWork,
+      'experience_phase_id': experiencePhaseId,
     };
   }
 }
@@ -595,6 +624,7 @@ class ResumeAward {
 class ResumeContent {
   final String summary;
   final String skills;
+  final String toolsText; // AI-generated pre-formatted tools string (Harvard MCS umbrella style)
   final List<ResumeExperience> experiences;
   final List<ResumeEducation> education;
   final String achievements; // Kept for backward compatibility, might represent generic text
@@ -608,6 +638,7 @@ class ResumeContent {
   ResumeContent({
     required this.summary,
     required this.skills,
+    this.toolsText = '',
     required this.experiences,
     required this.education,
     required this.achievements,
@@ -706,6 +737,7 @@ class ResumeContent {
     return ResumeContent(
       summary: parseField(json['resumo_profissional']),
       skills: parseSkillsField(),
+      toolsText: (json['ferramentas_texto'] is String) ? json['ferramentas_texto'] as String : '',
       experiences: parseExperiences(json['experiencias']),
       education: parseEducation(json['formacao']),
       achievements: parseField(json['conquistas']),
@@ -724,6 +756,7 @@ class ResumeContent {
     return {
       'resumo_profissional': summary,
       'habilidades': skills,
+      'ferramentas_texto': toolsText,
       'experiencias': experiences.map((e) => e.toJson()).toList(),
       'formacao': education.map((e) => e.toJson()).toList(),
       'conquistas': achievements,

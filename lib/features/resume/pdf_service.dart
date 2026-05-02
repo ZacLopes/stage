@@ -988,8 +988,9 @@ class PdfService {
       'mobile': 'Mobile',
       'edu_coursework': 'Disciplinas relevantes',
       'edu_gpa': 'CR',
-      'edu_honors': 'Distinções',
+      'edu_honors': 'Honras &amp; Distinção Acadêmica',
       'edu_rep_role': 'Cargo representativo',
+      'relevant_work': 'Trabalho Relevante',
       'lvl_native': 'Nativo',
       'lvl_fluent': 'Fluente',
       'lvl_advanced': 'Avançado',
@@ -1011,8 +1012,9 @@ class PdfService {
       'mobile': 'Mobile',
       'edu_coursework': 'Relevant Coursework',
       'edu_gpa': 'GPA',
-      'edu_honors': 'Honors',
+      'edu_honors': 'Honors &amp; Academic Distinction',
       'edu_rep_role': 'Representative Role',
+      'relevant_work': 'Relevant Work',
       'lvl_native': 'Native',
       'lvl_fluent': 'Fluent',
       'lvl_advanced': 'Advanced',
@@ -1074,6 +1076,8 @@ class PdfService {
               p.role,
               p.period,
               p.description,
+              relevantWork: p.relevantWork,
+              relevantLabel: _l10n('relevant_work', lang),
             ))
         .join('');
     final leadItems = resume.leadership
@@ -1083,6 +1087,8 @@ class PdfService {
               l.role,
               l.period,
               l.description,
+              relevantWork: l.relevantWork,
+              relevantLabel: _l10n('relevant_work', lang),
             ))
         .join('');
     final activitiesHtml = (resume.academicProjects.isNotEmpty || resume.leadership.isNotEmpty)
@@ -1093,17 +1099,21 @@ class PdfService {
     // Harvard MCS order: Technical Skills → Languages → Tools → Certifications
     // Each as its own labeled line (single line per category).
 
+    String _withDot(String s) => s.trimRight().endsWith('.') ? s : '$s.';
+
     if (resume.skills.isNotEmpty) {
-      final skillsText = resume.skills.join(', ');
+      final skillsText = _withDot(resume.skills.join(', '));
       skillParts.add('<div class="sk"><b>${_l10n('technical_skills', lang)}:</b> $skillsText</div>');
     }
 
     if (resume.languages.isNotEmpty) {
-      skillParts.add('<div class="sk"><b>${_l10n('languages', lang)}:</b> ${_buildLanguagesText(resume.languages, lang)}</div>');
+      skillParts.add('<div class="sk"><b>${_l10n('languages', lang)}:</b> ${_withDot(_buildLanguagesText(resume.languages, lang))}</div>');
     }
 
-    if (resume.tools.isNotEmpty) {
-      skillParts.add('<div class="sk"><b>${_l10n('tools', lang)}:</b> ${_buildToolsText(resume.tools, lang)}</div>');
+    if (resume.toolsText.trim().isNotEmpty) {
+      skillParts.add('<div class="sk"><b>${_l10n('tools', lang)}:</b> ${_withDot(_escapeHtml(resume.toolsText.trim()))}</div>');
+    } else if (resume.tools.isNotEmpty) {
+      skillParts.add('<div class="sk"><b>${_l10n('tools', lang)}:</b> ${_withDot(_buildToolsText(resume.tools, lang))}</div>');
     }
 
     if (resume.courses.isNotEmpty) {
@@ -1125,7 +1135,7 @@ class PdfService {
 
     final interestsHtml = resume.interests.isNotEmpty
         ? '<div class="sec">${_l10n('interests', lang)}</div>'
-          '<div class="entry">${_escapeHtml(resume.interests.join(', '))}</div>'
+          '<div class="entry"><b>${_l10n('interests', lang)}:</b> ${_escapeHtml(resume.interests.join(', '))}</div>'
         : '';
 
     return '''<!DOCTYPE html>
@@ -1133,23 +1143,24 @@ class PdfService {
 <head>
   <meta charset="UTF-8">
   <style>
-    @page { size: A4; margin: 0.5in; }
+    @page { size: A4; margin: 0.4in 0.45in; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Times New Roman', Times, serif; font-size: 11pt; color: #000; line-height: 1.2; }
-    .header { text-align: center; margin-bottom: 5pt; }
+    body { font-family: 'Times New Roman', Times, serif; font-size: 11pt; color: #000; line-height: 1.15; }
+    .header { text-align: center; margin-bottom: 3pt; }
     .name { font-weight: bold; font-size: 17pt; letter-spacing: 0.5pt; }
     .address { font-size: 9.5pt; margin-top: 3pt; }
     .contact { font-size: 9.5pt; margin-top: 1pt; }
     hr { border: none; border-top: 1px solid #000; margin: 5pt 0 10pt; }
-    .sec { text-align: left; text-transform: uppercase; font-weight: bold; font-size: 11pt; letter-spacing: 0.3pt; margin: 8pt 0 0; padding-bottom: 1pt; border-bottom: 0.5pt solid #000; }
-    .sec + * { margin-top: 3pt; }
+    .sec { text-align: left; text-transform: uppercase; font-weight: bold; font-size: 11pt; letter-spacing: 0.3pt; margin: 5pt 0 0; padding-bottom: 1pt; border-bottom: 0.5pt solid #000; }
+    .sec + * { margin-top: 2pt; }
     .row { display: flex; justify-content: space-between; font-size: 11pt; }
     .row .r { white-space: nowrap; margin-left: 8pt; }
     .bold .l, .bold .r { font-weight: bold; }
     .italic .l { font-style: italic; }
-    .entry { margin-bottom: 6pt; }
-    ul { margin: 2pt 0 0 0; padding: 0; list-style: none; }
-    li { font-size: 11pt; margin-bottom: 1pt; padding-left: 10pt; text-indent: -10pt; }
+    .entry { margin-bottom: 4pt; }
+    .rel { font-size: 11pt; margin: 1pt 0; }
+    ul { margin: 1pt 0 0 0; padding: 0; list-style: none; }
+    li { font-size: 11pt; margin-bottom: 0.5pt; padding-left: 0; text-indent: 0; }
     li::before { content: "• "; }
     .sk { font-size: 11pt; margin-bottom: 2pt; }
     .detail { font-size: 9.5pt; margin-top: 1pt; }
@@ -1223,15 +1234,21 @@ class PdfService {
     String rightTop,
     String leftBot,
     String rightBot,
-    String description,
-  ) {
+    String description, {
+    String relevantWork = '',
+    String relevantLabel = 'Relevant Work',
+  }) {
     // Top row: Organization (bold) + Location (right). Bottom row: Role (italic) + Period.
     final botRow = (leftBot.isNotEmpty || rightBot.isNotEmpty)
         ? '<div class="row italic"><span class="l">$leftBot</span><span class="r">$rightBot</span></div>'
         : '';
+    final relRow = relevantWork.trim().isNotEmpty
+        ? '<div class="rel"><b>${_escapeHtml(relevantLabel)}:</b> ${_escapeHtml(relevantWork.trim())}</div>'
+        : '';
     return '<div class="entry">'
         '<div class="row bold"><span class="l">$leftTop</span><span class="r">$rightTop</span></div>'
         '$botRow'
+        '$relRow'
         '${_buildHarvardBulletsHtml(description)}'
         '</div>';
   }

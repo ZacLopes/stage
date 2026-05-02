@@ -14,10 +14,10 @@ class ContactFormWidget extends StatefulWidget {
   });
 
   @override
-  State<ContactFormWidget> createState() => _ContactFormWidgetState();
+  State<ContactFormWidget> createState() => ContactFormWidgetState();
 }
 
-class _ContactFormWidgetState extends State<ContactFormWidget> {
+class ContactFormWidgetState extends State<ContactFormWidget> {
   final _linkedinController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
@@ -48,10 +48,18 @@ class _ContactFormWidgetState extends State<ContactFormWidget> {
       }
     }
     _linkedinController.addListener(_scheduleEmit);
-    _emailController.addListener(_scheduleEmit);
-    _phoneController.addListener(_scheduleEmit);
+    _emailController.addListener(_onEmailOrPhoneChanged);
+    _phoneController.addListener(_onEmailOrPhoneChanged);
     _addressController.addListener(_scheduleEmit);
     WidgetsBinding.instance.addPostFrameCallback((_) => _emitIfValid());
+  }
+
+  /// Triggered on every keystroke in email/phone — refreshes the inline
+  /// validation state (red/green icon below the field) AND schedules the
+  /// debounced emit.
+  void _onEmailOrPhoneChanged() {
+    if (mounted) setState(() {});
+    _scheduleEmit();
   }
 
   @override
@@ -88,12 +96,52 @@ class _ContactFormWidgetState extends State<ContactFormWidget> {
     return null;
   }
 
-  bool get _isValid =>
-      _emailController.text.trim().isNotEmpty &&
-      _phoneController.text.trim().length >= 10;
+  /// Phone is considered "complete enough" only when at least the full mobile
+  /// `(XX) XXXXX-XXXX` (14 chars) is typed. Landline `(XX) XXXX-XXXX` (13)
+  /// also accepted. Anything shorter is treated as in-progress and NOT
+  /// emitted — prevents truncated-phone bugs in the saved JSON.
+  bool _phoneLooksComplete(String s) {
+    final digits = s.replaceAll(RegExp(r'\D'), '');
+    return digits.length >= 10;
+  }
+
+  /// Inline validity getters — used by the inline error indicators below
+  /// each field AND by `_isValid` (gates emission/Save).
+  bool get _emailIsEmpty => _emailController.text.trim().isEmpty;
+  bool get _emailIsValid {
+    final s = _emailController.text.trim();
+    if (s.isEmpty) return false;
+    return RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(s);
+  }
+
+  bool get _phoneIsEmpty => _phoneController.text.trim().isEmpty;
+  int get _phoneDigitCount =>
+      _phoneController.text.replaceAll(RegExp(r'\D'), '').length;
+
+  bool get _isValid => _emailIsValid && _phoneLooksComplete(_phoneController.text);
 
   void _emitIfValid() {
     if (!_isValid) return;
+    _emitNow();
+  }
+
+  /// Emits the current state IMMEDIATELY, regardless of debounce. Used by
+  /// the Save button in the resume edit dialog to capture the user's last
+  /// keystroke without waiting for the 500ms debounce window. Returns true
+  /// when emission succeeded (i.e., form was valid), false otherwise — the
+  /// caller can use this to show an error snackbar instead of popping.
+  bool flushEmit() {
+    _debounce?.cancel();
+    if (!_isValid) return false;
+    _emitNow();
+    return true;
+  }
+
+  /// Public read-only check used by the parent dialog to disable/enable the
+  /// Save button reactively (currently only used to surface errors on tap).
+  bool get isValid => _isValid;
+
+  void _emitNow() {
     final portfolioList = _portfolio.entries
         .where((e) => e.key != 'Não tenho')
         .map((e) => {'platform': e.key, 'url': e.value})
@@ -284,6 +332,10 @@ class _ContactFormWidgetState extends State<ContactFormWidget> {
           icon: Icons.email_outlined,
           keyboardType: TextInputType.emailAddress,
         ),
+        if (!_emailIsEmpty && !_emailIsValid)
+          _validationMessage('Formato de e-mail inválido', isError: true)
+        else if (_emailIsValid)
+          _validationMessage('E-mail válido', isError: false),
         const SizedBox(height: 24),
 
         // Phone
@@ -296,6 +348,13 @@ class _ContactFormWidgetState extends State<ContactFormWidget> {
           keyboardType: TextInputType.phone,
           inputFormatters: [_PhoneMaskFormatter()],
         ),
+        if (!_phoneIsEmpty && _phoneDigitCount < 10)
+          _validationMessage(
+            'Faltam ${10 - _phoneDigitCount} dígito${10 - _phoneDigitCount == 1 ? "" : "s"} (mínimo 10)',
+            isError: true,
+          )
+        else if (_phoneDigitCount >= 10)
+          _validationMessage('Telefone válido', isError: false),
 
         const SizedBox(height: 24),
 
@@ -351,6 +410,22 @@ class _ContactFormWidgetState extends State<ContactFormWidget> {
     text,
     style: const TextStyle(color: Color(0xFF6B7280), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1),
   );
+
+  /// Inline validation row shown below email/phone fields.
+  Widget _validationMessage(String text, {required bool isError}) {
+    final color = isError ? const Color(0xFFEF4444) : const Color(0xFF10B981);
+    final icon = isError ? Icons.error_outline : Icons.check_circle_outline;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, left: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(text, style: TextStyle(color: color, fontSize: 12)),
+        ],
+      ),
+    );
+  }
 
   IconData _iconFor(String platform) {
     switch (platform.toLowerCase()) {

@@ -1310,8 +1310,9 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
     'mobile': 'Mobile',
     'edu_coursework': 'Disciplinas relevantes',
     'edu_gpa': 'CR',
-    'edu_honors': 'Distinções',
+    'edu_honors': 'Honras & Distinção Acadêmica',
     'edu_rep_role': 'Cargo representativo',
+    'relevant_work': 'Trabalho Relevante',
   };
   static const _enLabels = {
     'summary': 'Summary',
@@ -1327,8 +1328,9 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
     'mobile': 'Mobile',
     'edu_coursework': 'Relevant Coursework',
     'edu_gpa': 'GPA',
-    'edu_honors': 'Honors',
+    'edu_honors': 'Honors & Academic Distinction',
     'edu_rep_role': 'Representative Role',
+    'relevant_work': 'Relevant Work',
   };
 
   String _t(String key) => (_lang == 'en' ? _enLabels[key] : _ptLabels[key]) ?? key;
@@ -1344,7 +1346,7 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
     return Container(
       width: double.infinity,
       color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 40),
+      padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1381,30 +1383,30 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
               ],
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
 
           // Sumário
           if (resume!.summary.trim().isNotEmpty) ...[
             _buildCenteredTitle(_t('summary'), textStyle),
             Text(
               resume!.summary.trim(),
-              style: textStyle.copyWith(fontSize: 11, height: 1.3),
+              style: textStyle.copyWith(fontSize: 11, height: 1.2),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
           ],
 
           // Experiência Profissional
           if (resume!.experiences.isNotEmpty) ...[
             _buildCenteredTitle(_t('experience'), textStyle),
             ...resume!.experiences.map((exp) => _buildExperienceItem(exp, textStyle)),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
           ],
 
           // Educação
           if (resume!.education.isNotEmpty) ...[
             _buildCenteredTitle(_t('education'), textStyle),
             ...resume!.education.map((edu) => _buildEducationItem(edu, textStyle)),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
           ],
 
           // Atividades Extracurriculares
@@ -1412,7 +1414,7 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
             _buildCenteredTitle(_t('leadership'), textStyle),
             ...resume!.academicProjects.map((p) => _buildProjectItem(p, textStyle)),
             ...resume!.leadership.map((l) => _buildLeadershipItem(l, textStyle)),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
           ],
 
           // Habilidades, Certificações & Programas
@@ -1421,11 +1423,19 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
 
           // Interesses (seção separada no fim)
           if (resume!.interests.isNotEmpty) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             _buildCenteredTitle(_t('interests'), textStyle),
-            Text(
-              resume!.interests.join(', '),
-              style: textStyle.copyWith(fontSize: 11, height: 1.3),
+            RichText(
+              text: TextSpan(
+                style: textStyle.copyWith(fontSize: 11, height: 1.3),
+                children: [
+                  TextSpan(
+                    text: '${_t('interests')}: ',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  TextSpan(text: resume!.interests.join(', ')),
+                ],
+              ),
             ),
           ],
         ],
@@ -1435,7 +1445,7 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
 
   Widget _buildCenteredTitle(String title, TextStyle style) {
     return Padding(
-      padding: const EdgeInsets.only(top: 8, bottom: 3),
+      padding: const EdgeInsets.only(top: 6, bottom: 2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1476,7 +1486,7 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
   Widget _buildEducationItem(EducationItem edu, TextStyle style) {
     final location = edu.location.isNotEmpty ? edu.location : (resume?.location ?? '');
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1547,7 +1557,7 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
   Widget _buildExperienceItem(ExperienceItem exp, TextStyle style) {
     final location = exp.location.isNotEmpty ? exp.location : (resume?.location ?? '');
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 5),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1587,7 +1597,7 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
   Widget _buildProjectItem(ResumeProject proj, TextStyle style) {
     final location = proj.location.isNotEmpty ? proj.location : (resume?.location ?? '');
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 5),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1619,7 +1629,24 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
               ),
             ],
           ),
-          const SizedBox(height: 2),
+          if (proj.relevantWork.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, bottom: 1),
+              child: RichText(
+                text: TextSpan(
+                  style: style.copyWith(fontSize: 10),
+                  children: [
+                    TextSpan(
+                      text: '${_t('relevant_work')}: ',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    TextSpan(text: proj.relevantWork.trim()),
+                  ],
+                ),
+              ),
+            )
+          else
+            const SizedBox(height: 2),
           _buildBulletsFromDescription(proj.description, style),
         ],
       ),
@@ -1629,7 +1656,7 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
   Widget _buildLeadershipItem(ResumeLeadership lead, TextStyle style) {
     final location = lead.location.isNotEmpty ? lead.location : (resume?.location ?? '');
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 5),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1661,7 +1688,24 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
               ),
             ],
           ),
-          const SizedBox(height: 2),
+          if (lead.relevantWork.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, bottom: 1),
+              child: RichText(
+                text: TextSpan(
+                  style: style.copyWith(fontSize: 10),
+                  children: [
+                    TextSpan(
+                      text: '${_t('relevant_work')}: ',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    TextSpan(text: lead.relevantWork.trim()),
+                  ],
+                ),
+              ),
+            )
+          else
+            const SizedBox(height: 2),
           _buildBulletsFromDescription(lead.description, style),
         ],
       ),
@@ -1670,8 +1714,25 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
 
   Widget _buildSkillsSection(TextStyle style) {
     // Group languages and tools by level (Harvard-style sentences)
+    final isEn = _lang == 'en';
+    String joinList(List<String> items) {
+      final conj = isEn ? 'and' : 'e';
+      if (items.isEmpty) return '';
+      if (items.length == 1) return items[0];
+      if (items.length == 2) return '${items[0]} $conj ${items[1]}';
+      return '${items.sublist(0, items.length - 1).join(', ')} $conj ${items.last}';
+    }
+
     String groupLanguages(List<ResumeLanguage> langs) {
       const order = ['Nativo', 'Fluente', 'Avançado', 'Intermediário', 'Básico'];
+      const enLabels = {
+        'Nativo': 'Native',
+        'Fluente': 'Fluent',
+        'Avançado': 'Advanced',
+        'Intermediário': 'Intermediate',
+        'Básico': 'Basic',
+      };
+      final preposition = isEn ? 'in' : 'em';
       final byLevel = <String, List<String>>{};
       for (final l in langs) {
         final level = l.level.trim().isEmpty ? 'Outro' : l.level.trim();
@@ -1681,11 +1742,12 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
       for (final level in order) {
         final list = byLevel.remove(level);
         if (list != null && list.isNotEmpty) {
-          parts.add('$level em ${_joinPt(list)}');
+          final label = isEn ? (enLabels[level] ?? level) : level;
+          parts.add('$label $preposition ${joinList(list)}');
         }
       }
       byLevel.forEach((level, list) {
-        parts.add('$level em ${_joinPt(list)}');
+        parts.add('$level $preposition ${joinList(list)}');
       });
       return parts.join('; ');
     }
@@ -1718,15 +1780,19 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
           return s;
         }).toList();
 
+    String withDot(String s) => s.trimRight().endsWith('.') ? s : '$s.';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (resume!.skills.isNotEmpty)
-          _buildSkillCategory(_t('technical_skills'), resume!.skills.join(', '), style),
+          _buildSkillCategory(_t('technical_skills'), withDot(resume!.skills.join(', ')), style),
         if (resume!.languages.isNotEmpty)
-          _buildSkillCategory(_t('languages'), groupLanguages(resume!.languages), style),
-        if (resume!.tools.isNotEmpty)
-          _buildSkillCategory(_t('tools'), groupTools(resume!.tools), style),
+          _buildSkillCategory(_t('languages'), withDot(groupLanguages(resume!.languages)), style),
+        if (resume!.toolsText.trim().isNotEmpty)
+          _buildSkillCategory(_t('tools'), withDot(resume!.toolsText.trim()), style)
+        else if (resume!.tools.isNotEmpty)
+          _buildSkillCategory(_t('tools'), withDot(groupTools(resume!.tools)), style),
         if (resume!.courses.isNotEmpty)
           _buildSkillBulletList(_t('certifications'), certificationItems(resume!.courses), style),
       ],
@@ -1745,14 +1811,14 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
           ),
           ...items.map((item) => Padding(
                 padding: const EdgeInsets.only(top: 1),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('• ', style: style.copyWith(fontSize: 10)),
-                    Expanded(
-                      child: Text(item, style: style.copyWith(fontSize: 10)),
-                    ),
-                  ],
+                child: RichText(
+                  text: TextSpan(
+                    style: style.copyWith(fontSize: 10),
+                    children: [
+                      const TextSpan(text: '• '),
+                      TextSpan(text: item),
+                    ],
+                  ),
                 ),
               )),
         ],
@@ -1789,17 +1855,14 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
         final cleanLine = line.replaceAll('•', '').trim();
         return Padding(
           padding: const EdgeInsets.only(bottom: 2),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('• ', style: TextStyle(fontSize: 10)),
-              Expanded(
-                child: Text(
-                  cleanLine,
-                  style: style.copyWith(fontSize: 10),
-                ),
-              ),
-            ],
+          child: RichText(
+            text: TextSpan(
+              style: style.copyWith(fontSize: 10),
+              children: [
+                const TextSpan(text: '• '),
+                TextSpan(text: cleanLine),
+              ],
+            ),
           ),
         );
       }).toList(),

@@ -37,8 +37,13 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
 
   // Free-text controllers (legacy ResumeContent fields kept for compat)
   late TextEditingController _summaryController;
-  late TextEditingController _skillsController;
+  late TextEditingController _skillsController; // kept for compat with _save()
   late TextEditingController _interestsController;
+  // Chips-backed skill list — single source of truth for the new UX. Saved
+  // back into _skillsController.text on every mutation so existing _save()
+  // logic keeps working.
+  List<String> _skillsList = [];
+  final TextEditingController _newSkillCtrl = TextEditingController();
 
   // Lists held in memory and saved on "Salvar" via legacy onSave callback
   late List<ResumeExperience> _experiences;
@@ -81,6 +86,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
     super.initState();
     _summaryController = TextEditingController(text: widget.initialContent.summary);
     _skillsController = TextEditingController(text: widget.initialContent.skills);
+    _skillsList = _parseSkillsString(widget.initialContent.skills);
     _interestsController = TextEditingController(text: widget.initialContent.interests);
     _experiences = List.from(widget.initialContent.experiences);
     _education = List.from(widget.initialContent.education);
@@ -105,11 +111,33 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
     if (mounted) setState(() => _showOnboarding = false);
   }
 
+  /// Splits the legacy free-text skills field into a clean list. Handles all
+  /// historical formats: newline-separated, comma-separated, "•"-prefixed.
+  List<String> _parseSkillsString(String raw) {
+    if (raw.trim().isEmpty) return [];
+    final parts = raw
+        .split(RegExp(r'[\n,;]'))
+        .map((s) => s.replaceAll('•', '').trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    // Dedup while preserving order
+    final seen = <String>{};
+    return parts.where((s) => seen.add(s.toLowerCase())).toList();
+  }
+
+  /// Joins the chip list back to the legacy string format expected by
+  /// `_save()` / `processList()` in resume_viewmodel.dart.
+  void _persistSkillsList() {
+    _skillsController.text = _skillsList.join('\n');
+    _save();
+  }
+
   @override
   void dispose() {
     _summaryController.dispose();
     _skillsController.dispose();
     _interestsController.dispose();
+    _newSkillCtrl.dispose();
     super.dispose();
   }
 
@@ -247,21 +275,73 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
+  /// Parses an `experience_phase_id` like 'm3.lead.0' into a (cat, idx) pair.
+  /// Returns null if the string isn't in the expected format.
+  ({String cat, int idx})? _parsePhaseId(String phaseId) {
+    final parts = phaseId.split('.');
+    if (parts.length < 3 || parts[0] != 'm3') return null;
+    final idx = int.tryParse(parts[2]);
+    if (idx == null) return null;
+    return (cat: parts[1], idx: idx);
+  }
+
   /// Returns (cat, idx) when the given (org, role) maps to a D1 entry.
+  /// Multi-strategy lookup tolerates PT/EN translation drift between the
+  /// displayed CV and the raw D1 data (which is always in PT):
+  ///   1. Exact match on (org+role)
+  ///   2. Same-org match if unique within D1 (handles same org but role
+  ///      translated, e.g. "Analista" → "Analyst")
+  ///   3. Same-org match disambiguated by 3-char prefix on role
+  ///      (handles "Pre…" matching "Presidente"/"President")
   ({String cat, int idx})? _findD1ForOrgRole(String org, String role) {
-    final key = '${org.trim().toLowerCase()}|${role.trim().toLowerCase()}';
-    return _d1KeyToCatIdx[key];
+    final orgLower = org.trim().toLowerCase();
+    final roleLower = role.trim().toLowerCase();
+
+    // 1. Exact match
+    final exact = _d1KeyToCatIdx['$orgLower|$roleLower'];
+    if (exact != null) return exact;
+
+    // 2 & 3. Find all D1 entries for this org
+    final orgMatches = _d1KeyToCatIdx.entries
+        .where((e) => e.key.split('|').first == orgLower)
+        .toList();
+
+    if (orgMatches.isEmpty) return null;
+    if (orgMatches.length == 1) return orgMatches.first.value;
+
+    // Multiple D1 entries for same org → disambiguate by role 3-char prefix
+    if (roleLower.length >= 3) {
+      for (final m in orgMatches) {
+        final keyRole = m.key.split('|').last;
+        if (keyRole.length < 3) continue;
+        final pa = roleLower.substring(0, 3);
+        final pb = keyRole.substring(0, 3);
+        if (pa == pb || keyRole.startsWith(pa) || roleLower.startsWith(pb)) {
+          return m.value;
+        }
+      }
+    }
+
+    return null;
   }
 
   /// Routes the [✏️] button: opens the rich EditExperienceScreen if the item
   /// is D1-backed, else falls back to the legacy free-text dialog.
-  Future<bool> _maybeOpenRichEditor(String org, String role) async {
-    final match = _findD1ForOrgRole(org, role);
+  /// Prefers the embedded `phaseId` when available — this is unambiguous and
+  /// survives PT/EN role translation. Falls back to text-matching otherwise.
+  Future<bool> _maybeOpenRichEditor(String org, String role, {String? phaseId}) async {
+    ({String cat, int idx})? match;
+    if (phaseId != null && phaseId.isNotEmpty) {
+      match = _parsePhaseId(phaseId);
+    }
+    match ??= _findD1ForOrgRole(org, role);
     if (match == null || _campaignId == null) return false;
+    final cat = match.cat;
+    final idx = match.idx;
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => EditExperienceScreen(
-          experiencePhaseId: 'm3.${match.cat}.${match.idx}',
+          experiencePhaseId: 'm3.$cat.$idx',
           campaignId: _campaignId!,
         ),
       ),
@@ -273,13 +353,20 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
 
   /// Confirms removal of an experience and, when the item is D1-backed,
   /// soft-deletes the bullets + hard-deletes raw_responses + user_answers.
+  /// Pass `phaseId` (e.g. 'm3.lead.0') when the item carries an embedded
+  /// reference — this is preferred over text-matching since it survives
+  /// PT/EN translation and is fully deterministic.
   /// Returns:
   ///   - `null` when the user cancels (caller does nothing)
   ///   - `true` when removal was confirmed (caller should also drop the
   ///     item from its local list — both for D1-backed and free-text items)
   Future<bool?> _confirmAndDelete(
-      ResumeViewModel vm, String org, String role) async {
-    final match = _findD1ForOrgRole(org, role);
+      ResumeViewModel vm, String org, String role, {String? phaseId}) async {
+    ({String cat, int idx})? match;
+    if (phaseId != null && phaseId.isNotEmpty) {
+      match = _parsePhaseId(phaseId);
+    }
+    match ??= _findD1ForOrgRole(org, role);
     final isRich = match != null;
     final ok = await showDialog<bool>(
       context: context,
@@ -370,39 +457,130 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
               child: Column(
                 children: [
+                  _buildLanguageBanner(vm),
+                  const SizedBox(height: 12),
                   if (_showOnboarding) _buildOnboardingBanner(),
                   if (_showOnboarding) const SizedBox(height: 16),
-                  _buildTargetJobCard(vm),
-                  const SizedBox(height: 16),
-                  _buildSummaryCard(vm),
-                  const SizedBox(height: 16),
+
+                  // ─── Cabeçalho do CV ───
+                  _buildBlockHeader('Cabeçalho do CV'),
                   _buildContactCard(vm),
-                  const SizedBox(height: 16),
-                  _buildEducationSection(),
-                  const SizedBox(height: 16),
-                  _buildAcademicHighlightsCard(vm),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
+                  _buildTargetJobCard(vm),
+                  const SizedBox(height: 12),
+                  _buildSummaryCard(vm),
+                  const SizedBox(height: 24),
+
+                  // ─── Corpo principal ───
+                  _buildBlockHeader('Corpo principal'),
                   _buildExperienceSection(),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
+                  _buildEducationSection(),
+                  const SizedBox(height: 12),
+                  _buildAcademicHighlightsCard(vm),
+                  const SizedBox(height: 12),
                   _buildLeadershipSection(),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   _buildProjectsSection(),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 24),
+
+                  // ─── Habilidades & Complementos ───
+                  _buildBlockHeader('Habilidades & Complementos'),
                   _buildSkillsCard(),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   _buildToolsCard(vm),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   _buildLanguagesCard(),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   _buildCertificationsCard(vm),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   _buildAwardsSection(),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   _buildInterestsCard(),
                 ],
               ),
             ),
       bottomNavigationBar: _buildRegenerateBar(vm),
+    );
+  }
+
+  /// Section group label rendered above each logical block of cards.
+  Widget _buildBlockHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8, left: 4),
+      child: Row(
+        children: [
+          Container(
+            width: 3,
+            height: 14,
+            decoration: BoxDecoration(
+              color: const Color(0xFF00C27A),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            title.toUpperCase(),
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+              color: const Color(0xFF6B7280),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Compact banner indicating which language the displayed CV uses, plus a
+  /// note that edits made in this screen are always against the PT source of
+  /// truth. Tapping switches the CV language (delegated to the resume tab).
+  Widget _buildLanguageBanner(ResumeViewModel vm) {
+    final isEn = vm.language == 'en';
+    final flag = isEn ? '🇺🇸' : '🇧🇷';
+    final cvLang = isEn ? 'Inglês' : 'Português';
+    final hint = isEn
+        ? 'Edições em Português · clique em Regerar para aplicar na versão em Inglês'
+        : 'Suas edições aqui aparecem direto no CV';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: isEn ? const Color(0xFFFFF7ED) : const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isEn ? const Color(0xFFFED7AA) : const Color(0xFFDBEAFE),
+        ),
+      ),
+      child: Row(
+        children: [
+          Text(flag, style: const TextStyle(fontSize: 18)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'CV em $cvLang',
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: const Color(0xFF111827),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  hint,
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    color: const Color(0xFF6B7280),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -703,7 +881,10 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
         _targetJob = await _repo.getTargetJob(campaign!.targetJobId!);
       }
     }
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {});
+      _showSavedFeedback();
+    }
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -980,7 +1161,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
       return;
     }
     await vm.updateSummaryManually(txt);
-    _showSnack('Resumo salvo. Toque em Regerar para aplicar ao CV.');
+    _showSavedFeedback();
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -1028,33 +1209,63 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
   Future<void> _editContact(ResumeViewModel vm) async {
     String emittedJson = '';
     final initialJson = jsonEncode(_contact);
+    final formKey = GlobalKey<ContactFormWidgetState>();
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (ctx) => Scaffold(
-          appBar: AppBar(title: const Text('Editar contato')),
-          body: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: ContactFormWidget(
-              initialValue: initialJson,
-              onSelect: (val) => emittedJson = val,
+        builder: (ctx) => PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) async {
+            if (didPop) return;
+            // Force-flush so emittedJson reflects current state
+            formKey.currentState?.flushEmit();
+            final dirty = emittedJson.isNotEmpty && emittedJson != initialJson;
+            if (!dirty) {
+              if (ctx.mounted) Navigator.pop(ctx);
+              return;
+            }
+            final discard = await _confirmDiscardChanges(ctx);
+            if (discard && ctx.mounted) Navigator.pop(ctx);
+          },
+          child: Scaffold(
+            appBar: AppBar(title: const Text('Editar contato')),
+            body: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: ContactFormWidget(
+                key: formKey,
+                initialValue: initialJson,
+                onSelect: (val) => emittedJson = val,
+              ),
             ),
-          ),
-          bottomNavigationBar: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: ElevatedButton.icon(
-                // Wait long enough for the widget's 500ms debounce to fire,
-                // ensuring `emittedJson` reflects the latest input before we pop.
-                onPressed: () async {
-                  await Future.delayed(const Duration(milliseconds: 600));
-                  if (ctx.mounted) Navigator.pop(ctx, true);
-                },
-                icon: const Icon(Icons.check),
-                label: const Text('Salvar'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF4F46E5),
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(48),
+            bottomNavigationBar: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: ElevatedButton.icon(
+                  // Force-flush the form state synchronously so `emittedJson`
+                  // reflects the LAST keystroke even if the 500ms debounce
+                  // window hasn't fired yet — eliminates the truncated-phone
+                  // race condition. If the form is invalid, surface a clear
+                  // error snackbar instead of silently doing nothing.
+                  onPressed: () {
+                    final ok = formKey.currentState?.flushEmit() ?? false;
+                    if (!ok) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        const SnackBar(
+                          content: Text('Preencha email válido e telefone com no mínimo 10 dígitos.'),
+                          backgroundColor: Color(0xFFEF4444),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                      return;
+                    }
+                    Navigator.pop(ctx, true);
+                  },
+                  icon: const Icon(Icons.check),
+                  label: const Text('Salvar'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4F46E5),
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(48),
+                  ),
                 ),
               ),
             ),
@@ -1081,7 +1292,10 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
       // update immediately — without waiting for the user to "Regerar com IA".
       vm.applyContactToHeader(newContact);
       _contact = newContact;
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {});
+        _showSavedFeedback();
+      }
     } catch (_) {}
   }
 
@@ -1132,29 +1346,42 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
     final initialJson = jsonEncode(_academicHighlights);
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (ctx) => Scaffold(
-          appBar: AppBar(title: const Text('Destaques acadêmicos')),
-          body: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: AcademicHighlightsFormWidget(
-              initialValue: initialJson,
-              onSelect: (val) => emitted = val,
+        builder: (ctx) => PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) async {
+            if (didPop) return;
+            final dirty = emitted.isNotEmpty && emitted != initialJson;
+            if (!dirty) {
+              if (ctx.mounted) Navigator.pop(ctx);
+              return;
+            }
+            final discard = await _confirmDiscardChanges(ctx);
+            if (discard && ctx.mounted) Navigator.pop(ctx);
+          },
+          child: Scaffold(
+            appBar: AppBar(title: const Text('Destaques acadêmicos')),
+            body: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: AcademicHighlightsFormWidget(
+                initialValue: initialJson,
+                onSelect: (val) => emitted = val,
+              ),
             ),
-          ),
-          bottomNavigationBar: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: ElevatedButton.icon(
-                onPressed: () async {
-                  await Future.delayed(const Duration(milliseconds: 600));
-                  if (ctx.mounted) Navigator.pop(ctx, true);
-                },
-                icon: const Icon(Icons.check),
-                label: const Text('Salvar'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF4F46E5),
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(48),
+            bottomNavigationBar: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    await Future.delayed(const Duration(milliseconds: 600));
+                    if (ctx.mounted) Navigator.pop(ctx, true);
+                  },
+                  icon: const Icon(Icons.check),
+                  label: const Text('Salvar'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4F46E5),
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(48),
+                  ),
                 ),
               ),
             ),
@@ -1177,7 +1404,10 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
         'rep_role': (m['rep_role'] ?? '').toString(),
         'coursework': (m['coursework'] ?? '').toString(),
       };
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {});
+        _showSavedFeedback();
+      }
     } catch (_) {}
   }
 
@@ -1196,15 +1426,83 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
             'Conceitos / áreas de domínio (NÃO inclua softwares aqui — esses vão em Ferramentas).',
             style: TextStyle(fontSize: 12, color: Colors.grey),
           ),
-          const SizedBox(height: 8),
-          _buildTextField(
-            _skillsController,
-            hint: 'Ex: Modelagem Financeira, Valuation, Gestão de Projetos…',
-            maxLines: 4,
+          const SizedBox(height: 12),
+          if (_skillsList.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                'Nenhuma habilidade adicionada.',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: _skillsList.asMap().entries.map((entry) {
+                final i = entry.key;
+                final s = entry.value;
+                return Chip(
+                  label: Text(s, style: const TextStyle(fontSize: 13)),
+                  backgroundColor: const Color(0xFFEEF2FF),
+                  side: const BorderSide(color: Color(0xFFC7D2FE)),
+                  deleteIcon: const Icon(Icons.close, size: 16),
+                  onDeleted: () {
+                    setState(() => _skillsList.removeAt(i));
+                    _persistSkillsList();
+                    _showSavedFeedback();
+                  },
+                );
+              }).toList(),
+            ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _newSkillCtrl,
+                  decoration: const InputDecoration(
+                    hintText: 'Adicionar habilidade…',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                  onSubmitted: (_) => _addSkillFromInput(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: _addSkillFromInput,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4F46E5),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+                child: const Text('Adicionar'),
+              ),
+            ],
           ),
         ],
       ),
     );
+  }
+
+  void _addSkillFromInput() {
+    final txt = _newSkillCtrl.text.trim();
+    if (txt.isEmpty) return;
+    // Avoid duplicates (case-insensitive)
+    final exists = _skillsList.any((s) => s.toLowerCase() == txt.toLowerCase());
+    if (exists) {
+      _newSkillCtrl.clear();
+      _showSnack('Habilidade já adicionada.');
+      return;
+    }
+    setState(() {
+      _skillsList.add(txt);
+      _newSkillCtrl.clear();
+    });
+    _persistSkillsList();
+    _showSavedFeedback();
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -1226,20 +1524,36 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
               ),
             )
           else
-            ..._tools.asMap().entries.map((entry) {
-              final i = entry.key;
-              final t = entry.value;
-              return _buildListItemCard(
-                title: t.name,
-                subtitle: t.level.isNotEmpty ? 'Nível: ${t.level}' : 'Sem nível',
-                onEdit: () => _editTool(vm, i),
-                onDelete: () async {
-                  final list = List<ToolWithLevel>.from(_tools)..removeAt(i);
-                  await vm.updateTools(list);
-                  setState(() => _tools = list);
-                },
-              );
-            }),
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              itemCount: _tools.length,
+              onReorder: (oldIndex, newIndex) async {
+                final list = List<ToolWithLevel>.from(_tools);
+                _reorderInPlace(list, oldIndex, newIndex);
+                await vm.updateTools(list);
+                setState(() => _tools = list);
+              },
+              itemBuilder: (ctx, i) {
+                final t = _tools[i];
+                return KeyedSubtree(
+                  key: ValueKey('tool-$i-${t.name}'),
+                  child: _buildListItemCard(
+                    title: t.name,
+                    subtitle: t.level.isNotEmpty ? 'Nível: ${t.level}' : 'Sem nível',
+                    onEdit: () => _editTool(vm, i),
+                    onDelete: () async {
+                      final list = List<ToolWithLevel>.from(_tools)..removeAt(i);
+                      await vm.updateTools(list);
+                      setState(() => _tools = list);
+                      _showSavedFeedback();
+                    },
+                    dragIndex: i,
+                  ),
+                );
+              },
+            ),
           _buildAddButton('Adicionar ferramenta', () => _editTool(vm, null)),
         ],
       ),
@@ -1304,6 +1618,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
     }
     await vm.updateTools(list);
     setState(() => _tools = list);
+    _showSavedFeedback();
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -1326,21 +1641,37 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
               ),
             )
           else
-            ..._languages.asMap().entries.map((entry) {
-              final i = entry.key;
-              final l = entry.value;
-              return _buildListItemCard(
-                title: l.language,
-                subtitle: l.level.isEmpty ? 'Sem nível' : l.level,
-                onEdit: () => _editLanguage(vm, i),
-                onDelete: () async {
-                  final list = List<({String language, String level})>.from(_languages)
-                    ..removeAt(i);
-                  await vm.updateLanguagesStructured(list);
-                  setState(() => _languages = list);
-                },
-              );
-            }),
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              itemCount: _languages.length,
+              onReorder: (oldIndex, newIndex) async {
+                final list = List<({String language, String level})>.from(_languages);
+                _reorderInPlace(list, oldIndex, newIndex);
+                await vm.updateLanguagesStructured(list);
+                setState(() => _languages = list);
+              },
+              itemBuilder: (ctx, i) {
+                final l = _languages[i];
+                return KeyedSubtree(
+                  key: ValueKey('lang-$i-${l.language}'),
+                  child: _buildListItemCard(
+                    title: l.language,
+                    subtitle: l.level.isEmpty ? 'Sem nível' : l.level,
+                    onEdit: () => _editLanguage(vm, i),
+                    onDelete: () async {
+                      final list = List<({String language, String level})>.from(_languages)
+                        ..removeAt(i);
+                      await vm.updateLanguagesStructured(list);
+                      setState(() => _languages = list);
+                      _showSavedFeedback();
+                    },
+                    dragIndex: i,
+                  ),
+                );
+              },
+            ),
           _buildAddButton('Adicionar idioma', () => _editLanguage(vm, null)),
         ],
       ),
@@ -1405,6 +1736,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
     }
     await vm.updateLanguagesStructured(list);
     setState(() => _languages = list);
+    _showSavedFeedback();
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -1426,25 +1758,41 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
               ),
             )
           else
-            ..._certs.asMap().entries.map((entry) {
-              final i = entry.key;
-              final c = entry.value;
-              final subtitle = [
-                if (c.institution.isNotEmpty) c.institution,
-                if (c.year.isNotEmpty) c.year,
-              ].join(' • ');
-              return _buildListItemCard(
-                title: c.title,
-                subtitle: subtitle,
-                onEdit: () => _editCert(vm, i),
-                onDelete: () async {
-                  final list = List<({String title, String institution, String year})>.from(_certs)
-                    ..removeAt(i);
-                  await vm.updateCertifications(list);
-                  setState(() => _certs = list);
-                },
-              );
-            }),
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              itemCount: _certs.length,
+              onReorder: (oldIndex, newIndex) async {
+                final list = List<({String title, String institution, String year})>.from(_certs);
+                _reorderInPlace(list, oldIndex, newIndex);
+                await vm.updateCertifications(list);
+                setState(() => _certs = list);
+              },
+              itemBuilder: (ctx, i) {
+                final c = _certs[i];
+                final subtitle = [
+                  if (c.institution.isNotEmpty) c.institution,
+                  if (c.year.isNotEmpty) c.year,
+                ].join(' • ');
+                return KeyedSubtree(
+                  key: ValueKey('cert-$i-${c.title}'),
+                  child: _buildListItemCard(
+                    title: c.title,
+                    subtitle: subtitle,
+                    onEdit: () => _editCert(vm, i),
+                    onDelete: () async {
+                      final list = List<({String title, String institution, String year})>.from(_certs)
+                        ..removeAt(i);
+                      await vm.updateCertifications(list);
+                      setState(() => _certs = list);
+                      _showSavedFeedback();
+                    },
+                    dragIndex: i,
+                  ),
+                );
+              },
+            ),
           _buildAddButton('Adicionar certificação', () => _editCert(vm, null)),
         ],
       ),
@@ -1516,6 +1864,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
     }
     await vm.updateCertifications(list);
     setState(() => _certs = list);
+    _showSavedFeedback();
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -1528,12 +1877,33 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
       icon: Icons.school,
       child: Column(
         children: [
-          ..._education.asMap().entries.map((entry) => _buildListItemCard(
-                title: entry.value.course,
-                subtitle: '${entry.value.institution} • ${entry.value.period}',
-                onEdit: () => _editEducation(entry.key),
-                onDelete: () => setState(() => _education.removeAt(entry.key)),
-              )),
+          if (_education.isNotEmpty)
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              itemCount: _education.length,
+              onReorder: (oldIndex, newIndex) {
+                setState(() => _reorderInPlace(_education, oldIndex, newIndex));
+                _save();
+              },
+              itemBuilder: (ctx, i) {
+                final e = _education[i];
+                return KeyedSubtree(
+                  key: ValueKey('edu-$i-${e.institution}-${e.course}'),
+                  child: _buildListItemCard(
+                    title: e.course,
+                    subtitle: '${e.institution} • ${e.period}',
+                    onEdit: () => _editEducation(i),
+                    onDelete: () {
+                      setState(() => _education.removeAt(i));
+                      _save();
+                    },
+                    dragIndex: i,
+                  ),
+                );
+              },
+            ),
           _buildAddButton('Adicionar formação', () => _editEducation(null)),
         ],
       ),
@@ -1547,43 +1917,48 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
       icon: Icons.work,
       child: Column(
         children: [
-          ..._experiences.asMap().entries.map((entry) {
-            final exp = entry.value;
-            final i = entry.key;
-            return _buildListItemCard(
-              title: exp.role,
-              subtitle: '${exp.company} • ${exp.period}',
-              onMoveUp: i > 0
-                  ? () {
-                      setState(() {
-                        final item = _experiences.removeAt(i);
-                        _experiences.insert(i - 1, item);
-                      });
-                      _save();
-                    }
-                  : null,
-              onMoveDown: i < _experiences.length - 1
-                  ? () {
-                      setState(() {
-                        final item = _experiences.removeAt(i);
-                        _experiences.insert(i + 1, item);
-                      });
-                      _save();
-                    }
-                  : null,
-              onEdit: () async {
-                final handled = await _maybeOpenRichEditor(exp.company, exp.role);
-                if (!handled) _editExperience(i);
+          if (_experiences.isNotEmpty)
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              itemCount: _experiences.length,
+              onReorder: (oldIndex, newIndex) {
+                setState(() => _reorderInPlace(_experiences, oldIndex, newIndex));
+                _save();
               },
-              onDelete: () async {
-                final ok = await _confirmAndDelete(vm, exp.company, exp.role);
-                if (ok == true) {
-                  setState(() => _experiences.removeAt(i));
-                  _save();
-                }
+              itemBuilder: (ctx, i) {
+                final exp = _experiences[i];
+                return KeyedSubtree(
+                  key: ValueKey('exp-$i-${exp.company}-${exp.role}'),
+                  child: _buildListItemCard(
+                    title: exp.role,
+                    subtitle: '${exp.company} • ${exp.period}',
+                    onEdit: () async {
+                      final handled = await _maybeOpenRichEditor(
+                        exp.company,
+                        exp.role,
+                        phaseId: exp.experiencePhaseId,
+                      );
+                      if (!handled) _editExperience(i);
+                    },
+                    onDelete: () async {
+                      final ok = await _confirmAndDelete(
+                        vm,
+                        exp.company,
+                        exp.role,
+                        phaseId: exp.experiencePhaseId,
+                      );
+                      if (ok == true) {
+                        setState(() => _experiences.removeAt(i));
+                        _save();
+                      }
+                    },
+                    dragIndex: i,
+                  ),
+                );
               },
-            );
-          }),
+            ),
           _buildAddWithWizardButton(
             'Adicionar experiência (com IA)',
             ['emp', 'free'],
@@ -1603,43 +1978,48 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
       icon: Icons.handshake,
       child: Column(
         children: [
-          ..._leadership.asMap().entries.map((entry) {
-            final l = entry.value;
-            final i = entry.key;
-            return _buildListItemCard(
-              title: l.role.isNotEmpty ? l.role : l.organization,
-              subtitle: '${l.organization} • ${l.period}',
-              onMoveUp: i > 0
-                  ? () {
-                      setState(() {
-                        final item = _leadership.removeAt(i);
-                        _leadership.insert(i - 1, item);
-                      });
-                      _save();
-                    }
-                  : null,
-              onMoveDown: i < _leadership.length - 1
-                  ? () {
-                      setState(() {
-                        final item = _leadership.removeAt(i);
-                        _leadership.insert(i + 1, item);
-                      });
-                      _save();
-                    }
-                  : null,
-              onEdit: () async {
-                final handled = await _maybeOpenRichEditor(l.organization, l.role);
-                if (!handled) _editLeadership(i);
+          if (_leadership.isNotEmpty)
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              itemCount: _leadership.length,
+              onReorder: (oldIndex, newIndex) {
+                setState(() => _reorderInPlace(_leadership, oldIndex, newIndex));
+                _save();
               },
-              onDelete: () async {
-                final ok = await _confirmAndDelete(vm, l.organization, l.role);
-                if (ok == true) {
-                  setState(() => _leadership.removeAt(i));
-                  _save();
-                }
+              itemBuilder: (ctx, i) {
+                final l = _leadership[i];
+                return KeyedSubtree(
+                  key: ValueKey('lead-$i-${l.organization}-${l.role}'),
+                  child: _buildListItemCard(
+                    title: l.role.isNotEmpty ? l.role : l.organization,
+                    subtitle: '${l.organization} • ${l.period}',
+                    onEdit: () async {
+                      final handled = await _maybeOpenRichEditor(
+                        l.organization,
+                        l.role,
+                        phaseId: l.experiencePhaseId,
+                      );
+                      if (!handled) _editLeadership(i);
+                    },
+                    onDelete: () async {
+                      final ok = await _confirmAndDelete(
+                        vm,
+                        l.organization,
+                        l.role,
+                        phaseId: l.experiencePhaseId,
+                      );
+                      if (ok == true) {
+                        setState(() => _leadership.removeAt(i));
+                        _save();
+                      }
+                    },
+                    dragIndex: i,
+                  ),
+                );
               },
-            );
-          }),
+            ),
           _buildAddWithWizardButton(
             'Adicionar atividade (com IA)',
             ['lead', 'vol'],
@@ -1658,43 +2038,48 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
       icon: Icons.folder,
       child: Column(
         children: [
-          ..._projects.asMap().entries.map((entry) {
-            final p = entry.value;
-            final i = entry.key;
-            return _buildListItemCard(
-              title: p.title,
-              subtitle: p.role,
-              onMoveUp: i > 0
-                  ? () {
-                      setState(() {
-                        final item = _projects.removeAt(i);
-                        _projects.insert(i - 1, item);
-                      });
-                      _save();
-                    }
-                  : null,
-              onMoveDown: i < _projects.length - 1
-                  ? () {
-                      setState(() {
-                        final item = _projects.removeAt(i);
-                        _projects.insert(i + 1, item);
-                      });
-                      _save();
-                    }
-                  : null,
-              onEdit: () async {
-                final handled = await _maybeOpenRichEditor(p.title, p.role);
-                if (!handled) _editProject(i);
+          if (_projects.isNotEmpty)
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              itemCount: _projects.length,
+              onReorder: (oldIndex, newIndex) {
+                setState(() => _reorderInPlace(_projects, oldIndex, newIndex));
+                _save();
               },
-              onDelete: () async {
-                final ok = await _confirmAndDelete(vm, p.title, p.role);
-                if (ok == true) {
-                  setState(() => _projects.removeAt(i));
-                  _save();
-                }
+              itemBuilder: (ctx, i) {
+                final p = _projects[i];
+                return KeyedSubtree(
+                  key: ValueKey('proj-$i-${p.title}-${p.role}'),
+                  child: _buildListItemCard(
+                    title: p.title,
+                    subtitle: p.role,
+                    onEdit: () async {
+                      final handled = await _maybeOpenRichEditor(
+                        p.title,
+                        p.role,
+                        phaseId: p.experiencePhaseId,
+                      );
+                      if (!handled) _editProject(i);
+                    },
+                    onDelete: () async {
+                      final ok = await _confirmAndDelete(
+                        vm,
+                        p.title,
+                        p.role,
+                        phaseId: p.experiencePhaseId,
+                      );
+                      if (ok == true) {
+                        setState(() => _projects.removeAt(i));
+                        _save();
+                      }
+                    },
+                    dragIndex: i,
+                  ),
+                );
               },
-            );
-          }),
+            ),
           _buildAddWithWizardButton(
             'Adicionar projeto (com IA)',
             ['proj', 'res'],
@@ -1712,12 +2097,33 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
       icon: Icons.emoji_events,
       child: Column(
         children: [
-          ..._awards.asMap().entries.map((entry) => _buildListItemCard(
-                title: entry.value.title,
-                subtitle: entry.value.institution,
-                onEdit: () => _editAward(entry.key),
-                onDelete: () => setState(() => _awards.removeAt(entry.key)),
-              )),
+          if (_awards.isNotEmpty)
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              itemCount: _awards.length,
+              onReorder: (oldIndex, newIndex) {
+                setState(() => _reorderInPlace(_awards, oldIndex, newIndex));
+                _save();
+              },
+              itemBuilder: (ctx, i) {
+                final a = _awards[i];
+                return KeyedSubtree(
+                  key: ValueKey('award-$i-${a.title}-${a.institution}'),
+                  child: _buildListItemCard(
+                    title: a.title,
+                    subtitle: a.institution,
+                    onEdit: () => _editAward(i),
+                    onDelete: () {
+                      setState(() => _awards.removeAt(i));
+                      _save();
+                    },
+                    dragIndex: i,
+                  ),
+                );
+              },
+            ),
           _buildAddButton('Adicionar premiação', () => _editAward(null)),
         ],
       ),
@@ -1852,10 +2258,9 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
     required String subtitle,
     required VoidCallback onEdit,
     required VoidCallback onDelete,
-    VoidCallback? onMoveUp,
-    VoidCallback? onMoveDown,
+    int? dragIndex, // when non-null, renders a drag handle wired via ReorderableDragStartListener
   }) {
-    return Container(
+    final card = Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         border: Border.all(color: Colors.grey[200]!),
@@ -1864,40 +2269,17 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        leading: (onMoveUp != null || onMoveDown != null)
-            ? Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  InkWell(
-                    onTap: onMoveUp,
-                    borderRadius: BorderRadius.circular(4),
-                    child: Padding(
-                      padding: const EdgeInsets.all(2),
-                      child: Icon(
-                        Icons.keyboard_arrow_up,
-                        size: 18,
-                        color: onMoveUp != null
-                            ? const Color(0xFF6B7280)
-                            : Colors.grey[300],
-                      ),
-                    ),
+        leading: dragIndex != null
+            ? ReorderableDragStartListener(
+                index: dragIndex,
+                child: const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Icon(
+                    Icons.drag_indicator,
+                    size: 20,
+                    color: Color(0xFF9CA3AF),
                   ),
-                  InkWell(
-                    onTap: onMoveDown,
-                    borderRadius: BorderRadius.circular(4),
-                    child: Padding(
-                      padding: const EdgeInsets.all(2),
-                      child: Icon(
-                        Icons.keyboard_arrow_down,
-                        size: 18,
-                        color: onMoveDown != null
-                            ? const Color(0xFF6B7280)
-                            : Colors.grey[300],
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               )
             : null,
         title: Text(
@@ -1931,6 +2313,15 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
         ),
       ),
     );
+    return card;
+  }
+
+  /// Helper that mutates a list using the (oldIndex, newIndex) pattern from
+  /// ReorderableListView. Handles the standard "remove then insert" shift.
+  void _reorderInPlace<T>(List<T> list, int oldIndex, int newIndex) {
+    if (newIndex > oldIndex) newIndex -= 1;
+    final item = list.removeAt(oldIndex);
+    list.insert(newIndex, item);
   }
 
 
@@ -2099,6 +2490,56 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
 
   void _showSnack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /// Brief green check snackbar shown after a successful local save. Indicates
+  /// the data was persisted but the rendered CV won't reflect it until the
+  /// user clicks "Regerar com IA".
+  void _showSavedFeedback([String label = 'Salvo localmente']) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.white, size: 18),
+            const SizedBox(width: 10),
+            Text(label, style: const TextStyle(color: Colors.white)),
+          ],
+        ),
+        backgroundColor: const Color(0xFF059669),
+        duration: const Duration(milliseconds: 1500),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+  }
+
+  /// Shows a "Descartar alterações?" confirmation dialog. Returns true when
+  /// the user wants to discard, false when they want to keep editing.
+  Future<bool> _confirmDiscardChanges(BuildContext ctx) async {
+    final result = await showDialog<bool>(
+      context: ctx,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Descartar alterações?'),
+        content: const Text(
+          'Você tem edições não salvas. Se sair agora, elas serão perdidas.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: const Text('Continuar editando'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Descartar'),
+          ),
+        ],
+      ),
+    );
+    return result == true;
   }
 
   // ════════════════════════════════════════════════════════════════════

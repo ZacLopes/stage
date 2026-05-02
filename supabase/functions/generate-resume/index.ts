@@ -31,23 +31,23 @@ serve(async (req) => {
             )
         }
 
-        // Rate limiting: 10 gerações de currículo por dia
-        const today = new Date()
-        today.setHours(0, 0, 0, 0)
-
-        const { count } = await supabaseClient
-            .from('ai_generation_logs')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', user.id)
-            .eq('generation_type', 'resume')
-            .gte('created_at', today.toISOString())
-
-        if (count && count >= 15) {
-            return new Response(
-                JSON.stringify({ error: 'Rate limit exceeded. Maximum 15 resume generations per day.' }),
-                { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            )
-        }
+        // Rate limiting: TEMPORARILY DISABLED for development.
+        // TODO: re-enable before launch — restore the `count >= N` check below.
+        //
+        // const today = new Date()
+        // today.setHours(0, 0, 0, 0)
+        // const { count } = await supabaseClient
+        //     .from('ai_generation_logs')
+        //     .select('*', { count: 'exact', head: true })
+        //     .eq('user_id', user.id)
+        //     .eq('generation_type', 'resume')
+        //     .gte('created_at', today.toISOString())
+        // if (count && count >= 15) {
+        //     return new Response(
+        //         JSON.stringify({ error: 'Rate limit exceeded. Maximum 15 resume generations per day.' }),
+        //         { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        //     )
+        // }
 
         const { answersWithQuestions, areaContext, language } = await req.json()
 
@@ -216,10 +216,30 @@ CATEGORIZAÇÃO DAS EXPERIÊNCIAS (CRÍTICO)
 → "premios": prêmios, distinções, bolsas, rankings
 
 ═══════════════════════════════════════════════════════════════════
+FORMATO DE LOCAL (todos os campos "local" / "localização")
+═══════════════════════════════════════════════════════════════════
+SEMPRE emita locais no formato canônico "Cidade, ST/Brasil" (estado em UF de 2 letras maiúsculas + barra + país).
+✅ "São Paulo, SP/Brasil"  ✅ "Rio de Janeiro, RJ/Brasil"  ✅ "Belo Horizonte, MG/Brasil"
+❌ "São Paulo - SP"  ❌ "São Paulo, Brasil"  ❌ "São Paulo"  ❌ "SP"
+Para locais fora do Brasil, use "Cidade, País" (ex: "Madrid, Espanha"; "Boston, EUA").
+
+═══════════════════════════════════════════════════════════════════
+CAMPO "trabalho_relevante" (em lideranca e projetos — OPCIONAL)
+═══════════════════════════════════════════════════════════════════
+Use APENAS para cargos de RESPONSABILIDADE / LIDERANÇA ELEVADA (Presidente, Diretor, Coordenador, Founder, Líder, Capitão). NÃO use para Membro, Trainee, Voluntário, Analista júnior.
+Quando usar: 1 frase introdutória descrevendo o ESCOPO do papel — o que o cargo abrangeu/governou em geral. Antes dos bullets de conquistas específicas.
+Caracteres: 80-150. NÃO repita conteúdo dos bullets.
+✅ "Liderou a organização estratégica e a governança do clube de finanças, coordenando membros, diretores e processos internos."
+❌ "Foi o presidente do clube." (genérico demais)
+❌ "Liderou +200 pessoas em eventos." (esse é bullet, não intro)
+Se NÃO for cargo de liderança elevada, OMITA o campo OU envie string vazia.
+
+═══════════════════════════════════════════════════════════════════
 HABILIDADES (4 listas separadas)
 ═══════════════════════════════════════════════════════════════════
 "habilidades_tecnicas" (lista): apenas CONCEITOS. ✅ "Modelagem Financeira", "Valuation". ❌ Excel, Python, idiomas. SEMPRE 4-8 itens, INFIRA dos cargos se preciso.
 "ferramentas" (objetos {nome, nivel}): software com nível "Avançado/Intermediário/Básico". Não traduza nomes ("IA" ≠ "Inteligência Artificial").
+"ferramentas_texto" (string, OBRIGATÓRIO — formato Harvard MCS): mesma informação de "ferramentas", mas pré-formatada. Agrupe ferramentas relacionadas sob "umbrelas" comerciais conhecidas: Excel/Word/PowerPoint → "Microsoft Office"; Photoshop/Illustrator → "Adobe Creative Suite"; Figma/Sketch isolados ficam como ferramenta individual. Use o NÍVEL como ADJETIVO antes da umbrela ou ferramenta. Separe grupos por "; ". Exemplo: "Avançado em Microsoft Office (Excel, Word, PowerPoint); Intermediário em Figma; Básico em Python."
 "idiomas" (objetos {idioma, nivel}): "Nativo/Fluente/Avançado/Intermediário/Básico"
 "certificacoes" (objetos {nome, instituicao, ano})
 
@@ -228,7 +248,7 @@ EDUCAÇÃO ENRIQUECIDA
 ═══════════════════════════════════════════════════════════════════
 formacao deve incluir:
 - instituicao, curso (com Major/Minor concatenados se houver)
-- periodo: SEMPRE "Mmm YYYY - Mmm YYYY" ou "Mmm YYYY - Atual" em pt-BR
+- periodo: SEMPRE "Mmm YYYY – Mmm YYYY" ou "Mmm YYYY – Atual" em pt-BR (use EN-DASH "–" U+2013, NÃO hyphen)
 - detalhes: APENAS semestre/turno/Major/Minor. NÃO inclua aqui GPA/honors/cargo (renderizados separadamente pelo frontend a partir de M2_1_1_Q5)
 - gpa: SÓ se ≥ 8.0/10 ou ≥ 3.5/4.0; senão omita
 - coursework, honors, representative_role: opcionais
@@ -262,11 +282,12 @@ FORMATO DE SAÍDA (JSON ESTRITO — apenas o JSON, sem prefixo nem markdown)
 {
   "resumo_profissional": "...",
   "experiencias": [{ "cargo": "...", "empresa": "...", "periodo": "...", "descricao": "..." }],
-  "lideranca": [{ "cargo": "...", "organizacao": "...", "periodo": "...", "local": "...", "descricao": "..." }],
-  "projetos": [{ "titulo": "...", "papel": "...", "periodo": "...", "descricao": "..." }],
+  "lideranca": [{ "cargo": "...", "organizacao": "...", "periodo": "...", "local": "...", "trabalho_relevante": "...", "descricao": "..." }],
+  "projetos": [{ "titulo": "...", "papel": "...", "periodo": "...", "trabalho_relevante": "...", "descricao": "..." }],
   "formacao": [{ "instituicao": "...", "curso": "...", "periodo": "...", "gpa": "8.9/10", "coursework": "...", "honors": "...", "representative_role": "..." }],
   "habilidades_tecnicas": ["Modelagem Financeira", "Valuation"],
   "ferramentas": [{ "nome": "Excel", "nivel": "Avançado" }],
+  "ferramentas_texto": "Avançado em Microsoft Office (Excel, Word, PowerPoint); Intermediário em Figma.",
   "idiomas": [{ "idioma": "Inglês", "nivel": "Fluente" }],
   "certificacoes": [{ "nome": "...", "instituicao": "...", "ano": "..." }],
   "premios": [{ "titulo": "...", "instituicao": "...", "data": "...", "descricao": "..." }],
@@ -341,6 +362,25 @@ EXPERIENCE CATEGORIZATION (CRITICAL)
 → "lideranca" (Extracurricular Activities): academic clubs/leagues, sports admin, volunteering, student projects without external clients
 → "projetos" (Projects/Research): academic research, capstone projects, lab work
 → "interesses" (Interests, STRING): sports, hobbies — SPORTS NEVER go in "lideranca"
+
+═══════════════════════════════════════════════════════════════════
+LOCATION FORMAT (all "local" / "location" fields)
+═══════════════════════════════════════════════════════════════════
+ALWAYS emit locations in canonical "City, ST/Brazil" format (state as 2-letter uppercase abbreviation + slash + country).
+✅ "São Paulo, SP/Brazil"  ✅ "Rio de Janeiro, RJ/Brazil"  ✅ "Belo Horizonte, MG/Brazil"
+❌ "São Paulo - SP"  ❌ "São Paulo, Brazil"  ❌ "São Paulo"  ❌ "SP"
+For non-Brazil locations, use "City, Country" (e.g., "Madrid, Spain"; "Boston, USA").
+
+═══════════════════════════════════════════════════════════════════
+"trabalho_relevante" FIELD (in lideranca and projetos — OPTIONAL)
+═══════════════════════════════════════════════════════════════════
+Use ONLY for ELEVATED RESPONSIBILITY / LEADERSHIP roles (President, Director, Coordinator, Founder, Lead, Captain). DO NOT use for Member, Trainee, Volunteer, Junior Analyst.
+When used: 1 introductory sentence describing the SCOPE of the role — what the position governed/encompassed overall. Comes before specific achievement bullets.
+Characters: 80-150. DO NOT repeat content from bullets.
+✅ "Led the strategic organization and governance of the finance club, coordinating members, directors, and internal processes."
+❌ "Was the president of the club." (too generic)
+❌ "Led 200+ people in events." (that's a bullet, not intro)
+If NOT an elevated leadership role, OMIT the field OR send empty string.
 → "premios" (Awards): prizes, distinctions, scholarships, rankings
 
 ═══════════════════════════════════════════════════════════════════
@@ -348,6 +388,7 @@ SKILLS (4 separate lists)
 ═══════════════════════════════════════════════════════════════════
 "habilidades_tecnicas" (list): only CONCEPTS. ✅ "Financial Modeling", "Valuation". ❌ Excel, Python, languages. ALWAYS 4-8 items, INFER from roles if needed.
 "ferramentas" (objects {nome, nivel}): software with level. IMPORTANT: levels MUST be in English: "Advanced" / "Intermediate" / "Basic". Don't translate tool names ("AI" stays "AI").
+"ferramentas_texto" (string, REQUIRED — Harvard MCS format): same info as "ferramentas" but pre-formatted. Group related tools under known commercial "umbrellas": Excel/Word/PowerPoint → "Microsoft Office"; Photoshop/Illustrator → "Adobe Creative Suite"; standalone tools (Figma, Python) stay individual. Use the LEVEL as an ADJECTIVE before the umbrella or tool. Separate groups by "; ". Example: "Advanced Microsoft Office (Excel, Word, PowerPoint); Intermediate Figma; Basic Python."
 "idiomas" (objects {idioma, nivel}): use English level vocabulary: "Native / Fluent / Advanced / Intermediate / Basic"
 "certificacoes" (objects {nome, instituicao, ano})
 
@@ -356,8 +397,8 @@ ENRICHED EDUCATION
 ═══════════════════════════════════════════════════════════════════
 "formacao" must include:
 - instituicao, curso (combine Major/Minor: "Bachelor of Business Administration — Finance & Entrepreneurship")
-- periodo: ALWAYS "Mmm YYYY - Mmm YYYY" or "Mmm YYYY - Present" in English (Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec)
-  ✅ "Jan 2025 - Dec 2028"  ✅ "Aug 2023 - Present"
+- periodo: ALWAYS "Mmm YYYY – Mmm YYYY" or "Mmm YYYY – Present" in English (Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec). Use EN-DASH "–" U+2013, NOT hyphen "-"
+  ✅ "Jan 2025 – Dec 2028"  ✅ "Aug 2023 – Present"
 - detalhes: ONLY semester/period/Major/Minor. Do NOT include GPA, honors, or rep role here (rendered separately by the frontend from M2_1_1_Q5).
   ✅ "Currently in 3rd semester, morning schedule"
   ✅ "5th semester — Major in Finance, Minor in Entrepreneurship"
@@ -397,12 +438,13 @@ OUTPUT FORMAT (STRICT JSON — only JSON, no prefix or markdown)
 KEEP ALL JSON KEYS IN PORTUGUESE for backward compatibility. Translate only VALUES to English.
 {
   "resumo_profissional": "Professional summary in English...",
-  "experiencias": [{ "cargo": "Role in English", "empresa": "Company name", "periodo": "Jan 2025 - Present", "descricao": "Bullet text in English" }],
-  "lideranca": [{ "cargo": "...", "organizacao": "...", "periodo": "...", "local": "São Paulo, Brazil", "descricao": "..." }],
-  "projetos": [{ "titulo": "...", "papel": "...", "periodo": "...", "descricao": "..." }],
+  "experiencias": [{ "cargo": "Role in English", "empresa": "Company name", "periodo": "Jan 2025 – Present", "descricao": "Bullet text in English" }],
+  "lideranca": [{ "cargo": "...", "organizacao": "...", "periodo": "...", "local": "São Paulo, SP/Brazil", "trabalho_relevante": "...", "descricao": "..." }],
+  "projetos": [{ "titulo": "...", "papel": "...", "periodo": "...", "trabalho_relevante": "...", "descricao": "..." }],
   "formacao": [{ "instituicao": "...", "curso": "...", "periodo": "...", "gpa": "8.9/10", "coursework": "...", "honors": "...", "representative_role": "..." }],
   "habilidades_tecnicas": ["Financial Modeling", "Valuation"],
   "ferramentas": [{ "nome": "Excel", "nivel": "Advanced" }],
+  "ferramentas_texto": "Advanced Microsoft Office (Excel, Word, PowerPoint); Intermediate Figma.",
   "idiomas": [{ "idioma": "English", "nivel": "Fluent" }, { "idioma": "Portuguese", "nivel": "Native" }],
   "certificacoes": [{ "nome": "Accounting & Financial Statement Analysis", "instituicao": "Wall Street Prep", "ano": "2026" }],
   "premios": [{ "titulo": "...", "instituicao": "...", "data": "...", "descricao": "..." }],
