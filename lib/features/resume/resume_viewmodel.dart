@@ -22,6 +22,7 @@ class ResumeData {
   final String linkedin;
   final String location;
   final String address; // optional full street address (Rua + número + bairro)
+  final String language; // 'pt' or 'en' — controls template labels & dates
   final String summary;
   final List<String> skills;
   final List<ToolWithLevel> tools;
@@ -42,6 +43,7 @@ class ResumeData {
     this.linkedin = '',
     this.location = '',
     this.address = '',
+    this.language = 'pt',
     this.summary = '',
     this.skills = const [],
     this.tools = const [],
@@ -63,6 +65,7 @@ class ResumeData {
     String? linkedin,
     String? location,
     String? address,
+    String? language,
     String? summary,
     List<String>? skills,
     List<ToolWithLevel>? tools,
@@ -83,6 +86,7 @@ class ResumeData {
       linkedin: linkedin ?? this.linkedin,
       location: location ?? this.location,
       address: address ?? this.address,
+      language: language ?? this.language,
       summary: summary ?? this.summary,
       skills: skills ?? this.skills,
       tools: tools ?? this.tools,
@@ -167,12 +171,40 @@ class ResumeViewModel extends ChangeNotifier {
       }
     });
     
-    // Initial load
-    loadResumeData();
+    // Restore language preference + initial load
+    _restoreLanguagePref().then((_) => loadResumeData());
   }
 
   String _selectedTemplateId = 'harvard_ats';
   String get selectedTemplateId => _selectedTemplateId;
+
+  /// Resume output language: 'pt' (Brazilian Portuguese) or 'en' (English).
+  /// Stored locally to remember the user's last choice across launches.
+  String _language = 'pt';
+  String get language => _language;
+  bool get isEnglish => _language == 'en';
+
+  /// Switches the resume language. If [regenerate] is true, immediately
+  /// re-runs the AI in the new language; otherwise the change applies on
+  /// the next manual regeneration.
+  Future<void> setLanguage(String lang, {bool regenerate = true}) async {
+    if (lang == _language) return;
+    _language = lang;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('_resume_language', lang);
+    notifyListeners();
+    if (regenerate) {
+      await rewriteResumeWithAI();
+    }
+  }
+
+  Future<void> _restoreLanguagePref() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString('_resume_language');
+    if (saved != null && saved != _language) {
+      _language = saved;
+    }
+  }
 
   void setSelectedTemplateId(String id) {
     if (_selectedTemplateId != id) {
@@ -433,7 +465,7 @@ class ResumeViewModel extends ChangeNotifier {
     if (userId == null) return;
 
     _resumeContent = newContent;
-    await _localStorage.saveResumeContent(userId, newContent);
+    await _localStorage.saveResumeContent(userId, newContent, language: _language);
     _resumeData = await _convertToResumeData(newContent);
     await _updateHeaderInfo();
     notifyListeners();
@@ -688,7 +720,7 @@ class ResumeViewModel extends ChangeNotifier {
         await prefs.setString('_resume_cache_schema', cacheSchemaVersion);
       }
 
-      _resumeContent = await _localStorage.getResumeContent(userId);
+      _resumeContent = await _localStorage.getResumeContent(userId, language: _language);
       
       try {
         final answers = await _repository.getUserAnswersWithQuestions();
@@ -803,12 +835,16 @@ class ResumeViewModel extends ChangeNotifier {
 
       _detectUserArea(answers);
 
-      _resumeContent = await _aiService.generateResumeContent(answers, areaContext: _selectedTemplateType == 'area' ? _detectedArea : null);
+      _resumeContent = await _aiService.generateResumeContent(
+        answers,
+        areaContext: _selectedTemplateType == 'area' ? _detectedArea : null,
+        language: _language,
+      );
 
       // Cache the raw AI output BEFORE applying overrides; overrides are
       // re-applied on every load so caching post-override would compound
       // mutations across runs.
-      await _localStorage.saveResumeContent(userId, _resumeContent!);
+      await _localStorage.saveResumeContent(userId, _resumeContent!, language: _language);
       await _applyFrontendOverrides(userId);
 
       _resumeData = await _convertToResumeData(_resumeContent!);
@@ -838,7 +874,10 @@ class ResumeViewModel extends ChangeNotifier {
       }
 
       final answers = await _repository.getUserAnswersWithQuestions();
-      final newContent = await _aiService.generateResumeContent(answers);
+      final newContent = await _aiService.generateResumeContent(
+        answers,
+        language: _language,
+      );
       
       if (_resumeContent == null) {
         _resumeContent = newContent;
@@ -853,7 +892,7 @@ class ResumeViewModel extends ChangeNotifier {
         );
       }
       
-      await _localStorage.saveResumeContent(userId, _resumeContent!);
+      await _localStorage.saveResumeContent(userId, _resumeContent!, language: _language);
       _resumeData = await _convertToResumeData(_resumeContent!);
       await _updateHeaderInfo();
     } catch (e) {
@@ -1049,8 +1088,13 @@ class ResumeViewModel extends ChangeNotifier {
       // Always start from the raw cached content (pre-override) so that
       // re-applying overrides is idempotent and never operates on already-
       // modified state from a previous invocation.
-      final raw = await _localStorage.getResumeContent(userId);
+      final raw = await _localStorage.getResumeContent(userId, language: _language);
       if (raw != null) _resumeContent = raw;
+
+      // PT is the source of truth for the user's raw answers; for EN we let
+      // the AI translate everything and skip frontend overrides that would
+      // re-inject PT content (dates, bullets, summary, sport phrase, etc.).
+      if (_language == 'en') return;
 
       await _overrideLanguagesFromAnswers();
 
@@ -1641,6 +1685,7 @@ class ResumeViewModel extends ChangeNotifier {
       linkedin: _resumeData?.linkedin ?? '',
       location: _resumeData?.location ?? '',
       address: _resumeData?.address ?? '',
+      language: _language,
       summary: content.summary,
       skills: filteredSkills,
       tools: tools,
@@ -1655,15 +1700,27 @@ class ResumeViewModel extends ChangeNotifier {
         // Apply Harvard highlights only to the FIRST education item
         // (the user's current/primary degree).
         final isFirst = entry.key == 0;
+        // Source the enrichments based on language:
+        //  - PT: use the user's M2_1_1_Q5 raw answer (source of truth, in PT)
+        //  - EN: use what the AI returned in formacao[0] (already translated)
+        final useAi = _language == 'en';
         return EducationItem(
           degree: e.course,
           institution: e.institution,
           period: e.period,
           details: e.details,
-          gpa: isFirst ? (academicHighlights['gpa'] ?? '') : '',
-          honors: isFirst ? (academicHighlights['honors'] ?? '') : '',
-          repRole: isFirst ? (academicHighlights['rep_role'] ?? '') : '',
-          coursework: isFirst ? (academicHighlights['coursework'] ?? '') : '',
+          gpa: isFirst
+              ? (useAi ? e.gpa : (academicHighlights['gpa'] ?? ''))
+              : '',
+          honors: isFirst
+              ? (useAi ? e.honors : (academicHighlights['honors'] ?? ''))
+              : '',
+          repRole: isFirst
+              ? (useAi ? e.repRole : (academicHighlights['rep_role'] ?? ''))
+              : '',
+          coursework: isFirst
+              ? (useAi ? e.coursework : (academicHighlights['coursework'] ?? ''))
+              : '',
         );
       }).toList(),
       achievements: processList(content.achievements),

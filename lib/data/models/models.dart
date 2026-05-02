@@ -383,12 +383,22 @@ class ResumeEducation {
   final String course;
   final String period;
   final String details;
+  // Harvard enrichments — populated directly by the AI so EN resumes don't
+  // need a frontend override (whose source data is in PT).
+  final String gpa;
+  final String coursework;
+  final String honors;
+  final String repRole;
 
   ResumeEducation({
     required this.institution,
     required this.course,
     required this.period,
     required this.details,
+    this.gpa = '',
+    this.coursework = '',
+    this.honors = '',
+    this.repRole = '',
   });
 
   factory ResumeEducation.fromJson(Map<String, dynamic> json) {
@@ -397,6 +407,10 @@ class ResumeEducation {
       course: json['curso'] ?? '',
       period: json['periodo'] ?? '',
       details: _parseList(json['detalhes'] ?? ''),
+      gpa: (json['gpa'] ?? '').toString(),
+      coursework: (json['coursework'] ?? '').toString(),
+      honors: (json['honors'] ?? '').toString(),
+      repRole: (json['representative_role'] ?? json['rep_role'] ?? '').toString(),
     );
   }
 
@@ -406,6 +420,10 @@ class ResumeEducation {
       'curso': course,
       'periodo': period,
       'detalhes': details,
+      'gpa': gpa,
+      'coursework': coursework,
+      'honors': honors,
+      'representative_role': repRole,
     };
   }
 

@@ -115,7 +115,7 @@ class PdfService {
         pw.SizedBox(height: 16),
 
         // SUMMARY
-        _buildSectionTitle('RESUMO PROFISSIONAL', bold),
+        _buildSectionTitle('SUMÁRIO', bold),
         pw.Text(resume.summary.isNotEmpty ? resume.summary : 'Resumo não preenchido.', style: const pw.TextStyle(fontSize: 10)),
         pw.SizedBox(height: 12),
 
@@ -316,7 +316,7 @@ class PdfService {
                 ),
                 pw.SizedBox(height: 24),
 
-                _buildModernSection('RESUMO PROFISSIONAL', resume.summary, bold),
+                _buildModernSection('SUMÁRIO', resume.summary, bold),
                 
                 if (resume.experiences.isNotEmpty)
                   _buildModernSection('EXPERIÊNCIA', null, bold, customContent: _buildExperienceList(resume.experiences, bold, regular)),
@@ -447,7 +447,7 @@ class PdfService {
         pw.SizedBox(height: 20),
         pw.Divider(thickness: 1, color: PdfColors.black),
         pw.SizedBox(height: 20),
-        _buildExecutiveSection('RESUMO PROFISSIONAL', resume.summary, serif, serifBold),
+        _buildExecutiveSection('SUMÁRIO', resume.summary, serif, serifBold),
         if (resume.experiences.isNotEmpty)
             _buildExecutiveSection('EXPERIÊNCIA PROFISSIONAL', null, serif, serifBold, customContent: _buildExperienceList(resume.experiences, serifBold, serif)),
         if (resume.leadership.isNotEmpty)
@@ -818,7 +818,7 @@ class PdfService {
             children: [
               // Summary
               if (resume.summary.isNotEmpty) ...[
-                 _buildQuickCvSectionHeader('RESUMO PROFISSIONAL', primaryColor, bold, svgIcon: iconSummary),
+                 _buildQuickCvSectionHeader('SUMÁRIO', primaryColor, bold, svgIcon: iconSummary),
 
                  pw.SizedBox(height: 6),
                  pw.Text(resume.summary, style: pw.TextStyle(fontSize: 10, font: regular, color: textColor, lineSpacing: 1.2)),
@@ -972,23 +972,99 @@ class PdfService {
   }
 
   // --- 7. Harvard MCS Template (HTML → PDF via Printing.convertHtml) ---
+  /// Returns the localized label for a given key, based on resume.language.
+  static String _l10n(String key, String lang) {
+    final pt = const {
+      'summary': 'Sumário',
+      'education': 'Educação',
+      'experience': 'Experiência Profissional',
+      'leadership': 'Atividades Extracurriculares',
+      'skills_section': 'Habilidades, Certificações &amp; Programas',
+      'technical_skills': 'Habilidades Técnicas',
+      'languages': 'Idiomas',
+      'tools': 'Ferramentas',
+      'certifications': 'Certificações &amp; Programas',
+      'interests': 'Interesses',
+      'mobile': 'Mobile',
+      'edu_coursework': 'Disciplinas relevantes',
+      'edu_gpa': 'CR',
+      'edu_honors': 'Distinções',
+      'edu_rep_role': 'Cargo representativo',
+      'lvl_native': 'Nativo',
+      'lvl_fluent': 'Fluente',
+      'lvl_advanced': 'Avançado',
+      'lvl_intermediate': 'Intermediário',
+      'lvl_basic': 'Básico',
+      'lang_in': 'em', // "Fluente em Inglês"
+    };
+    final en = const {
+      'summary': 'Summary',
+      'education': 'Education',
+      'experience': 'Professional Experience',
+      'leadership': 'Extracurricular Activities',
+      'skills_section': 'Skills, Certifications &amp; Programs',
+      'technical_skills': 'Technical Skills',
+      'languages': 'Languages',
+      'tools': 'Tools',
+      'certifications': 'Certifications &amp; Programs',
+      'interests': 'Interests',
+      'mobile': 'Mobile',
+      'edu_coursework': 'Relevant Coursework',
+      'edu_gpa': 'GPA',
+      'edu_honors': 'Honors',
+      'edu_rep_role': 'Representative Role',
+      'lvl_native': 'Native',
+      'lvl_fluent': 'Fluent',
+      'lvl_advanced': 'Advanced',
+      'lvl_intermediate': 'Intermediate',
+      'lvl_basic': 'Basic',
+      'lang_in': 'in', // "Fluent in English"
+    };
+    return (lang == 'en' ? en[key] : pt[key]) ?? key;
+  }
+
+  /// Translates a Portuguese proficiency level to English when needed.
+  /// Used so that AI output that still has PT levels (cache from before
+  /// the EN regeneration) renders correctly under EN templates.
+  static String _translateLevel(String level, String lang) {
+    if (lang != 'en') return level;
+    switch (level.toLowerCase().trim()) {
+      case 'nativo':
+        return 'Native';
+      case 'fluente':
+        return 'Fluent';
+      case 'avançado':
+      case 'avancado':
+        return 'Advanced';
+      case 'intermediário':
+      case 'intermediario':
+        return 'Intermediate';
+      case 'básico':
+      case 'basico':
+        return 'Basic';
+      default:
+        return level;
+    }
+  }
+
   static String _buildHarvardMcsHtml(UserProfile? user, ResumeData resume) {
+    final lang = resume.language;
     final summaryHtml = resume.summary.trim().isNotEmpty
-        ? '<div class="sec">Resumo Profissional</div><div class="entry">${_escapeHtml(resume.summary.trim())}</div>'
+        ? '<div class="sec">${_l10n('summary', lang)}</div><div class="entry">${_escapeHtml(resume.summary.trim())}</div>'
         : '';
 
     final eduItems = resume.education
         .map((e) => _buildHarvardEducationItemHtml(e, resume))
         .join('');
     final educationHtml = resume.education.isNotEmpty
-        ? '<div class="sec">Educação</div>$eduItems'
+        ? '<div class="sec">${_l10n('education', lang)}</div>$eduItems'
         : '';
 
     final expItems = resume.experiences
         .map((e) => _buildHarvardExperienceItemHtml(e, resume))
         .join('');
     final experienceHtml = resume.experiences.isNotEmpty
-        ? '<div class="sec">Experiência</div>$expItems'
+        ? '<div class="sec">${_l10n('experience', lang)}</div>$expItems'
         : '';
 
     final projectItems = resume.academicProjects
@@ -1010,7 +1086,7 @@ class PdfService {
             ))
         .join('');
     final activitiesHtml = (resume.academicProjects.isNotEmpty || resume.leadership.isNotEmpty)
-        ? '<div class="sec">Liderança &amp; Atividades</div>$projectItems$leadItems'
+        ? '<div class="sec">${_l10n('leadership', lang)}</div>$projectItems$leadItems'
         : '';
 
     final skillParts = <String>[];
@@ -1019,40 +1095,37 @@ class PdfService {
 
     if (resume.skills.isNotEmpty) {
       final skillsText = resume.skills.join(', ');
-      skillParts.add('<div class="sk"><b>Habilidades Técnicas:</b> $skillsText</div>');
+      skillParts.add('<div class="sk"><b>${_l10n('technical_skills', lang)}:</b> $skillsText</div>');
     }
 
     if (resume.languages.isNotEmpty) {
-      // Group by level: "Fluente em Inglês e Português; Básico em Espanhol"
-      skillParts.add('<div class="sk"><b>Idiomas:</b> ${_buildLanguagesText(resume.languages)}</div>');
+      skillParts.add('<div class="sk"><b>${_l10n('languages', lang)}:</b> ${_buildLanguagesText(resume.languages, lang)}</div>');
     }
 
     if (resume.tools.isNotEmpty) {
-      // Group by level: "Avançado: Excel, PowerPoint; Intermediário: Figma"
-      skillParts.add('<div class="sk"><b>Ferramentas:</b> ${_buildToolsText(resume.tools)}</div>');
+      skillParts.add('<div class="sk"><b>${_l10n('tools', lang)}:</b> ${_buildToolsText(resume.tools, lang)}</div>');
     }
 
     if (resume.courses.isNotEmpty) {
-      // Format: "Nome - Instituição (Ano)" when fields are populated
-      final courseText = resume.courses.map((c) {
+      final courseItems = resume.courses.map((c) {
         final parts = <String>[c.title];
         if (c.institution.isNotEmpty) parts.add(c.institution);
         var formatted = parts.join(' - ');
         if (c.period.isNotEmpty) formatted = '$formatted (${c.period})';
-        return formatted;
-      }).join('; ');
-      skillParts.add('<div class="sk"><b>Certificações &amp; Programas:</b> $courseText</div>');
-    }
-
-    if (resume.interests.isNotEmpty) {
-      // Single continuous sentence per Harvard guidelines
-      final interestsText = resume.interests.join(', ');
-      skillParts.add('<div class="sk"><b>Interesses:</b> $interestsText</div>');
+        if (!formatted.trimRight().endsWith('.')) formatted = '$formatted.';
+        return '<li>${_escapeHtml(formatted)}</li>';
+      }).join('');
+      skillParts.add('<div class="sk"><b>${_l10n('certifications', lang)}:</b></div><ul>$courseItems</ul>');
     }
 
     final skillsContent = skillParts.join('');
     final skillsHtml = skillParts.isNotEmpty
-        ? '<div class="sec">Habilidades, Certificações &amp; Interesses</div>$skillsContent'
+        ? '<div class="sec">${_l10n('skills_section', lang)}</div>$skillsContent'
+        : '';
+
+    final interestsHtml = resume.interests.isNotEmpty
+        ? '<div class="sec">${_l10n('interests', lang)}</div>'
+          '<div class="entry">${_escapeHtml(resume.interests.join(', '))}</div>'
         : '';
 
     return '''<!DOCTYPE html>
@@ -1068,15 +1141,16 @@ class PdfService {
     .address { font-size: 9.5pt; margin-top: 3pt; }
     .contact { font-size: 9.5pt; margin-top: 1pt; }
     hr { border: none; border-top: 1px solid #000; margin: 5pt 0 10pt; }
-    .sec { text-align: center; font-weight: bold; font-size: 11pt; margin: 10pt 0 4pt; }
+    .sec { text-align: left; text-transform: uppercase; font-weight: bold; font-size: 11pt; letter-spacing: 0.3pt; margin: 8pt 0 0; padding-bottom: 1pt; border-bottom: 0.5pt solid #000; }
+    .sec + * { margin-top: 3pt; }
     .row { display: flex; justify-content: space-between; font-size: 11pt; }
     .row .r { white-space: nowrap; margin-left: 8pt; }
-    .bold .l { font-weight: bold; }
+    .bold .l, .bold .r { font-weight: bold; }
     .italic .l { font-style: italic; }
-    .italic .r { font-style: italic; }
     .entry { margin-bottom: 6pt; }
-    ul { margin: 3pt 0 0 16pt; }
-    li { font-size: 11pt; margin-bottom: 1pt; }
+    ul { margin: 2pt 0 0 0; padding: 0; list-style: none; }
+    li { font-size: 11pt; margin-bottom: 1pt; padding-left: 10pt; text-indent: -10pt; }
+    li::before { content: "• "; }
     .sk { font-size: 11pt; margin-bottom: 2pt; }
     .detail { font-size: 9.5pt; margin-top: 1pt; }
   </style>
@@ -1087,12 +1161,12 @@ class PdfService {
     ${_buildHarvardAddressLine(resume)}
     <div class="contact">${_buildHarvardContactString(resume)}</div>
   </div>
-  <hr>
   $summaryHtml
-  $educationHtml
   $experienceHtml
+  $educationHtml
   $activitiesHtml
   $skillsHtml
+  $interestsHtml
 </body>
 </html>''';
   }
@@ -1104,18 +1178,19 @@ class PdfService {
         : '';
 
     // Harvard enrichments — render as bullets when present
+    final lang = resume.language;
     final highlightItems = <String>[];
     if (edu.coursework.isNotEmpty) {
-      highlightItems.add('<li><b>Disciplinas relevantes:</b> ${_escapeHtml(edu.coursework)}</li>');
+      highlightItems.add('<li><b>${_l10n('edu_coursework', lang)}:</b> ${_escapeHtml(edu.coursework)}</li>');
     }
     if (edu.gpa.isNotEmpty) {
-      highlightItems.add('<li><b>CR:</b> ${_escapeHtml(edu.gpa)}</li>');
+      highlightItems.add('<li><b>${_l10n('edu_gpa', lang)}:</b> ${_escapeHtml(edu.gpa)}</li>');
     }
     if (edu.honors.isNotEmpty) {
-      highlightItems.add('<li><b>Distinções:</b> ${_escapeHtml(edu.honors)}</li>');
+      highlightItems.add('<li><b>${_l10n('edu_honors', lang)}:</b> ${_escapeHtml(edu.honors)}</li>');
     }
     if (edu.repRole.isNotEmpty) {
-      highlightItems.add('<li><b>Cargo representativo:</b> ${_escapeHtml(edu.repRole)}</li>');
+      highlightItems.add('<li><b>${_l10n('edu_rep_role', lang)}:</b> ${_escapeHtml(edu.repRole)}</li>');
     }
     final highlightsHtml = highlightItems.isNotEmpty
         ? '<ul>${highlightItems.join('')}</ul>'
@@ -1207,37 +1282,50 @@ class PdfService {
   }
 
   /// Group languages by proficiency level into Harvard-style sentences.
-  /// Output: "Fluente em Inglês e Português; Básico em Espanhol"
-  static String _buildLanguagesText(List<ResumeLanguage> langs) {
-    const order = ['Nativo', 'Fluente', 'Avançado', 'Intermediário', 'Básico'];
+  /// Output PT: "Fluente em Inglês e Português; Básico em Espanhol"
+  /// Output EN: "Fluent in English and Portuguese; Basic in Spanish"
+  static String _buildLanguagesText(List<ResumeLanguage> langs, String lang) {
+    // Canonical order in PT — gets translated for EN at render time.
+    const ptOrder = ['Nativo', 'Fluente', 'Avançado', 'Intermediário', 'Básico'];
+    const enOrder = ['Native', 'Fluent', 'Advanced', 'Intermediate', 'Basic'];
     final byLevel = <String, List<String>>{};
     for (final l in langs) {
-      final level = l.level.trim().isEmpty ? 'Outro' : l.level.trim();
-      byLevel.putIfAbsent(level, () => []).add(l.language);
+      // Normalize the level — accept either PT or EN input from cache
+      final raw = l.level.trim();
+      final normalized = _translateLevel(raw, lang).isNotEmpty
+          ? _translateLevel(raw, lang)
+          : raw;
+      final key = normalized.isEmpty ? 'Outro' : normalized;
+      byLevel.putIfAbsent(key, () => []).add(l.language);
     }
+    final order = lang == 'en' ? enOrder : ptOrder;
     final parts = <String>[];
+    final preposition = _l10n('lang_in', lang);
     for (final level in order) {
       final list = byLevel.remove(level);
       if (list != null && list.isNotEmpty) {
-        parts.add('$level em ${_joinList(list)}');
+        parts.add('$level $preposition ${_joinList(list)}');
       }
     }
-    // Catch-all for unrecognized levels
     byLevel.forEach((level, list) {
-      parts.add('$level em ${_joinList(list)}');
+      parts.add('$level $preposition ${_joinList(list)}');
     });
     return parts.join('; ');
   }
 
   /// Group tools by proficiency level.
-  /// Output: "Avançado: Excel, PowerPoint; Intermediário: Figma; Básico: Python"
-  static String _buildToolsText(List<ToolWithLevel> tools) {
-    const order = ['Avançado', 'Intermediário', 'Básico'];
+  /// Output PT: "Avançado: Excel, PowerPoint; Intermediário: Figma"
+  /// Output EN: "Advanced: Excel, PowerPoint; Intermediate: Figma"
+  static String _buildToolsText(List<ToolWithLevel> tools, String lang) {
+    const ptOrder = ['Avançado', 'Intermediário', 'Básico'];
+    const enOrder = ['Advanced', 'Intermediate', 'Basic'];
     final byLevel = <String, List<String>>{};
     for (final t in tools) {
-      final level = t.level.trim().isEmpty ? '' : t.level.trim();
-      byLevel.putIfAbsent(level, () => []).add(t.name);
+      final raw = t.level.trim();
+      final normalized = raw.isEmpty ? '' : _translateLevel(raw, lang);
+      byLevel.putIfAbsent(normalized, () => []).add(t.name);
     }
+    final order = lang == 'en' ? enOrder : ptOrder;
     final parts = <String>[];
     for (final level in order) {
       final list = byLevel.remove(level);
@@ -1289,7 +1377,7 @@ class PdfService {
     if (resume.address.trim().isEmpty && resume.location.trim().isNotEmpty) {
       parts.add(resume.location);
     }
-    if (resume.phone.isNotEmpty) parts.add('Mobile: ${resume.phone}');
+    if (resume.phone.isNotEmpty) parts.add('${_l10n('mobile', resume.language)}: ${resume.phone}');
     if (resume.email.isNotEmpty) parts.add(resume.email);
     if (resume.linkedin.isNotEmpty) {
       parts.add(resume.linkedin

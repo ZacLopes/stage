@@ -42,11 +42,12 @@ class AIService {
   Future<ResumeContent> generateResumeContent(
     Map<String, String> answersWithQuestions, {
     String? areaContext,
+    String? language, // 'pt' | 'en' (defaults to 'pt' on the server)
   }) async {
     try {
       print('--- AI RESUME INPUT DATA (via Edge Function) ---');
       answersWithQuestions.forEach((q, a) => print('P: $q\nR: $a\n'));
-      print('AREA CONTEXT: $areaContext');
+      print('AREA CONTEXT: $areaContext  •  LANGUAGE: ${language ?? "pt"}');
       print('------------------------------------------------');
 
       // Call secure Edge Function
@@ -55,6 +56,7 @@ class AIService {
         body: {
           'answersWithQuestions': answersWithQuestions,
           'areaContext': areaContext,
+          if (language != null) 'language': language,
         },
       );
 

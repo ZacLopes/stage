@@ -580,6 +580,8 @@ class _ResumeTabState extends State<ResumeTab> {
             icon: Icon(Icons.edit, color: isLocked ? Colors.grey : Colors.white70),
             tooltip: 'Editar Texto',
           ),
+          // PT / EN language toggle
+          _LanguagePill(vm: vm, locked: isLocked),
           const SizedBox(width: 4),
           
           Expanded(
@@ -850,6 +852,128 @@ class _ScaleButtonState extends State<_ScaleButton> with SingleTickerProviderSta
       child: ScaleTransition(
         scale: _scaleAnimation,
         child: widget.child,
+      ),
+    );
+  }
+}
+
+/// Horizontal segmented switch (PT | EN) with a sliding background that
+/// indicates which language is active. Tapping the inactive side asks for
+/// confirmation (since it regenerates the resume) and then switches.
+class _LanguagePill extends StatelessWidget {
+  final ResumeViewModel vm;
+  final bool locked;
+  const _LanguagePill({required this.vm, required this.locked});
+
+  static const _segWidth = 38.0;
+  static const _segHeight = 28.0;
+
+  Future<void> _switchTo(BuildContext context, String next) async {
+    if (vm.language == next || locked) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Trocar idioma do currículo?'),
+        content: Text(
+          next == 'en'
+              ? 'Seu currículo será regerado em inglês com a IA. A versão em português fica salva e você pode voltar a qualquer momento.'
+              : 'Seu currículo será regerado em português com a IA. A versão em inglês fica salva e você pode voltar a qualquer momento.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4F46E5),
+              foregroundColor: Colors.white,
+            ),
+            child: Text(next == 'en' ? 'Gerar em inglês' : 'Gerar em português'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await vm.setLanguage(next);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEn = vm.isEnglish;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Container(
+        height: _segHeight,
+        decoration: BoxDecoration(
+          color: locked
+              ? Colors.grey.withOpacity(0.2)
+              : Colors.white.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(_segHeight / 2),
+          border: Border.all(color: Colors.white.withOpacity(0.18)),
+        ),
+        child: Stack(
+          children: [
+            // Sliding active background
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              left: isEn ? _segWidth : 0,
+              top: 0,
+              bottom: 0,
+              child: Container(
+                width: _segWidth,
+                margin: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4F46E5),
+                  borderRadius: BorderRadius.circular(_segHeight / 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.18),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _segment(context, label: 'PT', selected: !isEn, target: 'pt'),
+                _segment(context, label: 'EN', selected: isEn, target: 'en'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _segment(
+    BuildContext context, {
+    required String label,
+    required bool selected,
+    required String target,
+  }) {
+    return GestureDetector(
+      onTap: locked ? null : () => _switchTo(context, target),
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: _segWidth,
+        height: _segHeight,
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.white : Colors.white.withOpacity(0.6),
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
       ),
     );
   }
