@@ -77,38 +77,6 @@ class AIService {
   }
 
 
-  Future<InterviewReport> generateInterviewReport(
-    Map<String, String> answersWithQuestions,
-  ) async {
-    try {
-      print('--- AI INTERVIEW REPORT INPUT (via Edge Function) ---');
-      answersWithQuestions.forEach((q, a) => print('P: $q\nR: $a\n'));
-      print('------------------------------------------------------');
-
-      // Call secure Edge Function
-      final response = await _client.functions.invoke(
-        'generate-interview-report',
-        body: {
-          'answersWithQuestions': answersWithQuestions,
-        },
-      );
-
-      if (response.status != 200) {
-        final errorData = response.data;
-        if (errorData is Map && errorData.containsKey('error')) {
-          throw Exception('Edge Function error: ${errorData['error']}');
-        }
-        throw Exception('Edge Function returned status ${response.status}');
-      }
-
-      print('AI INTERVIEW JSON Response: ${json.encode(response.data)}');
-      return InterviewReport.fromJson(response.data);
-    } catch (e) {
-      print('Error generating interview report: $e');
-      rethrow;
-    }
-  }
-
   Future<ResumeAnalysisResult> evaluateResume(String resumeText) async {
     try {
       print('--- AI RESUME EVALUATION INPUT ---');

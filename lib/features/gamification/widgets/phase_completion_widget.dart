@@ -80,7 +80,6 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
   late Animation<double> _scaleAnim;
   late Animation<double> _slideAnim;
   late Animation<double> _opacityAnim;
-  late Animation<double> _xpScaleAnim;
 
   bool _isSaving = false;
 
@@ -131,11 +130,6 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
       parent: _mainCtrl,
       curve: const Interval(0.35, 0.85, curve: Curves.easeOut),
     ));
-
-    _xpScaleAnim = CurvedAnimation(
-      parent: _mainCtrl,
-      curve: const Interval(0.6, 0.9, curve: Curves.elasticOut),
-    );
 
     _pulseCtrl = AnimationController(
       vsync: this,
@@ -201,7 +195,6 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
       pageBuilder: (ctx, _, __) {
         if (_isLastTrack) {
           return _CurriculumReadyDialog(
-            earnedXp: widget.viewModel.earnedXp,
             onAction: () {
               Navigator.pop(ctx); // close dialog
               // navigate to Resume tab
@@ -212,7 +205,6 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
         } else {
           return _TrackCompletionDialog(
             trackId: widget.phase.trackId,
-            earnedXp: widget.viewModel.earnedXp,
             onAction: () {
               Navigator.pop(ctx); // close dialog
               Navigator.popUntil(context, (route) => route.isFirst);
@@ -340,43 +332,6 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
-                            const SizedBox(height: 20),
-                            // XP badge
-                            ScaleTransition(
-                              scale: _xpScaleAnim,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 20, vertical: 10),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF58CC02),
-                                  borderRadius: BorderRadius.circular(30),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(0xFF58CC02)
-                                          .withOpacity(0.4),
-                                      blurRadius: 12,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                  ],
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.star_rounded,
-                                        color: Colors.white, size: 20),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      '+${widget.viewModel.earnedXp} XP',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 18,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
                             const SizedBox(height: 16),
                             if (_totalPhases > 1)
                               Text(
@@ -456,12 +411,10 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
 // ═════════════════════════════════════════════════════════════════════════════
 class _TrackCompletionDialog extends StatefulWidget {
   final String trackId;
-  final int earnedXp;
   final VoidCallback onAction;
 
   const _TrackCompletionDialog({
     required this.trackId,
-    required this.earnedXp,
     required this.onAction,
   });
 
@@ -672,38 +625,6 @@ class _TrackCompletionDialogState extends State<_TrackCompletionDialog>
                       ),
                     ),
 
-                    const SizedBox(height: 20),
-
-                    // XP badge
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 18, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(30),
-                        border: Border.all(
-                          color: const Color(0xFFFFD700).withOpacity(0.8),
-                          width: 1.5,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.star_rounded,
-                              color: Color(0xFFFFD700), size: 18),
-                          const SizedBox(width: 6),
-                          Text(
-                            '+${widget.earnedXp} XP',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
                     const SizedBox(height: 28),
 
                     // Button
@@ -747,11 +668,9 @@ class _TrackCompletionDialogState extends State<_TrackCompletionDialog>
 // CURRICULUM READY DIALOG — last track completed, navigate to Resume tab
 // ═════════════════════════════════════════════════════════════════════════════
 class _CurriculumReadyDialog extends StatefulWidget {
-  final int earnedXp;
   final VoidCallback onAction;
 
   const _CurriculumReadyDialog({
-    required this.earnedXp,
     required this.onAction,
   });
 
@@ -1025,44 +944,6 @@ class _CurriculumReadyDialogState extends State<_CurriculumReadyDialog>
                         fontSize: 13,
                         color: Colors.white.withOpacity(0.70),
                         height: 1.5,
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // XP badge — gold
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 9),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(colors: [
-                          Color(0xFFFFD700),
-                          Color(0xFFF59E0B),
-                        ]),
-                        borderRadius: BorderRadius.circular(30),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFFFFD700).withOpacity(0.5),
-                            blurRadius: 14,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.workspace_premium_rounded,
-                              color: Color(0xFF1E1B4B), size: 18),
-                          const SizedBox(width: 6),
-                          Text(
-                            '+${widget.earnedXp} XP',
-                            style: const TextStyle(
-                              color: Color(0xFF1E1B4B),
-                              fontWeight: FontWeight.w900,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ],
                       ),
                     ),
 

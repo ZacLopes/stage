@@ -7,7 +7,6 @@ import '../../data/models/models.dart';
 import '../../data/supabase_repository.dart';
 import '../../data/local_storage_repository.dart';
 import '../../data/database_helper.dart';
-import '../gamification/level_system.dart';
 
 class UserViewModel extends ChangeNotifier {
   final SupabaseRepository _repository;
@@ -395,61 +394,6 @@ class UserViewModel extends ChangeNotifier {
         notifyListeners();
       }
     }
-  }
-
-  // Update user XP and level
-  Future<void> updateXP(int xp, int level) async {
-    if (_user == null) return;
-    
-    try {
-      final levelInfo = LevelSystem.getLevelInfo(xp);
-      final newLevel = levelInfo.level;
-
-      await _repository.updateUserXP(_user!.id!, xp, newLevel);
-      _user = _user!.copyWith(xp: xp, level: newLevel);
-      notifyListeners();
-    } catch (e) {
-      print('Error updating XP: $e');
-      rethrow;
-    }
-  }
-
-  LevelInfo get currentLevelInfo {
-    if (_user == null) return LevelSystem.getLevelInfo(0);
-    return LevelSystem.getLevelInfo(_user!.xp ?? 0);
-  }
-
-  double get currentLevelProgress {
-    if (_user == null) return 0.0;
-    return LevelSystem.getProgressToNextLevel(_user!.xp ?? 0);
-  }
-
-  double get cumulativeLevelProgress {
-    if (_user == null) return 0.0;
-    final nextThreshold = nextLevelXPThreshold;
-    if (nextThreshold == 0) return 1.0;
-    return ((_user!.xp ?? 0) / nextThreshold).clamp(0.0, 1.0);
-  }
-
-  int get nextLevelXPThreshold {
-    if (_user == null) return 100;
-    final currentInfo = currentLevelInfo;
-    final nextInfo = LevelSystem.getNextLevelInfo(currentInfo.level);
-    if (currentInfo.level == nextInfo.level) return _user!.xp ?? 0; // Max level
-    return nextInfo.minXP;
-  }
-
-  int get currentLevelXP {
-    if (_user == null) return 0;
-    return (_user!.xp ?? 0) - currentLevelInfo.minXP;
-  }
-
-  int get nextLevelXPRequirement {
-    if (_user == null) return 100;
-    final currentInfo = currentLevelInfo;
-    final nextInfo = LevelSystem.getNextLevelInfo(currentInfo.level);
-    if (currentInfo.level == nextInfo.level) return 1; // Max level
-    return nextInfo.minXP - currentInfo.minXP;
   }
 
   // Update user profile

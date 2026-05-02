@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../data/models/models.dart';
 import '../auth/user_viewmodel.dart';
 import 'home_viewmodel.dart';
 import 'gamified_track_list.dart';
-import '../gamification/level_progress_screen.dart';
-import '../gamification/level_system.dart';
 import '../gamification/gamification_viewmodel.dart';
 
 class TracksTab extends StatelessWidget {
@@ -14,7 +11,6 @@ class TracksTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final userViewModel = context.watch<UserViewModel>();
-    final user = userViewModel.user;
 
     return Column(
       children: [
@@ -38,8 +34,7 @@ class TracksTab extends StatelessWidget {
 
   Widget _buildHeader(BuildContext context, UserViewModel userViewModel) {
     final user = userViewModel.user;
-    
-    // We use GamificationViewModel for global progress
+
     return Consumer<GamificationViewModel>(
       builder: (context, gameViewModel, child) {
         final progress = gameViewModel.totalCareerProgress;

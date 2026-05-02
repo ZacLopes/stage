@@ -8,7 +8,6 @@ import '../auth/user_viewmodel.dart';
 import '../settings/settings_screen.dart';
 import 'profile_edit_screen.dart';
 import 'resume_preview_screen.dart';
-import '../gamification/level_system.dart';
 import '../../data/models/models.dart';
 
 class ProfileScreen extends StatefulWidget {

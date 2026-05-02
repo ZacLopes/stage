@@ -1,4 +1,3 @@
-export 'interview_report.dart';
 class UserProfile {
   final String? id; // Changed to String for Supabase UUID
   final String name;
@@ -6,8 +5,6 @@ class UserProfile {
   final String course;
   final String semester;
   final int? age;
-  final int xp;
-  final int level;
   final bool aiConsent;
   final DateTime? aiConsentTimestamp;
   final Map<String, dynamic> gamificationData;
@@ -21,8 +18,6 @@ class UserProfile {
     required this.course,
     required this.semester,
     this.age,
-    this.xp = 0,
-    this.level = 1,
     this.aiConsent = false,
     this.aiConsentTimestamp,
     this.gamificationData = const {},
@@ -36,9 +31,7 @@ class UserProfile {
       'email': email,
       'course': course,
       'semester': semester,
-      'age': age, // Added age to map
-      'xp': xp,
-      'level': level,
+      'age': age,
       'ai_consent': aiConsent,
       'ai_consent_timestamp': aiConsentTimestamp?.toIso8601String(),
       'gamification_data': gamificationData,
@@ -52,9 +45,7 @@ class UserProfile {
       email: map['email'] ?? '',
       course: map['course'] ?? '',
       semester: map['semester'] ?? '',
-      age: map['age'], // Added age mapping
-      xp: map['xp'] ?? 0,
-      level: map['level'] ?? 1,
+      age: map['age'],
       aiConsent: map['ai_consent'] ?? false,
       aiConsentTimestamp: map['ai_consent_timestamp'] != null ? DateTime.parse(map['ai_consent_timestamp']) : null,
       gamificationData: map['gamification_data'] ?? {},
@@ -68,8 +59,6 @@ class UserProfile {
     String? course,
     String? semester,
     int? age,
-    int? xp,
-    int? level,
     bool? aiConsent,
     DateTime? aiConsentTimestamp,
     Map<String, dynamic>? gamificationData,
@@ -81,8 +70,6 @@ class UserProfile {
       course: course ?? this.course,
       semester: semester ?? this.semester,
       age: age ?? this.age,
-      xp: xp ?? this.xp,
-      level: level ?? this.level,
       aiConsent: aiConsent ?? this.aiConsent,
       aiConsentTimestamp: aiConsentTimestamp ?? this.aiConsentTimestamp,
       gamificationData: gamificationData ?? this.gamificationData,
@@ -138,7 +125,6 @@ class Phase {
   final int orderIndex;
   final String title;
   final String description;
-  final int xpReward;
 
   Phase({
     required this.id,
@@ -146,17 +132,15 @@ class Phase {
     required this.orderIndex,
     required this.title,
     required this.description,
-    required this.xpReward,
   });
 
   Map<String, dynamic> toMap() {
     return {
       'id': id,
-      'track_id': trackId, // snake_case
-      'order_index': orderIndex, // snake_case
+      'track_id': trackId,
+      'order_index': orderIndex,
       'title': title,
       'description': description,
-      'xp_reward': xpReward, // snake_case
     };
   }
 
@@ -167,7 +151,6 @@ class Phase {
       orderIndex: map['order_index'] ?? map['orderIndex'] ?? 0,
       title: map['title'],
       description: map['description'],
-      xpReward: map['xp_reward'] ?? map['xpReward'] ?? 0,
     );
   }
 }

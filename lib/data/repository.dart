@@ -21,13 +21,10 @@ class Repository {
   Future<List<Question>> getQuestions(String phaseId) => _dbHelper.getQuestionsForPhase(phaseId);
 
   // Progress
-  Future<void> completePhase(int userId, String phaseId, int score) async {
-    await _dbHelper.markPhaseCompleted(userId, phaseId, score);
-    // Logic to update XP and Level could go here or in a Service/ViewModel
-    // For now, let's just save the progress
-    
+  Future<void> completePhase(int userId, String phaseId) async {
+    await _dbHelper.markPhaseCompleted(userId, phaseId);
   }
-  
+
   Future<bool> isPhaseCompleted(int userId, String phaseId) => _dbHelper.isPhaseCompleted(userId, phaseId);
 
   // Seeding

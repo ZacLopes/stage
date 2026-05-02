@@ -34,7 +34,6 @@ CREATE TABLE phases (
   title TEXT NOT NULL,
   description TEXT NOT NULL,
   order_index INTEGER NOT NULL,
-  xp_reward INTEGER NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -59,8 +58,6 @@ CREATE TABLE user_profiles (
   email TEXT NOT NULL,
   course TEXT,
   semester TEXT,
-  xp INTEGER DEFAULT 0,
-  level INTEGER DEFAULT 1,
   ai_consent BOOLEAN DEFAULT FALSE,
   ai_consent_timestamp TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -72,7 +69,6 @@ CREATE TABLE user_progress (
   user_id UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
   phase_id TEXT NOT NULL REFERENCES phases(id) ON DELETE CASCADE,
   completed BOOLEAN DEFAULT FALSE,
-  score INTEGER DEFAULT 0,
   completed_at TIMESTAMPTZ,
   PRIMARY KEY (user_id, phase_id)
 );

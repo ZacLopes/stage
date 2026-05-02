@@ -5,8 +5,6 @@ import '../../data/models/models.dart';
 import '../auth/user_viewmodel.dart';
 import 'resume_viewmodel.dart';
 import 'pdf_service.dart';
-import 'docx_service.dart';
-import 'web_service.dart';
 import 'resume_edit_screen.dart';
 import 'resume_templates.dart';
 import 'widgets/ai_consent_modal.dart';
@@ -161,8 +159,7 @@ class _ResumeTabState extends State<ResumeTab> {
       builder: (context, userVM, resumeVM, child) {
         final user = userVM.user;
         final resume = resumeVM.resumeData;
-        final currentLevel = userVM.currentLevelInfo.level;
-        
+
         return Scaffold(
           backgroundColor: const Color(0xFFF3F4F6),
           body: Stack(

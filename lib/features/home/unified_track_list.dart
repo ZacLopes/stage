@@ -1,10 +1,9 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import '../../data/models/models.dart';
-import '../auth/user_viewmodel.dart';
 import '../gamification/question_screen.dart';
+import 'home_viewmodel.dart';
 
 class UnifiedTrackList extends StatelessWidget {
   final List<Track> tracks;
@@ -18,31 +17,17 @@ class UnifiedTrackList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<UserViewModel>(
-      builder: (context, userVM, child) {
-        final userLevel = userVM.currentLevelInfo.level;
-        
-        // Filter tracks: Hide 'track_secret' if level < 10
-        final visibleTracks = tracks.where((track) {
-          if (track.id == 'track_secret') {
-            return userLevel >= 10;
-          }
-          return true;
-        }).toList();
+    return ListView.builder(
+      padding: const EdgeInsets.only(bottom: 100),
+      itemCount: tracks.length,
+      itemBuilder: (context, index) {
+        final track = tracks[index];
+        final phases = phasesByTrack[track.id] ?? [];
 
-        return ListView.builder(
-          padding: const EdgeInsets.only(bottom: 100),
-          itemCount: visibleTracks.length,
-          itemBuilder: (context, index) {
-            final track = visibleTracks[index];
-            final phases = phasesByTrack[track.id] ?? [];
-
-            return _WorldSection(
-              track: track,
-              phases: phases,
-              isFirst: index == 0,
-            );
-          },
+        return _WorldSection(
+          track: track,
+          phases: phases,
+          isFirst: index == 0,
         );
       },
     );

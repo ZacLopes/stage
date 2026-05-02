@@ -257,7 +257,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               const SizedBox(height: 12),
                               const Text(
-                                'Essa ação é perigosa e irreversível. Todos os seus dados, progresso, XP e conquistas serão perdidos para sempre.',
+                                'Essa ação é perigosa e irreversível. Todos os seus dados e progresso serão perdidos para sempre.',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: Color(0xFF6B7280),

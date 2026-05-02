@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../data/models/models.dart';
 import '../../data/supabase_repository.dart';
-import '../../data/supabase_repository.dart';
 import '../../services/ai_service.dart';
 import 'gamification_logic.dart';
 
@@ -13,26 +12,8 @@ class GamificationViewModel extends ChangeNotifier {
   final SupabaseRepository _repository;
   final AIService _aiService = AIService();
   
-  // ... (existing code)
-
-  // ============================================
-  // INTERVIEW REPORT
-  // ============================================
-
-  Future<Map<String, String>> getAnswersForTrack(String trackId) async {
-    // For the Secret World report, we actually want context from ALL tracks 
-    // (background, values, etc.) to give a better analysis.
-    // So we fetch all user answers.
+  Future<Map<String, String>> _getAllAnswers() async {
     return await _repository.getUserAnswersWithQuestions();
-  }
-
-  Future<InterviewReport> generateInterviewReport(Map<String, String> answers) async {
-    try {
-      return await _aiService.generateInterviewReport(answers);
-    } catch (e) {
-      print('Error generating interview report in ViewModel: $e');
-      rethrow;
-    }
   }
 
   // Track Details State
@@ -46,7 +27,6 @@ class GamificationViewModel extends ChangeNotifier {
   Map<String, dynamic> _answers = {}; // questionId -> answer
   bool _isLoadingQuestions = false;
   bool _isPhaseCompleted = false;
-  int _earnedXp = 0;
 
   // Phase 5 — bullet & summary generation flags
   String? _pendingBulletExperienceId; // set after D5; cleared by BulletReviewScreen
@@ -96,7 +76,6 @@ class GamificationViewModel extends ChangeNotifier {
     _isLoadingPhases = false;
     _isLoadingQuestions = false;
     _isPhaseCompleted = false;
-    _earnedXp = 0;
     _pendingBulletExperienceId = null;
     _pendingSummaryGeneration = false;
     notifyListeners();
@@ -109,7 +88,6 @@ class GamificationViewModel extends ChangeNotifier {
   Question? get currentQuestion => _questions.isNotEmpty && _currentQuestionIndex < _questions.length ? _questions[_currentQuestionIndex] : null;
   bool get isLoadingQuestions => _isLoadingQuestions;
   bool get isCurrentPhaseFinished => _isPhaseCompleted;
-  int get earnedXp => _earnedXp;
   int get currentQuestionIndex => _currentQuestionIndex;
   double get progress => _questions.isEmpty ? 0 : (_currentQuestionIndex / _questions.length);
 
@@ -199,7 +177,6 @@ class GamificationViewModel extends ChangeNotifier {
     _currentQuestionIndex = 0;
     _answers = {};
     _isPhaseCompleted = false;
-    _earnedXp = 0;
     notifyListeners();
 
     try {
@@ -677,7 +654,6 @@ class GamificationViewModel extends ChangeNotifier {
     }
 
     _isPhaseCompleted = true;
-    _earnedXp = 50 + (_questions.length * 10);
     notifyListeners();
   }
 
@@ -685,77 +661,56 @@ class GamificationViewModel extends ChangeNotifier {
   Future<void> completePhaseAfterSummary() async {
     _pendingSummaryGeneration = false;
     _isPhaseCompleted = true;
-    _earnedXp = 50 + (_questions.length * 10);
     notifyListeners();
   }
-  
+
   Future<void> saveProgress(String phaseId) async {
     try {
-      // Mark phase as completed
-      await _repository.markPhaseCompleted(phaseId, _earnedXp);
-      
-      // Update user XP
+      await _repository.markPhaseCompleted(phaseId);
+
       final user = await _repository.getUserProfile();
       if (user != null) {
-        final newXp = user.xp + _earnedXp;
-        final newLevel = (newXp / 500).floor() + 1;
-        
-        // --- ADDED: Check if this is the end of Module 1 or a specific phase ---
         Map<String, dynamic> updatedGamificationData = Map.from(user.gamificationData);
-        
-        // MODULE 1 PROCESSING
+
         if (phaseId.startsWith('t1_')) {
-          final allAnswers = await getAnswersForTrack('track_1');
+          final allAnswers = await _getAllAnswers();
           final module1Data = GamificationLogic.processModule1Answers(allAnswers);
-          
           if (module1Data['traits'].isNotEmpty) {
-             updatedGamificationData['whoIAm'] = {
-               'derived': module1Data,
-               'last_updated': DateTime.now().toIso8601String(),
-             };
+            updatedGamificationData['whoIAm'] = {
+              'derived': module1Data,
+              'last_updated': DateTime.now().toIso8601String(),
+            };
           }
         }
-        
-        // MODULE 2 PROCESSING
+
         if (phaseId.startsWith('t2_')) {
-          final allAnswers = await getAnswersForTrack('track_2');
+          final allAnswers = await _getAllAnswers();
           final module2Data = GamificationLogic.processModule2Answers(allAnswers);
-          
-          // Merge derived data
           updatedGamificationData['module2'] = {
             'myBase': module2Data,
             'last_updated': DateTime.now().toIso8601String(),
           };
         }
 
-        // MODULE 3 PROCESSING
         if (phaseId.startsWith('t3_')) {
-          final allAnswers = await getAnswersForTrack('track_3');
+          final allAnswers = await _getAllAnswers();
           final module3Data = GamificationLogic.processModule3Answers(allAnswers);
-          
           updatedGamificationData['module3'] = {
             'experiences_and_courses': module3Data,
             'last_updated': DateTime.now().toIso8601String(),
           };
         }
 
-        await _repository.updateUserXP(user.id!, newXp, newLevel);
-        
-        // Update profile with extracted data
         if (updatedGamificationData.isNotEmpty) {
-           final updatedProfile = user.copyWith(
-             xp: newXp,
-             level: newLevel,
-             gamificationData: updatedGamificationData,
-           );
-           await _repository.updateUserProfile(updatedProfile);
+          final updatedProfile = user.copyWith(
+            gamificationData: updatedGamificationData,
+          );
+          await _repository.updateUserProfile(updatedProfile);
         }
       }
 
-
-      // Refresh completed phase IDs and recalculate global progress to update UI
       _completedPhaseIds = await _repository.getCompletedPhaseIds();
-      await _loadGlobalProgress(); 
+      await _loadGlobalProgress();
       notifyListeners();
     } catch (e) {
       print('Error saving progress: $e');

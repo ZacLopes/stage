@@ -652,8 +652,12 @@ class ResumeViewModel extends ChangeNotifier {
     required String cat,
     required int idx,
   }) async {
+    print('[deleteExperience] starting for cat=$cat idx=$idx');
     final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
+    if (userId == null) {
+      print('[deleteExperience] no user id, aborting');
+      return;
+    }
     final phaseId = 'm3.$cat.$idx';
 
     // 1. Approved bullets — soft delete (preserves history)
@@ -663,7 +667,8 @@ class ResumeViewModel extends ChangeNotifier {
     }
     // 2. Raw responses — hard delete
     await _repository.deleteRawResponsesForPhase(phaseId);
-    // 3. user_answers M3_D1..D6 — hard delete (also removes legacy duplicates)
+    // 3. user_answers M3_D1..D6 — hard delete (also removes legacy duplicates).
+    //    Now uses batch delete + verification + retry inside the repo.
     await _repository.deleteExperienceUserAnswers(cat, idx);
 
     // 4. Decrement M3_1_1_QCount and clean M3_1_1_Q1 inventory so the AI
@@ -677,6 +682,7 @@ class ResumeViewModel extends ChangeNotifier {
     //    in updateResumeWithAI accidentally re-introducing the entry).
     _removeFromCachedResumeContent(phaseId);
 
+    print('[deleteExperience] completed for cat=$cat idx=$idx');
     _markStale();
   }
 

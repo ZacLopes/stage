@@ -50,25 +50,24 @@ class SeedData {
   static List<Phase> getPhases() {
     return [
       // --- MUNDO 1: Direção ---
-      Phase(id: 't1_p3', trackId: 'track_1', orderIndex: 1, title: 'Direção', description: 'Área, tipo de vaga e norte profissional.', xpReward: 100),
+      Phase(id: 't1_p3', trackId: 'track_1', orderIndex: 1, title: 'Direção', description: 'Área, tipo de vaga e norte profissional.'),
 
       // --- MUNDO 2 ---
-      Phase(id: 't2_p1', trackId: 'track_2', orderIndex: 1, title: 'Minha Guilda', description: 'Formação acadêmica completa.', xpReward: 120),
-      Phase(id: 't2_p2', trackId: 'track_2', orderIndex: 2, title: 'Cursos', description: 'Cursos e certificações externas.', xpReward: 120),
-      Phase(id: 't2_p3', trackId: 'track_2', orderIndex: 3, title: 'Medalhas de Honra', description: 'Conquistas acadêmicas.', xpReward: 120),
+      Phase(id: 't2_p1', trackId: 'track_2', orderIndex: 1, title: 'Minha Guilda', description: 'Formação acadêmica completa.'),
+      Phase(id: 't2_p2', trackId: 'track_2', orderIndex: 2, title: 'Cursos', description: 'Cursos e certificações externas.'),
+      Phase(id: 't2_p3', trackId: 'track_2', orderIndex: 3, title: 'Medalhas de Honra', description: 'Conquistas acadêmicas.'),
 
       // --- MUNDO 3 ---
-      Phase(id: 't3_p1', trackId: 'track_3', orderIndex: 1, title: 'O Ponto de Partida', description: 'Suas experiências práticas.', xpReward: 150),
+      Phase(id: 't3_p1', trackId: 'track_3', orderIndex: 1, title: 'O Ponto de Partida', description: 'Suas experiências práticas.'),
       // t3_p2 removed — activities absorbed into inventory as 'lead'
 
       // --- MUNDO 4 (ATUALIZADO) ---
-      Phase(id: 't4_p1', trackId: 'track_4', orderIndex: 1, title: 'Minhas Ferramentas Técnicas', description: 'O que você domina.', xpReward: 180),
-      Phase(id: 't4_p2', trackId: 'track_4', orderIndex: 2, title: 'Idiomas', description: 'Línguas e fluência.', xpReward: 180),
+      Phase(id: 't4_p1', trackId: 'track_4', orderIndex: 1, title: 'Minhas Ferramentas Técnicas', description: 'O que você domina.'),
+      Phase(id: 't4_p2', trackId: 'track_4', orderIndex: 2, title: 'Idiomas', description: 'Línguas e fluência.'),
 
-      // --- MUNDO 5 ---
       // --- MUNDO 5 (ATUALIZADO): Links & Logística ---
-      Phase(id: 't5_p1', trackId: 'track_5', orderIndex: 1, title: 'Presença Digital', description: 'Seus perfis profissionais.', xpReward: 200),
-      Phase(id: 't5_p2', trackId: 'track_5', orderIndex: 2, title: 'Logística Final', description: 'Detalhes importantes.', xpReward: 200),
+      Phase(id: 't5_p1', trackId: 'track_5', orderIndex: 1, title: 'Presença Digital', description: 'Seus perfis profissionais.'),
+      Phase(id: 't5_p2', trackId: 'track_5', orderIndex: 2, title: 'Logística Final', description: 'Detalhes importantes.'),
     ];
   }
 

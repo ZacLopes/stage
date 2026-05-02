@@ -193,9 +193,7 @@ class SupabaseRepository {
           'name': user.userMetadata?['name'] ?? 'User',
           'course': user.userMetadata?['course'] ?? '',
           'semester': user.userMetadata?['semester'] ?? '',
-          'age': user.userMetadata?['age'], // Added missing age field
-          'xp': 0,
-          'level': 1,
+          'age': user.userMetadata?['age'],
           'ai_consent': false,
           'ai_consent_timestamp': null,
         };
@@ -258,21 +256,6 @@ class SupabaseRepository {
     }
   }
 
-  Future<void> updateUserXP(String userId, int xp, int level) async {
-    try {
-      await _client
-          .from('user_profiles')
-          .update({
-            'xp': xp,
-            'level': level,
-          })
-          .eq('id', userId);
-    } catch (e) {
-      print('Error updating user XP: $e');
-      rethrow;
-    }
-  }
-
   Future<void> deleteUserData() async {
     try {
       final userId = _client.auth.currentUser?.id;
@@ -325,7 +308,7 @@ class SupabaseRepository {
   // USER PROGRESS
   // ============================================
 
-  Future<void> markPhaseCompleted(String phaseId, int score) async {
+  Future<void> markPhaseCompleted(String phaseId) async {
     try {
       final userId = _client.auth.currentUser?.id;
       if (userId == null) throw Exception('User not authenticated');
@@ -334,7 +317,6 @@ class SupabaseRepository {
         'user_id': userId,
         'phase_id': phaseId,
         'completed': true,
-        'score': score,
         'completed_at': DateTime.now().toIso8601String(),
       });
     } catch (e) {
@@ -472,12 +454,16 @@ class SupabaseRepository {
       final userId = _client.auth.currentUser?.id;
       if (userId == null) throw Exception('User not authenticated');
 
+      // Explicit onConflict so the upsert actually upserts on
+      // (user_id, question_id). Without this, default upsert uses the
+      // primary key — and since `id` is auto-generated, every call
+      // historically inserted a new row instead of replacing.
       await _client.from('user_answers').upsert({
         'user_id': userId,
         'question_id': questionId,
         'answer': answer,
         'answered_at': DateTime.now().toIso8601String(),
-      });
+      }, onConflict: 'user_id,question_id');
     } catch (e) {
       print('Error saving answer: $e');
       rethrow;
@@ -609,8 +595,18 @@ class SupabaseRepository {
           .select('question_id, answer, answered_at')
           .eq('user_id', userId)
           .order('answered_at', ascending: false);
-      
-      return List<Map<String, dynamic>>.from(response);
+
+      // DEDUPE by question_id, keeping the most recent row. Defends against
+      // the legacy `saveAnswer` bug that did upsert-without-onConflict, which
+      // historically inserted multiple rows per (user_id, question_id) pair.
+      final seen = <String>{};
+      final deduped = <Map<String, dynamic>>[];
+      for (final item in response as List) {
+        final qid = item['question_id'] as String?;
+        if (qid == null) continue;
+        if (seen.add(qid)) deduped.add(Map<String, dynamic>.from(item));
+      }
+      return deduped;
     } catch (e) {
       print('Error fetching user answers: $e');
       return [];
@@ -622,11 +618,46 @@ class SupabaseRepository {
       final userId = _client.auth.currentUser?.id;
       if (userId == null) return {};
 
-      // 1. Fetch raw answers (question_id, answer)
-      final response = await _client
+      // 1. Fetch raw answers (question_id, answer) — order DESC + dedup by
+      //    question_id so legacy duplicate rows don't surface as phantom
+      //    "...content #2" entries to the AI (a primary cause of ghost
+      //    experiences re-appearing after delete).
+      final rawResponse = await _client
           .from('user_answers')
-          .select('question_id, answer')
-          .eq('user_id', userId);
+          .select('question_id, answer, answered_at')
+          .eq('user_id', userId)
+          .order('answered_at', ascending: false);
+      final seenQids = <String>{};
+      final response = <Map<String, dynamic>>[];
+      for (final item in rawResponse as List) {
+        final qid = item['question_id'] as String?;
+        if (qid == null) continue;
+        if (seenQids.add(qid)) response.add(Map<String, dynamic>.from(item));
+      }
+
+      // 1b. ORPHAN GUARD: when an experience was deleted but a stray
+      //     M3_D{N}_{cat}_{idx} row survived (RLS, network, etc.), filter
+      //     it out before sending to the AI. Rule: an experience is
+      //     "alive" only if its D1 row still exists. If D1 is gone, drop
+      //     all D2-D6 with the same cat+idx — they're orphans.
+      final aliveExperiences = <String>{}; // "${cat}_${idx}" set
+      final dRe = RegExp(r'^M3_D1_([a-z]+)_(\d+)$');
+      for (final item in response) {
+        final qid = item['question_id'] as String? ?? '';
+        final m = dRe.firstMatch(qid);
+        if (m != null) aliveExperiences.add('${m.group(1)}_${m.group(2)}');
+      }
+      response.removeWhere((item) {
+        final qid = item['question_id'] as String? ?? '';
+        final m = RegExp(r'^M3_D[2-6]_([a-z]+)_(\d+)$').firstMatch(qid);
+        if (m == null) return false;
+        final key = '${m.group(1)}_${m.group(2)}';
+        final orphan = !aliveExperiences.contains(key);
+        if (orphan) {
+          print('[getUserAnswersWithQuestions] dropping orphan answer: $qid');
+        }
+        return orphan;
+      });
       
       // 2. Fetch all question contents for lookup
       final Map<String, String> qContentMap = {};
@@ -1038,17 +1069,68 @@ class SupabaseRepository {
   }
 
   /// Permanently removes the user_answers entries for D1-D6 of a given
-  /// experience (M3_D1_${cat}_${n} .. M3_D6_${cat}_${n}).
+  /// experience (M3_D1_${cat}_${n} .. M3_D6_${cat}_${n}). Uses a single
+  /// batch DELETE with `inFilter` for atomicity, logs the result, and
+  /// verifies post-delete that no rows survived.
   Future<void> deleteExperienceUserAnswers(String cat, int idx) async {
     final userId = _client.auth.currentUser?.id;
-    if (userId == null) return;
+    if (userId == null) {
+      print('[deleteExperienceUserAnswers] no user id, skipping');
+      return;
+    }
     final ids = List.generate(6, (d) => 'M3_D${d + 1}_${cat}_$idx');
-    for (final id in ids) {
+
+    // Batch delete (one round-trip)
+    try {
       await _client
           .from('user_answers')
           .delete()
           .eq('user_id', userId)
-          .eq('question_id', id);
+          .inFilter('question_id', ids);
+    } catch (e) {
+      print('[deleteExperienceUserAnswers] batch delete FAILED for cat=$cat idx=$idx: $e');
+      // Fall back to per-id loop in case `inFilter` isn't supported
+      for (final id in ids) {
+        try {
+          await _client
+              .from('user_answers')
+              .delete()
+              .eq('user_id', userId)
+              .eq('question_id', id);
+        } catch (e2) {
+          print('[deleteExperienceUserAnswers] per-id delete FAILED for $id: $e2');
+        }
+      }
+    }
+
+    // Verify deletion and retry once for any survivors
+    try {
+      final survivors = await _client
+          .from('user_answers')
+          .select('question_id')
+          .eq('user_id', userId)
+          .inFilter('question_id', ids);
+      final list = (survivors as List?) ?? const [];
+      if (list.isNotEmpty) {
+        print('[deleteExperienceUserAnswers] WARNING ${list.length} rows survived first delete: $list. Retrying.');
+        for (final row in list) {
+          final qid = (row as Map)['question_id'] as String?;
+          if (qid == null) continue;
+          try {
+            await _client
+                .from('user_answers')
+                .delete()
+                .eq('user_id', userId)
+                .eq('question_id', qid);
+          } catch (e) {
+            print('[deleteExperienceUserAnswers] retry delete FAILED for $qid: $e');
+          }
+        }
+      } else {
+        print('[deleteExperienceUserAnswers] verified clean for cat=$cat idx=$idx');
+      }
+    } catch (e) {
+      print('[deleteExperienceUserAnswers] verification query FAILED: $e');
     }
   }
 

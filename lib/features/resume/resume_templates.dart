@@ -1343,10 +1343,17 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
     final textStyle = GoogleFonts.tinos(color: Colors.black);
     final addressLine = resume!.address.trim();
 
+    // The preview is rendered inside a 794×1123 container (A4 @ 96 DPI) with
+    // an outer 32px wrapper applied by resume_tab.dart. We compensate so the
+    // total margins match the PDF's `@page { margin: 0.4in 0.45in }`:
+    //   horizontal: 32 (wrapper) + 11 (here) = 43px ≈ 0.45in
+    //   vertical:   32 (wrapper) +  6 (here) = 38px ≈ 0.40in
+    // Font sizes are scaled ~1.33× from PDF pt values so 11pt → 15 logical
+    // pixels, visually matching the rendered PDF at this preview scale.
     return Container(
       width: double.infinity,
       color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 28),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1358,7 +1365,7 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
                 Text(
                   (user?.name ?? 'Seu Nome').toUpperCase(),
                   style: textStyle.copyWith(
-                    fontSize: 22,
+                    fontSize: 23, // 17pt × 1.333
                     fontWeight: FontWeight.bold,
                     letterSpacing: 0.5,
                   ),
@@ -1370,43 +1377,41 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
                       addressLine,
                       if (resume!.location.trim().isNotEmpty) resume!.location.trim(),
                     ].join(' – '),
-                    style: textStyle.copyWith(fontSize: 10),
+                    style: textStyle.copyWith(fontSize: 13), // 9.5pt × 1.333
                     textAlign: TextAlign.center,
                   ),
                 ],
-                const SizedBox(height: 2),
+                const SizedBox(height: 1),
                 Text(
                   _buildContactString(),
-                  style: textStyle.copyWith(fontSize: 10),
+                  style: textStyle.copyWith(fontSize: 13),
                   textAlign: TextAlign.center,
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 4), // .header margin-bottom 3pt × 1.333 ≈ 4
 
           // Sumário
           if (resume!.summary.trim().isNotEmpty) ...[
             _buildCenteredTitle(_t('summary'), textStyle),
             Text(
               resume!.summary.trim(),
-              style: textStyle.copyWith(fontSize: 11, height: 1.2),
+              style: textStyle.copyWith(fontSize: 15, height: 1.15), // 11pt × 1.333
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 5), // .entry margin-bottom 4pt × 1.333
           ],
 
           // Experiência Profissional
           if (resume!.experiences.isNotEmpty) ...[
             _buildCenteredTitle(_t('experience'), textStyle),
             ...resume!.experiences.map((exp) => _buildExperienceItem(exp, textStyle)),
-            const SizedBox(height: 4),
           ],
 
           // Educação
           if (resume!.education.isNotEmpty) ...[
             _buildCenteredTitle(_t('education'), textStyle),
             ...resume!.education.map((edu) => _buildEducationItem(edu, textStyle)),
-            const SizedBox(height: 4),
           ],
 
           // Atividades Extracurriculares
@@ -1414,7 +1419,6 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
             _buildCenteredTitle(_t('leadership'), textStyle),
             ...resume!.academicProjects.map((p) => _buildProjectItem(p, textStyle)),
             ...resume!.leadership.map((l) => _buildLeadershipItem(l, textStyle)),
-            const SizedBox(height: 4),
           ],
 
           // Habilidades, Certificações & Programas
@@ -1423,11 +1427,10 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
 
           // Interesses (seção separada no fim)
           if (resume!.interests.isNotEmpty) ...[
-            const SizedBox(height: 4),
             _buildCenteredTitle(_t('interests'), textStyle),
             RichText(
               text: TextSpan(
-                style: textStyle.copyWith(fontSize: 11, height: 1.3),
+                style: textStyle.copyWith(fontSize: 15, height: 1.15),
                 children: [
                   TextSpan(
                     text: '${_t('interests')}: ',
@@ -1444,17 +1447,20 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
   }
 
   Widget _buildCenteredTitle(String title, TextStyle style) {
+    // PDF: .sec { margin: 5pt 0 0; padding-bottom: 1pt; border-bottom: 0.5pt; font-size: 11pt }
+    //      .sec + * { margin-top: 2pt }
+    // × 1.333 → top: 7, between text and line: 1, after line: 3
     return Padding(
-      padding: const EdgeInsets.only(top: 6, bottom: 2),
+      padding: const EdgeInsets.only(top: 7, bottom: 3),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
             title.toUpperCase(),
             style: style.copyWith(
-              fontSize: 11,
+              fontSize: 15, // 11pt × 1.333
               fontWeight: FontWeight.bold,
-              letterSpacing: 0.3,
+              letterSpacing: 0.4,
             ),
           ),
           const SizedBox(height: 1),
@@ -1486,7 +1492,7 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
   Widget _buildEducationItem(EducationItem edu, TextStyle style) {
     final location = edu.location.isNotEmpty ? edu.location : (resume?.location ?? '');
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.only(bottom: 5), // .entry margin-bottom 4pt × 1.333
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1495,11 +1501,11 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
             children: [
               Text(
                 edu.institution,
-                style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
+                style: style.copyWith(fontSize: 15, fontWeight: FontWeight.bold),
               ),
               Text(
                 location,
-                style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
+                style: style.copyWith(fontSize: 15, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -1508,11 +1514,11 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
             children: [
               Text(
                 edu.degree,
-                style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
+                style: style.copyWith(fontSize: 15, fontStyle: FontStyle.italic),
               ),
               Text(
                 edu.period,
-                style: style.copyWith(fontSize: 10),
+                style: style.copyWith(fontSize: 15),
               ),
             ],
           ),
@@ -1521,7 +1527,7 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
               padding: const EdgeInsets.only(top: 2),
               child: Text(
                 edu.details,
-                style: style.copyWith(fontSize: 9),
+                style: style.copyWith(fontSize: 13), // 9.5pt × 1.333
               ),
             ),
           // Harvard enrichments — render as labelled bullet rows
@@ -1543,7 +1549,7 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
       padding: const EdgeInsets.only(top: 1),
       child: RichText(
         text: TextSpan(
-          style: style.copyWith(fontSize: 10, color: Colors.black),
+          style: style.copyWith(fontSize: 15, color: Colors.black),
           children: [
             const TextSpan(text: '• '),
             TextSpan(text: '$label: ', style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -1566,11 +1572,11 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
             children: [
               Text(
                 exp.company,
-                style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
+                style: style.copyWith(fontSize: 15, fontWeight: FontWeight.bold),
               ),
               Text(
                 location,
-                style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
+                style: style.copyWith(fontSize: 15, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -1579,11 +1585,11 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
             children: [
               Text(
                 exp.role,
-                style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
+                style: style.copyWith(fontSize: 15, fontStyle: FontStyle.italic),
               ),
               Text(
                 exp.period,
-                style: style.copyWith(fontSize: 10),
+                style: style.copyWith(fontSize: 15),
               ),
             ],
           ),
@@ -1607,11 +1613,11 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
             children: [
               Text(
                 proj.title,
-                style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
+                style: style.copyWith(fontSize: 15, fontWeight: FontWeight.bold),
               ),
               Text(
                 location,
-                style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
+                style: style.copyWith(fontSize: 15, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -1621,11 +1627,11 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
             children: [
               Text(
                 proj.role,
-                style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
+                style: style.copyWith(fontSize: 15, fontStyle: FontStyle.italic),
               ),
               Text(
                 proj.period,
-                style: style.copyWith(fontSize: 10),
+                style: style.copyWith(fontSize: 15),
               ),
             ],
           ),
@@ -1634,7 +1640,7 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
               padding: const EdgeInsets.only(top: 2, bottom: 1),
               child: RichText(
                 text: TextSpan(
-                  style: style.copyWith(fontSize: 10),
+                  style: style.copyWith(fontSize: 15),
                   children: [
                     TextSpan(
                       text: '${_t('relevant_work')}: ',
@@ -1666,11 +1672,11 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
             children: [
               Text(
                 lead.organization,
-                style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
+                style: style.copyWith(fontSize: 15, fontWeight: FontWeight.bold),
               ),
               Text(
                 location,
-                style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
+                style: style.copyWith(fontSize: 15, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -1680,11 +1686,11 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
             children: [
               Text(
                 lead.role,
-                style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
+                style: style.copyWith(fontSize: 15, fontStyle: FontStyle.italic),
               ),
               Text(
                 lead.period,
-                style: style.copyWith(fontSize: 10),
+                style: style.copyWith(fontSize: 15),
               ),
             ],
           ),
@@ -1693,7 +1699,7 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
               padding: const EdgeInsets.only(top: 2, bottom: 1),
               child: RichText(
                 text: TextSpan(
-                  style: style.copyWith(fontSize: 10),
+                  style: style.copyWith(fontSize: 15),
                   children: [
                     TextSpan(
                       text: '${_t('relevant_work')}: ',
@@ -1807,13 +1813,13 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
         children: [
           Text(
             '$label:',
-            style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
+            style: style.copyWith(fontSize: 15, fontWeight: FontWeight.bold),
           ),
           ...items.map((item) => Padding(
                 padding: const EdgeInsets.only(top: 1),
                 child: RichText(
                   text: TextSpan(
-                    style: style.copyWith(fontSize: 10),
+                    style: style.copyWith(fontSize: 15),
                     children: [
                       const TextSpan(text: '• '),
                       TextSpan(text: item),
@@ -1838,7 +1844,7 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
       padding: const EdgeInsets.only(bottom: 2),
       child: RichText(
         text: TextSpan(
-          style: style.copyWith(fontSize: 10, color: Colors.black),
+          style: style.copyWith(fontSize: 15, color: Colors.black),
           children: [
             TextSpan(text: '$label: ', style: const TextStyle(fontWeight: FontWeight.bold)),
             TextSpan(text: content),
@@ -1857,7 +1863,7 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
           padding: const EdgeInsets.only(bottom: 2),
           child: RichText(
             text: TextSpan(
-              style: style.copyWith(fontSize: 10),
+              style: style.copyWith(fontSize: 15),
               children: [
                 const TextSpan(text: '• '),
                 TextSpan(text: cleanLine),

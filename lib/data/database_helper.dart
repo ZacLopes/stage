@@ -36,9 +36,7 @@ CREATE TABLE user_profile (
   name $textType,
   email $textType,
   course $textType,
-  semester $textType,
-  xp $intType,
-  level $intType
+  semester $textType
 )
 ''');
 
@@ -61,7 +59,6 @@ CREATE TABLE phases (
   orderIndex $intType,
   title $textType,
   description $textType,
-  xpReward $intType,
   FOREIGN KEY (trackId) REFERENCES tracks (id)
 )
 ''');
@@ -108,7 +105,6 @@ CREATE TABLE user_progress (
   userId $intType,
   phaseId $textType,
   completed $boolType,
-  score $intType,
   PRIMARY KEY (userId, phaseId),
   FOREIGN KEY (userId) REFERENCES user_profile (id),
   FOREIGN KEY (phaseId) REFERENCES phases (id)
@@ -190,13 +186,12 @@ CREATE TABLE user_progress (
   }
   
   // --- Progress Operations ---
-  Future<void> markPhaseCompleted(int userId, String phaseId, int score) async {
+  Future<void> markPhaseCompleted(int userId, String phaseId) async {
     final db = await instance.database;
     await db.insert('user_progress', {
       'userId': userId,
       'phaseId': phaseId,
       'completed': 1,
-      'score': score
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
   

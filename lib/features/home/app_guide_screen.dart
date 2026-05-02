@@ -115,7 +115,7 @@ class _AppGuideScreenState extends State<AppGuideScreen> {
               children: [
                 _buildSlide(
                   title: 'A sua Jornada',
-                  description: 'Siga a trilha interativa, conquiste XP e suba de nível enquanto constrói sua carreira.',
+                  description: 'Siga a trilha interativa e construa sua carreira passo a passo.',
                   imagePath: 'assets/images/onboarding_1.png', // Fallback to icon if missing
                   icon: Icons.map_rounded,
                   color: StageColors.brandBlue,
