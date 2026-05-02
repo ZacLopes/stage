@@ -393,6 +393,15 @@ class _ResumeTabState extends State<ResumeTab> {
                 ],
               ),
               
+              // Single-page warning banner (Harvard MCS recommendation)
+              if (resumeVM.estimatePageOverflow() > 0)
+                Positioned(
+                  top: 100,
+                  left: 16,
+                  right: 16,
+                  child: _SinglePageWarningBanner(vm: resumeVM),
+                ),
+
               // Bottom Floating Action Bar
               Positioned(
                 bottom: 24,
@@ -841,6 +850,169 @@ class _ScaleButtonState extends State<_ScaleButton> with SingleTickerProviderSta
       child: ScaleTransition(
         scale: _scaleAnimation,
         child: widget.child,
+      ),
+    );
+  }
+}
+
+/// Yellow banner shown above the CV preview when the rendered output is
+/// likely to exceed one A4 page. Tapping "Ver sugestões" opens a sheet with
+/// concrete trim suggestions ranked by impact.
+class _SinglePageWarningBanner extends StatelessWidget {
+  final ResumeViewModel vm;
+  const _SinglePageWarningBanner({required this.vm});
+
+  @override
+  Widget build(BuildContext context) {
+    final overflow = vm.estimatePageOverflow();
+    final critical = overflow >= 2;
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: critical
+              ? const Color(0xFFFEE2E2)
+              : const Color(0xFFFEF3C7),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: critical
+                ? const Color(0xFFFCA5A5)
+                : const Color(0xFFFCD34D),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              critical ? Icons.warning : Icons.info_outline,
+              color: critical
+                  ? const Color(0xFF991B1B)
+                  : const Color(0xFF92400E),
+              size: 22,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    critical
+                        ? 'CV passou de 2 páginas'
+                        : 'CV pode passar de 1 página',
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: critical
+                          ? const Color(0xFF991B1B)
+                          : const Color(0xFF92400E),
+                    ),
+                  ),
+                  Text(
+                    'Harvard MCS recomenda 1 página para estudantes.',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color: critical
+                          ? const Color(0xFF991B1B)
+                          : const Color(0xFF92400E),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: () => _showSuggestions(context),
+              style: TextButton.styleFrom(
+                foregroundColor: critical
+                    ? const Color(0xFF991B1B)
+                    : const Color(0xFF92400E),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              ),
+              child: const Text(
+                'Ver sugestões',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSuggestions(BuildContext context) {
+    final tips = vm.suggestionsToTrim();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.content_cut, color: Color(0xFF4F46E5)),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Sugestões para encurtar',
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Caracteres estimados: ${vm.estimateRenderedCharCount()}',
+                style: GoogleFonts.inter(fontSize: 12, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 14),
+              ...tips.map((tip) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.fiber_manual_record,
+                            size: 8, color: Color(0xFF4F46E5)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            tip,
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: const Color(0xFF374151),
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(ctx),
+                  icon: const Icon(Icons.check, size: 18),
+                  label: const Text('Entendi'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4F46E5),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

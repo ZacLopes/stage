@@ -254,6 +254,139 @@ class ResumeViewModel extends ChangeNotifier {
   int _lastGeneratedPageCount = 1;
   int get lastGeneratedPageCount => _lastGeneratedPageCount;
 
+  // ============================================================
+  // Single-page enforcement (Harvard MCS recommendation for students)
+  // ============================================================
+
+  /// Approximate character budget for a single A4 page using the Harvard
+  /// Times New Roman 11pt template with 0.5in margins.
+  /// Empirically calibrated: ~4500 chars renders in 1 page comfortably.
+  static const int _singlePageCharBudget = 4500;
+
+  /// Estimates total visible character count of the rendered resume.
+  /// Used by the single-page warning banner.
+  int estimateRenderedCharCount() {
+    if (_resumeData == null) return 0;
+    int total = 0;
+    final r = _resumeData!;
+    total += r.fullName.length + r.email.length + r.phone.length +
+        r.linkedin.length + r.location.length + r.address.length;
+    total += r.summary.length;
+    for (final e in r.education) {
+      total += e.degree.length + e.institution.length + e.period.length +
+          e.details.length + e.location.length +
+          e.gpa.length + e.honors.length + e.repRole.length + e.coursework.length;
+    }
+    for (final exp in r.experiences) {
+      total += exp.role.length + exp.company.length + exp.period.length +
+          exp.description.length + exp.location.length;
+    }
+    for (final p in r.academicProjects) {
+      total += p.title.length + p.role.length + p.period.length +
+          p.description.length + p.location.length;
+    }
+    for (final l in r.leadership) {
+      total += l.role.length + l.organization.length + l.period.length +
+          l.description.length + l.location.length;
+    }
+    for (final c in r.courses) {
+      total += c.title.length + c.institution.length + c.period.length;
+    }
+    for (final lang in r.languages) {
+      total += lang.language.length + lang.level.length;
+    }
+    for (final t in r.tools) {
+      total += t.name.length + t.level.length;
+    }
+    for (final s in r.skills) total += s.length;
+    for (final i in r.interests) total += i.length;
+    for (final a in r.awards) {
+      total += a.title.length + a.institution.length + a.date.length +
+          a.description.length;
+    }
+    return total;
+  }
+
+  /// Returns 0 if the resume fits in a single page (recommended), 1 if it's
+  /// borderline / likely 2 pages, 2 if it's clearly multi-page.
+  int estimatePageOverflow() {
+    final c = estimateRenderedCharCount();
+    if (c <= _singlePageCharBudget) return 0;
+    if (c <= _singlePageCharBudget * 1.5) return 1;
+    return 2;
+  }
+
+  /// Concrete trim suggestions ranked by impact (lowest-relevance items first).
+  List<String> suggestionsToTrim() {
+    if (_resumeData == null) return const [];
+    final r = _resumeData!;
+    final out = <String>[];
+
+    // 1. Bullets > 200 chars are too verbose
+    for (final exp in r.experiences) {
+      for (final line in exp.description.split('\n')) {
+        if (line.replaceAll('•', '').trim().length > 200) {
+          out.add('Encurtar bullet em ${exp.company} — está com ${line.length} caracteres.');
+          break;
+        }
+      }
+    }
+    for (final l in r.leadership) {
+      for (final line in l.description.split('\n')) {
+        if (line.replaceAll('•', '').trim().length > 200) {
+          out.add('Encurtar bullet em ${l.organization} — está com ${line.length} caracteres.');
+          break;
+        }
+      }
+    }
+
+    // 2. Experiences/leadership without bullets are noise
+    for (final exp in r.experiences) {
+      if (exp.description.trim().isEmpty) {
+        out.add('"${exp.role} • ${exp.company}" não tem descrição. Adicione bullet ou remova.');
+      }
+    }
+    for (final p in r.academicProjects) {
+      if (p.description.trim().isEmpty) {
+        out.add('Projeto "${p.title}" não tem descrição. Adicione bullet ou remova.');
+      }
+    }
+
+    // 3. Old experiences (over 3 years past)
+    final now = DateTime.now();
+    bool isOld(String period) {
+      // matches YYYY at end of string
+      final m = RegExp(r'(\d{4})\s*\$').firstMatch(period);
+      if (m == null) return false;
+      final endYear = int.tryParse(m.group(1)!);
+      if (endYear == null) return false;
+      return (now.year - endYear) >= 3;
+    }
+    for (final exp in r.experiences) {
+      if (isOld(exp.period) && !exp.period.toLowerCase().contains('atual')) {
+        out.add('Considere remover "${exp.role} • ${exp.company}" — terminou há mais de 3 anos.');
+      }
+    }
+
+    // 4. Too many skills (>10)
+    if (r.skills.length > 10) {
+      out.add('Reduza Habilidades Técnicas para até 8 itens (atualmente ${r.skills.length}).');
+    }
+    if (r.tools.length > 8) {
+      out.add('Reduza Ferramentas para até 6 itens (atualmente ${r.tools.length}).');
+    }
+
+    // 5. Too many certifications
+    if (r.courses.length > 5) {
+      out.add('Reduza Certificações para até 4 itens (atualmente ${r.courses.length}).');
+    }
+
+    if (out.isEmpty) {
+      out.add('Considere remover a experiência menos relevante para a vaga-alvo.');
+    }
+    return out;
+  }
+
   Future<void> updatePageCountHeuristic(UserProfile? user) async {
     if (_resumeData == null) return;
     try {
@@ -304,6 +437,194 @@ class ResumeViewModel extends ChangeNotifier {
     _resumeData = await _convertToResumeData(newContent);
     await _updateHeaderInfo();
     notifyListeners();
+  }
+
+  // ============================================================
+  // Edit-mode persistence — each method writes to the source-of-truth
+  // (user_answers / target_jobs / section_versions) so that the next
+  // AI generation respects the user's edits.
+  // ============================================================
+
+  /// Marks the resume as having unapplied edits. Edit mode shows a
+  /// "Regerar meu CV" CTA when this is true.
+  bool _hasPendingEdits = false;
+  bool get hasPendingEdits => _hasPendingEdits;
+  void _markStale() {
+    if (!_hasPendingEdits) {
+      _hasPendingEdits = true;
+      notifyListeners();
+    }
+  }
+
+  void _clearStale() {
+    if (_hasPendingEdits) {
+      _hasPendingEdits = false;
+      notifyListeners();
+    }
+  }
+
+  /// Updates the contact answer (M5_1_1_Q1) with new fields.
+  Future<void> updateContact({
+    required String linkedin,
+    required String email,
+    required String phone,
+    required String address,
+  }) async {
+    final json = jsonEncode({
+      'linkedin': linkedin,
+      'email': email,
+      'phone': phone,
+      'address': address,
+      'portfolio': const <Map<String, String>>[],
+    });
+    await _repository.replaceAnswer('M5_1_1_Q1', json);
+    _markStale();
+  }
+
+  /// Applies the new contact info to the live ResumeData so the preview
+  /// reflects the change immediately — no AI regeneration required.
+  void applyContactToHeader(Map<String, String> contact) {
+    if (_resumeData == null) return;
+    _resumeData = _resumeData!.copyWith(
+      linkedin: contact['linkedin'] ?? _resumeData!.linkedin,
+      email: (contact['email']?.isNotEmpty ?? false)
+          ? contact['email']!
+          : _resumeData!.email,
+      phone: (contact['phone']?.isNotEmpty ?? false)
+          ? contact['phone']!
+          : _resumeData!.phone,
+      address: contact['address'] ?? _resumeData!.address,
+    );
+    notifyListeners();
+  }
+
+  /// Updates academic highlights (M2_1_1_Q5).
+  Future<void> updateAcademicHighlights({
+    required String gpa,
+    required String honors,
+    required String repRole,
+    required String coursework,
+  }) async {
+    final json = jsonEncode({
+      'gpa': gpa,
+      'honors': honors,
+      'rep_role': repRole,
+      'coursework': coursework,
+    });
+    await _repository.replaceAnswer('M2_1_1_Q5', json);
+    _markStale();
+  }
+
+  /// Updates the tools list (M4_1_1_Q1) — JSON of {category, level} objects.
+  Future<void> updateTools(List<ToolWithLevel> tools) async {
+    final json = jsonEncode(tools
+        .map((t) => {'category': t.name, 'level': t.level})
+        .toList());
+    await _repository.replaceAnswer('M4_1_1_Q1', json);
+    _markStale();
+  }
+
+  /// Updates the structured languages list (M4_2_1_Q3) with Harvard
+  /// proficiency levels. Source-of-truth for the resume's "Idiomas" section.
+  Future<void> updateLanguagesStructured(
+    List<({String language, String level})> langs,
+  ) async {
+    final json = jsonEncode(langs
+        .map((l) => {'idioma': l.language, 'nivel': l.level})
+        .toList());
+    await _repository.replaceAnswer('M4_2_1_Q3', json);
+    _markStale();
+  }
+
+  /// Updates certifications (M3_2_1_Q2 — learningVault format).
+  Future<void> updateCertifications(
+    List<({String title, String institution, String year})> items,
+  ) async {
+    final json = jsonEncode(items
+        .map((c) => {
+              'title': c.title,
+              'institution': c.institution,
+              'year': c.year,
+            })
+        .toList());
+    await _repository.replaceAnswer('M3_2_1_Q2', json);
+    _markStale();
+  }
+
+  /// Updates the active campaign's target job title (and optional description).
+  Future<void> updateTargetJob({
+    required String title,
+    String? descriptionText,
+  }) async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    final campaign = await _repository.getLatestCampaign(userId);
+    if (campaign == null) return;
+    await _repository.updateTargetJob(
+      campaignId: campaign.id,
+      title: title,
+      descriptionText: descriptionText,
+    );
+    _markStale();
+  }
+
+  /// Saves a manually-edited summary to section_versions as the new
+  /// chosen version. The pre-existing chosen row is unchosen.
+  Future<void> updateSummaryManually(String text) async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    final campaign = await _repository.getLatestCampaign(userId);
+    if (campaign == null) return;
+    // Determine next version number
+    final existingApproved = await _repository.getApprovedSummary(campaign.id);
+    final nextVersion = (existingApproved?.versionNumber ?? 0) + 1;
+    // Mark old as not-chosen by inserting a new chosen row (is_chosen unique
+    // logic relies on the most recent created_at — saveSectionVersion already
+    // handles this when versionId is null).
+    await _repository.saveSectionVersion(
+      campaignId: campaign.id,
+      content: text,
+      versionNumber: nextVersion,
+      wasEdited: true,
+      editedContent: text,
+    );
+    _markStale();
+  }
+
+  /// Restores a previously-saved summary version as the new chosen one.
+  /// Used by the version history UI.
+  Future<void> restoreSummaryVersion(String versionId) async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    final campaign = await _repository.getLatestCampaign(userId);
+    if (campaign == null) return;
+    await _repository.chooseSummaryVersion(campaign.id, versionId);
+    _markStale();
+  }
+
+  /// Removes an entire experience: soft-deletes its approved bullets and
+  /// hard-deletes its raw_responses + user_answers (D1-D6).
+  Future<void> deleteExperience({
+    required String cat,
+    required int idx,
+  }) async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    final phaseId = 'm3.$cat.$idx';
+    final campaign = await _repository.getLatestCampaign(userId);
+    if (campaign != null) {
+      await _repository.softDeleteAllBulletsForPhase(campaign.id, phaseId);
+    }
+    await _repository.deleteRawResponsesForPhase(phaseId);
+    await _repository.deleteExperienceUserAnswers(cat, idx);
+    _markStale();
+  }
+
+  /// Triggers a fresh AI regeneration of the resume using all the latest
+  /// edits. This is the user-facing "Regerar meu CV" action.
+  Future<void> regenerateAfterEdits() async {
+    await rewriteResumeWithAI();
+    _clearStale();
   }
 
   bool _isCourseCompleted = false;
@@ -598,6 +919,48 @@ class ResumeViewModel extends ChangeNotifier {
     }
   }
 
+  /// Reads the structured languages list (M4_2_1_Q3) and overwrites
+  /// `_resumeContent.languages` with it. Lets the user's edits win over the
+  /// AI-generated list — once edited, M4_2_1_Q3 becomes the source of truth.
+  Future<void> _overrideLanguagesFromAnswers() async {
+    if (_resumeContent == null) return;
+    try {
+      final answers = await _repository.getUserAnswers();
+      String? raw;
+      for (final a in answers) {
+        if (a['question_id'] == 'M4_2_1_Q3') {
+          raw = a['answer'] as String?;
+          break;
+        }
+      }
+      if (raw == null || raw.trim().isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return;
+      final newLangs = <ResumeLanguage>[];
+      for (final item in decoded) {
+        if (item is! Map) continue;
+        final language = (item['idioma'] ?? item['language'] ?? '').toString().trim();
+        final level = (item['nivel'] ?? item['level'] ?? '').toString().trim();
+        if (language.isEmpty) continue;
+        newLangs.add(ResumeLanguage(language: language, level: level));
+      }
+      if (newLangs.isEmpty) return;
+      _resumeContent = ResumeContent(
+        summary: _resumeContent!.summary,
+        skills: _resumeContent!.skills,
+        experiences: _resumeContent!.experiences,
+        education: _resumeContent!.education,
+        achievements: _resumeContent!.achievements,
+        interests: _resumeContent!.interests,
+        academicProjects: _resumeContent!.academicProjects,
+        leadership: _resumeContent!.leadership,
+        courses: _resumeContent!.courses,
+        languages: newLangs,
+        awards: _resumeContent!.awards,
+      );
+    } catch (_) {}
+  }
+
   /// Read M2_1_1_Q5 (academic highlights form) — returns map with optional
   /// gpa/honors/rep_role/coursework. All values are trimmed strings; missing
   /// fields come back as empty strings.
@@ -689,6 +1052,8 @@ class ResumeViewModel extends ChangeNotifier {
       final raw = await _localStorage.getResumeContent(userId);
       if (raw != null) _resumeContent = raw;
 
+      await _overrideLanguagesFromAnswers();
+
       final mapping = await _buildExperienceMappingFromD1();
       await _overrideSummaryFromSectionVersions(userId);
 
@@ -723,15 +1088,21 @@ class ResumeViewModel extends ChangeNotifier {
   );
 
   /// True when a `proj` D1 entry should be promoted to Experience.
-  /// Criteria: (a) role is a founder/C-suite term AND (b) at least one
-  /// approved bullet contains a real-world metric.
+  /// Per Harvard MCS, a founded company / personal project led with a
+  /// founder/C-suite role belongs in PROFESSIONAL EXPERIENCE rather than
+  /// Leadership & Activities. We require:
+  ///   (a) role is a founder/C-suite term, AND
+  ///   (b) at least ONE approved bullet exists (signals the user actually
+  ///       did something concrete worth describing).
+  /// Metrics in the bullet are a bonus — not a hard requirement, since the
+  /// user may have approved a concise bullet that omits the numbers they
+  /// originally mentioned in D5/D6.
   bool _shouldPromoteToExperience(_D1Entry entry, List<String>? approved) {
     if (entry.cat != 'proj') return false;
     final roleLower = entry.role.toLowerCase();
     final hasFounderRole = _founderRoleKeywords.any(roleLower.contains);
     if (!hasFounderRole) return false;
-    if (approved == null || approved.isEmpty) return false;
-    return approved.any((b) => _metricRegex.hasMatch(b));
+    return approved != null && approved.isNotEmpty;
   }
 
   static const Map<String, List<String>> _catToBucket = {
@@ -919,6 +1290,10 @@ class ResumeViewModel extends ChangeNotifier {
       ));
     }
 
+    // Parallel array: for each index in newProjects, the matched/appended D1
+    // entry (or null if the project came purely from the AI). Used by the
+    // promotion pass below to decide whether to move the entry into Experience.
+    final projD1Map = <_D1Entry?>[];
     final newProjects = <ResumeProject>[];
     for (int i = 0; i < _resumeContent!.academicProjects.length; i++) {
       final proj = _resumeContent!.academicProjects[i];
@@ -926,6 +1301,7 @@ class ResumeViewModel extends ChangeNotifier {
       if (match == null) {
         unmatchedProjIdx.add(i);
         newProjects.add(proj);
+        projD1Map.add(null);
         continue;
       }
       projFromD1.add(i);
@@ -940,6 +1316,7 @@ class ResumeViewModel extends ChangeNotifier {
             : proj.description,
         location: proj.location.isNotEmpty ? proj.location : (match.city ?? ''),
       ));
+      projD1Map.add(match);
     }
 
     // Phase 2: place leftover D1 entries — REPLACE an unmatched AI item in
@@ -1061,9 +1438,11 @@ class ResumeViewModel extends ChangeNotifier {
           if (unmatchedProjIdx.isNotEmpty) {
             final idx = unmatchedProjIdx.removeAt(0);
             newProjects[idx] = proj;
+            projD1Map[idx] = entry;
             projFromD1.add(idx);
           } else {
             newProjects.add(proj);
+            projD1Map.add(entry);
             projFromD1.add(newProjects.length - 1);
           }
         }
@@ -1111,6 +1490,7 @@ class ResumeViewModel extends ChangeNotifier {
       dedupLead.add(l);
     }
     final dedupProj = <ResumeProject>[];
+    final dedupProjD1 = <_D1Entry?>[]; // parallel to dedupProj
     for (int i = 0; i < newProjects.length; i++) {
       final p = newProjects[i];
       final k = entryKey(p.title, p.role);
@@ -1118,6 +1498,35 @@ class ResumeViewModel extends ChangeNotifier {
         continue;
       }
       dedupProj.add(p);
+      dedupProjD1.add(projD1Map[i]);
+    }
+
+    // Phase 4 — Founder promotion: move "proj" entries with founder role +
+    // approved bullets into Experience. Per Harvard MCS, a founded company
+    // belongs in Professional Experience, not Leadership/Activities.
+    final promotedIdx = <int>{};
+    for (int i = 0; i < dedupProj.length; i++) {
+      final entry = dedupProjD1[i];
+      if (entry == null) continue;
+      final approved = bulletsByPhase[entry.phaseId];
+      if (!_shouldPromoteToExperience(entry, approved)) continue;
+      final p = dedupProj[i];
+      dedupExp.add(ResumeExperience(
+        role: p.role,
+        company: p.title,
+        period: p.period,
+        description: p.description,
+      ));
+      promotedIdx.add(i);
+    }
+    if (promotedIdx.isNotEmpty) {
+      final filtered = <ResumeProject>[];
+      for (int i = 0; i < dedupProj.length; i++) {
+        if (!promotedIdx.contains(i)) filtered.add(dedupProj[i]);
+      }
+      dedupProj
+        ..clear()
+        ..addAll(filtered);
     }
 
     // Merge sport phrases into the interests string (Harvard style).

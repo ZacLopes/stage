@@ -73,21 +73,15 @@ class UserViewModel extends ChangeNotifier {
         int attempts = 0;
         while (attempts < 4 && userProfile == null) {
           if (attempts > 0) {
-             print('⏳ Profile not found, retrying/creating (${attempts}/4)...');
+             // Profile not found yet; waiting for DB trigger to populate.
              await Future.delayed(const Duration(seconds: 1));
           }
-          
+
           try {
             userProfile = await _repository.getUserProfile();
           } catch (e) {
-            final errorMsg = e.toString();
-            if (errorMsg.contains('SocketException') || 
-                errorMsg.contains('HandshakeException') ||
-                errorMsg.contains('Connection closed')) {
-              print('📡 Network connection issues (Retry $attempts/4)...');
-            } else {
-              print('Error fetching user profile: $e');
-            }
+            // Swallow transient errors during retries; surfacing only the
+            // final failure (after all attempts) keeps the console clean.
           }
           
           attempts++;

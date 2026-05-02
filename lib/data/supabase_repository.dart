@@ -19,7 +19,7 @@ class SupabaseRepository {
     if (_isCacheInitialized) return;
 
     try {
-      print('🚀 Prefetching all data...');
+      // Prefetching all gamification data (tracks/phases/questions)
       
       // 1. Fetch ALL Tracks
       final tracksResponse = await _client
@@ -73,7 +73,7 @@ class SupabaseRepository {
       _cachedQuestions = questionsMap; // Assumes _cachedQuestions is Map<String, List<Question>>
       _isCacheInitialized = true;
       
-      print('✅ Prefetch complete! Cached ${fetchedTracks.length} tracks, ${fetchedPhases.length} phases, ${fetchedQuestions.length} questions.');
+      // Cache populated: ${fetchedTracks.length} tracks / ${fetchedPhases.length} phases / ${fetchedQuestions.length} questions
       
     } catch (e) {
       final errorMsg = e.toString();
@@ -482,6 +482,98 @@ class SupabaseRepository {
       print('Error saving answer: $e');
       rethrow;
     }
+  }
+
+  /// Replaces the user's answer for a given question by deleting any prior
+  /// rows and inserting fresh. Used by the resume edit flow to ensure a
+  /// single source-of-truth row per question.
+  Future<void> replaceAnswer(String questionId, String answer) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('User not authenticated');
+    await _client
+        .from('user_answers')
+        .delete()
+        .eq('user_id', userId)
+        .eq('question_id', questionId);
+    await _client.from('user_answers').insert({
+      'user_id': userId,
+      'question_id': questionId,
+      'answer': answer,
+      'answered_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  /// Same as [saveRawResponse] but deletes any prior row for the same
+  /// (user_id, phase_id) before inserting — works regardless of whether the
+  /// UNIQUE constraint exists. Throws on failure (no silent swallowing).
+  Future<void> replaceRawResponse({
+    required String phaseId,
+    required String question,
+    required String answer,
+    required String answerType,
+    required int questionOrder,
+  }) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('User not authenticated');
+    await _client
+        .from('raw_responses')
+        .delete()
+        .eq('user_id', userId)
+        .eq('phase_id', phaseId);
+    await _client.from('raw_responses').insert({
+      'user_id': userId,
+      'phase_id': phaseId,
+      'question': question,
+      'answer': answer,
+      'answer_type': answerType,
+      'question_order': questionOrder,
+    });
+  }
+
+  /// Fetches a target_job row by id.
+  Future<TargetJob?> getTargetJob(String targetJobId) async {
+    try {
+      final data = await _client
+          .from('target_jobs')
+          .select()
+          .eq('id', targetJobId)
+          .maybeSingle();
+      return data != null ? TargetJob.fromJson(data) : null;
+    } catch (e) {
+      print('Error fetching target job: $e');
+      return null;
+    }
+  }
+
+  /// Updates the active campaign's target_job (title and/or description).
+  /// Returns the campaign id if successful.
+  Future<void> updateTargetJob({
+    required String campaignId,
+    String? title,
+    String? descriptionText,
+  }) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('User not authenticated');
+
+    // Get the campaign's target_job_id
+    final campaign = await _client
+        .from('campaigns')
+        .select('target_job_id')
+        .eq('id', campaignId)
+        .eq('user_id', userId)
+        .maybeSingle();
+    if (campaign == null) return;
+    final targetJobId = campaign['target_job_id'] as String?;
+    if (targetJobId == null) return;
+
+    final updates = <String, dynamic>{};
+    if (title != null) updates['title'] = title;
+    if (descriptionText != null) updates['description_text'] = descriptionText;
+    if (updates.isEmpty) return;
+    // is_skipped becomes false once user supplies a real title
+    if (title != null && title.trim().isNotEmpty) updates['is_skipped'] = false;
+
+    await _client.from('target_jobs').update(updates).eq('id', targetJobId);
   }
 
   /// Returns a map of {questionId → answer} for the given question IDs.
@@ -902,6 +994,64 @@ class SupabaseRepository {
     }
   }
 
+  /// Updates the text of an existing approved bullet.
+  Future<void> updateApprovedBulletText(String bulletId, String newText) async {
+    await _client
+        .from('approved_bullets')
+        .update({'final_text': newText})
+        .eq('id', bulletId);
+  }
+
+  /// Soft-deletes an approved bullet (is_active = false).
+  Future<void> softDeleteApprovedBullet(String bulletId) async {
+    await _client
+        .from('approved_bullets')
+        .update({'is_active': false})
+        .eq('id', bulletId);
+  }
+
+  /// Soft-deletes all approved bullets for a given experience phase.
+  Future<void> softDeleteAllBulletsForPhase(
+    String campaignId,
+    String experiencePhaseId,
+  ) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return;
+    await _client
+        .from('approved_bullets')
+        .update({'is_active': false})
+        .eq('user_id', userId)
+        .eq('campaign_id', campaignId)
+        .eq('experience_phase_id', experiencePhaseId);
+  }
+
+  /// Permanently removes raw_responses for a given experience phase
+  /// (e.g. m3.lead.0.d1 .. m3.lead.0.d6).
+  Future<void> deleteRawResponsesForPhase(String experiencePhaseId) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return;
+    await _client
+        .from('raw_responses')
+        .delete()
+        .eq('user_id', userId)
+        .like('phase_id', '$experiencePhaseId.%');
+  }
+
+  /// Permanently removes the user_answers entries for D1-D6 of a given
+  /// experience (M3_D1_${cat}_${n} .. M3_D6_${cat}_${n}).
+  Future<void> deleteExperienceUserAnswers(String cat, int idx) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return;
+    final ids = List.generate(6, (d) => 'M3_D${d + 1}_${cat}_$idx');
+    for (final id in ids) {
+      await _client
+          .from('user_answers')
+          .delete()
+          .eq('user_id', userId)
+          .eq('question_id', id);
+    }
+  }
+
   /// Save a chosen/edited professional summary to section_versions.
   Future<void> saveSectionVersion({
     required String campaignId,
@@ -913,6 +1063,14 @@ class SupabaseRepository {
   }) async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) throw Exception('User not authenticated');
+
+    // Always unmark every prior chosen version of this campaign+section so
+    // we end up with a single "EM USO" row.
+    await _client
+        .from('section_versions')
+        .update({'was_chosen': false})
+        .eq('campaign_id', campaignId)
+        .eq('section_type', 'resumo_profissional');
 
     if (versionId != null) {
       await _client.from('section_versions').update({
@@ -933,6 +1091,39 @@ class SupabaseRepository {
         'edited_content': editedContent,
       });
     }
+  }
+
+  /// Fetches ALL summary versions for a campaign (chosen + history),
+  /// ordered most-recent first. Used by the version history UI.
+  Future<List<SectionVersion>> getAllSummaryVersions(String campaignId) async {
+    try {
+      final response = await _client
+          .from('section_versions')
+          .select()
+          .eq('campaign_id', campaignId)
+          .eq('section_type', 'resumo_profissional')
+          .order('created_at', ascending: false);
+      return (response as List).map((e) => SectionVersion.fromJson(e)).toList();
+    } catch (e) {
+      print('Error fetching summary versions: $e');
+      return [];
+    }
+  }
+
+  /// Marks a specific section_version as the new chosen one (and unmarks all
+  /// other versions of the same campaign + section).
+  Future<void> chooseSummaryVersion(String campaignId, String versionId) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw Exception('User not authenticated');
+    await _client
+        .from('section_versions')
+        .update({'was_chosen': false})
+        .eq('campaign_id', campaignId)
+        .eq('section_type', 'resumo_profissional');
+    await _client
+        .from('section_versions')
+        .update({'was_chosen': true})
+        .eq('id', versionId);
   }
 
   /// Fetch the approved (was_chosen) professional summary for a campaign.

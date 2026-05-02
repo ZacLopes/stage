@@ -89,7 +89,6 @@ class HomeViewModel extends ChangeNotifier {
     
     // Check if completed
     if (_completedTrackIds.contains(track.id)) {
-      print('Track ${track.title} (Idx $trackIndex) is COMPLETED.');
       return TrackStatus.completed;
     }
     

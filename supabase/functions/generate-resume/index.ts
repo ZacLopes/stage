@@ -186,11 +186,14 @@ Cada item de "formacao" deve incluir, quando os dados estiverem disponíveis:
   Nov, Dez. Para curso em andamento use "Mmm YYYY - Atual".
   ✅ "Jan 2025 - Dez 2028"  ✅ "Ago 2023 - Atual"
   ❌ NUNCA "01/2025 - 12/2028" nem "2025 - 2028"
-- detalhes: SEMPRE preenchido. Sintetize semestre atual + turno + qualquer
-  outra informação relevante (Major/Minor, GPA, honors, cargo representativo)
-  em UMA linha curta. Se houver MUITA info, use parágrafo de até 2 linhas.
+- detalhes: SEMPRE preenchido com APENAS semestre/turno/Major/Minor.
+  IMPORTANTE: NÃO inclua aqui GPA, honors nem cargo representativo —
+  esses campos são renderizados separadamente pelo frontend a partir da
+  resposta de "M2_1_1_Q5" (academicHighlightsForm), e duplicar causaria
+  redundância no PDF.
   ✅ "Cursando 3º semestre, período Matutino"
-  ✅ "Cursando 5º semestre — Major em Finanças, Minor em Empreendedorismo. CR 8.9/10. Representante de turma."
+  ✅ "Cursando 5º semestre — Major em Finanças, Minor em Empreendedorismo"
+  ❌ NÃO escreva "Cursando 3º. CR 8.9. Representante de turma." (duplica)
   ❌ NUNCA deixe "detalhes" vazio se houver QUALQUER dado da formação
 - gpa: SÓ inclua se o usuário forneceu E for ≥ 8.0/10 (BR) ou ≥ 3.5/4.0 (US).
        Caso contrário OMITA o campo (não envie string vazia).

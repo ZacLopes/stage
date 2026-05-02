@@ -291,6 +291,8 @@ class GamificationViewModel extends ChangeNotifier {
           // M4 Habilidades
           'M4_1_1_Q1': 'm4.1',
           'M4_2_1_Q1': 'm4.2a', 'M4_2_1_Q4': 'm4.2b',
+          // M4_2_1_Q3 stores the structured languages list (resume edit override)
+          'M4_2_1_Q3': 'm4.2c',
           // M5 Contatos
           'M5_1_1_Q1': 'm5.1',
           'M5_2_1_Q1': 'm5.2a', 'M5_2_1_Q2': 'm5.2b',

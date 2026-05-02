@@ -5,11 +5,7 @@ import '../data/models/models.dart';
 class AIService {
   final SupabaseClient _client = Supabase.instance.client;
 
-  AIService() {
-    // No longer need OpenAI API key in the client!
-    // All AI calls now go through secure Edge Functions
-    print('✅ AIService initialized with secure Edge Functions');
-  }
+  AIService();
 
   Future<ProfileContent> generateProfileContent(
     Map<String, String> answersWithQuestions,

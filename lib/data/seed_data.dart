@@ -138,6 +138,10 @@ class SeedData {
       Question(id: 'M4_2_1_Q1', phaseId: 't4_p2', type: QuestionType.badgeMultiSelect, content: 'Além do Português, quais idiomas você domina ou está estudando?', options: ['Inglês', 'Espanhol', 'Francês', 'Alemão', 'Japonês', 'Outro']),
       Question(id: 'M4_2_1_Q2', phaseId: 't4_p2', type: QuestionType.stepSlider, content: 'Qual é o seu nível de conhecimento em {language}?', options: ['Básico', 'Intermediário', 'Avançado', 'Fluente', 'Nativo']),
       Question(id: 'M4_2_1_Q4', phaseId: 't4_p2', type: QuestionType.yesNoWithDetail, content: 'Você possui alguma certificação oficial (como TOEFL, IELTS ou Cambridge)?', options: []),
+      // Q3 holds the canonical structured list of languages with Harvard
+      // proficiency levels. Edited via the resume edit screen and used by
+      // the resume override to override the AI's languages output.
+      Question(id: 'M4_2_1_Q3', phaseId: 't4_p2', type: QuestionType.text, content: 'Lista estruturada de idiomas (uso interno do app).', options: []),
 
       // --- M5.1: Presença Digital (formulário único) ---
       Question(id: 'M5_1_1_Q1', phaseId: 't5_p1', type: QuestionType.contactForm, content: 'Vamos conectar você ao mercado. Preencha seus dados de contato.', options: []),
