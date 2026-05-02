@@ -305,7 +305,7 @@ function buildUserPrompt(
 
     prompt += '\n## RESPOSTAS DO USUÁRIO SOBRE ESTA EXPERIÊNCIA:\n\n'
 
-    // Sort D1..D5 and format
+    // Sort D1..D6 and format
     const sorted = [...rawResponses].sort((a, b) => a.phase_id.localeCompare(b.phase_id))
     const dLabels: Record<string, string> = {
         'd1': 'Detalhes (organização, cargo, período)',
@@ -313,6 +313,7 @@ function buildUserPrompt(
         'd3': 'Por que foi escolhido / por que criou',
         'd4': 'O que fez concretamente',
         'd5': 'O que mudou / impacto',
+        'd6': 'NÚMEROS CONCRETOS (use OBRIGATORIAMENTE em pelo menos um bullet, em bold)',
     }
     for (const r of sorted) {
         const dKey = r.phase_id.split('.').pop() ?? ''
@@ -320,6 +321,8 @@ function buildUserPrompt(
         prompt += `**${label}**\n${r.answer}\n\n`
     }
 
-    prompt += 'Gere os 3 bullets conforme as instruções do sistema.'
+    prompt += 'Gere os 3 bullets conforme as instruções do sistema. '
+    prompt += 'Se houver números na resposta D6, INCLUA esses números '
+    prompt += 'literalmente em pelo menos UM dos 3 bullets.'
     return prompt
 }

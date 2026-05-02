@@ -83,6 +83,7 @@ class SeedData {
 
       // --- M2.1: Minha Guilda (formulário único) ---
       Question(id: 'M2_1_1_Q1', phaseId: 't2_p1', type: QuestionType.academicForm, content: 'Me conta sobre a sua formação acadêmica.', options: []),
+      Question(id: 'M2_1_1_Q5', phaseId: 't2_p1', type: QuestionType.academicHighlightsForm, content: 'Tem alguma distinção ou destaque acadêmico pra incluir?', options: []),
       Question(id: 'M2_1_1_Q2', phaseId: 't2_p1', type: QuestionType.binaryChoice, content: 'Além da sua formação atual, você tem outra bagagem acadêmica?', options: []),
       Question(id: 'M2_1_1_Q3', phaseId: 't2_p1', type: QuestionType.retroIdCard, content: 'Onde você estudou e qual foi o curso?', options: []),
 
@@ -135,7 +136,7 @@ class SeedData {
 
       // --- M4.2: Idiomas ---
       Question(id: 'M4_2_1_Q1', phaseId: 't4_p2', type: QuestionType.badgeMultiSelect, content: 'Além do Português, quais idiomas você domina ou está estudando?', options: ['Inglês', 'Espanhol', 'Francês', 'Alemão', 'Japonês', 'Outro']),
-      Question(id: 'M4_2_1_Q2', phaseId: 't4_p2', type: QuestionType.stepSlider, content: 'Qual é o seu nível de conhecimento em {language}?', options: ['Básico', 'Intermediário', 'Avançado', 'Fluente']),
+      Question(id: 'M4_2_1_Q2', phaseId: 't4_p2', type: QuestionType.stepSlider, content: 'Qual é o seu nível de conhecimento em {language}?', options: ['Básico', 'Intermediário', 'Avançado', 'Fluente', 'Nativo']),
       Question(id: 'M4_2_1_Q4', phaseId: 't4_p2', type: QuestionType.yesNoWithDetail, content: 'Você possui alguma certificação oficial (como TOEFL, IELTS ou Cambridge)?', options: []),
 
       // --- M5.1: Presença Digital (formulário único) ---

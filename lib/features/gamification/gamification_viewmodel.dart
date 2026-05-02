@@ -282,7 +282,7 @@ class GamificationViewModel extends ChangeNotifier {
           // M1 Direção
           'M1_3_1_Q2': 'm1.1', 'M1_3_1_Q25': 'm1.2', 'M1_3_1_Q3': 'm1.3',
           // M2 Formação
-          'M2_1_1_Q1': 'm2.1', 'M2_1_1_Q2': 'm2.1b', 'M2_1_1_Q3': 'm2.1c',
+          'M2_1_1_Q1': 'm2.1', 'M2_1_1_Q5': 'm2.1d', 'M2_1_1_Q2': 'm2.1b', 'M2_1_1_Q3': 'm2.1c',
           'M3_2_1_Q1': 'm2.2a', 'M3_2_1_Q2': 'm2.2b',
           'M2_3_1_Q1': 'm2.3a', 'M2_3_1_Q4': 'm2.3b',
           // M3 Experiências (Phase 4 redesign)
@@ -332,11 +332,13 @@ class GamificationViewModel extends ChangeNotifier {
     // --- Dynamic Question Generation Logic ---
     _handleDynamicQuestionGeneration(currentQ.id, answer);
 
-    // --- Phase 5: Intercept D5 answers → trigger bullet generation ---
-    final d5Match = RegExp(r'^M3_D5_(\w+)_(\d+)$').firstMatch(currentQ.id);
-    if (d5Match != null) {
-      final cat = d5Match.group(1)!;
-      final n = d5Match.group(2)!;
+    // --- Phase 5: Intercept D6 answers → trigger bullet generation ---
+    // D6 is the optional "metric" question. We trigger AFTER it (whether
+    // filled or skipped) so that the AI has the numbers when generating.
+    final d6Match = RegExp(r'^M3_D6_(\w+)_(\d+)$').firstMatch(currentQ.id);
+    if (d6Match != null) {
+      final cat = d6Match.group(1)!;
+      final n = d6Match.group(2)!;
       _pendingBulletExperienceId = 'm3.$cat.$n';
       notifyListeners();
       return; // Don't advance yet — BulletReviewScreen calls resumeAfterBullet()
@@ -489,6 +491,87 @@ class GamificationViewModel extends ChangeNotifier {
     'spo': 'Esporte',
   }[cat] ?? cat;
 
+  static const _d5Content = {
+    'stage': ('Qual foi o resultado mais concreto que você gerou nesse estágio?',
+        'Pode ser número, processo criado, problema resolvido, feedback que recebeu.',
+        'Ex: Reduzi o tempo de geração de relatórios de 4h para 20min com automação...'),
+    'emp':   ('Qual foi o impacto mais concreto do seu trabalho nessa empresa?',
+        'Número, meta batida, processo melhorado, equipe desenvolvida.',
+        'Ex: Aumentei a satisfação do cliente de 72% para 89% em 6 meses...'),
+    'free':  ('O cliente ficou satisfeito? O que mudou depois da sua entrega?',
+        'Feedback, repetição, indicação, resultado que o cliente relatou.',
+        'Ex: O cliente recomendou para 2 amigos e voltou para um segundo projeto...'),
+    'proj':  ('O que o projeto gerou de concreto — uso, aprendizado ou impacto?',
+        'Downloads, usuários, aprendizados técnicos, feedbacks recebidos.',
+        'Ex: O app teve 200 downloads no primeiro mês e recebi feedback de 3 usuários reais...'),
+    'lead':  ('O que mudou na entidade ou no grupo depois da sua liderança?',
+        'Crescimento, novos projetos, cultura, reconhecimento externo.',
+        'Ex: A liga dobrou de tamanho e foi convidada para representar a faculdade em feira nacional...'),
+    'vol':   ('Qual foi o impacto mais concreto do seu voluntariado?',
+        'Pessoas impactadas, projetos entregues, mudança que ficou.',
+        'Ex: 12 dos 15 alunos passaram no ENEM; o projeto foi replicado em outra escola...'),
+    'res':   ('Quais foram os resultados ou conclusões da pesquisa?',
+        'Publicações, apresentações, descobertas, continuidade do projeto.',
+        'Ex: Artigo submetido para revista Qualis B2; pesquisa citada em TCC de outro aluno...'),
+    'spo':   ('Qual foi o maior resultado ou aprendizado do seu percurso esportivo?',
+        'Títulos, classificações, habilidades desenvolvidas, disciplina adquirida.',
+        'Ex: Conquistei o 2º lugar no estadual e desenvolvi disciplina de treino que uso até hoje...'),
+  };
+
+  static const _d4Content = {
+    'stage': ('Me conta 2-3 coisas concretas que você fez no estágio.',
+        'Tarefas, entregas, projetos que tocou. Pode ser desorganizado, eu organizo depois.',
+        'Ex: Automatizei relatórios em Python; participei de reuniões com clientes; atualizei o CRM...'),
+    'emp':   ('Me conta 2-3 coisas concretas que você fez nesse trabalho.',
+        'Responsabilidades, entregas, processos que você tocou ou criou.',
+        'Ex: Gerenciei carteira de 50 clientes; criei o SOP de atendimento; treinei 3 funcionários...'),
+    'free':  ('Me conta o que você entregou nesse projeto.',
+        'O que foi criado ou executado, quanto tempo levou, quais ferramentas usou.',
+        'Ex: Criei logo, cartão e paleta de cores; entreguei em 2 semanas com 3 rodadas de revisão...'),
+    'proj':  ('Me conta o que você desenvolveu ou construiu nesse projeto.',
+        'Funcionalidades, versões, o que você criou do zero ou melhorou.',
+        'Ex: Desenvolvi o backend em Node.js; criei 5 telas no Figma; publiquei com 200 downloads...'),
+    'lead':  ('Me conta 2-3 coisas concretas que você liderou ou organizou.',
+        'Eventos, projetos, decisões, membros gerenciados. Pode ser desorganizado.',
+        'Ex: Organizei evento com 300 pessoas; recrutei 10 membros; criei o planejamento anual...'),
+    'vol':   ('Me conta 2-3 coisas concretas que você fez no voluntariado.',
+        'Atividades, pessoas impactadas, projetos que você tocou.',
+        'Ex: Dei aulas de reforço para 15 alunos; organizei arrecadação; criei material didático...'),
+    'res':   ('Me conta 2-3 coisas concretas que você fez na pesquisa.',
+        'Coleta de dados, análises, artigos, apresentações — sua contribuição real.',
+        'Ex: Coletei dados de 80 municípios; rodei regressões em R; apresentei em congresso da área...'),
+    'spo':   ('Me conta 2-3 conquistas ou atividades concretas do seu percurso esportivo.',
+        'Campeonatos, treinos, liderança em equipe, resultados que alcançou.',
+        'Ex: Fui campeão estadual sub-18; treinei 6x por semana; capitão do time por 2 temporadas...'),
+  };
+
+  static const _d3Content = {
+    'stage': ('Como você entrou nesse estágio e o que esperavam de você?',
+        'O processo seletivo, por que te escolheram, quais eram as expectativas iniciais.',
+        'Ex: Fui selecionado entre 200 candidatos para atuar em dados, com foco em automação...'),
+    'emp':   ('Como você foi contratado e qual era sua missão no cargo?',
+        'O contexto da contratação e o problema que você foi resolver.',
+        'Ex: Fui contratado para estruturar o atendimento que recebia 100+ reclamações por semana...'),
+    'free':  ('Por que o cliente te contratou ou como surgiu esse projeto?',
+        'O problema que ele queria resolver e por que escolheu você.',
+        'Ex: O cliente precisava de identidade visual para lançar sua marca em 30 dias...'),
+    'proj':  ('Por que você criou isso? Qual problema queria resolver?',
+        'A motivação, o problema que existia, o que te fez começar.',
+        'Ex: Criei porque não encontrava uma ferramenta simples para controlar gastos variáveis...'),
+    'lead':  ('Como você entrou nessa liderança e qual era o desafio inicial?',
+        'O processo de seleção ou fundação, e o que precisava ser feito.',
+        'Ex: Fui eleito presidente para reformular o modelo de eventos que estava estagnado...'),
+    'vol':   ('Por que você escolheu esse voluntariado e qual era sua função?',
+        'A motivação pessoal e o papel que você assumiu na organização.',
+        'Ex: Escolhi porque acredito em educação como transformação e assumi a coordenação de turmas...'),
+    'res':   ('Como surgiu esse projeto de pesquisa e qual era a hipótese?',
+        'O orientador, o problema científico, a pergunta que vocês queriam responder.',
+        'Ex: Entrei como bolsista para investigar se microcrédito reduz informalidade em pequenos municípios...'),
+    'spo':   ('Como você chegou nesse nível e o que te motivava a continuar?',
+        'O início da trajetória, os treinamentos e a dedicação por trás dos resultados.',
+        'Ex: Comecei aos 12 anos e fui convocado para o estadual aos 16 após treino intensivo...'),
+  };
+
   static const _d2Content = {
     'stage': ('Em poucas palavras, o que essa empresa faz?',
         'Recrutador pode não conhecer. Em 1-2 frases, ajude ele a entender.',
@@ -522,6 +605,21 @@ class GamificationViewModel extends ChangeNotifier {
       'Recrutador pode não conhecer. Em 1-2 frases, ajude ele a entender.',
       'Ex: Organização voltada para...',
     );
+    final d3 = _d3Content[cat] ?? (
+      'Por que você foi escolhido pra isso, ou por que você criou isso?',
+      'A intenção, o problema que existia, a expectativa quando você começou.',
+      'Ex: Fui chamado para estruturar a área que ainda não existia...',
+    );
+    final d5 = _d5Content[cat] ?? (
+      'Olhando para trás, o que ficou diferente depois que você passou por aí?',
+      'Pode ser número, problema resolvido, processo criado. Não precisa ser quantificado.',
+      'Ex: A área passou a publicar relatórios mensais que viraram referência...',
+    );
+    final d4 = _d4Content[cat] ?? (
+      'Me conta 2-3 coisas concretas que você fez.',
+      'Foque em ações específicas: o que você criou, organizou, executou, mudou.',
+      'Ex: Criei um modelo de análise em Excel para 30+ empresas; entrevistei 5 gestores...',
+    );
     return [
     Question(
       id: 'M3_D1_${cat}_$n', phaseId: 't3_p1',
@@ -538,28 +636,31 @@ class GamificationViewModel extends ChangeNotifier {
     Question(
       id: 'M3_D3_${cat}_$n', phaseId: 't3_p1',
       type: QuestionType.text,
-      content: 'Por que você foi escolhido pra isso, ou por que você criou isso?',
-      options: [
-        'A intenção, o problema que existia, a expectativa quando você começou.',
-        'Ex: Fui chamado para estruturar a área de research que ainda não existia...',
-      ],
+      content: d3.$1,
+      options: [d3.$2, d3.$3],
     ),
     Question(
       id: 'M3_D4_${cat}_$n', phaseId: 't3_p1',
       type: QuestionType.text,
-      content: 'Me conta 2-3 coisas concretas que você fez. Pode ser desorganizado, eu organizo depois.',
-      options: [
-        'Foque em ações específicas: o que você criou, organizou, executou, mudou.',
-        'Ex: Criei um modelo de análise em Excel para 30+ empresas; entrevistei 5 gestores...',
-      ],
+      content: d4.$1,
+      options: [d4.$2, d4.$3],
     ),
     Question(
       id: 'M3_D5_${cat}_$n', phaseId: 't3_p1',
       type: QuestionType.text,
-      content: 'Olhando para trás, o que ficou diferente depois que você passou por aí?',
+      content: d5.$1,
+      options: [d5.$2, d5.$3],
+    ),
+    // D6 — explicit metric question (Harvard "fact-based" rule).
+    // Optional, but when answered it lets the AI bake the number into the
+    // bullet ("200+ membros", "1000 downloads", etc.).
+    Question(
+      id: 'M3_D6_${cat}_$n', phaseId: 't3_p1',
+      type: QuestionType.text,
+      content: 'Tem números concretos pra incluir?',
       options: [
-        'Pode ser número, problema resolvido, processo criado. Não precisa ser quantificado.',
-        'Ex: A área de research passou a publicar relatórios mensais que viraram referência...',
+        'Quantas pessoas envolvidas, quanto cresceu, ranking, downloads, prazo, ROI? Pode pular se não tiver.',
+        'Ex: liderei 8 trainees; alcancei 1000 downloads; 200+ participantes; melhorou em 30%',
       ],
     ),
   ];}

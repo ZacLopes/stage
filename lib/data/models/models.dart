@@ -219,6 +219,8 @@ enum QuestionType {
   experienceInventory,  // M3_1_1_Q1: multi-select 9 experience categories
   experienceQuantity,   // M3_1_1_QCount: count per category chips 1-5+
   experienceDetailForm, // M3_D1_*: org+role+dates+city for each experience
+  // Phase 5 Harvard education enhancements (index 42 — keep at end)
+  academicHighlightsForm, // M2_1_1_Q5: GPA + honors + rep role + coursework
 }
 
 class Question {
@@ -419,12 +421,14 @@ class ResumeProject {
   final String role;
   final String period;
   final String description;
+  final String location;
 
   ResumeProject({
     required this.title,
     required this.role,
     required this.period,
     required this.description,
+    this.location = '',
   });
 
   factory ResumeProject.fromJson(Map<String, dynamic> json) {
@@ -433,6 +437,7 @@ class ResumeProject {
       role: json['papel'] ?? '',
       period: json['periodo'] ?? '',
       description: json['descricao'] ?? '',
+      location: (json['local'] ?? json['localizacao'] ?? '').toString(),
     );
   }
 
@@ -442,6 +447,7 @@ class ResumeProject {
       'papel': role,
       'periodo': period,
       'descricao': description,
+      'local': location,
     };
   }
 }
@@ -495,9 +501,11 @@ class ResumeCourse {
 
   factory ResumeCourse.fromJson(Map<String, dynamic> json) {
     return ResumeCourse(
-      title: json['titulo'] ?? '',
-      institution: json['instituicao'] ?? '',
-      period: json['periodo'] ?? '',
+      // New Harvard schema: { nome, instituicao, ano }
+      // Legacy schema:      { titulo, instituicao, periodo }
+      title: (json['nome'] ?? json['titulo'] ?? '').toString(),
+      institution: (json['instituicao'] ?? '').toString(),
+      period: (json['ano'] ?? json['periodo'] ?? '').toString(),
     );
   }
 
@@ -667,16 +675,28 @@ class ResumeContent {
        }).toList();
     }
 
+    // Backward-compat: new schema returns `habilidades_tecnicas` (list) and
+    // `habilidades` (string fallback). Prefer the list when available.
+    String parseSkillsField() {
+      final tech = json['habilidades_tecnicas'];
+      if (tech is List && tech.isNotEmpty) {
+        return tech.map((e) => e.toString()).join('\n');
+      }
+      return parseField(json['habilidades']);
+    }
+
     return ResumeContent(
       summary: parseField(json['resumo_profissional']),
-      skills: parseField(json['habilidades']),
+      skills: parseSkillsField(),
       experiences: parseExperiences(json['experiencias']),
       education: parseEducation(json['formacao']),
       achievements: parseField(json['conquistas']),
       interests: parseField(json['interesses']),
       academicProjects: parseProjects(json['projetos'] ?? json['projetos_academicos']),
       leadership: parseLeadership(json['lideranca']),
-      courses: parseCourses(json['cursos']),
+      // New schema uses `certificacoes` (objects with nome/instituicao/ano);
+      // fall back to legacy `cursos` for older payloads.
+      courses: parseCourses(json['certificacoes'] ?? json['cursos']),
       languages: parseLanguages(json['idiomas']),
       awards: parseAwards(json['premios']),
     );

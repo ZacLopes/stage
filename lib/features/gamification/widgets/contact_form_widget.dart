@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:async';
 import 'dart:convert';
 
 class ContactFormWidget extends StatefulWidget {
@@ -20,7 +21,9 @@ class _ContactFormWidgetState extends State<ContactFormWidget> {
   final _linkedinController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _addressController = TextEditingController();
   final Map<String, String> _portfolio = {}; // platform -> url
+  Timer? _debounce;
 
   static const _platforms = [
     'GitHub', 'Behance', 'Dribbble', 'Portfólio Pessoal',
@@ -31,30 +34,58 @@ class _ContactFormWidgetState extends State<ContactFormWidget> {
   void initState() {
     super.initState();
     if (widget.initialValue != null) {
-      try {
-        final data = jsonDecode(widget.initialValue!);
-        _linkedinController.text = data['linkedin'] ?? '';
-        _emailController.text = data['email'] ?? '';
-        _phoneController.text = data['phone'] ?? '';
+      final data = _parseInitial(widget.initialValue!);
+      if (data != null) {
+        _linkedinController.text = data['linkedin']?.toString() ?? '';
+        _emailController.text = data['email']?.toString() ?? '';
+        _phoneController.text = data['phone']?.toString() ?? '';
+        _addressController.text = data['address']?.toString() ?? '';
         if (data['portfolio'] is List) {
           for (final p in (data['portfolio'] as List)) {
             _portfolio[p['platform'] as String] = p['url'] as String? ?? '';
           }
         }
-      } catch (_) {}
+      }
     }
-    _linkedinController.addListener(_emitIfValid);
-    _emailController.addListener(_emitIfValid);
-    _phoneController.addListener(_emitIfValid);
+    _linkedinController.addListener(_scheduleEmit);
+    _emailController.addListener(_scheduleEmit);
+    _phoneController.addListener(_scheduleEmit);
+    _addressController.addListener(_scheduleEmit);
     WidgetsBinding.instance.addPostFrameCallback((_) => _emitIfValid());
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _linkedinController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
+    _addressController.dispose();
     super.dispose();
+  }
+
+  void _scheduleEmit() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), _emitIfValid);
+  }
+
+  /// Parses initialValue defensively. Handles both clean JSON and legacy
+  /// concatenated JSONs ({...},{...}) by picking the LAST valid object.
+  Map<String, dynamic>? _parseInitial(String raw) {
+    try {
+      final v = jsonDecode(raw);
+      if (v is Map) return Map<String, dynamic>.from(v);
+    } catch (_) {}
+    final matches = RegExp(r'\{[^{}]*(?:\[[^\[\]]*\][^{}]*)*\}').allMatches(raw).toList();
+    for (final m in matches.reversed) {
+      try {
+        final v = jsonDecode(m.group(0)!);
+        if (v is Map && v.containsKey('phone')) {
+          return Map<String, dynamic>.from(v);
+        }
+      } catch (_) {}
+    }
+    return null;
   }
 
   bool get _isValid =>
@@ -72,6 +103,7 @@ class _ContactFormWidgetState extends State<ContactFormWidget> {
       'portfolio': portfolioList,
       'email': _emailController.text.trim(),
       'phone': _phoneController.text.trim(),
+      'address': _addressController.text.trim(),
     }));
   }
 
@@ -264,6 +296,24 @@ class _ContactFormWidgetState extends State<ContactFormWidget> {
           keyboardType: TextInputType.phone,
           inputFormatters: [_PhoneMaskFormatter()],
         ),
+
+        const SizedBox(height: 24),
+
+        // Address (opcional, padrão Harvard internacional)
+        _sectionLabel('ENDEREÇO (opcional)'),
+        const SizedBox(height: 6),
+        const Text(
+          'Adicione rua e bairro se quiser o formato internacional. Ex: "Rua Joaquim Floriano, 152 – Itaim Bibi"',
+          style: TextStyle(color: Color(0xFF6B7280), fontSize: 12),
+        ),
+        const SizedBox(height: 8),
+        _textField(
+          controller: _addressController,
+          hint: 'Rua, número – Bairro',
+          icon: Icons.home_outlined,
+          keyboardType: TextInputType.streetAddress,
+        ),
+
         const SizedBox(height: 8),
         const Text('* campos obrigatórios', style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12)),
         const SizedBox(height: 8),

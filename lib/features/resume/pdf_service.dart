@@ -973,6 +973,10 @@ class PdfService {
 
   // --- 7. Harvard MCS Template (HTML → PDF via Printing.convertHtml) ---
   static String _buildHarvardMcsHtml(UserProfile? user, ResumeData resume) {
+    final summaryHtml = resume.summary.trim().isNotEmpty
+        ? '<div class="sec">Resumo Profissional</div><div class="entry">${_escapeHtml(resume.summary.trim())}</div>'
+        : '';
+
     final eduItems = resume.education
         .map((e) => _buildHarvardEducationItemHtml(e, resume))
         .join('');
@@ -988,7 +992,13 @@ class PdfService {
         : '';
 
     final projectItems = resume.academicProjects
-        .map((p) => _buildHarvardActivityItemHtml(p.title, p.period, p.role, '', p.description))
+        .map((p) => _buildHarvardActivityItemHtml(
+              p.title,
+              p.location.isNotEmpty ? p.location : resume.location,
+              p.role,
+              p.period,
+              p.description,
+            ))
         .join('');
     final leadItems = resume.leadership
         .map((l) => _buildHarvardActivityItemHtml(
@@ -1004,25 +1014,45 @@ class PdfService {
         : '';
 
     final skillParts = <String>[];
+    // Harvard MCS order: Technical Skills → Languages → Tools → Certifications
+    // Each as its own labeled line (single line per category).
+
     if (resume.skills.isNotEmpty) {
       final skillsText = resume.skills.join(', ');
-      skillParts.add('<div class="sk"><b>Técnico:</b> $skillsText</div>');
+      skillParts.add('<div class="sk"><b>Habilidades Técnicas:</b> $skillsText</div>');
     }
+
     if (resume.languages.isNotEmpty) {
-      final langText = resume.languages.map((l) => '${l.language} (${l.level})').join(', ');
-      skillParts.add('<div class="sk"><b>Idiomas:</b> $langText</div>');
+      // Group by level: "Fluente em Inglês e Português; Básico em Espanhol"
+      skillParts.add('<div class="sk"><b>Idiomas:</b> ${_buildLanguagesText(resume.languages)}</div>');
     }
+
+    if (resume.tools.isNotEmpty) {
+      // Group by level: "Avançado: Excel, PowerPoint; Intermediário: Figma"
+      skillParts.add('<div class="sk"><b>Ferramentas:</b> ${_buildToolsText(resume.tools)}</div>');
+    }
+
     if (resume.courses.isNotEmpty) {
-      final courseText = resume.courses.map((c) => c.title).join(', ');
-      skillParts.add('<div class="sk"><b>Certificações:</b> $courseText</div>');
+      // Format: "Nome - Instituição (Ano)" when fields are populated
+      final courseText = resume.courses.map((c) {
+        final parts = <String>[c.title];
+        if (c.institution.isNotEmpty) parts.add(c.institution);
+        var formatted = parts.join(' - ');
+        if (c.period.isNotEmpty) formatted = '$formatted (${c.period})';
+        return formatted;
+      }).join('; ');
+      skillParts.add('<div class="sk"><b>Certificações &amp; Programas:</b> $courseText</div>');
     }
+
     if (resume.interests.isNotEmpty) {
+      // Single continuous sentence per Harvard guidelines
       final interestsText = resume.interests.join(', ');
       skillParts.add('<div class="sk"><b>Interesses:</b> $interestsText</div>');
     }
+
     final skillsContent = skillParts.join('');
     final skillsHtml = skillParts.isNotEmpty
-        ? '<div class="sec">Habilidades &amp; Interesses</div>$skillsContent'
+        ? '<div class="sec">Habilidades, Certificações &amp; Interesses</div>$skillsContent'
         : '';
 
     return '''<!DOCTYPE html>
@@ -1034,13 +1064,16 @@ class PdfService {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Times New Roman', Times, serif; font-size: 11pt; color: #000; line-height: 1.2; }
     .header { text-align: center; margin-bottom: 5pt; }
-    .name { font-weight: bold; font-size: 14pt; }
-    .contact { font-size: 9.5pt; margin-top: 3pt; }
+    .name { font-weight: bold; font-size: 17pt; letter-spacing: 0.5pt; }
+    .address { font-size: 9.5pt; margin-top: 3pt; }
+    .contact { font-size: 9.5pt; margin-top: 1pt; }
     hr { border: none; border-top: 1px solid #000; margin: 5pt 0 10pt; }
     .sec { text-align: center; font-weight: bold; font-size: 11pt; margin: 10pt 0 4pt; }
     .row { display: flex; justify-content: space-between; font-size: 11pt; }
     .row .r { white-space: nowrap; margin-left: 8pt; }
     .bold .l { font-weight: bold; }
+    .italic .l { font-style: italic; }
+    .italic .r { font-style: italic; }
     .entry { margin-bottom: 6pt; }
     ul { margin: 3pt 0 0 16pt; }
     li { font-size: 11pt; margin-bottom: 1pt; }
@@ -1050,10 +1083,12 @@ class PdfService {
 </head>
 <body>
   <div class="header">
-    <div class="name">${user?.name ?? "Seu Nome"}</div>
+    <div class="name">${(user?.name ?? "Seu Nome").toUpperCase()}</div>
+    ${_buildHarvardAddressLine(resume)}
     <div class="contact">${_buildHarvardContactString(resume)}</div>
   </div>
   <hr>
+  $summaryHtml
   $educationHtml
   $experienceHtml
   $activitiesHtml
@@ -1065,23 +1100,44 @@ class PdfService {
   static String _buildHarvardEducationItemHtml(EducationItem edu, ResumeData resume) {
     final location = edu.location.isNotEmpty ? edu.location : resume.location;
     final detailsHtml = edu.details.isNotEmpty
-        ? '<div class="detail">${edu.details}</div>'
+        ? '<div class="detail">${_escapeHtml(edu.details)}</div>'
         : '';
+
+    // Harvard enrichments — render as bullets when present
+    final highlightItems = <String>[];
+    if (edu.coursework.isNotEmpty) {
+      highlightItems.add('<li><b>Disciplinas relevantes:</b> ${_escapeHtml(edu.coursework)}</li>');
+    }
+    if (edu.gpa.isNotEmpty) {
+      highlightItems.add('<li><b>CR:</b> ${_escapeHtml(edu.gpa)}</li>');
+    }
+    if (edu.honors.isNotEmpty) {
+      highlightItems.add('<li><b>Distinções:</b> ${_escapeHtml(edu.honors)}</li>');
+    }
+    if (edu.repRole.isNotEmpty) {
+      highlightItems.add('<li><b>Cargo representativo:</b> ${_escapeHtml(edu.repRole)}</li>');
+    }
+    final highlightsHtml = highlightItems.isNotEmpty
+        ? '<ul>${highlightItems.join('')}</ul>'
+        : '';
+
     return '<div class="entry">'
         '<div class="row bold"><span class="l">${edu.institution}</span>'
         '<span class="r">$location</span></div>'
-        '<div class="row"><span class="l">${edu.degree}</span>'
+        '<div class="row italic"><span class="l">${edu.degree}</span>'
         '<span class="r">${edu.period}</span></div>'
         '$detailsHtml'
+        '$highlightsHtml'
         '</div>';
   }
 
   static String _buildHarvardExperienceItemHtml(ExperienceItem exp, ResumeData resume) {
     final location = exp.location.isNotEmpty ? exp.location : resume.location;
+    // Top row: Company (bold) + Location (right). Bottom row: Role (italic) + Period.
     return '<div class="entry">'
         '<div class="row bold"><span class="l">${exp.company}</span>'
         '<span class="r">$location</span></div>'
-        '<div class="row bold"><span class="l">${exp.role}</span>'
+        '<div class="row italic"><span class="l">${exp.role}</span>'
         '<span class="r">${exp.period}</span></div>'
         '${_buildHarvardBulletsHtml(exp.description)}'
         '</div>';
@@ -1094,8 +1150,9 @@ class PdfService {
     String rightBot,
     String description,
   ) {
+    // Top row: Organization (bold) + Location (right). Bottom row: Role (italic) + Period.
     final botRow = (leftBot.isNotEmpty || rightBot.isNotEmpty)
-        ? '<div class="row"><span class="l">$leftBot</span><span class="r">$rightBot</span></div>'
+        ? '<div class="row italic"><span class="l">$leftBot</span><span class="r">$rightBot</span></div>'
         : '';
     return '<div class="entry">'
         '<div class="row bold"><span class="l">$leftTop</span><span class="r">$rightTop</span></div>'
@@ -1109,19 +1166,137 @@ class PdfService {
     if (lines.isEmpty) return '';
     final items = lines.map((line) {
       final clean = line.replaceAll('•', '').trim();
-      return '<li>$clean</li>';
+      return '<li>${_emphasizeMetrics(clean)}</li>';
     }).join('');
     return '<ul>$items</ul>';
   }
 
+  /// Bolds quantitative tokens inside bullet text (Harvard "fact-based" rule).
+  /// Catches:
+  ///   percentages       — "20%", "2,5%", "20 %"
+  ///   plus-counts       — "200+", "1.000+"
+  ///   currency          — "R$ 50.000", "R$ 1M"
+  ///   Brazilian numbers — "1.000 downloads", "200 pessoas", "5 anos"
+  ///   rankings          — "1º lugar", "1ª colocada", "top 5"
+  ///   ranges of hours   — "100 horas"
+  /// The pattern intentionally avoids matching dates ("2024", "Jan 2025") which
+  /// the bullet rarely mentions in body text (dates live in the row header).
+  static String _emphasizeMetrics(String text) {
+    final patterns = <RegExp>[
+      // Percent: 20%, 2,5%, 1.5%
+      RegExp(r'\d+(?:[.,]\d+)?\s*%'),
+      // Plus-counts: 200+, 1.000+, 5+
+      RegExp(r'\d+(?:[.,]\d+)*\+'),
+      // Currency: R$ 50.000, R$ 1M, R$ 1,5K
+      RegExp(r'R\$\s*\d+(?:[.,]\d+)*\s*[KMB]?', caseSensitive: false),
+      // Rankings: 1º, 2ª, 3°, top 5
+      RegExp(r'\b\d+[ºª°]\b'),
+      RegExp(r'\btop\s*\d+\b', caseSensitive: false),
+      // Number + countable noun (downloads, usuários, pessoas, horas, etc.)
+      RegExp(
+        r'\b\d+(?:[.,]\d+)*\s+(?:downloads?|usuários?|usuarios?|membros?|pessoas?|alunos?|clientes?|atendentes?|alvos?|empresas?|projetos?|países?|paises?|horas?|meses?|anos?|semanas?|dias?|trainees?|participantes?)',
+        caseSensitive: false,
+      ),
+    ];
+
+    String out = text;
+    for (final re in patterns) {
+      out = out.replaceAllMapped(re, (m) => '<b>${m.group(0)}</b>');
+    }
+    return out;
+  }
+
+  /// Group languages by proficiency level into Harvard-style sentences.
+  /// Output: "Fluente em Inglês e Português; Básico em Espanhol"
+  static String _buildLanguagesText(List<ResumeLanguage> langs) {
+    const order = ['Nativo', 'Fluente', 'Avançado', 'Intermediário', 'Básico'];
+    final byLevel = <String, List<String>>{};
+    for (final l in langs) {
+      final level = l.level.trim().isEmpty ? 'Outro' : l.level.trim();
+      byLevel.putIfAbsent(level, () => []).add(l.language);
+    }
+    final parts = <String>[];
+    for (final level in order) {
+      final list = byLevel.remove(level);
+      if (list != null && list.isNotEmpty) {
+        parts.add('$level em ${_joinList(list)}');
+      }
+    }
+    // Catch-all for unrecognized levels
+    byLevel.forEach((level, list) {
+      parts.add('$level em ${_joinList(list)}');
+    });
+    return parts.join('; ');
+  }
+
+  /// Group tools by proficiency level.
+  /// Output: "Avançado: Excel, PowerPoint; Intermediário: Figma; Básico: Python"
+  static String _buildToolsText(List<ToolWithLevel> tools) {
+    const order = ['Avançado', 'Intermediário', 'Básico'];
+    final byLevel = <String, List<String>>{};
+    for (final t in tools) {
+      final level = t.level.trim().isEmpty ? '' : t.level.trim();
+      byLevel.putIfAbsent(level, () => []).add(t.name);
+    }
+    final parts = <String>[];
+    for (final level in order) {
+      final list = byLevel.remove(level);
+      if (list != null && list.isNotEmpty) {
+        parts.add('$level: ${list.join(', ')}');
+      }
+    }
+    final unleveled = byLevel.remove('');
+    if (unleveled != null && unleveled.isNotEmpty) {
+      parts.add(unleveled.join(', '));
+    }
+    byLevel.forEach((level, list) {
+      parts.add('$level: ${list.join(', ')}');
+    });
+    return parts.join('; ');
+  }
+
+  /// Joins a list of strings with proper Portuguese conjunctions.
+  /// ["A"] → "A"; ["A","B"] → "A e B"; ["A","B","C"] → "A, B e C"
+  static String _joinList(List<String> items) {
+    if (items.isEmpty) return '';
+    if (items.length == 1) return items[0];
+    if (items.length == 2) return '${items[0]} e ${items[1]}';
+    return '${items.sublist(0, items.length - 1).join(', ')} e ${items.last}';
+  }
+
+  static String _escapeHtml(String s) =>
+      s.replaceAll('&', '&amp;')
+       .replaceAll('<', '&lt;')
+       .replaceAll('>', '&gt;')
+       .replaceAll('"', '&quot;');
+
+  /// Builds the optional address line (above the contact line) when the user
+  /// provided a full street address. Falls back to empty string otherwise —
+  /// the city stays on the contact line.
+  static String _buildHarvardAddressLine(ResumeData resume) {
+    final addr = resume.address.trim();
+    if (addr.isEmpty) return '';
+    // Combine "Rua X, 123 – Bairro" with city/state when both are available
+    final pieces = <String>[addr];
+    if (resume.location.trim().isNotEmpty) pieces.add(resume.location.trim());
+    return '<div class="address">${_escapeHtml(pieces.join(' – '))}</div>';
+  }
+
   static String _buildHarvardContactString(ResumeData resume) {
     final parts = <String>[];
-    if (resume.location.isNotEmpty) parts.add(resume.location);
-    if (resume.phone.isNotEmpty) parts.add(resume.phone);
+    // If address line is present, the city already appears there — skip it
+    // here to avoid duplication.
+    if (resume.address.trim().isEmpty && resume.location.trim().isNotEmpty) {
+      parts.add(resume.location);
+    }
+    if (resume.phone.isNotEmpty) parts.add('Mobile: ${resume.phone}');
     if (resume.email.isNotEmpty) parts.add(resume.email);
     if (resume.linkedin.isNotEmpty) {
-      parts.add(resume.linkedin.replaceAll('https://', '').replaceAll('www.', ''));
+      parts.add(resume.linkedin
+          .replaceAll('https://', '')
+          .replaceAll('http://', '')
+          .replaceAll('www.', ''));
     }
-    return parts.join(' • ');
+    return parts.join(' | ');
   }
 }

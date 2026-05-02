@@ -325,7 +325,7 @@ class _BulletReviewScreenState extends State<BulletReviewScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
             child: Text(
               bullet.content,
               style: const TextStyle(
@@ -334,6 +334,11 @@ class _BulletReviewScreenState extends State<BulletReviewScreen> {
                 height: 1.5,
               ),
             ),
+          ),
+          // Strength feedback (Harvard MCS heuristics)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: _BulletStrengthBadge(text: bullet.content),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
@@ -638,4 +643,163 @@ class _AngleMeta {
   final Color color;
   final String label;
   const _AngleMeta(this.icon, this.color, this.label);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Bullet strength heuristics (Harvard MCS guidelines)
+// ════════════════════════════════════════════════════════════════════
+
+enum _BulletStrength { strong, medium, weak }
+
+class _BulletAnalysis {
+  final _BulletStrength strength;
+  final String message;
+  const _BulletAnalysis(this.strength, this.message);
+}
+
+const _bannedVerbs = [
+  'ajudei', 'auxiliei', 'trabalhei em', 'fui responsável', 'foi responsável',
+  'tive a oportunidade', 'estive envolvido', 'fiz parte de', 'participei de',
+];
+
+const _cliches = [
+  'proativo', 'proativa', 'dinâmico', 'dinâmica', 'líder nato', 'líder nata',
+  'foco em resultados', 'perfil empreendedor', 'team player', 'hands-on',
+  'apaixonado por', 'apaixonada por', 'comunicativo', 'comunicativa',
+  'automotivado', 'habilidoso em',
+];
+
+const _harvardActionVerbs = [
+  // Liderança
+  'liderei', 'coordenei', 'dirigi', 'geri', 'supervisionei', 'orquestrei',
+  'encabecei', 'presidi', 'conduzi', 'estabeleci', 'priorizei', 'deleguei',
+  'recomendei', 'avaliei',
+  // Comunicação
+  'apresentei', 'negociei', 'mediei', 'redigi', 'editei', 'traduzi',
+  'persuadi', 'promovi', 'recrutei', 'convenci', 'articulei',
+  // Pesquisa
+  'investiguei', 'analisei', 'identifiquei', 'diagnostiquei', 'mapeei',
+  'examinei', 'sintetizei', 'modelei', 'validei',
+  // Técnico
+  'construí', 'projetei', 'implementei', 'otimizei', 'padronizei',
+  'programei', 'automatizei', 'engenhei', 'reformulei', 'atualizei',
+  // Quantitativo
+  'calculei', 'orçamentei', 'maximizei', 'minimizei', 'auditei',
+  'quantifiquei', 'reduzi', 'cresci', 'aumentei', 'diminuí',
+  // Criativo
+  'criei', 'concebi', 'fundei', 'desenvolvi', 'lancei', 'originei',
+  'visualizei', 'estruturei',
+  // Organizacional
+  'organizei', 'sistematizei', 'centralizei', 'categorizei', 'compilei',
+  'processei', 'coletei',
+];
+
+final _metricRegex = RegExp(
+  r'\d+(?:[.,]\d+)?\s*%'
+  r'|\d+(?:[.,]\d+)*\+'
+  r'|R\$\s*\d+'
+  r'|\d+(?:[.,]\d+)*\s+(?:usuários|usuarios|downloads|membros|pessoas|clientes|alunos|atendentes|alvos|empresas|projetos|acessos|seguidores|leads|trainees|participantes|vendas|países|paises|horas|meses|anos)',
+  caseSensitive: false,
+);
+
+_BulletAnalysis _analyzeBullet(String text) {
+  final stripped = text.replaceAll('•', '').trim();
+  final lower = stripped.toLowerCase();
+
+  // 1) Banned verbs / clichés → weak
+  for (final b in _bannedVerbs) {
+    if (lower.startsWith(b) || lower.contains(' $b ')) {
+      return _BulletAnalysis(_BulletStrength.weak, 'Substitua "$b" por verbo de ação no passado');
+    }
+  }
+  for (final c in _cliches) {
+    if (lower.contains(c)) {
+      return _BulletAnalysis(_BulletStrength.weak, 'Evite o clichê "$c" — Harvard pede fatos, não adjetivos');
+    }
+  }
+
+  // 2) Strong action verb at start?
+  final startsWithStrongVerb = _harvardActionVerbs.any((v) => lower.startsWith('$v '));
+  final hasMetric = _metricRegex.hasMatch(stripped);
+
+  if (startsWithStrongVerb && hasMetric) {
+    return const _BulletAnalysis(_BulletStrength.strong, 'Verbo de ação forte + métrica concreta');
+  }
+  if (startsWithStrongVerb) {
+    return const _BulletAnalysis(_BulletStrength.medium, 'Forte. Adicione números (quantos, quanto cresceu, ranking) para ficar Harvard.');
+  }
+  if (hasMetric) {
+    return const _BulletAnalysis(_BulletStrength.medium, 'Tem métrica. Considere começar com verbo de ação no passado.');
+  }
+  return const _BulletAnalysis(_BulletStrength.medium, 'Considere começar com verbo de ação no passado e adicionar números.');
+}
+
+class _BulletStrengthBadge extends StatelessWidget {
+  final String text;
+  const _BulletStrengthBadge({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final analysis = _analyzeBullet(text);
+    final (bg, fg, icon, label) = switch (analysis.strength) {
+      _BulletStrength.strong => (
+          const Color(0xFFD1FAE5),
+          const Color(0xFF065F46),
+          Icons.check_circle,
+          'Forte',
+        ),
+      _BulletStrength.medium => (
+          const Color(0xFFFEF3C7),
+          const Color(0xFF92400E),
+          Icons.bolt,
+          'Pode melhorar',
+        ),
+      _BulletStrength.weak => (
+          const Color(0xFFFEE2E2),
+          const Color(0xFF991B1B),
+          Icons.warning_amber,
+          'Fraco',
+        ),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: fg, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: fg,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  analysis.message,
+                  style: TextStyle(
+                    color: fg,
+                    fontSize: 11.5,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

@@ -1298,8 +1298,9 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
   Widget build(BuildContext context) {
     if (resume == null) return const SizedBox.shrink();
 
-    // Font style that mimics Calibri (Sans-serif, clean)
-    final textStyle = GoogleFonts.arimo(color: Colors.black);
+    // Font style — Times New Roman to match the PDF Harvard ATS template
+    final textStyle = GoogleFonts.tinos(color: Colors.black);
+    final addressLine = resume!.address.trim();
 
     return Container(
       width: double.infinity,
@@ -1308,39 +1309,68 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header - Centralized
+          // Header — Harvard MCS style: name in CAPS, optional address line,
+          // contact line with pipes and "Mobile:" prefix.
           Center(
             child: Column(
               children: [
                 Text(
-                  user?.name ?? 'Seu Nome',
+                  (user?.name ?? 'Seu Nome').toUpperCase(),
                   style: textStyle.copyWith(
-                    fontSize: 18,
+                    fontSize: 22,
                     fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
                   ),
                 ),
-                const SizedBox(height: 4),
+                if (addressLine.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    [
+                      addressLine,
+                      if (resume!.location.trim().isNotEmpty) resume!.location.trim(),
+                    ].join(' – '),
+                    style: textStyle.copyWith(fontSize: 10),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+                const SizedBox(height: 2),
                 Text(
                   _buildContactString(),
-                  style: textStyle.copyWith(fontSize: 9),
+                  style: textStyle.copyWith(fontSize: 10),
                   textAlign: TextAlign.center,
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           const Divider(height: 1, thickness: 1, color: Colors.black),
           const SizedBox(height: 12),
 
-          // SECTIONS
-          _buildCenteredTitle('Educação', textStyle),
-          ...resume!.education.map((edu) => _buildEducationItem(edu, textStyle)),
-          const SizedBox(height: 8),
+          // Resumo Profissional (when present)
+          if (resume!.summary.trim().isNotEmpty) ...[
+            _buildCenteredTitle('Resumo Profissional', textStyle),
+            Text(
+              resume!.summary.trim(),
+              style: textStyle.copyWith(fontSize: 11, height: 1.3),
+            ),
+            const SizedBox(height: 10),
+          ],
 
-          _buildCenteredTitle('Experiência', textStyle),
-          ...resume!.experiences.map((exp) => _buildExperienceItem(exp, textStyle)),
-          const SizedBox(height: 8),
+          // Educação
+          if (resume!.education.isNotEmpty) ...[
+            _buildCenteredTitle('Educação', textStyle),
+            ...resume!.education.map((edu) => _buildEducationItem(edu, textStyle)),
+            const SizedBox(height: 8),
+          ],
 
+          // Experiência (only if non-empty)
+          if (resume!.experiences.isNotEmpty) ...[
+            _buildCenteredTitle('Experiência', textStyle),
+            ...resume!.experiences.map((exp) => _buildExperienceItem(exp, textStyle)),
+            const SizedBox(height: 8),
+          ],
+
+          // Liderança & Atividades
           if (resume!.academicProjects.isNotEmpty || resume!.leadership.isNotEmpty) ...[
             _buildCenteredTitle('Liderança & Atividades', textStyle),
             ...resume!.academicProjects.map((p) => _buildProjectItem(p, textStyle)),
@@ -1348,7 +1378,8 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
             const SizedBox(height: 8),
           ],
 
-          _buildCenteredTitle('Habilidades & Interesses', textStyle),
+          // Habilidades, Certificações & Interesses
+          _buildCenteredTitle('Habilidades, Certificações & Interesses', textStyle),
           _buildSkillsSection(textStyle),
         ],
       ),
@@ -1372,13 +1403,21 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
 
   String _buildContactString() {
     final parts = <String>[];
-    if (resume?.location.isNotEmpty == true) parts.add(resume!.location);
-    if (resume?.phone.isNotEmpty == true) parts.add(resume!.phone);
+    // If a full address line is shown above, the city is already there —
+    // skip it from the contact line to avoid duplication.
+    final hasAddressLine = resume?.address.trim().isNotEmpty == true;
+    if (!hasAddressLine && resume?.location.isNotEmpty == true) {
+      parts.add(resume!.location);
+    }
+    if (resume?.phone.isNotEmpty == true) parts.add('Mobile: ${resume!.phone}');
     if (resume?.email.isNotEmpty == true) parts.add(resume!.email);
     if (resume?.linkedin.isNotEmpty == true) {
-      parts.add(resume!.linkedin.replaceAll('https://', '').replaceAll('www.', ''));
+      parts.add(resume!.linkedin
+          .replaceAll('https://', '')
+          .replaceAll('http://', '')
+          .replaceAll('www.', ''));
     }
-    return parts.join('  •  ');
+    return parts.join(' | ');
   }
 
   Widget _buildEducationItem(EducationItem edu, TextStyle style) {
@@ -1406,11 +1445,11 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
             children: [
               Text(
                 edu.degree,
-                style: style.copyWith(fontSize: 10),
+                style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
               ),
               Text(
                 edu.period,
-                style: style.copyWith(fontSize: 10),
+                style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
               ),
             ],
           ),
@@ -1422,7 +1461,32 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
                 style: style.copyWith(fontSize: 9),
               ),
             ),
+          // Harvard enrichments — render as labelled bullet rows
+          if (edu.coursework.isNotEmpty)
+            _buildEducationHighlightRow('Disciplinas relevantes', edu.coursework, style),
+          if (edu.gpa.isNotEmpty)
+            _buildEducationHighlightRow('CR', edu.gpa, style),
+          if (edu.honors.isNotEmpty)
+            _buildEducationHighlightRow('Distinções', edu.honors, style),
+          if (edu.repRole.isNotEmpty)
+            _buildEducationHighlightRow('Cargo representativo', edu.repRole, style),
         ],
+      ),
+    );
+  }
+
+  Widget _buildEducationHighlightRow(String label, String value, TextStyle style) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 1, left: 12),
+      child: RichText(
+        text: TextSpan(
+          style: style.copyWith(fontSize: 10, color: Colors.black),
+          children: [
+            const TextSpan(text: '• '),
+            TextSpan(text: '$label: ', style: const TextStyle(fontWeight: FontWeight.bold)),
+            TextSpan(text: value),
+          ],
+        ),
       ),
     );
   }
@@ -1452,11 +1516,11 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
             children: [
               Text(
                 exp.role,
-                style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
+                style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
               ),
               Text(
                 exp.period,
-                style: style.copyWith(fontSize: 10),
+                style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
               ),
             ],
           ),
@@ -1468,11 +1532,13 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
   }
 
   Widget _buildProjectItem(ResumeProject proj, TextStyle style) {
+    final location = proj.location.isNotEmpty ? proj.location : (resume?.location ?? '');
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Top row: Title (bold) + Location (right)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1481,31 +1547,40 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
                 style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
               ),
               Text(
-                proj.period,
+                location,
                 style: style.copyWith(fontSize: 10),
               ),
             ],
           ),
-          Text(
-            proj.role,
-            style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
+          // Bottom row: Role (italic) + Period (italic)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                proj.role,
+                style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
+              ),
+              Text(
+                proj.period,
+                style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
+              ),
+            ],
           ),
           const SizedBox(height: 2),
-          Text(
-            proj.description,
-            style: style.copyWith(fontSize: 9),
-          ),
+          _buildBulletsFromDescription(proj.description, style),
         ],
       ),
     );
   }
 
   Widget _buildLeadershipItem(ResumeLeadership lead, TextStyle style) {
+    final location = lead.location.isNotEmpty ? lead.location : (resume?.location ?? '');
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Top row: Organization (bold) + Location (right)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1514,39 +1589,103 @@ class HarvardAtsBrasilTemplate extends ResumeTemplate {
                 style: style.copyWith(fontSize: 10, fontWeight: FontWeight.bold),
               ),
               Text(
-                lead.period,
+                location,
                 style: style.copyWith(fontSize: 10),
               ),
             ],
           ),
-          Text(
-            lead.role,
-            style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
+          // Bottom row: Role (italic) + Period (italic)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                lead.role,
+                style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
+              ),
+              Text(
+                lead.period,
+                style: style.copyWith(fontSize: 10, fontStyle: FontStyle.italic),
+              ),
+            ],
           ),
           const SizedBox(height: 2),
-          Text(
-            lead.description,
-            style: style.copyWith(fontSize: 9),
-          ),
+          _buildBulletsFromDescription(lead.description, style),
         ],
       ),
     );
   }
 
   Widget _buildSkillsSection(TextStyle style) {
+    // Group languages and tools by level (Harvard-style sentences)
+    String groupLanguages(List<ResumeLanguage> langs) {
+      const order = ['Nativo', 'Fluente', 'Avançado', 'Intermediário', 'Básico'];
+      final byLevel = <String, List<String>>{};
+      for (final l in langs) {
+        final level = l.level.trim().isEmpty ? 'Outro' : l.level.trim();
+        byLevel.putIfAbsent(level, () => []).add(l.language);
+      }
+      final parts = <String>[];
+      for (final level in order) {
+        final list = byLevel.remove(level);
+        if (list != null && list.isNotEmpty) {
+          parts.add('$level em ${_joinPt(list)}');
+        }
+      }
+      byLevel.forEach((level, list) {
+        parts.add('$level em ${_joinPt(list)}');
+      });
+      return parts.join('; ');
+    }
+
+    String groupTools(List<ToolWithLevel> tools) {
+      const order = ['Avançado', 'Intermediário', 'Básico'];
+      final byLevel = <String, List<String>>{};
+      for (final t in tools) {
+        final level = t.level.trim().isEmpty ? '' : t.level.trim();
+        byLevel.putIfAbsent(level, () => []).add(t.name);
+      }
+      final parts = <String>[];
+      for (final level in order) {
+        final list = byLevel.remove(level);
+        if (list != null && list.isNotEmpty) parts.add('$level: ${list.join(', ')}');
+      }
+      final un = byLevel.remove('');
+      if (un != null && un.isNotEmpty) parts.add(un.join(', '));
+      byLevel.forEach((level, list) => parts.add('$level: ${list.join(', ')}'));
+      return parts.join('; ');
+    }
+
+    String formatCertifications(List<ResumeCourse> courses) =>
+        courses.map((c) {
+          final parts = <String>[c.title];
+          if (c.institution.isNotEmpty) parts.add(c.institution);
+          var s = parts.join(' - ');
+          if (c.period.isNotEmpty) s = '$s (${c.period})';
+          return s;
+        }).join('; ');
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (resume!.skills.isNotEmpty)
-          _buildSkillCategory('Técnico', resume!.skills.join(', '), style),
+          _buildSkillCategory('Habilidades Técnicas', resume!.skills.join(', '), style),
         if (resume!.languages.isNotEmpty)
-          _buildSkillCategory('Idiomas', resume!.languages.map((l) => '${l.language} (${l.level})').join(', '), style),
+          _buildSkillCategory('Idiomas', groupLanguages(resume!.languages), style),
+        if (resume!.tools.isNotEmpty)
+          _buildSkillCategory('Ferramentas', groupTools(resume!.tools), style),
         if (resume!.courses.isNotEmpty)
-          _buildSkillCategory('Certificações', resume!.courses.map((c) => c.title).join(', '), style),
+          _buildSkillCategory('Certificações & Programas', formatCertifications(resume!.courses), style),
         if (resume!.interests.isNotEmpty)
           _buildSkillCategory('Interesses', resume!.interests.join(', '), style),
       ],
     );
+  }
+
+  static String _joinPt(List<String> items) {
+    if (items.isEmpty) return '';
+    if (items.length == 1) return items[0];
+    if (items.length == 2) return '${items[0]} e ${items[1]}';
+    return '${items.sublist(0, items.length - 1).join(', ')} e ${items.last}';
   }
 
   Widget _buildSkillCategory(String label, String content, TextStyle style) {

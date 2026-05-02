@@ -31,6 +31,28 @@ class _ExperienceDetailFormWidgetState
   DateTime? _endDate;
   bool _ongoing = false;
 
+  static const _orgLabels = {
+    'stage': 'EMPRESA / ORGANIZAÇÃO',
+    'emp':   'EMPRESA / ORGANIZAÇÃO',
+    'free':  'PROJETO / CLIENTE',
+    'proj':  'NOME DO PROJETO',
+    'lead':  'ENTIDADE / LIGA / ATLÉTICA',
+    'vol':   'ORGANIZAÇÃO / ONG',
+    'res':   'LABORATÓRIO / PROGRAMA',
+    'spo':   'TIME / CLUBE / SELEÇÃO',
+  };
+
+  static const _roleLabels = {
+    'stage': 'SEU CARGO / FUNÇÃO',
+    'emp':   'SEU CARGO / FUNÇÃO',
+    'free':  'SEU PAPEL NO PROJETO',
+    'proj':  'SEU PAPEL / FUNÇÃO',
+    'lead':  'SEU CARGO NA ENTIDADE',
+    'vol':   'SEU PAPEL / FUNÇÃO',
+    'res':   'SEU PAPEL NA PESQUISA',
+    'spo':   'SEU PAPEL / POSIÇÃO',
+  };
+
   static const _orgHints = {
     'stage': 'Ex: Bradesco, StartupXYZ, Governo SP...',
     'emp': 'Ex: Magazine Luiza, Shopify, Prefeitura...',
@@ -131,12 +153,14 @@ class _ExperienceDetailFormWidgetState
   Widget build(BuildContext context) {
     final orgHint = _orgHints[widget.categoryCode] ?? 'Nome da organização';
     final roleHint = _roleHints[widget.categoryCode] ?? 'Seu cargo ou função';
+    final orgLabel = _orgLabels[widget.categoryCode] ?? 'ORGANIZAÇÃO / EMPRESA';
+    final roleLabel = _roleLabels[widget.categoryCode] ?? 'SEU CARGO / FUNÇÃO';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Organization field
-        _fieldLabel('ORGANIZAÇÃO / EMPRESA'),
+        _fieldLabel(orgLabel),
         const SizedBox(height: 8),
         _textField(
           controller: _orgController,
@@ -147,7 +171,7 @@ class _ExperienceDetailFormWidgetState
         const SizedBox(height: 20),
 
         // Role field
-        _fieldLabel('SEU CARGO / FUNÇÃO'),
+        _fieldLabel(roleLabel),
         const SizedBox(height: 8),
         _textField(
           controller: _roleController,

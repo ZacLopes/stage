@@ -44,6 +44,7 @@ import 'widgets/freelance_form_widget.dart';
 import 'widgets/social_form_widget.dart';
 import 'widgets/learning_vault_widget.dart';
 import 'widgets/academic_form_widget.dart';
+import 'widgets/academic_highlights_form_widget.dart';
 import 'widgets/tools_catalog_widget.dart';
 import 'widgets/contact_form_widget.dart';
 import 'widgets/experience_inventory_widget.dart';
@@ -857,11 +858,18 @@ class _QuestionScreenState extends State<QuestionScreen> {
           initialValue: _selectedOptions.isNotEmpty ? _selectedOptions.first : null,
         );
 
+      case QuestionType.academicHighlightsForm:
+        return AcademicHighlightsFormWidget(
+          onSelect: (val) => _handleOptionSelect(val, question.type),
+          initialValue: _selectedOptions.isNotEmpty ? _selectedOptions.first : null,
+        );
+
       case QuestionType.toolsCatalog:
         return ToolsCatalogWidget(
           categories: question.options,
           onSelect: (val) => _handleOptionSelect(val, question.type),
           initialValue: _selectedOptions.isNotEmpty ? _selectedOptions.first : null,
+          campaignId: context.read<UserViewModel>().currentCampaign?.id,
         );
 
       case QuestionType.contactForm:

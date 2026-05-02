@@ -268,6 +268,29 @@ class AIService {
     }
   }
 
+  Future<Map<String, dynamic>> suggestTools(String campaignId) async {
+    try {
+      final response = await _client.functions.invoke(
+        'suggest-tools',
+        body: {'campaign_id': campaignId},
+      );
+
+      if (response.status != 200) {
+        throw Exception('suggest-tools error: ${response.status}');
+      }
+
+      final data = Map<String, dynamic>.from(response.data as Map);
+      final rawTools = data['tools'] as List?;
+      return {
+        'tools': (rawTools ?? []).map((e) => e.toString()).toList(),
+        'job_context': data['job_context'] as String?,
+      };
+    } catch (e) {
+      print('Error suggesting tools: $e');
+      rethrow;
+    }
+  }
+
   Future<Map<String, dynamic>> generateSummary(String campaignId) async {
     try {
       final response = await _client.functions.invoke(
