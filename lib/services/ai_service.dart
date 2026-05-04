@@ -2,6 +2,15 @@ import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/models/models.dart';
 
+class ResumeEvaluationException implements Exception {
+  final String code;
+  final String message;
+  final int status;
+  ResumeEvaluationException({required this.code, required this.message, required this.status});
+  @override
+  String toString() => 'ResumeEvaluationException($code, $status): $message';
+}
+
 class AIService {
   final SupabaseClient _client = Supabase.instance.client;
 
@@ -77,63 +86,37 @@ class AIService {
   }
 
 
-  Future<ResumeAnalysisResult> evaluateResume(String resumeText) async {
-    try {
-      print('--- AI RESUME EVALUATION INPUT ---');
-      print('Resume Text Length: ${resumeText.length}');
-      print('----------------------------------');
+  /// Avalia um currículo e retorna score + pontos fortes/fracos + dados parseados.
+  ///
+  /// Se [targetJobTitle] for informado, a análise é contextualizada para essa
+  /// vaga-alvo. Lança [ResumeEvaluationException] em qualquer falha — não há
+  /// mais fallback mockado (a UI deve mostrar erro real, não simulação).
+  Future<ResumeAnalysisResult> evaluateResume(
+    String resumeText, {
+    String? targetJobTitle,
+    String? targetJobDescription,
+  }) async {
+    final response = await _client.functions.invoke(
+      'evaluate-resume',
+      body: {
+        'resumeText': resumeText,
+        if (targetJobTitle != null && targetJobTitle.isNotEmpty)
+          'targetJobTitle': targetJobTitle,
+        if (targetJobDescription != null && targetJobDescription.isNotEmpty)
+          'targetJobDescription': targetJobDescription,
+      },
+    );
 
-      final response = await _client.functions.invoke(
-        'evaluate-resume',
-        body: {
-          'resumeText': resumeText,
-        },
-      );
-
-      if (response.status != 200) {
-        final errorMsg = response.data is Map ? (response.data['error'] ?? 'Unknown error') : response.data.toString();
-        print('❌ Edge Function evaluate-resume failed (${response.status}): $errorMsg');
-        
-        // Handle 404 specifically
-        if (response.status == 404) {
-          print('💡 DICA: A função "evaluate-resume" não foi encontrada. Certifique-se de implantá-la usando:');
-          print('   supabase functions deploy evaluate-resume');
-          
-          // Return mock for development so user can see the UI
-          return ResumeAnalysisResult(
-            score: 72,
-            strengths: ["Experiência detalhada (Simulação)", "Boa formatação (Simulação)"],
-            weaknesses: ["Faltam métricas (Simulação)", "Resumo genérico (Simulação)"],
-          );
-        }
-
-        // Only use mock if we are in local development / internal error
-        if (response.status == 500) {
-          print('ℹ️ Using mock fallback for internal server error.');
-          return ResumeAnalysisResult(
-            score: 72,
-            strengths: [
-              "Sua experiência profissional está bem detalhada.",
-              "Boa escolha de tecnologias e ferramentas listadas."
-            ],
-            weaknesses: [
-              "Faltam métricas de impacto (ex: 'aumentei as vendas em 20%').",
-              "O resumo profissional está muito genérico.",
-              "Use verbos de ação mais fortes no início de cada frase."
-            ],
-          );
-        }
-        throw Exception('Erro na análise da IA: $errorMsg');
-      }
-      return ResumeAnalysisResult.fromJson(response.data);
-    } catch (e) {
-      print('Error evaluating resume: $e');
-      return ResumeAnalysisResult(
-        score: 65,
-        strengths: ["Estrutura clara", "Habilidades bem definidas"],
-        weaknesses: ["Falta de conquistas quantificáveis", "Resumo curto demais"],
-      );
+    if (response.status != 200) {
+      final data = response.data;
+      final code = data is Map ? (data['error']?.toString() ?? 'unknown') : 'unknown';
+      final message = data is Map
+          ? (data['message']?.toString() ?? 'Erro na análise do currículo.')
+          : 'Erro na análise do currículo.';
+      throw ResumeEvaluationException(code: code, message: message, status: response.status);
     }
+
+    return ResumeAnalysisResult.fromJson(response.data);
   }
 
   Future<Map<String, dynamic>> refineResumeChat({

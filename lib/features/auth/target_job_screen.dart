@@ -6,7 +6,19 @@ import '../home/home_screen.dart';
 import 'user_viewmodel.dart';
 
 class TargetJobScreen extends StatefulWidget {
-  const TargetJobScreen({super.key});
+  /// Se informado, é chamado após salvar a campaign em vez de navegar pra Home.
+  /// Recebe o cargo e a URL informados (vazios se o usuário pulou).
+  final void Function(String jobTitle, String? sourceUrl)? onContinue;
+
+  /// Texto opcional acima do título — usado quando o usuário acabou de subir
+  /// um CV e queremos contextualizar a tela ("Antes de analisar seu CV...").
+  final String? contextHeadline;
+
+  const TargetJobScreen({
+    super.key,
+    this.onContinue,
+    this.contextHeadline,
+  });
 
   @override
   State<TargetJobScreen> createState() => _TargetJobScreenState();
@@ -36,20 +48,21 @@ class _TargetJobScreenState extends State<TargetJobScreen> {
       _isSaving = true;
     });
 
+    final url = _urlController.text.trim().isEmpty ? null : _urlController.text.trim();
+
     try {
       final vm = context.read<UserViewModel>();
-      await vm.createCampaign(
-        jobTitle: title,
-        sourceUrl: _urlController.text.trim().isEmpty ? null : _urlController.text.trim(),
-      );
+      await vm.createCampaign(jobTitle: title, sourceUrl: url);
       if (!mounted) return;
-      _navigateHome();
-    } catch (e) {
+      _afterSave(title, url);
+    } catch (e, st) {
+      debugPrint('❌ createCampaign failed: $e\n$st');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Erro ao salvar. Tente novamente.'),
+          SnackBar(
+            content: Text('Erro ao salvar: $e', maxLines: 3),
             backgroundColor: StageColors.error,
+            duration: const Duration(seconds: 8),
           ),
         );
       }
@@ -64,18 +77,28 @@ class _TargetJobScreenState extends State<TargetJobScreen> {
       final vm = context.read<UserViewModel>();
       await vm.createCampaign(isSkipped: true);
       if (!mounted) return;
-      _navigateHome();
-    } catch (e) {
+      _afterSave('', null);
+    } catch (e, st) {
+      debugPrint('❌ createCampaign(skip) failed: $e\n$st');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Erro ao salvar. Tente novamente.'),
+          SnackBar(
+            content: Text('Erro ao salvar: $e', maxLines: 3),
             backgroundColor: StageColors.error,
+            duration: const Duration(seconds: 8),
           ),
         );
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  void _afterSave(String jobTitle, String? sourceUrl) {
+    if (widget.onContinue != null) {
+      widget.onContinue!(jobTitle, sourceUrl);
+    } else {
+      _navigateHome();
     }
   }
 
@@ -165,6 +188,24 @@ class _TargetJobScreenState extends State<TargetJobScreen> {
                         ),
                       ),
                       const SizedBox(height: 24),
+                      if (widget.contextHeadline != null) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: StageColors.brandBlue.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            widget.contextHeadline!,
+                            style: GoogleFonts.inter(
+                              color: StageColors.brandBlue,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
                       Text(
                         'Para qual vaga você\nestá se candidatando?',
                         style: GoogleFonts.outfit(

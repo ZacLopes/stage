@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -8,18 +9,44 @@ import '../auth/user_viewmodel.dart';
 import '../profile/profile_viewmodel.dart';
 import '../../services/ai_service.dart';
 import '../../data/models/models.dart';
+import 'home_screen.dart';
+import 'home_viewmodel.dart';
 import 'resume_improvement_chat_screen.dart';
 
+/// Tela de análise do CV importado pelo usuário.
+///
+/// Recebe o texto extraído do PDF (`resumeText`), os bytes originais
+/// (`pdfBytes`) e o cargo-alvo (`targetJobTitle`). Mostra um score
+/// contextualizado e oferece 3 caminhos: Aplicar / Melhorar / Trilha,
+/// cada um abre uma tab específica da Home (Vagas / Currículo / Trilha).
+///
+/// IMPORTANTE: a navegação para a Home é feita pela própria tela usando
+/// seu próprio context. Não usar callbacks definidos em telas que foram
+/// removidas via `pushReplacement` (ex: CompletionScreen) — o `mounted`
+/// dessas telas é false quando o callback dispara, fazendo a navegação
+/// falhar silenciosamente.
 class AIScoreScreen extends StatefulWidget {
   final String resumeText;
-  final List<int>? pdfBytes;
-  final VoidCallback onFinish;
+  final Uint8List? pdfBytes;
+  final String? targetJobTitle;
+
+  /// Tab da Home a abrir após "Aplicar com este currículo" (default: Vagas = 0).
+  final int applyDestinationTab;
+
+  /// Tab da Home a abrir após o chat de melhoria (default: Currículo = 2).
+  final int improveDestinationTab;
+
+  /// Tab da Home a abrir após "Construir do zero" (default: Trilha = 1).
+  final int buildDestinationTab;
 
   const AIScoreScreen({
-    super.key, 
-    required this.resumeText, 
+    super.key,
+    required this.resumeText,
     this.pdfBytes,
-    required this.onFinish
+    this.targetJobTitle,
+    this.applyDestinationTab = 0,
+    this.improveDestinationTab = 2,
+    this.buildDestinationTab = 1,
   });
 
   @override
@@ -28,19 +55,25 @@ class AIScoreScreen extends StatefulWidget {
 
 class _AIScoreScreenState extends State<AIScoreScreen> with TickerProviderStateMixin {
   bool _isLoading = true;
+  bool _isFinalizing = false;
+  String? _errorMessage;
+
   late AnimationController _gaugeController;
   late Animation<double> _scoreAnimation;
   late AnimationController _listController;
-  
+
   ResumeAnalysisResult? _result;
 
   @override
   void initState() {
     super.initState();
-    _gaugeController = AnimationController(vsync: this, duration: const Duration(milliseconds: 1800));
-    _scoreAnimation = Tween<double>(begin: 0, end: 0).animate(CurvedAnimation(parent: _gaugeController, curve: Curves.easeOutQuart));
-    
-    _listController = AnimationController(vsync: this, duration: const Duration(milliseconds: 800));
+    _gaugeController = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1800));
+    _scoreAnimation = Tween<double>(begin: 0, end: 0).animate(CurvedAnimation(
+        parent: _gaugeController, curve: Curves.easeOutQuart));
+
+    _listController = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 800));
 
     _analyzeResume();
   }
@@ -55,99 +88,127 @@ class _AIScoreScreenState extends State<AIScoreScreen> with TickerProviderStateM
   Future<void> _analyzeResume() async {
     try {
       final aiService = AIService();
-      final result = await aiService.evaluateResume(widget.resumeText);
-      
+      final result = await aiService.evaluateResume(
+        widget.resumeText,
+        targetJobTitle: widget.targetJobTitle,
+      );
+
       if (!mounted) return;
 
       setState(() {
         _result = result;
         _isLoading = false;
-        _scoreAnimation = Tween<double>(begin: 0, end: result.score.toDouble()).animate(
-          CurvedAnimation(parent: _gaugeController, curve: Curves.easeOutQuart)
+        _errorMessage = null;
+        _scoreAnimation =
+            Tween<double>(begin: 0, end: result.score.toDouble()).animate(
+          CurvedAnimation(parent: _gaugeController, curve: Curves.easeOutQuart),
         );
       });
 
       _gaugeController.forward();
       _listController.forward();
+    } on ResumeEvaluationException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = e.message;
+      });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro na análise: $e'), backgroundColor: StageColors.error),
-      );
-      widget.onFinish();
-      Navigator.of(context).pop();
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Falha inesperada na análise: $e';
+      });
     }
   }
 
-  Future<void> _handleFinish() async {
-    if (_result?.parsedData != null) {
-      // Show a confirmation dialog before applying AI suggestions
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('Atualizar Perfil?', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
-          content: Text('Deseja que a nossa IA atualize seu perfil profissional com as informações reconstruídas do seu currículo?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text('AGORA NÃO', style: GoogleFonts.inter(color: Colors.grey)),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(backgroundColor: StageColors.brandBlue),
-              child: Text('SIM, ATUALIZAR', style: GoogleFonts.inter(color: Colors.white)),
-            ),
-          ],
-        ),
-      );
+  /// Salva o PDF na biblioteca + propaga dados parseados pro perfil, depois
+  /// navega pra Home na tab pedida.
+  /// Não bloqueia em falha de persistência — usuário ainda vai pra Home (a
+  /// análise local é o que importa).
+  Future<void> _persistAndGo(int destinationTab) async {
+    if (_isFinalizing) return;
+    setState(() => _isFinalizing = true);
 
-      if (confirm == true) {
-        if (!mounted) return;
-        setState(() => _isLoading = true);
-        
+    try {
+      if (widget.pdfBytes != null) {
+        try {
+          final dt = DateTime.now();
+          await context.read<ProfileViewModel>().saveResume(
+                'Currículo importado (${dt.day}/${dt.month})',
+                widget.pdfBytes!,
+              );
+        } catch (e) {
+          debugPrint('Falha ao salvar CV na biblioteca: $e');
+        }
+      }
+
+      final parsed = _result?.parsedData;
+      if (parsed != null && mounted) {
         try {
           final userVM = context.read<UserViewModel>();
-          final currentData = Map<String, dynamic>.from(userVM.user?.gamificationData ?? {});
-          
-          // Map AI parsed data to gamification structure
-          currentData['whoIAm'] = {
-            'derived': {
-              'summary': _result!.parsedData!.aboutMe,
-              'skills': _result!.parsedData!.skills,
-              'interests': _result!.parsedData!.interests,
-            },
-            'last_updated': DateTime.now().toIso8601String(),
+          final currentData =
+              Map<String, dynamic>.from(userVM.user?.gamificationData ?? {});
+
+          currentData['imported_resume'] = {
+            'sobre_mim': parsed.aboutMe,
+            'skills': parsed.skills,
+            'experiences': parsed.experiences,
+            'interests': parsed.interests,
+            'imported_at': DateTime.now().toIso8601String(),
           };
 
-          currentData['module3'] = {
-            'experiences_and_courses': {
-              'experiences': _result!.parsedData!.experiences,
+          currentData['whoIAm'] = {
+            'derived': {
+              'summary': parsed.aboutMe,
+              'skills': parsed.skills,
+              'interests': parsed.interests,
             },
             'last_updated': DateTime.now().toIso8601String(),
           };
 
           await userVM.updateProfile(gamificationData: currentData);
-          
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Perfil atualizado com sucesso!', style: GoogleFonts.inter()),
-              backgroundColor: const Color(0xFF10B981),
-            ),
-          );
         } catch (e) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erro ao atualizar perfil: $e'), backgroundColor: StageColors.error),
-          );
-        } finally {
-          if (mounted) setState(() => _isLoading = false);
+          debugPrint('Falha ao propagar dados do CV pro perfil: $e');
         }
       }
+    } finally {
+      if (mounted) setState(() => _isFinalizing = false);
     }
-    
-    widget.onFinish();
-    if (mounted) Navigator.of(context).pop();
+
+    if (!mounted) return;
+    _goHome(destinationTab);
+  }
+
+  void _goHome(int tabIndex) {
+    context.read<HomeViewModel>().requestTabChange(tabIndex);
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
+      (route) => false,
+    );
+  }
+
+  void _handleApplyWithCurrent() {
+    _persistAndGo(widget.applyDestinationTab);
+  }
+
+  void _handleImproveWithAI() {
+    if (_result == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ResumeImprovementChatScreen(
+          resumeText: widget.resumeText,
+          pdfBytes: widget.pdfBytes?.toList(),
+          analysis: _result!,
+          onFinish: () => _persistAndGo(widget.improveDestinationTab),
+        ),
+      ),
+    );
+  }
+
+  void _handleBuildFromScratch() {
+    _persistAndGo(widget.buildDestinationTab);
   }
 
   @override
@@ -155,198 +216,204 @@ class _AIScoreScreenState extends State<AIScoreScreen> with TickerProviderStateM
     if (_isLoading) {
       return _AnalysisLoadingView();
     }
+    if (_errorMessage != null) {
+      return _ErrorView(
+        message: _errorMessage!,
+        onRetry: () {
+          setState(() {
+            _isLoading = true;
+            _errorMessage = null;
+          });
+          _analyzeResume();
+        },
+        onAbort: () => _goHome(widget.buildDestinationTab),
+      );
+    }
 
     final score = _result?.score ?? 0;
-    final color = score >= 80 ? const Color(0xFF10B981) : (score >= 60 ? const Color(0xFFF59E0B) : const Color(0xFFEF4444));
+    final color = score >= 80
+        ? const Color(0xFF10B981)
+        : (score >= 60 ? const Color(0xFFF59E0B) : const Color(0xFFEF4444));
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 340,
-            pinned: true,
-            backgroundColor: Colors.white,
-            elevation: 0,
-            flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                color: Colors.white,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const SizedBox(height: 60),
-                    Stack(
-                      alignment: Alignment.center,
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: const Color(0xFFF8FAFC),
+          body: CustomScrollView(
+            physics: const BouncingScrollPhysics(),
+            slivers: [
+              SliverAppBar(
+                expandedHeight: 360,
+                pinned: true,
+                backgroundColor: Colors.white,
+                elevation: 0,
+                automaticallyImplyLeading: false,
+                flexibleSpace: FlexibleSpaceBar(
+                  background: Container(
+                    color: Colors.white,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        AnimatedBuilder(
-                          animation: _scoreAnimation,
-                          builder: (context, child) {
-                            return CustomPaint(
-                              size: const Size(200, 200),
-                              painter: _GaugePainter(
-                                progress: _scoreAnimation.value / 100,
-                                color: color,
-                                backgroundColor: color.withOpacity(0.1),
-                              ),
-                            );
-                          }
-                        ),
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
+                        const SizedBox(height: 60),
+                        Stack(
+                          alignment: Alignment.center,
                           children: [
                             AnimatedBuilder(
                               animation: _scoreAnimation,
                               builder: (context, child) {
-                                return Text(
-                                  '${_scoreAnimation.value.toInt()}',
-                                  style: GoogleFonts.outfit(fontSize: 72, fontWeight: FontWeight.bold, color: color, height: 1),
+                                return CustomPaint(
+                                  size: const Size(200, 200),
+                                  painter: _GaugePainter(
+                                    progress: _scoreAnimation.value / 100,
+                                    color: color,
+                                    backgroundColor: color.withOpacity(0.1),
+                                  ),
                                 );
-                              }
+                              },
                             ),
-                            Text(
-                              'Score IA',
-                              style: GoogleFonts.inter(fontSize: 14, color: StageColors.bodyGray, fontWeight: FontWeight.w600, letterSpacing: 1),
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AnimatedBuilder(
+                                  animation: _scoreAnimation,
+                                  builder: (context, child) {
+                                    return Text(
+                                      '${_scoreAnimation.value.toInt()}',
+                                      style: GoogleFonts.outfit(
+                                          fontSize: 72,
+                                          fontWeight: FontWeight.bold,
+                                          color: color,
+                                          height: 1),
+                                    );
+                                  },
+                                ),
+                                Text(
+                                  widget.targetJobTitle != null
+                                      ? 'Aderência'
+                                      : 'Score IA',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    color: StageColors.bodyGray,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 1,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
+                        if (widget.targetJobTitle != null) ...[
+                          const SizedBox(height: 12),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 32),
+                            child: Text(
+                              'em "${widget.targetJobTitle}"',
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                color: StageColors.subtitleGray,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 32, 24, 120),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Análise Detalhada',
-                    style: GoogleFonts.outfit(fontSize: 24, fontWeight: FontWeight.bold, color: StageColors.titleText),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 32, 24, 140),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Análise Detalhada',
+                        style: GoogleFonts.outfit(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: StageColors.titleText),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        widget.targetJobTitle != null
+                            ? 'Comparamos seu currículo com o perfil esperado para essa vaga.'
+                            : 'Identificamos pontos cruciais para alavancar seu perfil.',
+                        style: GoogleFonts.inter(
+                            fontSize: 16, color: StageColors.bodyGray),
+                      ),
+                      const SizedBox(height: 32),
+                      _buildAnalysisSection(
+                        title: 'Pontos Fortes',
+                        items: _result?.strengths ?? [],
+                        icon: Icons.check_circle_rounded,
+                        color: const Color(0xFF10B981),
+                        delay: 0,
+                      ),
+                      const SizedBox(height: 24),
+                      _buildAnalysisSection(
+                        title: 'A Melhorar',
+                        items: _result?.weaknesses ?? [],
+                        icon: Icons.error_rounded,
+                        color: const Color(0xFFF59E0B),
+                        delay: 0.2,
+                      ),
+                      const SizedBox(height: 36),
+                      Text(
+                        'O que você quer fazer agora?',
+                        style: GoogleFonts.outfit(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: StageColors.titleText,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _ChoiceActionCard(
+                        title: 'Aplicar com este currículo',
+                        description:
+                            'Salvamos seu PDF e te levamos direto pra aba Vagas.',
+                        icon: Icons.rocket_launch_rounded,
+                        color: const Color(0xFF10B981),
+                        onTap: _isFinalizing ? null : _handleApplyWithCurrent,
+                        isPrimary: true,
+                      ),
+                      const SizedBox(height: 12),
+                      _ChoiceActionCard(
+                        title: 'Melhorar com IA antes',
+                        description:
+                            'Chat rápido pra reescrever os pontos fracos. Depois você decide se aplica.',
+                        icon: Icons.auto_awesome_rounded,
+                        color: StageColors.brandBlue,
+                        onTap: _isFinalizing ? null : _handleImproveWithAI,
+                      ),
+                      const SizedBox(height: 12),
+                      _ChoiceActionCard(
+                        title: 'Construir do zero pela trilha',
+                        description:
+                            'Já temos seus dados — a trilha vai te guiar pra um CV mais forte.',
+                        icon: Icons.map_rounded,
+                        color: const Color(0xFF6366F1),
+                        onTap: _isFinalizing ? null : _handleBuildFromScratch,
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Identificamos pontos cruciais para alavancar seu perfil.',
-                    style: GoogleFonts.inter(fontSize: 16, color: StageColors.bodyGray),
-                  ),
-                  const SizedBox(height: 32),
-
-                  // Strengths
-                  _buildAnalysisSection(
-                    title: 'Pontos Fortes',
-                    items: _result?.strengths ?? [],
-                    icon: Icons.check_circle_rounded,
-                    color: const Color(0xFF10B981),
-                    delay: 0,
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  _buildAnalysisSection(
-                    title: 'A Melhorar',
-                    items: _result?.weaknesses ?? [],
-                    icon: Icons.error_rounded,
-                    color: const Color(0xFFF59E0B),
-                    delay: 0.2,
-                  ),
-
-                  const SizedBox(height: 48),
-                  
-                  // CHOICE A: Improve with AI
-                  _ChoiceActionCard(
-                    title: 'Melhorar Currículo com IA',
-                    description: 'Chat interativo para destacar seus pontos fortes.',
-                    icon: Icons.auto_awesome_rounded,
-                    color: StageColors.brandBlue,
-                    onTap: _handleImproveWithAI,
-                  ),
-                  
-                  const SizedBox(height: 12),
-                  
-                  // CHOICE B: Go to Jobs
-                  _ChoiceActionCard(
-                    title: 'Ir para Vagas agora',
-                    description: 'Seu currículo atual já está disponível na aba Currículo.',
-                    icon: Icons.work_outline_rounded,
-                    color: const Color(0xFF10B981),
-                    onTap: _handleGoToJobs,
-                  ),
-                  
-                  const SizedBox(height: 60),
-                ],
+                ),
               ),
+            ],
+          ),
+        ),
+        if (_isFinalizing)
+          Container(
+            color: Colors.black54,
+            child: const Center(
+              child: CircularProgressIndicator(color: StageColors.brandBlue),
             ),
           ),
-        ],
-      ),
+      ],
     );
-  }
-
-  void _handleImproveWithAI() {
-    if (_result == null) return;
-    
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ResumeImprovementChatScreen(
-          resumeText: widget.resumeText,
-          pdfBytes: widget.pdfBytes,
-          analysis: _result!,
-          onFinish: widget.onFinish,
-        ),
-      ),
-    );
-  }
-
-  Future<void> _handleGoToJobs() async {
-    setState(() => _isLoading = true);
-    try {
-      // 1. Save Resume to Library if pdfBytes are available
-      if (widget.pdfBytes != null) {
-        await context.read<ProfileViewModel>().saveResume(
-          'Currículo Original (${DateTime.now().day}/${DateTime.now().month})',
-          widget.pdfBytes!,
-        );
-      }
-
-      // 2. Apply AI parsed data to profile if available
-      if (_result?.parsedData != null) {
-        final userVM = context.read<UserViewModel>();
-        final currentData = Map<String, dynamic>.from(userVM.user?.gamificationData ?? {});
-        
-        currentData['whoIAm'] = {
-          'derived': {
-            'summary': _result!.parsedData!.aboutMe,
-            'skills': _result!.parsedData!.skills,
-            'interests': _result!.parsedData!.interests,
-          },
-          'last_updated': DateTime.now().toIso8601String(),
-        };
-
-        currentData['module3'] = {
-          'experiences_and_courses': {
-            'experiences': _result!.parsedData!.experiences,
-          },
-          'last_updated': DateTime.now().toIso8601String(),
-        };
-
-        await userVM.updateProfile(gamificationData: currentData);
-      }
-
-      widget.onFinish();
-      if (mounted) Navigator.of(context).pop();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao finalizar: $e'), backgroundColor: StageColors.error),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
   }
 
   Widget _buildAnalysisSection({
@@ -357,11 +424,15 @@ class _AIScoreScreenState extends State<AIScoreScreen> with TickerProviderStateM
     required double delay,
   }) {
     return FadeTransition(
-      opacity: CurvedAnimation(parent: _listController, curve: Interval(delay, 1.0, curve: Curves.easeOut)),
+      opacity: CurvedAnimation(
+          parent: _listController,
+          curve: Interval(delay, 1.0, curve: Curves.easeOut)),
       child: SlideTransition(
-        position: Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(
-          CurvedAnimation(parent: _listController, curve: Interval(delay, 1.0, curve: Curves.easeOut))
-        ),
+        position: Tween<Offset>(
+                begin: const Offset(0, 0.1), end: Offset.zero)
+            .animate(CurvedAnimation(
+                parent: _listController,
+                curve: Interval(delay, 1.0, curve: Curves.easeOut))),
         child: Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
@@ -376,30 +447,41 @@ class _AIScoreScreenState extends State<AIScoreScreen> with TickerProviderStateM
                 children: [
                   Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+                    decoration: BoxDecoration(
+                        color: color.withOpacity(0.1), shape: BoxShape.circle),
                     child: Icon(icon, color: color, size: 20),
                   ),
                   const SizedBox(width: 12),
-                  Text(title, style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold, color: StageColors.titleText)),
+                  Text(title,
+                      style: GoogleFonts.outfit(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: StageColors.titleText)),
                 ],
               ),
               const SizedBox(height: 16),
               ...items.map((item) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      margin: const EdgeInsets.only(top: 6),
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.only(top: 6),
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                              color: color, shape: BoxShape.circle),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                            child: Text(item,
+                                style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    color: StageColors.bodyGray,
+                                    height: 1.5))),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(child: Text(item, style: GoogleFonts.inter(fontSize: 14, color: StageColors.bodyGray, height: 1.5))),
-                  ],
-                ),
-              )),
+                  )),
             ],
           ),
         ),
@@ -413,7 +495,8 @@ class _ChoiceActionCard extends StatelessWidget {
   final String description;
   final IconData icon;
   final Color color;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool isPrimary;
 
   const _ChoiceActionCard({
     required this.title,
@@ -421,64 +504,72 @@ class _ChoiceActionCard extends StatelessWidget {
     required this.icon,
     required this.color,
     required this.onTap,
+    this.isPrimary = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withOpacity(0.3), width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color: color.withOpacity(0.05),
-              blurRadius: 15,
-              offset: const Offset(0, 5),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
+    final disabled = onTap == null;
+    return Opacity(
+      opacity: disabled ? 0.5 : 1,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+                color: color.withOpacity(isPrimary ? 0.5 : 0.3),
+                width: isPrimary ? 2 : 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: color.withOpacity(isPrimary ? 0.12 : 0.05),
+                blurRadius: isPrimary ? 22 : 15,
+                offset: const Offset(0, 5),
               ),
-              child: Icon(icon, color: color, size: 24),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: GoogleFonts.outfit(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: StageColors.titleText,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    description,
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      color: StageColors.bodyGray,
-                      height: 1.2,
-                    ),
-                  ),
-                ],
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 24),
               ),
-            ),
-            Icon(Icons.chevron_right_rounded, color: Colors.grey[400], size: 20),
-          ],
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: GoogleFonts.outfit(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: StageColors.titleText,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      description,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: StageColors.bodyGray,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded,
+                  color: Colors.grey[400], size: 20),
+            ],
+          ),
         ),
       ),
     );
@@ -490,7 +581,11 @@ class _GaugePainter extends CustomPainter {
   final Color color;
   final Color backgroundColor;
 
-  _GaugePainter({required this.progress, required this.color, required this.backgroundColor});
+  _GaugePainter({
+    required this.progress,
+    required this.color,
+    required this.backgroundColor,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -512,13 +607,103 @@ class _GaugePainter extends CustomPainter {
 
     const startAngle = 135 * (math.pi / 180);
     const sweepAngle = 270 * (math.pi / 180);
-    
-    canvas.drawArc(Rect.fromCircle(center: center, radius: radius), startAngle, sweepAngle, false, bgPaint);
-    canvas.drawArc(Rect.fromCircle(center: center, radius: radius), startAngle, sweepAngle * progress, false, fgPaint);
+
+    canvas.drawArc(Rect.fromCircle(center: center, radius: radius), startAngle,
+        sweepAngle, false, bgPaint);
+    canvas.drawArc(Rect.fromCircle(center: center, radius: radius), startAngle,
+        sweepAngle * progress, false, fgPaint);
   }
 
   @override
-  bool shouldRepaint(covariant _GaugePainter oldDelegate) => oldDelegate.progress != progress;
+  bool shouldRepaint(covariant _GaugePainter oldDelegate) =>
+      oldDelegate.progress != progress;
+}
+
+class _ErrorView extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  final VoidCallback onAbort;
+
+  const _ErrorView({
+    required this.message,
+    required this.onRetry,
+    required this.onAbort,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEE2E2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.error_outline,
+                    color: Color(0xFFEF4444), size: 36),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Não conseguimos analisar seu CV',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.outfit(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: StageColors.titleText,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  color: StageColors.bodyGray,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: onRetry,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: StageColors.brandBlue,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  child: Text(
+                    'Tentar de novo',
+                    style: GoogleFonts.inter(
+                        fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: onAbort,
+                child: Text(
+                  'Pular análise e ir para a trilha',
+                  style: GoogleFonts.inter(
+                    color: StageColors.subtitleGray,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _AnalysisLoadingView extends StatefulWidget {
@@ -526,14 +711,15 @@ class _AnalysisLoadingView extends StatefulWidget {
   State<_AnalysisLoadingView> createState() => _AnalysisLoadingViewState();
 }
 
-class _AnalysisLoadingViewState extends State<_AnalysisLoadingView> with SingleTickerProviderStateMixin {
+class _AnalysisLoadingViewState extends State<_AnalysisLoadingView>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   int _currentStep = 0;
   final List<String> _steps = [
-    'Lendo texto extraído...',
+    'Lendo texto do PDF...',
     'Identificando competências...',
-    'Analisando impacto das experiências...',
-    'Calculando score de mercado...',
+    'Comparando com a vaga-alvo...',
+    'Calculando aderência...',
     'Gerando dicas de melhoria...',
   ];
 
@@ -572,11 +758,9 @@ class _AnalysisLoadingViewState extends State<_AnalysisLoadingView> with SingleT
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Scanner Animation
             Stack(
               alignment: Alignment.center,
               children: [
-                // Icon Background
                 Container(
                   width: 120,
                   height: 120,
@@ -584,9 +768,9 @@ class _AnalysisLoadingViewState extends State<_AnalysisLoadingView> with SingleT
                     color: StageColors.brandBlue.withOpacity(0.05),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.description_outlined, size: 50, color: StageColors.brandBlue),
+                  child: const Icon(Icons.description_outlined,
+                      size: 50, color: StageColors.brandBlue),
                 ),
-                // Scanning Line
                 AnimatedBuilder(
                   animation: _controller,
                   builder: (context, child) {
@@ -622,7 +806,6 @@ class _AnalysisLoadingViewState extends State<_AnalysisLoadingView> with SingleT
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
-            // Progress Steps
             Column(
               children: List.generate(_steps.length, (index) {
                 final isActive = index == _currentStep;
@@ -636,9 +819,15 @@ class _AnalysisLoadingViewState extends State<_AnalysisLoadingView> with SingleT
                     child: Row(
                       children: [
                         Icon(
-                          isDone ? Icons.check_circle : (isActive ? Icons.sync : Icons.circle_outlined),
+                          isDone
+                              ? Icons.check_circle
+                              : (isActive ? Icons.sync : Icons.circle_outlined),
                           size: 18,
-                          color: isDone ? const Color(0xFF10B981) : (isActive ? StageColors.brandBlue : Colors.grey),
+                          color: isDone
+                              ? const Color(0xFF10B981)
+                              : (isActive
+                                  ? StageColors.brandBlue
+                                  : Colors.grey),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -646,8 +835,12 @@ class _AnalysisLoadingViewState extends State<_AnalysisLoadingView> with SingleT
                             _steps[index],
                             style: GoogleFonts.inter(
                               fontSize: 15,
-                              fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-                              color: isActive ? StageColors.titleText : StageColors.bodyGray,
+                              fontWeight: isActive
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                              color: isActive
+                                  ? StageColors.titleText
+                                  : StageColors.bodyGray,
                             ),
                           ),
                         ),

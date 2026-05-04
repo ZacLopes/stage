@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -6,7 +7,6 @@ import '../../core/constants/stage_colors.dart';
 import '../../services/ai_service.dart';
 import '../../services/pdf_generator_service.dart';
 import '../../data/models/models.dart';
-import '../auth/user_viewmodel.dart';
 import '../profile/profile_viewmodel.dart';
 
 class ResumeImprovementChatScreen extends StatefulWidget {
@@ -32,8 +32,6 @@ class _ResumeImprovementChatScreenState extends State<ResumeImprovementChatScree
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _isTyping = false;
-  int _currentQuestionIndex = 0;
-  
   String? _improvedResume;
 
   @override
@@ -80,32 +78,33 @@ class _ResumeImprovementChatScreenState extends State<ResumeImprovementChatScree
   }
 
   void _askNextQuestion() async {
+    if (!mounted) return;
     setState(() => _isTyping = true);
-    
+
     try {
       final aiService = AIService();
       final history = _messages.map((m) => {'text': m.text, 'isBot': m.isBot}).toList();
-      
+
       final result = await aiService.refineResumeChat(
         history: history,
         originalResume: widget.resumeText,
         analysis: widget.analysis,
       );
 
-      print('Chat Result Received: $result');
-
+      if (!mounted) return;
       setState(() => _isTyping = false);
 
       if (result['isFinished'] == true) {
         _improvedResume = result['improvedResume'];
-        print('Improved Resume Set: ${_improvedResume?.length ?? 0} chars');
         _addBotMessage(result['message'] ?? "Tudo pronto! Seu currículo foi otimizado com sucesso.");
         await Future.delayed(const Duration(seconds: 1));
+        if (!mounted) return;
         _showSuccessDialog();
       } else {
         _addBotMessage(result['question'] ?? "Pode me falar mais sobre isso?");
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isTyping = false);
       _addBotMessage("Houve um probleminha na conexão, mas não se preocupe. Vamos continuar?");
     }
@@ -115,56 +114,77 @@ class _ResumeImprovementChatScreenState extends State<ResumeImprovementChatScree
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Text('Currículo Otimizado!', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
-        content: const Text('As melhorias foram aplicadas. Você pode visualizar o novo arquivo antes de continuar.'),
+        content: const Text(
+          'As melhorias foram aplicadas. Você pode visualizar antes de continuar.',
+        ),
         actions: [
           TextButton(
-            onPressed: () async {
-              if (_improvedResume != null) {
-                final pdfBytes = await PDFGeneratorService.generateResumePDF(_improvedResume!);
-                await Printing.layoutPdf(onLayout: (_) => pdfBytes);
-              }
-            },
-            child: Text('VISUALIZAR PDF', style: GoogleFonts.inter(color: StageColors.brandBlue, fontWeight: FontWeight.bold)),
+            onPressed: () => _previewImprovedPdf(dialogCtx),
+            child: Text(
+              'Visualizar',
+              style: GoogleFonts.inter(
+                  color: StageColors.brandBlue, fontWeight: FontWeight.bold),
+            ),
           ),
           ElevatedButton(
-            onPressed: () => _handleFinalAction(),
+            onPressed: () => _handleFinalAction(dialogCtx),
             style: ElevatedButton.styleFrom(
               backgroundColor: StageColors.brandBlue,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            child: const Text('VAMOS PARA AS VAGAS!'),
+            child: const Text('Continuar'),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _handleFinalAction() async {
-    // 1. Save (improved) to library
-    if (_improvedResume != null) {
+  Future<void> _previewImprovedPdf(BuildContext dialogCtx) async {
+    if (_improvedResume == null) return;
+    try {
       final pdfBytes = await PDFGeneratorService.generateResumePDF(_improvedResume!);
-      await context.read<ProfileViewModel>().saveResume(
-        'Currículo Otimizado (${DateTime.now().day}/${DateTime.now().month})',
-        pdfBytes,
-      );
-    } else if (widget.pdfBytes != null) {
-      // Fallback to original if something went wrong
-      await context.read<ProfileViewModel>().saveResume(
-        'Currículo Original (${DateTime.now().day}/${DateTime.now().month})',
-        widget.pdfBytes!,
-      );
+      // Printing.layoutPdf é não-bloqueante (abre folha do sistema operacional),
+      // mas não fecha o dialog — o usuário pode voltar e clicar Continuar.
+      await Printing.layoutPdf(onLayout: (_) => pdfBytes);
+    } catch (e) {
+      if (dialogCtx.mounted) {
+        ScaffoldMessenger.of(dialogCtx).showSnackBar(
+          SnackBar(content: Text('Erro ao gerar PDF: $e'), backgroundColor: StageColors.error),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleFinalAction(BuildContext dialogCtx) async {
+    // Fecha o dialog antes de qualquer trabalho
+    Navigator.of(dialogCtx).pop();
+
+    // Salva o melhorado (ou cai pro original como fallback)
+    try {
+      if (_improvedResume != null) {
+        final pdfBytes = await PDFGeneratorService.generateResumePDF(_improvedResume!);
+        if (!mounted) return;
+        await context.read<ProfileViewModel>().saveResume(
+              'Currículo otimizado (${DateTime.now().day}/${DateTime.now().month})',
+              pdfBytes,
+            );
+      } else if (widget.pdfBytes != null) {
+        if (!mounted) return;
+        await context.read<ProfileViewModel>().saveResume(
+              'Currículo importado (${DateTime.now().day}/${DateTime.now().month})',
+              Uint8List.fromList(widget.pdfBytes!),
+            );
+      }
+    } catch (e) {
+      debugPrint('Falha ao salvar PDF otimizado: $e');
     }
 
-    // 2. Mark as seen and navigate
-    widget.onFinish();
-    if (mounted) {
-       Navigator.of(context).pop(); // Dialog
-       Navigator.of(context).pop(); // Chat Screen
-       Navigator.of(context).pop(); // Score Screen
-    }
+    // Delega navegação para quem nos chamou — onFinish é responsável por
+    // pushAndRemoveUntil pra Home (não precisamos pop manual de stack).
+    if (mounted) widget.onFinish();
   }
 
   @override

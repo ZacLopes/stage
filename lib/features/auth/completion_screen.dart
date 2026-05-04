@@ -3,12 +3,12 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../core/constants/stage_colors.dart';
-import '../home/home_screen.dart';
-import '../home/home_viewmodel.dart';
-import 'target_job_screen.dart';
-import '../auth/user_viewmodel.dart';
+import '../../services/pdf_text_extractor.dart';
 import '../../services/tutorial_service.dart';
 import '../home/ai_score_screen.dart';
+import '../home/home_viewmodel.dart';
+import '../auth/user_viewmodel.dart';
+import 'target_job_screen.dart';
 
 class CompletionScreen extends StatefulWidget {
   const CompletionScreen({super.key});
@@ -53,11 +53,12 @@ class _CompletionScreenState extends State<CompletionScreen>
     super.dispose();
   }
 
+  /// Caminho B: usuário quer construir o CV pela trilha. Cria a campaign
+  /// pedindo o cargo-alvo, depois cai na Trilha.
   Future<void> _startTrackPath() async {
     await TutorialService().markAsSeen();
     if (!mounted) return;
 
-    // Pré-agenda a aba de trilha; HomeScreen vai ler ao inicializar.
     context.read<HomeViewModel>().requestTabChange(1);
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const TargetJobScreen()),
@@ -65,41 +66,89 @@ class _CompletionScreenState extends State<CompletionScreen>
     );
   }
 
+  /// Caminho A: usuário já tem CV pronto.
+  /// Fluxo: pickFile → extrai texto → TargetJobScreen → AIScoreScreen contextualizado.
   Future<void> _uploadResumePath() async {
     setState(() => _isPickingFile = true);
+
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf', 'docx'],
+        allowedExtensions: ['pdf'],
+        withData: true,
       );
 
-      if (result != null && result.files.isNotEmpty) {
-        if (!mounted) return;
-        
-        // Push the AIScoreScreen and pass the text (mocked for now since we just picked a file)
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => AIScoreScreen(
-              resumeText: 'Conteúdo extraído do arquivo PDF...',
-              onFinish: () {
-                // When they finish reviewing the score, send them to the Track
-                _startTrackPath();
-              },
-            ),
+      if (result == null || result.files.isEmpty) {
+        if (mounted) setState(() => _isPickingFile = false);
+        return;
+      }
+
+      final file = result.files.single;
+      final bytes = file.bytes;
+
+      if (bytes == null) {
+        _showError('Não foi possível ler o arquivo. Tente novamente.');
+        if (mounted) setState(() => _isPickingFile = false);
+        return;
+      }
+
+      // Extrai texto do PDF
+      String resumeText;
+      try {
+        resumeText = ResumePdfExtractor.extract(bytes);
+      } catch (e) {
+        _showError('Não foi possível ler este PDF. Verifique se ele não está protegido.');
+        if (mounted) setState(() => _isPickingFile = false);
+        return;
+      }
+
+      if (!ResumePdfExtractor.isUsable(resumeText)) {
+        _showError(
+          'O PDF parece ser uma imagem (sem texto). Exporte seu currículo como PDF de texto e tente novamente.',
+        );
+        if (mounted) setState(() => _isPickingFile = false);
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() => _isPickingFile = false);
+
+      await TutorialService().markAsSeen();
+      if (!mounted) return;
+
+      // Próximo passo: pedir vaga-alvo, depois ir pra análise contextualizada.
+      // A AIScoreScreen é responsável pela navegação final pra Home (com
+      // seu próprio context, evitando o bug de callbacks chamados em telas
+      // já desmontadas pelo pushReplacement).
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => TargetJobScreen(
+            contextHeadline: 'CV recebido • Vamos contextualizar',
+            onContinue: (jobTitle, sourceUrl) {
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(
+                  builder: (_) => AIScoreScreen(
+                    resumeText: resumeText,
+                    pdfBytes: bytes,
+                    targetJobTitle: jobTitle.isEmpty ? null : jobTitle,
+                  ),
+                ),
+              );
+            },
           ),
-        );
-      }
+        ),
+      );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Erro ao selecionar arquivo: $e'),
-              backgroundColor: StageColors.error),
-        );
-      }
-    } finally {
+      _showError('Erro inesperado ao selecionar o arquivo: $e');
       if (mounted) setState(() => _isPickingFile = false);
     }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: StageColors.error),
+    );
   }
 
   @override
@@ -111,33 +160,17 @@ class _CompletionScreenState extends State<CompletionScreen>
       backgroundColor: StageColors.offWhite,
       body: SafeArea(
         child: _isPickingFile
-            ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const CircularProgressIndicator(
-                        color: StageColors.brandCyan),
-                    const SizedBox(height: 16),
-                    Text('Abrindo arquivos...',
-                        style: GoogleFonts.inter(
-                            color: StageColors.subtitleGray,
-                            fontWeight: FontWeight.w500)),
-                  ],
-                ),
-              )
+            ? _PickingLoader()
             : Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const SizedBox(height: 48),
-                    // Header
                     AnimatedBuilder(
                       animation: _fadeHeader,
-                      builder: (context, child) => Opacity(
-                        opacity: _fadeHeader.value,
-                        child: child,
-                      ),
+                      builder: (context, child) =>
+                          Opacity(opacity: _fadeHeader.value, child: child),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -169,7 +202,7 @@ class _CompletionScreenState extends State<CompletionScreen>
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            'Escolha um caminho para construirmos ou avaliarmos o seu currículo.',
+                            'Escolha um caminho para começar a aplicar para vagas.',
                             style: GoogleFonts.inter(
                               fontSize: 16,
                               color: StageColors.subtitleGray,
@@ -180,21 +213,17 @@ class _CompletionScreenState extends State<CompletionScreen>
                       ),
                     ),
                     const SizedBox(height: 48),
-
-                    // Card 1: Upload
                     AnimatedBuilder(
                       animation: _slideCard1,
                       builder: (context, child) => Opacity(
                         opacity: _fadeHeader.value,
                         child: SlideTransition(
-                          position: _slideCard1,
-                          child: child,
-                        ),
+                            position: _slideCard1, child: child),
                       ),
                       child: _PathCard(
                         title: 'Já tenho um currículo',
                         subtitle:
-                            'Nossa IA analisa seu arquivo PDF e te dá uma nota com dicas para melhorar.',
+                            'Envie seu PDF — analisamos contra a vaga que você quer e você já pode aplicar.',
                         icon: Icons.document_scanner_rounded,
                         color: StageColors.brandBlue,
                         onTap: _uploadResumePath,
@@ -202,21 +231,17 @@ class _CompletionScreenState extends State<CompletionScreen>
                       ),
                     ),
                     const SizedBox(height: 16),
-
-                    // Card 2: Track
                     AnimatedBuilder(
                       animation: _slideCard2,
                       builder: (context, child) => Opacity(
                         opacity: _fadeHeader.value,
                         child: SlideTransition(
-                          position: _slideCard2,
-                          child: child,
-                        ),
+                            position: _slideCard2, child: child),
                       ),
                       child: _PathCard(
                         title: 'Começar do zero',
                         subtitle:
-                            'Vamos criar um currículo do zero juntos através da Trilha interativa.',
+                            'Vamos construir seu currículo passo a passo na trilha interativa.',
                         icon: Icons.auto_awesome_rounded,
                         color: StageColors.ctaGreen,
                         onTap: _startTrackPath,
@@ -226,6 +251,28 @@ class _CompletionScreenState extends State<CompletionScreen>
                   ],
                 ),
               ),
+      ),
+    );
+  }
+}
+
+class _PickingLoader extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CircularProgressIndicator(color: StageColors.brandCyan),
+          const SizedBox(height: 16),
+          Text(
+            'Processando seu currículo...',
+            style: GoogleFonts.inter(
+              color: StageColors.subtitleGray,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }

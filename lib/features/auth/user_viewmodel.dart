@@ -210,7 +210,16 @@ class UserViewModel extends ChangeNotifier {
     String? sourceUrl,
     bool isSkipped = false,
   }) async {
-    if (_user == null) return;
+    // Garantir que o user_profiles row existe antes de inserir target_jobs/campaigns
+    // (se o trigger de profile criou row depois do _loadUser() inicial, ainda
+    // cobrimos via getUserProfile, que faz retry).
+    if (_user == null || _user!.id == null) {
+      await _loadUser();
+    }
+    if (_user == null || _user!.id == null) {
+      throw Exception('Usuário não autenticado.');
+    }
+
     _currentCampaign = await _repository.createCampaignWithTargetJob(
       userId: _user!.id!,
       jobTitle: jobTitle,

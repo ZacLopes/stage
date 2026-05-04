@@ -7,13 +7,11 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    // Verificar autenticação
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
@@ -33,7 +31,7 @@ serve(async (req) => {
       )
     }
 
-    // Rate limiting
+    // Rate limit: 10/dia
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
@@ -44,24 +42,60 @@ serve(async (req) => {
       .eq('generation_type', 'resume_evaluation')
       .gte('created_at', today.toISOString())
 
-    if (count && count >= 10) { 
+    if (count && count >= 10) {
       return new Response(
         JSON.stringify({ error: 'Rate limit exceeded. Maximum 10 resume evaluations per day.' }),
         { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    // Obter dados da requisição
-    const { resumeText } = await req.json()
+    const { resumeText, targetJobTitle, targetJobDescription } = await req.json()
 
-    if (!resumeText || typeof resumeText !== 'string') {
+    if (!resumeText || typeof resumeText !== 'string' || resumeText.trim().length < 100) {
       return new Response(
-        JSON.stringify({ error: 'Invalid request body. Missing resumeText.' }),
+        JSON.stringify({
+          error: 'invalid_resume_text',
+          message: 'Texto do currículo está vazio ou muito curto. Verifique se o PDF tem camada de texto (não é apenas imagem/scan).',
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    // Chamar OpenAI
+    const hasTarget = typeof targetJobTitle === 'string' && targetJobTitle.trim().length > 0
+
+    const targetBlock = hasTarget
+      ? `\n\nVAGA-ALVO DO USUÁRIO:
+- Cargo: ${targetJobTitle}
+${targetJobDescription ? `- Descrição: ${targetJobDescription}` : ''}
+
+A nota e os pontos a melhorar devem ser CONTEXTUALIZADOS para essa vaga-alvo.
+Ex: "Faltam métricas de impacto comuns em vagas de produto" é melhor que "Faltam métricas".`
+      : `\n\nO usuário NÃO informou vaga-alvo. Avalie o currículo de forma geral, mas mencione na resposta que uma análise mais precisa exigiria saber a vaga-alvo.`
+
+    const systemPrompt = `Você é um recrutador sênior brasileiro especialista em análise de currículos para estágios e primeiros empregos.
+
+Sua tarefa é ler o texto extraído de um currículo (já em texto puro, não é PDF) e produzir uma avaliação rigorosa, prática e útil.${targetBlock}
+
+Forneça sua resposta ESTRITAMENTE em formato JSON, com estas chaves exatas:
+{
+  "score": <inteiro 0-100, ${hasTarget ? 'aderência à vaga-alvo' : 'qualidade geral'}>,
+  "positives": ["3-5 pontos fortes específicos, citando trecho ou seção"],
+  "improvements": ["3-6 melhorias acionáveis, em ordem de impacto"],
+  "parsed_data": {
+    "sobre_mim": "Resumo profissional de 2-3 frases extraído ou reescrito",
+    "experiencias": "Bullet points (•) das experiências",
+    "habilidades": "Bullet points (•) das habilidades",
+    "interesses": "Bullet points (•) dos interesses (ou string vazia)"
+  }
+}
+
+REGRAS:
+- Seja rigoroso. Currículos de estudante raramente passam de 75 sem métricas concretas.
+- "improvements" deve ser ACIONÁVEL ("Reescreva o bullet X usando verbo no passado e métrica" — não "melhore os bullets").
+- "parsed_data" deve preservar fielmente o conteúdo do CV. Não invente nomes de empresas, datas ou números.
+- Use português do Brasil.
+- Retorne APENAS o JSON, sem markdown, sem texto antes ou depois.`
+
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -71,62 +105,38 @@ serve(async (req) => {
       body: JSON.stringify({
         model: 'gpt-4o',
         messages: [
-          {
-            role: 'system',
-            content: `Você é um recrutador sênior e especialista em análise de currículos.
-Sua tarefa é ler o texto extraído de um currículo em PDF e estruturar uma avaliação detalhada.
-
-Forneça sua resposta ESTRITAMENTE em formato JSON, com as seguintes chaves exatas:
-{
-  "score": <número de 0 a 100 dando a nota geral do currículo>,
-  "positives": ["ponto forte 1", "ponto forte 2", ...],
-  "improvements": ["ponto de melhoria 1", "ponto a corrigir 2", ...],
-  "parsed_data": {
-    "sobre_mim": "Resumo do perfil extraído ou reescrito de forma melhorada",
-    "experiencias": "Lista de experiências em formato bullet point (•)",
-    "habilidades": "Lista de habilidades em formato bullet point (•)",
-    "interesses": "Lista de interesses em formato bullet point (•)"
-  }
-}
-
-IMPORTANTE: 
-- Seja rigoroso na nota.
-- Identifique falta de métricas nas experiências, falta de foco, má formatação de texto e aponte isso na chave "improvements".
-- A chave "parsed_data" deve conter o currículo reconstruído, formatado perfeitamente, pronto para ser reescrito na base de dados do usuário.`
-          },
-          {
-            role: 'user',
-            content: `Aqui está o texto bruto extraído do currículo em PDF:\n\n${resumeText}`
-          }
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Texto do currículo:\n\n${resumeText}` }
         ],
-        temperature: 0.5,
+        temperature: 0.4,
         max_tokens: 1500,
+        response_format: { type: 'json_object' },
       })
     })
 
     if (!openaiResponse.ok) {
-      throw new Error(`OpenAI API error: ${openaiResponse.statusText}`)
+      const errBody = await openaiResponse.text()
+      console.error('OpenAI error:', openaiResponse.status, errBody)
+      return new Response(
+        JSON.stringify({ error: 'ai_provider_error', message: 'Falha temporária na análise. Tente novamente em alguns instantes.' }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
     }
 
     const openaiData = await openaiResponse.json()
     const responseText = openaiData.choices[0].message.content
 
-    // Extrair JSON da resposta
-    let jsonText = responseText.trim()
-    if (jsonText.startsWith('```json')) {
-      jsonText = jsonText.substring(7)
+    let result
+    try {
+      result = JSON.parse(responseText)
+    } catch (e) {
+      console.error('Failed to parse AI JSON:', responseText)
+      return new Response(
+        JSON.stringify({ error: 'parse_error', message: 'Resposta inválida da IA. Tente novamente.' }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
     }
-    if (jsonText.startsWith('```')) {
-      jsonText = jsonText.substring(3)
-    }
-    if (jsonText.endsWith('```')) {
-      jsonText = jsonText.substring(0, jsonText.length - 3)
-    }
-    jsonText = jsonText.trim()
 
-    const result = JSON.parse(jsonText)
-
-    // Registrar geração para rate limiting
     await supabaseClient.from('ai_generation_logs').insert({
       user_id: user.id,
       generation_type: 'resume_evaluation',
@@ -141,7 +151,7 @@ IMPORTANTE:
   } catch (error: any) {
     console.error('Error:', error)
     return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
+      JSON.stringify({ error: 'internal_error', message: error.message || 'Internal server error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }

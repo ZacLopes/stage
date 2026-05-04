@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'dart:io';
 
 import '../../core/constants/stage_colors.dart';
-import '../auth/user_viewmodel.dart';
+import '../../services/pdf_text_extractor.dart';
 import 'ai_score_screen.dart';
 
 class AppGuideScreen extends StatefulWidget {
@@ -38,51 +36,40 @@ class _AppGuideScreenState extends State<AppGuideScreen> {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
+        withData: true,
       );
 
-      if (result == null || result.files.isEmpty || result.files.single.path == null) {
-        // Mock for simulator
-        _showError('Nenhum arquivo selecionado. Usando currículo de teste.');
-        await Future.delayed(const Duration(seconds: 1));
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context, 
-          MaterialPageRoute(
-            builder: (_) => AIScoreScreen(
-              resumeText: 'Texto extraído do PDF de teste...', 
-              onFinish: widget.onFinish,
-            )
-          )
-        );
+      if (result == null || result.files.isEmpty) return;
+
+      setState(() => _isProcessingPdf = true);
+
+      final file = result.files.single;
+      final bytes = file.bytes ??
+          (file.path != null ? await File(file.path!).readAsBytes() : null);
+
+      if (bytes == null) {
+        setState(() => _isProcessingPdf = false);
+        _showError('Não foi possível ler o arquivo.');
         return;
       }
 
-      setState(() => _isProcessingPdf = true);
-      
-      final File pdfFile = File(result.files.single.path!);
-      final bytes = await pdfFile.readAsBytes();
-      
-      final PdfDocument document = PdfDocument(inputBytes: bytes);
-      final String text = PdfTextExtractor(document).extractText();
-      document.dispose();
-
+      final text = ResumePdfExtractor.extract(bytes);
       setState(() => _isProcessingPdf = false);
 
-      if (text.trim().isEmpty) {
-        _showError('Não conseguimos ler o texto do seu PDF.');
+      if (!ResumePdfExtractor.isUsable(text)) {
+        _showError('PDF parece ser uma imagem (sem texto). Exporte o CV como PDF de texto.');
         return;
       }
 
       if (!mounted) return;
       Navigator.pushReplacement(
-        context, 
+        context,
         MaterialPageRoute(
           builder: (_) => AIScoreScreen(
-            resumeText: text, 
+            resumeText: text,
             pdfBytes: bytes,
-            onFinish: widget.onFinish,
-          )
-        )
+          ),
+        ),
       );
     } catch (e) {
       setState(() => _isProcessingPdf = false);
