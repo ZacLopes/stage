@@ -7,6 +7,7 @@ import '../../data/models/models.dart';
 import '../../data/supabase_repository.dart';
 import '../../data/local_storage_repository.dart';
 import '../../data/database_helper.dart';
+import '../../services/pdf_text_extractor.dart';
 
 class UserViewModel extends ChangeNotifier {
   final SupabaseRepository _repository;
@@ -99,6 +100,10 @@ class UserViewModel extends ChangeNotifier {
         _user = userProfile;
         if (_user != null) {
           _currentCampaign = await _repository.getLatestCampaign(_user!.id!);
+          // Reprocessamento de CV existente (background — não bloqueia load)
+          // Cobre o caso de upload feito antes do código de extração existir.
+          // ignore: unawaited_futures
+          _reprocessLatestResumeIfNeeded();
         }
       } else {
         _user = null;
@@ -110,6 +115,49 @@ class UserViewModel extends ChangeNotifier {
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  /// Se o user tem PDF salvo na biblioteca mas `gamification_data.imported_resume.raw_text`
+  /// está vazio, baixa o PDF mais recente, extrai texto e salva. Roda em background.
+  /// Idempotente: pula se já tem texto extraído.
+  Future<void> _reprocessLatestResumeIfNeeded() async {
+    final user = _user;
+    if (user == null) return;
+
+    // Já tem texto extraído? Skip.
+    final imported = user.gamificationData['imported_resume'];
+    if (imported is Map) {
+      final existingText = imported['raw_text']?.toString() ?? '';
+      if (existingText.length >= 200) return;
+    }
+
+    try {
+      final resumes = await _repository.getSavedResumes();
+      if (resumes.isEmpty) return;
+
+      final latest = resumes.first; // ordered DESC by created_at
+      final bytes = await _repository.downloadResume(latest.filePath);
+      if (bytes.isEmpty) return;
+
+      final rawText = ResumePdfExtractor.extract(bytes);
+      if (!ResumePdfExtractor.isUsable(rawText)) {
+        print('Reprocess CV: extracted text too short (${rawText.length} chars). Likely scan/image PDF.');
+        return;
+      }
+
+      final updated = Map<String, dynamic>.from(user.gamificationData);
+      updated['imported_resume'] = {
+        'raw_text': rawText,
+        'imported_at': DateTime.now().toIso8601String(),
+        'reprocessed_from_storage': true,
+      };
+      await _repository.updateUserProfile(user.copyWith(gamificationData: updated));
+      _user = user.copyWith(gamificationData: updated);
+      notifyListeners();
+      print('✅ CV reprocessado (${rawText.length} chars) — match score vai usar agora.');
+    } catch (e) {
+      print('Reprocess CV failed (non-blocking): $e');
     }
   }
 

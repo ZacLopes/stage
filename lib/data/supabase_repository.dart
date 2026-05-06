@@ -951,26 +951,59 @@ class SupabaseRepository {
     String? sourceUrl,
     bool isSkipped = false,
   }) async {
-    final jobData = await _client.from('target_jobs').insert({
-      'user_id': userId,
-      'title': jobTitle,
-      'description_text': descriptionText,
-      'source_url': sourceUrl,
-      'is_skipped': isSkipped,
-    }).select().single();
+    final jobData = await _withTransientRetry(() => _client.from('target_jobs').insert({
+          'user_id': userId,
+          'title': jobTitle,
+          'description_text': descriptionText,
+          'source_url': sourceUrl,
+          'is_skipped': isSkipped,
+        }).select().single());
 
     final targetJob = TargetJob.fromJson(jobData);
     final campaignName =
         (jobTitle != null && jobTitle.isNotEmpty) ? jobTitle : 'Campanha 1';
 
-    final campaignData = await _client.from('campaigns').insert({
-      'user_id': userId,
-      'target_job_id': targetJob.id,
-      'name': campaignName,
-      'status': 'draft',
-    }).select().single();
+    final campaignData = await _withTransientRetry(() => _client.from('campaigns').insert({
+          'user_id': userId,
+          'target_job_id': targetJob.id,
+          'name': campaignName,
+          'status': 'draft',
+        }).select().single());
 
     return Campaign.fromJson(campaignData);
+  }
+
+  /// Reexecuta uma operação até 3x com backoff (200ms, 600ms, 1.4s) quando o
+  /// erro é tipicamente transiente: TCP fechado, timeout, header incompleto,
+  /// DNS, etc. Erros 4xx do Postgres (RLS, constraint) NÃO são retryados —
+  /// não fazem sentido tentar de novo.
+  Future<T> _withTransientRetry<T>(Future<T> Function() task,
+      {int maxAttempts = 3}) async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await task();
+      } catch (e) {
+        lastError = e;
+        final msg = e.toString();
+        final isTransient = msg.contains('Connection closed') ||
+            msg.contains('SocketException') ||
+            msg.contains('Connection reset') ||
+            msg.contains('Failed host lookup') ||
+            msg.contains('TimeoutException') ||
+            msg.contains('ClientException') ||
+            msg.contains('502') ||
+            msg.contains('503') ||
+            msg.contains('504');
+
+        if (!isTransient || attempt == maxAttempts) rethrow;
+
+        final delayMs = 200 * (1 << (attempt - 1)) + (attempt * 100);
+        print('⚠️ Transient error (attempt $attempt/$maxAttempts): $e — retrying in ${delayMs}ms');
+        await Future.delayed(Duration(milliseconds: delayMs));
+      }
+    }
+    throw lastError ?? Exception('Retry failed without explicit error');
   }
 
   // ============================================================

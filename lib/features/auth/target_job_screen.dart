@@ -3,20 +3,26 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/stage_colors.dart';
 import '../home/home_screen.dart';
+import '../home/home_viewmodel.dart';
 import 'user_viewmodel.dart';
 
 class TargetJobScreen extends StatefulWidget {
-  /// Se informado, é chamado após salvar a campaign em vez de navegar pra Home.
-  /// Recebe o cargo e a URL informados (vazios se o usuário pulou).
-  final void Function(String jobTitle, String? sourceUrl)? onContinue;
+  /// Se informado, depois de salvar a campaign navega pra Home na tab indicada
+  /// (0=Vagas, 1=Trilha, 2=Currículo, 3=Perfil).
+  ///
+  /// IMPORTANTE: NÃO use callback fechado por uma tela ancestral pushReplaced
+  /// (ex: CompletionScreen) — quando o callback dispara, o ancestral pode
+  /// estar desmontado e o `mounted` guard cancela a navegação. A
+  /// TargetJobScreen navega usando o próprio `context` (que está vivo).
+  final int? homeTabIndex;
 
-  /// Texto opcional acima do título — usado quando o usuário acabou de subir
-  /// um CV e queremos contextualizar a tela ("Antes de analisar seu CV...").
+  /// Texto opcional acima do título — usado pra contextualizar a tela
+  /// (ex: "CV salvo na biblioteca").
   final String? contextHeadline;
 
   const TargetJobScreen({
     super.key,
-    this.onContinue,
+    this.homeTabIndex,
     this.contextHeadline,
   });
 
@@ -54,7 +60,7 @@ class _TargetJobScreenState extends State<TargetJobScreen> {
       final vm = context.read<UserViewModel>();
       await vm.createCampaign(jobTitle: title, sourceUrl: url);
       if (!mounted) return;
-      _afterSave(title, url);
+      _navigateHome();
     } catch (e, st) {
       debugPrint('❌ createCampaign failed: $e\n$st');
       if (mounted) {
@@ -77,7 +83,7 @@ class _TargetJobScreenState extends State<TargetJobScreen> {
       final vm = context.read<UserViewModel>();
       await vm.createCampaign(isSkipped: true);
       if (!mounted) return;
-      _afterSave('', null);
+      _navigateHome();
     } catch (e, st) {
       debugPrint('❌ createCampaign(skip) failed: $e\n$st');
       if (mounted) {
@@ -94,15 +100,12 @@ class _TargetJobScreenState extends State<TargetJobScreen> {
     }
   }
 
-  void _afterSave(String jobTitle, String? sourceUrl) {
-    if (widget.onContinue != null) {
-      widget.onContinue!(jobTitle, sourceUrl);
-    } else {
-      _navigateHome();
-    }
-  }
-
   void _navigateHome() {
+    // Se a tela quem nos invocou pediu uma tab específica, agenda antes de
+    // empurrar a HomeScreen — o HomeScreen lê esse pendingTabIndex no init.
+    if (widget.homeTabIndex != null) {
+      context.read<HomeViewModel>().requestTabChange(widget.homeTabIndex!);
+    }
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const HomeScreen()),
       (route) => false,

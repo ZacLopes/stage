@@ -109,6 +109,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         );
 
         // Update Job Preferences
+        // minSalary fica null por default (não setamos 0). O usuário configura
+        // depois em Vagas > Filtros se quiser. Se setasse 0, o MatchScoreCalculator
+        // contaria como preferência configurada e daria 10 pontos sempre.
         final newPrefs = UserJobPreferences(
           id: '', // Will be assigned by backend
           userId: userVm.user?.id ?? '',
@@ -116,7 +119,6 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           workModels: [_selectedWorkModel!],
           areas: _selectedAreas.toList(),
           locations: [], // Optional empty default
-          minSalary: 0,
         );
         await jobsVm.savePreferences(newPrefs);
 

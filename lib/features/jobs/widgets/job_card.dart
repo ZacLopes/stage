@@ -6,9 +6,14 @@ import '../models/job.dart';
 class JobCard extends StatefulWidget {
   final Job job;
 
+  /// Score 0-100 calculado externamente via MatchScoreCalculator. Se omitido,
+  /// usa `job.matchScore` (que hoje é 0 por default — placeholder).
+  final int? matchScore;
+
   const JobCard({
     super.key,
     required this.job,
+    this.matchScore,
   });
 
   @override
@@ -44,18 +49,20 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
     super.dispose();
   }
 
+  /// Score efetivo usado pra cor/badge. Prioriza o passado externamente
+  /// (calculado pelo MatchScoreCalculator); fallback pro field do model.
+  int get _score => widget.matchScore ?? widget.job.matchScore;
+
   Color get _matchColor {
-    final score = widget.job.matchScore;
-    if (score >= 85) return const Color(0xFF10B981);
-    if (score >= 70) return const Color(0xFF3B82F6);
+    if (_score >= 85) return const Color(0xFF10B981);
+    if (_score >= 70) return const Color(0xFF3B82F6);
     return const Color(0xFFF59E0B);
   }
 
   List<Color> get _cardGradient {
-    final score = widget.job.matchScore;
-    if (score >= 85) {
+    if (_score >= 85) {
       return [const Color(0xFF064E3B), const Color(0xFF065F46)];
-    } else if (score >= 70) {
+    } else if (_score >= 70) {
       return [const Color(0xFF1E3A8A), const Color(0xFF1E40AF)];
     }
     return [const Color(0xFF78350F), const Color(0xFF92400E)];
@@ -419,7 +426,7 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                             size: const Size(60, 60),
                             painter: _MatchRingPainter(
                               progress: _ringAnimation.value,
-                              score: widget.job.matchScore,
+                              score: _score,
                               color: Colors.white,
                             ),
                           ),
@@ -427,7 +434,7 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                '${(widget.job.matchScore * _ringAnimation.value).toInt()}%',
+                                '${(_score * _ringAnimation.value).toInt()}%',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 14,

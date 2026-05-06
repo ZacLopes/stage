@@ -1,11 +1,74 @@
 import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/models/models.dart';
+import '../features/jobs/utils/match_score.dart';
 
 class AIService {
   final SupabaseClient _client = Supabase.instance.client;
 
   AIService();
+
+  // ============================================================
+  // Match analysis (gpt-4o-mini com cache em match_analyses)
+  // ============================================================
+
+  /// Calcula match IA pra uma vaga. Lança exception em qualquer falha —
+  /// caller (JobsSwipeScreen) faz fallback pro determinístico.
+  Future<MatchResult> analyzeMatch(String jobId) async {
+    final response = await _client.functions
+        .invoke('analyze-match', body: {'job_id': jobId})
+        .timeout(const Duration(seconds: 9));
+
+    if (response.status != 200) {
+      throw Exception('analyze-match status ${response.status}');
+    }
+    final data = Map<String, dynamic>.from(response.data as Map);
+    return _parseMatchResult(data);
+  }
+
+  /// Hidrata cache em batch: 1 SELECT direto na tabela match_analyses.
+  /// Sem custo de IA. Retorna mapa jobId → MatchResult pros que estão cacheados.
+  Future<Map<String, MatchResult>> fetchCachedMatches(List<String> jobIds) async {
+    if (jobIds.isEmpty) return const {};
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return const {};
+
+    try {
+      final rows = await _client
+          .from('match_analyses')
+          .select('job_id, score, reasons')
+          .eq('user_id', userId)
+          .inFilter('job_id', jobIds);
+
+      final out = <String, MatchResult>{};
+      for (final raw in rows as List) {
+        final row = Map<String, dynamic>.from(raw as Map);
+        final jobId = row['job_id']?.toString();
+        if (jobId == null) continue;
+        out[jobId] = _parseMatchResult(row);
+      }
+      return out;
+    } catch (e) {
+      // Falha no SELECT não pode quebrar a tela. Cliente cai pro determinístico.
+      print('fetchCachedMatches failed: $e');
+      return const {};
+    }
+  }
+
+  static MatchResult _parseMatchResult(Map<String, dynamic> data) {
+    final score = (data['score'] as num?)?.toInt().clamp(0, 100) ?? 0;
+    final rawReasons = (data['reasons'] as List?) ?? const [];
+    final reasons = rawReasons.map((r) {
+      final m = Map<String, dynamic>.from(r as Map);
+      return MatchReason(
+        label: m['label']?.toString() ?? '',
+        matched: m['matched'] == true,
+        weight: (m['weight'] as num?)?.toInt() ?? 0,
+        detail: m['detail']?.toString(),
+      );
+    }).toList();
+    return MatchResult(score: score, reasons: reasons);
+  }
 
   Future<ProfileContent> generateProfileContent(
     Map<String, String> answersWithQuestions,

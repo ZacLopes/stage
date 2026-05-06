@@ -3,13 +3,19 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/job.dart';
+import '../utils/match_score.dart';
 
 class JobDetailsSheet extends StatefulWidget {
   final Job job;
 
+  /// Resultado do MatchScoreCalculator. Quando presente, mostra a seção
+  /// "Por que esse match?" com as razões. Quando null, esconde a seção.
+  final MatchResult? match;
+
   const JobDetailsSheet({
     super.key,
     required this.job,
+    this.match,
   });
 
   @override
@@ -23,15 +29,19 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
   late final Animation<double> _slideAnim;
   bool _isSaved = false;
 
+  /// Score efetivo: prioriza o passado externamente (calculado), fallback
+  /// pro field do model (que hoje é 0).
+  int get _score => widget.match?.score ?? widget.job.matchScore;
+
   Color get _matchColor {
-    final score = widget.job.matchScore;
+    final score = _score;
     if (score >= 85) return const Color(0xFF10B981);
     if (score >= 70) return const Color(0xFF3B82F6);
     return const Color(0xFFF59E0B);
   }
 
   List<Color> get _headerGradient {
-    final score = widget.job.matchScore;
+    final score = _score;
     if (score >= 85) {
       return [const Color(0xFF065F46), const Color(0xFF047857), const Color(0xFF059669)];
     } else if (score >= 70) {
@@ -129,35 +139,40 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                             ),
                             const SizedBox(height: 24),
 
-                            // Requirements
-                            _buildSection(
-                              title: 'Requisitos',
-                              icon: Icons.checklist_rounded,
-                              color: const Color(0xFF7C3AED),
-                              child: Column(
-                                children: widget.job.requirements
-                                    .asMap()
-                                    .entries
-                                    .map((e) => _buildRequirementItem(e.key, e.value))
-                                    .toList(),
+                            // Requirements (esconde se vazio — algumas vagas
+                            // não têm seção separada e tudo vem no description)
+                            if (widget.job.requirements.isNotEmpty) ...[
+                              _buildSection(
+                                title: 'Requisitos',
+                                icon: Icons.checklist_rounded,
+                                color: const Color(0xFF7C3AED),
+                                child: Column(
+                                  children: widget.job.requirements
+                                      .asMap()
+                                      .entries
+                                      .map((e) => _buildRequirementItem(e.key, e.value))
+                                      .toList(),
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 24),
+                              const SizedBox(height: 24),
+                            ],
 
-                            // Benefits
-                            _buildSection(
-                              title: 'Benefícios',
-                              icon: Icons.card_giftcard_rounded,
-                              color: const Color(0xFF059669),
-                              child: Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: widget.job.benefits
-                                    .map((b) => _buildBenefitChip(b))
-                                    .toList(),
+                            // Benefits (esconde se vazio)
+                            if (widget.job.benefits.isNotEmpty) ...[
+                              _buildSection(
+                                title: 'Benefícios',
+                                icon: Icons.card_giftcard_rounded,
+                                color: const Color(0xFF059669),
+                                child: Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: widget.job.benefits
+                                      .map((b) => _buildBenefitChip(b))
+                                      .toList(),
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 24),
+                              const SizedBox(height: 24),
+                            ],
 
                             // About Company
                             if (widget.job.aboutCompany.isNotEmpty) ...[
@@ -345,9 +360,11 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                           const SizedBox(height: 5),
                           Text(
                             widget.job.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               color: Colors.white,
-                              fontSize: 20,
+                              fontSize: 19,
                               fontWeight: FontWeight.w900,
                               height: 1.2,
                               letterSpacing: -0.3,
@@ -356,6 +373,8 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                           const SizedBox(height: 4),
                           Text(
                             widget.job.companyName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: Colors.white.withOpacity(0.85),
                               fontSize: 14,
@@ -379,14 +398,14 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                               size: const Size(64, 64),
                               painter: _RingPainter(
                                 progress: _ringAnim.value,
-                                score: widget.job.matchScore,
+                                score: _score,
                               ),
                             ),
                             Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
-                                  '${(widget.job.matchScore * _ringAnim.value).toInt()}%',
+                                  '${(_score * _ringAnim.value).toInt()}%',
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 15,
@@ -437,7 +456,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
   //  MATCH CARD
   // ════════════════════════════════════════════
   Widget _buildMatchCard() {
-    final score = widget.job.matchScore;
+    final score = _score;
     String matchLabel;
     String matchDescription;
     if (score >= 85) {
@@ -472,54 +491,110 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: _matchColor.withOpacity(0.25)),
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: _matchColor.withOpacity(0.15),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.auto_awesome_rounded, color: _matchColor, size: 24),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    matchLabel,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: _matchColor.withOpacity(0.9),
-                      fontSize: 15,
-                    ),
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: _matchColor.withOpacity(0.15),
+                    shape: BoxShape.circle,
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    matchDescription,
-                    style: TextStyle(
-                      color: _matchColor.withOpacity(0.7),
-                      fontSize: 13,
-                      height: 1.4,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            AnimatedBuilder(
-              animation: _ringAnim,
-              builder: (_, __) => Text(
-                '${(widget.job.matchScore * _ringAnim.value).toInt()}%',
-                style: TextStyle(
-                  color: _matchColor,
-                  fontSize: 26,
-                  fontWeight: FontWeight.w900,
+                  child: Icon(Icons.auto_awesome_rounded,
+                      color: _matchColor, size: 24),
                 ),
-              ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        matchLabel,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: _matchColor.withOpacity(0.9),
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        matchDescription,
+                        style: TextStyle(
+                          color: _matchColor.withOpacity(0.7),
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                AnimatedBuilder(
+                  animation: _ringAnim,
+                  builder: (_, __) => Text(
+                    '${(_score * _ringAnim.value).toInt()}%',
+                    style: TextStyle(
+                      color: _matchColor,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
             ),
+            // Razões do match (quando disponível)
+            if (widget.match != null && widget.match!.reasons.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Container(height: 1, color: _matchColor.withOpacity(0.15)),
+              const SizedBox(height: 12),
+              ...widget.match!.reasons.map((r) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          r.matched
+                              ? Icons.check_circle_rounded
+                              : Icons.remove_circle_outline_rounded,
+                          size: 16,
+                          color: r.matched
+                              ? const Color(0xFF10B981)
+                              : Colors.grey[400],
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text.rich(
+                            TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: r.label,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: r.matched
+                                        ? const Color(0xFF1F2937)
+                                        : Colors.grey[600],
+                                  ),
+                                ),
+                                if (r.detail != null && r.detail!.isNotEmpty)
+                                  TextSpan(
+                                    text: '  ${r.detail}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )),
+            ],
           ],
         ),
       ),
@@ -741,32 +816,46 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
   //  BENEFIT CHIP
   // ════════════════════════════════════════════
   Widget _buildBenefitChip(String benefit) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFF0FDF4), Color(0xFFDCFCE7)],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFBBF7D0)),
+    // Constrói chips compactos quando o benefício é curto (1 linha), e
+    // cards full-width quando é uma string longa (texto descritivo do Gupy).
+    final isLong = benefit.length > 50;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: isLong ? double.infinity : 280,
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.check_circle_rounded, size: 14, color: Color(0xFF10B981)),
-          const SizedBox(width: 5),
-          Flexible(
-            child: Text(
-              benefit,
-              style: const TextStyle(
-                color: Color(0xFF166534),
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
+      child: Container(
+        width: isLong ? double.infinity : null,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFFF0FDF4), Color(0xFFDCFCE7)],
           ),
-        ],
+          borderRadius: BorderRadius.circular(isLong ? 12 : 20),
+          border: Border.all(color: const Color(0xFFBBF7D0)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(top: 2),
+              child: Icon(Icons.check_circle_rounded, size: 14, color: Color(0xFF10B981)),
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                benefit,
+                style: const TextStyle(
+                  color: Color(0xFF166534),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -775,6 +864,8 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
   //  FOOTER
   // ════════════════════════════════════════════
   Widget _buildFooterInfo() {
+    // Wrap permite quebrar em 2 linhas quando o texto é longo (ex: "Inscrições
+    // até 31 de maio de 2026"), em vez de truncar com ellipsis.
     return Center(
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -782,49 +873,55 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
           color: const Color(0xFFF1F5F9),
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
+        child: Wrap(
+          spacing: 12,
+          runSpacing: 6,
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            const Icon(Icons.schedule_rounded, size: 14, color: Color(0xFF94A3B8)),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                widget.job.postedDaysAgo,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF64748B),
-                  fontWeight: FontWeight.w500,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
+            _footerChip(
+              icon: Icons.schedule_rounded,
+              iconColor: const Color(0xFF94A3B8),
+              text: widget.job.postedDaysAgo,
+              textColor: const Color(0xFF64748B),
             ),
-            if (widget.job.deadline != null) ...[
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 8),
-                width: 3,
-                height: 3,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF94A3B8),
-                  shape: BoxShape.circle,
-                ),
+            if (widget.job.deadline != null)
+              _footerChip(
+                icon: Icons.event_rounded,
+                iconColor: const Color(0xFFF59E0B),
+                text: widget.job.deadline!,
+                textColor: const Color(0xFF92400E),
+                bold: true,
               ),
-              const Icon(Icons.event_rounded, size: 14, color: Color(0xFFF59E0B)),
-              const SizedBox(width: 4),
-              Flexible(
-                child: Text(
-                  widget.job.deadline!,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF92400E),
-                    fontWeight: FontWeight.w600,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
           ],
         ),
       ),
+    );
+  }
+
+  /// Item de info da pílula footer (ícone + texto). Renderiza sem largura
+  /// fixa, então o Wrap pai pode quebrar em duas linhas se necessário.
+  Widget _footerChip({
+    required IconData icon,
+    required Color iconColor,
+    required String text,
+    required Color textColor,
+    bool bold = false,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: iconColor),
+        const SizedBox(width: 6),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 13,
+            color: textColor,
+            fontWeight: bold ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
+      ],
     );
   }
 

@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'company.dart';
 
 class Job {
@@ -120,12 +119,20 @@ class Job {
       deadlineDisplay = 'Inscrições até ${deadlineRaw.day} de ${months[deadlineRaw.month - 1]}';
     }
 
-    // Random match score placeholder (70-95)
-    final matchScore = 70 + Random().nextInt(26);
+    // Match score começa zerado — é calculado na UI via MatchScoreCalculator
+    // usando as preferências do usuário e dados do gamificationData.
+    const matchScore = 0;
 
-    // Parse requirements and benefits arrays
-    final requirements = _parseStringList(json['requirements']);
-    final benefits = _parseStringList(json['benefits']);
+    // Parse requirements and benefits arrays (strip HTML defensively)
+    final requirements =
+        _parseStringList(json['requirements']).map(_stripHtml).where((s) => s.isNotEmpty).toList();
+    final benefits =
+        _parseStringList(json['benefits']).map(_stripHtml).where((s) => s.isNotEmpty).toList();
+
+    // Strip HTML do description: alguns ATSs (Greenhouse) entregam HTML cru,
+    // e mesmo após sanitização server-side, vagas legacy podem ter ficado.
+    // Defensive na camada de leitura garante UI sempre limpa.
+    final description = _stripHtml(json['description'] as String? ?? '');
 
     return Job(
       id: json['id'] as String,
@@ -137,10 +144,10 @@ class Job {
       workModel: workModelDisplay,
       jobType: jobTypeDisplay,
       matchScore: matchScore,
-      description: json['description'] as String,
+      description: description,
       requirements: requirements,
       benefits: benefits,
-      aboutCompany: aboutCompany,
+      aboutCompany: _stripHtml(aboutCompany),
       postedDaysAgo: postedDaysAgo,
       deadline: deadlineDisplay,
       companyId: json['company_id'] as String?,
@@ -188,5 +195,45 @@ class Job {
     if (value == null) return [];
     if (value is List) return value.cast<String>();
     return [];
+  }
+
+  /// Remove tags HTML, decodifica entidades comuns e normaliza whitespace.
+  /// Quebras virais entre parágrafos viram \n\n, <br> vira \n, demais tags somem.
+  static String _stripHtml(String input) {
+    if (input.isEmpty) return input;
+    // Se não tem nenhuma tag, retorna como está (otimização rápida)
+    if (!input.contains('<')) return input;
+
+    var s = input
+        // Quebras de linha semânticas
+        .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'</p\s*>', caseSensitive: false), '\n\n')
+        .replaceAll(RegExp(r'</div\s*>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'</li\s*>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'<li[^>]*>', caseSensitive: false), '• ')
+        // Remove qualquer outra tag
+        .replaceAll(RegExp(r'<[^>]+>'), ' ')
+        // Decodifica entidades comuns
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&apos;', "'")
+        .replaceAll('&ndash;', '–')
+        .replaceAll('&mdash;', '—')
+        .replaceAll('&hellip;', '…');
+
+    // Normaliza whitespace: múltiplos espaços/tabs viram 1 espaço,
+    // múltiplas linhas em branco viram exatamente 2.
+    s = s
+        .replaceAll(RegExp(r'[ \t]+'), ' ')
+        .replaceAll(RegExp(r'\n[ \t]+'), '\n')
+        .replaceAll(RegExp(r'[ \t]+\n'), '\n')
+        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+        .trim();
+
+    return s;
   }
 }

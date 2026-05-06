@@ -5,9 +5,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../core/constants/stage_colors.dart';
+import '../../services/pdf_text_extractor.dart';
 import '../../services/tutorial_service.dart';
-import '../home/home_screen.dart';
-import '../home/home_viewmodel.dart';
 import '../profile/profile_viewmodel.dart';
 import '../auth/user_viewmodel.dart';
 import 'target_job_screen.dart';
@@ -87,11 +86,12 @@ class _CompletionScreenState extends State<CompletionScreen>
         return;
       }
 
-      // Salva direto na biblioteca, sem análise.
+      // 1. Salva o PDF na biblioteca
       try {
         final dt = DateTime.now();
-        final title =
-            file.name.isNotEmpty ? file.name.replaceAll(RegExp(r'\.pdf$'), '') : 'Currículo importado (${dt.day}/${dt.month})';
+        final title = file.name.isNotEmpty
+            ? file.name.replaceAll(RegExp(r'\.pdf$'), '')
+            : 'Currículo importado (${dt.day}/${dt.month})';
         await context.read<ProfileViewModel>().saveResume(
               title,
               Uint8List.fromList(bytes),
@@ -102,15 +102,37 @@ class _CompletionScreenState extends State<CompletionScreen>
         return;
       }
 
+      // 2. Extrai texto pra alimentar o match score (sem IA, só keyword overlap)
+      try {
+        final rawText = ResumePdfExtractor.extract(Uint8List.fromList(bytes));
+        if (ResumePdfExtractor.isUsable(rawText) && mounted) {
+          final userVM = context.read<UserViewModel>();
+          final currentData = Map<String, dynamic>.from(
+              userVM.user?.gamificationData ?? const {});
+          currentData['imported_resume'] = {
+            'raw_text': rawText,
+            'imported_at': DateTime.now().toIso8601String(),
+          };
+          await userVM.updateProfile(gamificationData: currentData);
+        }
+      } catch (e) {
+        // Falha na extração não bloqueia o fluxo — usuário ainda tem CV salvo.
+        // Match score apenas não vai ter o boost de skills do CV.
+        debugPrint('PDF text extraction failed (non-blocking): $e');
+      }
+
       await TutorialService().markAsSeen();
       if (!mounted) return;
 
       // Vai pedir o cargo-alvo e cai na Home na aba Vagas (já tem CV pronto).
+      // A TargetJobScreen navega pra Home com seu próprio context — nada de
+      // callback fechado por _CompletionScreenState (que vai estar
+      // desmontado quando a navegação rodar).
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => TargetJobScreen(
+          builder: (_) => const TargetJobScreen(
             contextHeadline: 'CV salvo na biblioteca',
-            onContinue: (_, __) => _goHome(initialTabIndex: 0),
+            homeTabIndex: 0, // Vagas
           ),
         ),
       );
@@ -125,7 +147,9 @@ class _CompletionScreenState extends State<CompletionScreen>
     await TutorialService().markAsSeen();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const TargetJobScreen()),
+      MaterialPageRoute(
+        builder: (_) => const TargetJobScreen(homeTabIndex: 1), // Trilha
+      ),
       (route) => false,
     );
   }
@@ -134,15 +158,6 @@ class _CompletionScreenState extends State<CompletionScreen>
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: StageColors.error),
-    );
-  }
-
-  void _goHome({required int initialTabIndex}) {
-    if (!mounted) return;
-    context.read<HomeViewModel>().requestTabChange(initialTabIndex);
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
-      (route) => false,
     );
   }
 

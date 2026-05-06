@@ -4,8 +4,11 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:provider/provider.dart';
+import '../../../services/ai_service.dart';
+import '../../auth/user_viewmodel.dart';
 import '../jobs_viewmodel.dart';
 import '../models/job.dart';
+import '../utils/match_score.dart';
 import '../widgets/job_card.dart';
 import 'job_details_sheet.dart';
 import 'job_preferences_screen.dart';
@@ -32,6 +35,18 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   double _dragStartX = 0.0;
   // How many px of drag = fraction 1.0  (tuned to feel natural)
   static const double _dragScale = 130.0;
+
+  // ──────────────────────────────────────────────────────────────────
+  // Match score (IA) — cache em memória + sliding window
+  // ──────────────────────────────────────────────────────────────────
+  final AIService _aiService = AIService();
+  final Map<String, MatchResult> _matchCache = {}; // jobId → result
+  final Set<String> _matchInflight = {};            // calls em andamento
+  bool _hydrated = false;                           // primeira hidratação rodou?
+  int _currentIndex = 0;                            // posição no swiper
+  static const int _bufferAhead = 5;                // janela à frente
+  static const int _initialPrefetch = 10;           // 1ª onda
+  static const int _maxConcurrent = 4;              // limite OpenAI paralelo
 
   @override
   void initState() {
@@ -82,14 +97,14 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     );
   }
 
-  void _openJobDetails(Job job) {
+  void _openJobDetails(Job job, [MatchResult? match]) {
     HapticFeedback.lightImpact();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => JobDetailsSheet(job: job),
+      builder: (context) => JobDetailsSheet(job: job, match: match),
     );
   }
 
@@ -106,6 +121,11 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       HapticFeedback.lightImpact();
     }
     vm.onSwipe(previousIndex, action);
+
+    // Atualiza posição interna e dispara IA pras próximas vagas (buffer ahead)
+    _currentIndex = currentIndex ?? (previousIndex + 1);
+    _ensureBufferAhead(vm.jobs);
+
     // Reset overlay immediately (no setState needed — Listener already stopped)
     if (mounted) setState(() => _swipeFraction = 0.0);
     return true;
@@ -118,9 +138,109 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     await _btnControllers[key]!.reverse();
   }
 
+  // ──────────────────────────────────────────────────────────────────
+  // Match score — sliding window
+  // ──────────────────────────────────────────────────────────────────
+
+  /// Resolve o match pra um job: cache em memória → fallback determinístico.
+  /// Síncrono, seguro pra usar dentro do cardBuilder do CardSwiper.
+  /// Quando chega no card, dispara [_kickOffMatch] em background pra que
+  /// o score IA atualize na próxima rebuild.
+  ///
+  /// Nota: se cache veio com score=0 (IA antiga sem reasons úteis), tratamos
+  /// como inválido e usamos fallback. Isso protege contra dados ruins de
+  /// versões antigas do prompt.
+  MatchResult _resolveMatch(Job job) {
+    final cached = _matchCache[job.id];
+    if (cached != null && cached.score > 0) return cached;
+
+    // Fallback instantâneo
+    final vm = context.read<JobsViewModel>();
+    final fallback = MatchScoreCalculator.calculate(
+      job: job,
+      prefs: vm.preferences,
+      gamificationData: context.read<UserViewModel>().user?.gamificationData,
+    );
+
+    // Se ainda não disparou IA pra este job, dispara agora.
+    if (!_matchInflight.contains(job.id)) {
+      _kickOffMatch(job);
+    }
+    return fallback;
+  }
+
+  /// Dispara IA pro job (fire-and-forget). Respeita _maxConcurrent.
+  Future<void> _kickOffMatch(Job job) async {
+    if (_matchCache.containsKey(job.id) || _matchInflight.contains(job.id)) {
+      return;
+    }
+    // Concurrency limit: se cheio, agenda re-try em 250ms
+    if (_matchInflight.length >= _maxConcurrent) {
+      Future.delayed(const Duration(milliseconds: 250), () {
+        if (mounted) _kickOffMatch(job);
+      });
+      return;
+    }
+
+    _matchInflight.add(job.id);
+    try {
+      final result = await _aiService.analyzeMatch(job.id);
+      if (!mounted) return;
+      setState(() {
+        _matchCache[job.id] = result;
+      });
+    } catch (e) {
+      // Falha silenciosa — fallback determinístico já está sendo mostrado.
+      // Não loggar com print pra não poluir console em casos esperados (offline).
+    } finally {
+      _matchInflight.remove(job.id);
+    }
+  }
+
+  /// Hidratação inicial: 1 SELECT em batch nos próximos 20 jobs +
+  /// dispara IA pros 10 primeiros que ainda não estão no cache.
+  Future<void> _hydrateAndPrefetch(List<Job> jobs) async {
+    if (_hydrated || jobs.isEmpty) return;
+    _hydrated = true;
+
+    final ids = jobs.take(20).map((j) => j.id).toList();
+    final cached = await _aiService.fetchCachedMatches(ids);
+    if (!mounted) return;
+    if (cached.isNotEmpty) {
+      setState(() => _matchCache.addAll(cached));
+    }
+
+    // Dispara IA pras N primeiras que ainda não têm cache
+    for (final job in jobs.take(_initialPrefetch)) {
+      if (!_matchCache.containsKey(job.id)) {
+        _kickOffMatch(job);
+      }
+    }
+  }
+
+  /// Garante que [currentIndex+1 .. currentIndex+_bufferAhead] estão em cache
+  /// ou inflight. Chamado após cada swipe.
+  void _ensureBufferAhead(List<Job> jobs) {
+    final start = _currentIndex + 1;
+    final end = (start + _bufferAhead).clamp(0, jobs.length);
+    for (int i = start; i < end; i++) {
+      final job = jobs[i];
+      if (!_matchCache.containsKey(job.id)) {
+        _kickOffMatch(job);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<JobsViewModel>();
+
+    // Hidrata cache + dispara IA quando vm.jobs chega pela primeira vez.
+    if (!_hydrated && !vm.isLoading && vm.jobs.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _hydrateAndPrefetch(vm.jobs);
+      });
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
@@ -141,8 +261,8 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
           child: Column(
             children: [
               const SizedBox(height: 4),
-              if (!vm.isLoading && vm.jobs.isNotEmpty)
-                _buildCounterBadge(vm.jobs.length),
+              if (!vm.isLoading && vm.remainingCount > 0)
+                _buildCounterBadge(vm.remainingCount),
 
               // Stack so we can draw the fixed swipe overlay on top of the cards
               Expanded(
@@ -358,8 +478,8 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       );
     }
 
-    // Empty state
-    if (vm.jobs.isEmpty) {
+    // Empty state — sem jobs OU todos já foram swipados
+    if (vm.jobs.isEmpty || vm.remainingCount == 0) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -477,9 +597,11 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         backCardOffset: const Offset(0, -12),
         cardBuilder: (context, index, percentThresholdX, percentThresholdY) {
           if (index >= vm.jobs.length) return const SizedBox();
+          final job = vm.jobs[index];
+          final match = _resolveMatch(job);
           return GestureDetector(
-            onTap: () => _openJobDetails(vm.jobs[index]),
-            child: JobCard(job: vm.jobs[index]),
+            onTap: () => _openJobDetails(job, match),
+            child: JobCard(job: job, matchScore: match.score),
           );
         },
       ),

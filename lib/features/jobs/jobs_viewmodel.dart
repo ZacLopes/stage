@@ -18,7 +18,12 @@ class JobsViewModel extends ChangeNotifier {
   );
 
   // State
+  // _jobs é IMUTÁVEL durante a sessão de swipes: o `flutter_card_swiper`
+  // mantém um current-index interno que descincroniza se a lista encolher.
+  // Em vez de remover items, marcamos os IDs em _swipedIds e o CardSwiper
+  // gerencia a animação de saída via seu próprio state.
   List<Job> _jobs = [];
+  final Set<String> _swipedIds = {};
   UserJobPreferences? _preferences;
   bool _isLoading = false;
   bool _isPreferencesLoading = false;
@@ -26,11 +31,13 @@ class JobsViewModel extends ChangeNotifier {
   int _currentPage = 0;
   bool _hasMorePages = true;
 
-  // Stack of undone job IDs (to re-add cards)
+  // Stack of swiped jobs (mais recente no fim) pra suportar undo
   final List<Job> _undoStack = [];
 
   // Getters
   List<Job> get jobs => _jobs;
+  Set<String> get swipedIds => _swipedIds;
+  int get remainingCount => _jobs.length - _swipedIds.length;
   UserJobPreferences? get preferences => _preferences;
   bool get isLoading => _isLoading;
   bool get isPreferencesLoading => _isPreferencesLoading;
@@ -96,6 +103,7 @@ class JobsViewModel extends ChangeNotifier {
     _errorMessage = null;
     _currentPage = 0;
     _undoStack.clear();
+    _swipedIds.clear();
     notifyListeners();
 
     try {
@@ -109,54 +117,54 @@ class JobsViewModel extends ChangeNotifier {
     }
   }
 
-  /// Record a swipe action (like or reject) and remove card from list.
+  /// Registra uma ação de swipe no DB. **Não remove do array local** —
+  /// o CardSwiper gerencia internamente a animação de saída do card e
+  /// avança seu próprio current-index. Mexer em `_jobs` aqui descincroniza
+  /// o state interno do swiper e trava gestos depois de N swipes.
   Future<void> onSwipe(int index, String action) async {
     if (userId == null) return;
     if (index < 0 || index >= _jobs.length) return;
 
     final job = _jobs[index];
-    
-    // Optimistic: remove from local list immediately
+    if (_swipedIds.contains(job.id)) return; // dedup
+
+    _swipedIds.add(job.id);
     _undoStack.add(job);
-    _jobs.removeAt(index);
-    notifyListeners();
+    notifyListeners(); // pra atualizar contagem na UI
 
     try {
       await _swipeRepository.recordSwipe(userId!, job.id, action);
     } catch (e) {
-      // Rollback on error
+      // Rollback otimista
       print('Error recording swipe: $e');
-      _jobs.insert(index.clamp(0, _jobs.length), job);
+      _swipedIds.remove(job.id);
       _undoStack.removeLast();
       notifyListeners();
     }
   }
 
-  /// Undo the last swipe: deletes from DB and re-adds card to front.
+  /// Undo: apaga o registro no DB. O caller (UI) chama
+  /// `_swiperController.undo()` pra reverter a animação. Aqui só
+  /// limpamos o swipedIds para que a UI saiba.
   Future<void> undoLastSwipe() async {
     if (userId == null) return;
+    if (_undoStack.isEmpty) return;
+
+    final lastJob = _undoStack.last;
 
     try {
       final undoneJobId = await _swipeRepository.undoLastSwipe(userId!);
       if (undoneJobId == null) return;
 
-      // Check undo stack first (locally cached)
-      final localIndex = _undoStack.lastIndexWhere((j) => j.id == undoneJobId);
-      if (localIndex >= 0) {
-        final job = _undoStack.removeAt(localIndex);
-        _jobs.insert(0, job);
-        notifyListeners();
-        return;
-      }
-
-      // If not in local stack, fetch from DB
-      final job = await _jobRepository.getJobById(undoneJobId);
-      if (job != null) {
-        _jobs.insert(0, job);
-        notifyListeners();
-      }
+      _undoStack.removeLast();
+      _swipedIds.remove(undoneJobId);
+      notifyListeners();
     } catch (e) {
       print('Error undoing swipe: $e');
+      // Mantém estado consistente mesmo em erro
+      _undoStack.removeLast();
+      _swipedIds.remove(lastJob.id);
+      notifyListeners();
     }
   }
 
