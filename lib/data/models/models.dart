@@ -753,40 +753,6 @@ class ResumeContent {
   }
 }
 
-class ResumeAnalysisResult {
-  final int score;
-  final List<String> strengths;
-  final List<String> weaknesses;
-  final ProfileContent? parsedData;
-
-  ResumeAnalysisResult({
-    required this.score,
-    required this.strengths,
-    required this.weaknesses,
-    this.parsedData,
-  });
-
-  factory ResumeAnalysisResult.fromJson(Map<String, dynamic> json) {
-    return ResumeAnalysisResult(
-      score: json['score'] ?? 0,
-      strengths: List<String>.from(json['positives'] ?? json['strengths'] ?? []),
-      weaknesses: List<String>.from(json['improvements'] ?? json['weaknesses'] ?? []),
-      parsedData: json['parsed_data'] != null ? ProfileContent.fromJson(json['parsed_data']) : null,
-    );
-  }
-
-  Map<String, dynamic> toJson() => toMap();
-
-  Map<String, dynamic> toMap() {
-    return {
-      'score': score,
-      'strengths': strengths,
-      'weaknesses': weaknesses,
-      'parsed_data': parsedData?.toJson(),
-    };
-  }
-}
-
 class SavedResume {
   final String id;
   final String title;

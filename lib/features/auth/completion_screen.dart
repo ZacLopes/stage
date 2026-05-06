@@ -1,15 +1,20 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../core/constants/stage_colors.dart';
-import '../../services/pdf_text_extractor.dart';
 import '../../services/tutorial_service.dart';
-import '../home/ai_score_screen.dart';
+import '../home/home_screen.dart';
 import '../home/home_viewmodel.dart';
+import '../profile/profile_viewmodel.dart';
 import '../auth/user_viewmodel.dart';
 import 'target_job_screen.dart';
 
+/// Pós-cadastro: usuário escolhe entre subir um CV pronto (vai pra biblioteca,
+/// sem análise) ou construir o CV pela trilha. Em ambos os caminhos passa
+/// pela TargetJobScreen pra criar a Campaign, depois cai na Home.
 class CompletionScreen extends StatefulWidget {
   const CompletionScreen({super.key});
 
@@ -53,21 +58,10 @@ class _CompletionScreenState extends State<CompletionScreen>
     super.dispose();
   }
 
-  /// Caminho B: usuário quer construir o CV pela trilha. Cria a campaign
-  /// pedindo o cargo-alvo, depois cai na Trilha.
-  Future<void> _startTrackPath() async {
-    await TutorialService().markAsSeen();
-    if (!mounted) return;
-
-    context.read<HomeViewModel>().requestTabChange(1);
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const TargetJobScreen()),
-      (route) => false,
-    );
-  }
-
   /// Caminho A: usuário já tem CV pronto.
-  /// Fluxo: pickFile → extrai texto → TargetJobScreen → AIScoreScreen contextualizado.
+  /// 1. Picker → bytes do PDF
+  /// 2. Salva na biblioteca (ProfileViewModel.saveResume)
+  /// 3. TargetJobScreen → Home na aba Vagas
   Future<void> _uploadResumePath() async {
     setState(() => _isPickingFile = true);
 
@@ -84,70 +78,71 @@ class _CompletionScreenState extends State<CompletionScreen>
       }
 
       final file = result.files.single;
-      final bytes = file.bytes;
+      final bytes = file.bytes ??
+          (file.path != null ? await File(file.path!).readAsBytes() : null);
 
       if (bytes == null) {
-        _showError('Não foi possível ler o arquivo. Tente novamente.');
+        _showError('Não foi possível ler o arquivo.');
         if (mounted) setState(() => _isPickingFile = false);
         return;
       }
 
-      // Extrai texto do PDF
-      String resumeText;
+      // Salva direto na biblioteca, sem análise.
       try {
-        resumeText = ResumePdfExtractor.extract(bytes);
+        final dt = DateTime.now();
+        final title =
+            file.name.isNotEmpty ? file.name.replaceAll(RegExp(r'\.pdf$'), '') : 'Currículo importado (${dt.day}/${dt.month})';
+        await context.read<ProfileViewModel>().saveResume(
+              title,
+              Uint8List.fromList(bytes),
+            );
       } catch (e) {
-        _showError('Não foi possível ler este PDF. Verifique se ele não está protegido.');
+        _showError('Erro ao salvar o currículo: $e');
         if (mounted) setState(() => _isPickingFile = false);
         return;
       }
-
-      if (!ResumePdfExtractor.isUsable(resumeText)) {
-        _showError(
-          'O PDF parece ser uma imagem (sem texto). Exporte seu currículo como PDF de texto e tente novamente.',
-        );
-        if (mounted) setState(() => _isPickingFile = false);
-        return;
-      }
-
-      if (!mounted) return;
-      setState(() => _isPickingFile = false);
 
       await TutorialService().markAsSeen();
       if (!mounted) return;
 
-      // Próximo passo: pedir vaga-alvo, depois ir pra análise contextualizada.
-      // A AIScoreScreen é responsável pela navegação final pra Home (com
-      // seu próprio context, evitando o bug de callbacks chamados em telas
-      // já desmontadas pelo pushReplacement).
+      // Vai pedir o cargo-alvo e cai na Home na aba Vagas (já tem CV pronto).
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => TargetJobScreen(
-            contextHeadline: 'CV recebido • Vamos contextualizar',
-            onContinue: (jobTitle, sourceUrl) {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(
-                  builder: (_) => AIScoreScreen(
-                    resumeText: resumeText,
-                    pdfBytes: bytes,
-                    targetJobTitle: jobTitle.isEmpty ? null : jobTitle,
-                  ),
-                ),
-              );
-            },
+            contextHeadline: 'CV salvo na biblioteca',
+            onContinue: (_, __) => _goHome(initialTabIndex: 0),
           ),
         ),
       );
     } catch (e) {
-      _showError('Erro inesperado ao selecionar o arquivo: $e');
+      _showError('Erro inesperado: $e');
       if (mounted) setState(() => _isPickingFile = false);
     }
+  }
+
+  /// Caminho B: construir o CV pela trilha.
+  Future<void> _startTrackPath() async {
+    await TutorialService().markAsSeen();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const TargetJobScreen()),
+      (route) => false,
+    );
   }
 
   void _showError(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: StageColors.error),
+    );
+  }
+
+  void _goHome({required int initialTabIndex}) {
+    if (!mounted) return;
+    context.read<HomeViewModel>().requestTabChange(initialTabIndex);
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
+      (route) => false,
     );
   }
 
@@ -202,7 +197,7 @@ class _CompletionScreenState extends State<CompletionScreen>
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            'Escolha um caminho para começar a aplicar para vagas.',
+                            'Escolha um caminho pra começar a aplicar para vagas.',
                             style: GoogleFonts.inter(
                               fontSize: 16,
                               color: StageColors.subtitleGray,
@@ -223,8 +218,8 @@ class _CompletionScreenState extends State<CompletionScreen>
                       child: _PathCard(
                         title: 'Já tenho um currículo',
                         subtitle:
-                            'Envie seu PDF — analisamos contra a vaga que você quer e você já pode aplicar.',
-                        icon: Icons.document_scanner_rounded,
+                            'Suba seu PDF — fica salvo na sua biblioteca e você já parte pra aplicar pras vagas.',
+                        icon: Icons.upload_file_rounded,
                         color: StageColors.brandBlue,
                         onTap: _uploadResumePath,
                         isPrimary: true,
@@ -266,7 +261,7 @@ class _PickingLoader extends StatelessWidget {
           const CircularProgressIndicator(color: StageColors.brandCyan),
           const SizedBox(height: 16),
           Text(
-            'Processando seu currículo...',
+            'Salvando seu currículo...',
             style: GoogleFonts.inter(
               color: StageColors.subtitleGray,
               fontWeight: FontWeight.w500,

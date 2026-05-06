@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:file_picker/file_picker.dart';
-import 'dart:io';
 
 import '../../core/constants/stage_colors.dart';
-import '../../services/pdf_text_extractor.dart';
-import 'ai_score_screen.dart';
 
+/// Tutorial replay (3 slides) acionado pelo Settings → Tutorial.
+/// Mostra apresentação do app e termina com botão "Começar do zero" que
+/// fecha a tela e libera o usuário pra usar o app normalmente.
 class AppGuideScreen extends StatefulWidget {
   final VoidCallback onFinish;
 
@@ -19,7 +18,6 @@ class AppGuideScreen extends StatefulWidget {
 class _AppGuideScreenState extends State<AppGuideScreen> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
-  bool _isProcessingPdf = false;
 
   void _nextPage() {
     if (_currentPage < 2) {
@@ -29,63 +27,6 @@ class _AppGuideScreenState extends State<AppGuideScreen> {
         curve: Curves.easeOutQuart,
       );
     }
-  }
-
-  Future<void> _handlePdfUpload() async {
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
-        withData: true,
-      );
-
-      if (result == null || result.files.isEmpty) return;
-
-      setState(() => _isProcessingPdf = true);
-
-      final file = result.files.single;
-      final bytes = file.bytes ??
-          (file.path != null ? await File(file.path!).readAsBytes() : null);
-
-      if (bytes == null) {
-        setState(() => _isProcessingPdf = false);
-        _showError('Não foi possível ler o arquivo.');
-        return;
-      }
-
-      final text = ResumePdfExtractor.extract(bytes);
-      setState(() => _isProcessingPdf = false);
-
-      if (!ResumePdfExtractor.isUsable(text)) {
-        _showError('PDF parece ser uma imagem (sem texto). Exporte o CV como PDF de texto.');
-        return;
-      }
-
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => AIScoreScreen(
-            resumeText: text,
-            pdfBytes: bytes,
-          ),
-        ),
-      );
-    } catch (e) {
-      setState(() => _isProcessingPdf = false);
-      _showError('Erro ao processar PDF: $e');
-    }
-  }
-
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: GoogleFonts.inter()),
-        backgroundColor: StageColors.error,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
   }
 
   @override
@@ -102,23 +43,21 @@ class _AppGuideScreenState extends State<AppGuideScreen> {
               children: [
                 _buildSlide(
                   title: 'A sua Jornada',
-                  description: 'Siga a trilha interativa e construa sua carreira passo a passo.',
-                  imagePath: 'assets/images/onboarding_1.png', // Fallback to icon if missing
+                  description:
+                      'Siga a trilha interativa e construa sua carreira passo a passo.',
                   icon: Icons.map_rounded,
                   color: StageColors.brandBlue,
                 ),
                 _buildSlide(
-                  title: 'Perfil Mágico',
-                  description: 'Nossa IA transforma suas conquistas em um currículo profissional em segundos.',
-                  imagePath: 'assets/images/onboarding_2.png',
+                  title: 'Currículo Mágico',
+                  description:
+                      'Nossa IA transforma suas conquistas em um currículo profissional em segundos.',
                   icon: Icons.auto_awesome,
                   color: const Color(0xFFF59E0B),
                 ),
-                _buildFinalChoiceSlide(),
+                _buildFinalSlide(),
               ],
             ),
-            
-            // Progress indicators
             if (_currentPage < 2)
               Positioned(
                 bottom: 40,
@@ -136,7 +75,9 @@ class _AppGuideScreenState extends State<AppGuideScreen> {
                           height: 8,
                           width: _currentPage == index ? 24 : 8,
                           decoration: BoxDecoration(
-                            color: _currentPage == index ? StageColors.brandBlue : Colors.grey.withOpacity(0.2),
+                            color: _currentPage == index
+                                ? StageColors.brandBlue
+                                : Colors.grey.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(4),
                           ),
                         ),
@@ -147,37 +88,25 @@ class _AppGuideScreenState extends State<AppGuideScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: StageColors.brandBlue,
                         foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30)),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 12),
                         elevation: 0,
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text('PRÓXIMO', style: GoogleFonts.inter(fontWeight: FontWeight.bold, letterSpacing: 1.1)),
+                          Text('PRÓXIMO',
+                              style: GoogleFonts.inter(
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1.1)),
                           const SizedBox(width: 8),
                           const Icon(Icons.arrow_forward_rounded, size: 18),
                         ],
                       ),
                     ),
                   ],
-                ),
-              ),
-
-            // Loading Overlay
-            if (_isProcessingPdf)
-              Container(
-                color: Colors.white.withOpacity(0.9),
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(color: StageColors.brandBlue, strokeWidth: 3),
-                      const SizedBox(height: 24),
-                      Text('Analisando seu currículo...', 
-                        style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold, color: StageColors.titleText)),
-                    ],
-                  ),
                 ),
               ),
           ],
@@ -189,7 +118,6 @@ class _AppGuideScreenState extends State<AppGuideScreen> {
   Widget _buildSlide({
     required String title,
     required String description,
-    required String imagePath,
     required IconData icon,
     required Color color,
   }) {
@@ -209,13 +137,17 @@ class _AppGuideScreenState extends State<AppGuideScreen> {
           const SizedBox(height: 60),
           Text(
             title,
-            style: GoogleFonts.outfit(fontSize: 32, fontWeight: FontWeight.bold, color: StageColors.titleText),
+            style: GoogleFonts.outfit(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: StageColors.titleText),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),
           Text(
             description,
-            style: GoogleFonts.inter(fontSize: 18, color: StageColors.bodyGray, height: 1.5),
+            style: GoogleFonts.inter(
+                fontSize: 18, color: StageColors.bodyGray, height: 1.5),
             textAlign: TextAlign.center,
           ),
         ],
@@ -223,9 +155,9 @@ class _AppGuideScreenState extends State<AppGuideScreen> {
     );
   }
 
-  Widget _buildFinalChoiceSlide() {
+  Widget _buildFinalSlide() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 32),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -234,122 +166,54 @@ class _AppGuideScreenState extends State<AppGuideScreen> {
           Center(
             child: Container(
               padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(color: StageColors.brandCyan.withOpacity(0.1), shape: BoxShape.circle),
-              child: const Icon(Icons.rocket_launch_rounded, size: 48, color: StageColors.brandCyan),
+              decoration: BoxDecoration(
+                color: StageColors.brandCyan.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.rocket_launch_rounded,
+                  size: 48, color: StageColors.brandCyan),
             ),
           ),
           const SizedBox(height: 32),
           Text(
-            'Quase lá!',
-            style: GoogleFonts.outfit(fontSize: 32, fontWeight: FontWeight.bold, color: StageColors.titleText),
+            'Vamos lá!',
+            style: GoogleFonts.outfit(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: StageColors.titleText),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 12),
           Text(
-            'Escolha como você deseja iniciar sua jornada profissional.',
-            style: GoogleFonts.inter(fontSize: 16, color: StageColors.bodyGray),
+            'Siga a trilha interativa e construa seu perfil profissional.',
+            style: GoogleFonts.inter(
+                fontSize: 16, color: StageColors.bodyGray, height: 1.5),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 48),
-
-          _ChoiceCard(
-            title: 'Analisar meu Currículo',
-            description: 'Nossa IA avalia seu currículo atual e indica o que você pode melhorar.',
-            icon: Icons.document_scanner_rounded,
-            color: const Color(0xFF6366F1),
-            onTap: _handlePdfUpload,
-            tag: 'RECOMENDADO',
-          ),
-          
-          const SizedBox(height: 16),
-
-          _ChoiceCard(
-            title: 'Começar do zero',
-            description: 'Siga a trilha interativa e construa seu perfil passo a passo jogando.',
-            icon: Icons.videogame_asset_rounded,
-            color: StageColors.brandBlue,
-            onTap: () {
-              widget.onFinish();
-              Navigator.of(context).pop();
-            },
-          ),
           const Spacer(),
+          SizedBox(
+            height: 56,
+            child: ElevatedButton(
+              onPressed: () {
+                widget.onFinish();
+                Navigator.of(context).pop();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: StageColors.brandBlue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
+                elevation: 0,
+              ),
+              child: Text(
+                'Começar agora',
+                style: GoogleFonts.inter(
+                    fontSize: 17, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
         ],
-      ),
-    );
-  }
-}
-
-class _ChoiceCard extends StatelessWidget {
-  final String title;
-  final String description;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-  final String? tag;
-
-  const _ChoiceCard({
-    required this.title, 
-    required this.description, 
-    required this.icon, 
-    required this.color, 
-    required this.onTap, 
-    this.tag
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(24),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: tag != null ? color : Colors.grey.withOpacity(0.15), width: tag != null ? 2 : 1),
-            boxShadow: [
-              BoxShadow(
-                color: color.withOpacity(0.08),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              )
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(icon, color: color, size: 28),
-              ),
-              const SizedBox(width: 20),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (tag != null)
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(8)),
-                        child: Text(tag!, style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white)),
-                      ),
-                    Text(title, style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold, color: StageColors.titleText)),
-                    const SizedBox(height: 4),
-                    Text(description, style: GoogleFonts.inter(fontSize: 14, color: StageColors.bodyGray, height: 1.3)),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded, color: Colors.grey[400]),
-            ],
-          ),
-        ),
       ),
     );
   }

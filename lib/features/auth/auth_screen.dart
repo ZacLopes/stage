@@ -6,10 +6,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/stage_colors.dart';
 import '../../core/utils/auth_error_formatter.dart';
 import '../home/home_screen.dart';
+import 'completion_screen.dart';
 import 'target_job_screen.dart';
 import 'user_viewmodel.dart';
 import 'email_signup_screen.dart';
-// Note: We'll see profile setup and completion screen navigation from here or signUp
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -48,21 +48,43 @@ class _AuthScreenState extends State<AuthScreen>
     });
   }
 
+  /// Bandeira pra evitar que o listener dispare múltiplas navegações
+  /// — uma vez disparado e a navegação iniciada, nunca mais age.
+  bool _navigated = false;
+
   void _onAuthChanged() {
-    if (!mounted) return;
-    
+    if (!mounted || _navigated) return;
+
+    // CRÍTICO: só age se a AuthScreen ainda for a rota do topo. Sem essa
+    // checagem, qualquer notifyListeners do UserViewModel disparado por
+    // telas pushadas em cima da AuthScreen (EmailSignup, ProfileSetup,
+    // CompletionScreen, AIScoreScreen, etc) fazia esta tela navegar por
+    // baixo e quebrar o fluxo do usuário (provocava "ciclo infinito"
+    // quando o usuário clicava "Aplicar com este currículo").
+    final route = ModalRoute.of(context);
+    if (route == null || !route.isCurrent) return;
+
     final vm = context.read<UserViewModel>();
     if (vm.isLoggedIn && !vm.isLoading) {
-      // Force kill the web browser sheet immediately.
-      // This is the silver bullet for SafariViewController getting stuck.
+      _navigated = true;
+
+      // Mata o sheet do navegador (OAuth pode prendê-lo aberto)
       try {
         closeInAppWebView();
       } catch (_) {}
 
+      // Decide próxima tela.
+      // - Se ainda não tem campaign (nunca passou pelo onboarding completo),
+      //   leva pra CompletionScreen (escolha "tenho CV / começar do zero").
+      // - Se já tem campaign, vai direto pra Home.
+      // O caminho de email/senha NÃO usa esse listener — EmailSignup já
+      // navega manualmente pra ProfileSetupScreen após o signUp.
+      final nextScreen = vm.hasCampaign
+          ? const HomeScreen()
+          : const CompletionScreen();
+
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) => vm.hasCampaign ? const HomeScreen() : const TargetJobScreen(),
-        ),
+        MaterialPageRoute(builder: (_) => nextScreen),
         (route) => false,
       );
     }
@@ -399,7 +421,7 @@ class _LoginBottomSheetState extends State<_LoginBottomSheet> {
       if (mounted && vm.isLoggedIn) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
-            builder: (_) => vm.hasCampaign ? const HomeScreen() : const TargetJobScreen(),
+            builder: (_) => vm.hasCampaign ? const HomeScreen() : const CompletionScreen(),
           ),
           (route) => false,
         );

@@ -2,15 +2,6 @@ import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/models/models.dart';
 
-class ResumeEvaluationException implements Exception {
-  final String code;
-  final String message;
-  final int status;
-  ResumeEvaluationException({required this.code, required this.message, required this.status});
-  @override
-  String toString() => 'ResumeEvaluationException($code, $status): $message';
-}
-
 class AIService {
   final SupabaseClient _client = Supabase.instance.client;
 
@@ -85,84 +76,6 @@ class AIService {
     }
   }
 
-
-  /// Avalia um currículo e retorna score + pontos fortes/fracos + dados parseados.
-  ///
-  /// Se [targetJobTitle] for informado, a análise é contextualizada para essa
-  /// vaga-alvo. Lança [ResumeEvaluationException] em qualquer falha — não há
-  /// mais fallback mockado (a UI deve mostrar erro real, não simulação).
-  Future<ResumeAnalysisResult> evaluateResume(
-    String resumeText, {
-    String? targetJobTitle,
-    String? targetJobDescription,
-  }) async {
-    final response = await _client.functions.invoke(
-      'evaluate-resume',
-      body: {
-        'resumeText': resumeText,
-        if (targetJobTitle != null && targetJobTitle.isNotEmpty)
-          'targetJobTitle': targetJobTitle,
-        if (targetJobDescription != null && targetJobDescription.isNotEmpty)
-          'targetJobDescription': targetJobDescription,
-      },
-    );
-
-    if (response.status != 200) {
-      final data = response.data;
-      final code = data is Map ? (data['error']?.toString() ?? 'unknown') : 'unknown';
-      final message = data is Map
-          ? (data['message']?.toString() ?? 'Erro na análise do currículo.')
-          : 'Erro na análise do currículo.';
-      throw ResumeEvaluationException(code: code, message: message, status: response.status);
-    }
-
-    return ResumeAnalysisResult.fromJson(response.data);
-  }
-
-  Future<Map<String, dynamic>> refineResumeChat({
-    required List<Map<String, dynamic>> history,
-    required String originalResume,
-    required ResumeAnalysisResult analysis,
-  }) async {
-    print('--- AI REFINERY INPUT ---');
-    print('History Length: ${history.length}');
-    print('Original Resume Length: ${originalResume.length}');
-    
-    try {
-      final response = await _client.functions.invoke(
-        'refine-resume',
-        body: {
-          'history': history,
-          'originalResume': originalResume,
-          'analysis': analysis.toJson(),
-        },
-      );
-
-      if (response.status != 200) {
-        print('AI Refinery Error Status: ${response.status}');
-        if (response.status == 404) {
-           // Fallback for demo if not deployed
-           return {
-             'isFinished': history.length >= 6,
-             'question': history.length < 6 ? 'Como você descreveria seu impacto em projetos recentes?' : null,
-             'message': 'Tudo pronto! Seu currículo foi otimizado.',
-             'improvedResume': originalResume + '\n\n[Otimizado pela IA]',
-           };
-        }
-        throw Exception('Erro na refinaria de IA: ${response.status}');
-      }
-
-      print('AI Refinery Response: ${response.data}');
-      return Map<String, dynamic>.from(response.data);
-    } catch (e) {
-      print('Error in refineResumeChat: $e');
-      return {
-        'isFinished': true,
-        'message': 'Houve um erro na conexão, mas salvei sua versão atual.',
-        'improvedResume': originalResume,
-      };
-    }
-  }
 
   // ============================================================
   // Phase 5 — Bullet & summary generation

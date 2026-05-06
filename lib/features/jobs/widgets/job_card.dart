@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/job.dart';
 
@@ -90,143 +91,157 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
             _buildPremiumHeader(),
 
             // ─────────── Body ───────────
+            // Estrutura: parte de cima rola silenciosamente se o conteúdo
+            // exceder; tap indicator fica pinned no fundo. Isso garante que
+            // chips com texto longo (ex: "R$ 2.000 - R$ 3.000" + "Híbrido"
+            // + "CLT Júnior") nunca overflowem o card.
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(22, 16, 22, 0),
+                padding: const EdgeInsets.fromLTRB(22, 14, 22, 12),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Job Title
-                    Text(
-                      widget.job.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        height: 1.2,
-                        color: Color(0xFF0F172A),
-                        letterSpacing: -0.5,
+                    Expanded(
+                      child: SingleChildScrollView(
+                        physics: const NeverScrollableScrollPhysics(),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Job Title
+                            Text(
+                              widget.job.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 21,
+                                fontWeight: FontWeight.w800,
+                                height: 1.2,
+                                color: Color(0xFF0F172A),
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+
+                            // Company and Location
+                            Row(
+                              children: [
+                                const Icon(Icons.business_rounded, size: 14, color: Color(0xFF94A3B8)),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    widget.job.companyName,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      color: Color(0xFF475569),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Icon(Icons.location_on_rounded, size: 14, color: Color(0xFF94A3B8)),
+                                const SizedBox(width: 2),
+                                Flexible(
+                                  child: Text(
+                                    widget.job.location,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: Color(0xFF94A3B8),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+
+                            // Tags / Chips
+                            Wrap(
+                              spacing: 7,
+                              runSpacing: 7,
+                              children: [
+                                _buildChip(
+                                  icon: Icons.payments_rounded,
+                                  label: widget.job.salaryRange,
+                                  gradientColors: [const Color(0xFFDCFCE7), const Color(0xFFBBF7D0)],
+                                  textColor: const Color(0xFF166534),
+                                  iconColor: const Color(0xFF16A34A),
+                                ),
+                                _buildChip(
+                                  icon: Icons.laptop_mac_rounded,
+                                  label: widget.job.workModel,
+                                  gradientColors: [const Color(0xFFEDE9FE), const Color(0xFFDDD6FE)],
+                                  textColor: const Color(0xFF5B21B6),
+                                  iconColor: const Color(0xFF7C3AED),
+                                ),
+                                _buildChip(
+                                  icon: Icons.work_rounded,
+                                  label: widget.job.jobType,
+                                  gradientColors: [const Color(0xFFFEF3C7), const Color(0xFFFDE68A)],
+                                  textColor: const Color(0xFF92400E),
+                                  iconColor: const Color(0xFFD97706),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 14),
+
+                            // Description section header
+                            Row(
+                              children: [
+                                Container(
+                                  width: 3,
+                                  height: 14,
+                                  decoration: BoxDecoration(
+                                    color: _matchColor,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Sobre a vaga',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF334155),
+                                    letterSpacing: 0.2,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+
+                            // Description (clipped silently if too long)
+                            ShaderMask(
+                              shaderCallback: (Rect bounds) {
+                                return const LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [Colors.black, Colors.transparent],
+                                  stops: [0.6, 1.0],
+                                ).createShader(bounds);
+                              },
+                              blendMode: BlendMode.dstIn,
+                              child: Text(
+                                widget.job.description,
+                                maxLines: 6,
+                                overflow: TextOverflow.fade,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: Color(0xFF64748B),
+                                  height: 1.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(height: 6),
 
-                    // Company and Location
-                    Row(
-                      children: [
-                        const Icon(Icons.business_rounded, size: 14, color: Color(0xFF94A3B8)),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            widget.job.companyName,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: Color(0xFF475569),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Icon(Icons.location_on_rounded, size: 14, color: Color(0xFF94A3B8)),
-                        const SizedBox(width: 2),
-                        Flexible(
-                          child: Text(
-                            widget.job.location,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: Color(0xFF94A3B8),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Tags / Chips
-                    Wrap(
-                      spacing: 7,
-                      runSpacing: 7,
-                      children: [
-                        _buildChip(
-                          icon: Icons.payments_rounded,
-                          label: widget.job.salaryRange,
-                          gradientColors: [const Color(0xFFDCFCE7), const Color(0xFFBBF7D0)],
-                          textColor: const Color(0xFF166534),
-                          iconColor: const Color(0xFF16A34A),
-                        ),
-                        _buildChip(
-                          icon: Icons.laptop_mac_rounded,
-                          label: widget.job.workModel,
-                          gradientColors: [const Color(0xFFEDE9FE), const Color(0xFFDDD6FE)],
-                          textColor: const Color(0xFF5B21B6),
-                          iconColor: const Color(0xFF7C3AED),
-                        ),
-                        _buildChip(
-                          icon: Icons.work_rounded,
-                          label: widget.job.jobType,
-                          gradientColors: [const Color(0xFFFEF3C7), const Color(0xFFFDE68A)],
-                          textColor: const Color(0xFF92400E),
-                          iconColor: const Color(0xFFD97706),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 18),
-
-                    // Description section
-                    Row(
-                      children: [
-                        Container(
-                          width: 3,
-                          height: 16,
-                          decoration: BoxDecoration(
-                            color: _matchColor,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Sobre a vaga',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF334155),
-                            letterSpacing: 0.2,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-
-                    Expanded(
-                      child: ShaderMask(
-                        shaderCallback: (Rect bounds) {
-                          return const LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [Colors.black, Colors.transparent],
-                            stops: [0.55, 1.0],
-                          ).createShader(bounds);
-                        },
-                        blendMode: BlendMode.dstIn,
-                        child: Text(
-                          widget.job.description,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: Color(0xFF64748B),
-                            height: 1.55,
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // Tap indicator
+                    // Tap indicator pinned at bottom
                     Center(
                       child: Container(
-                        margin: const EdgeInsets.only(top: 6, bottom: 12),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
@@ -245,7 +260,7 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                           children: [
                             Icon(
                               Icons.touch_app_rounded,
-                              size: 14,
+                              size: 13,
                               color: _matchColor,
                             ),
                             const SizedBox(width: 5),
@@ -332,10 +347,14 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                   ),
                   child: ClipOval(
                     child: widget.job.companyLogoUrl.isNotEmpty
-                        ? Image.network(
-                            widget.job.companyLogoUrl,
+                        ? CachedNetworkImage(
+                            imageUrl: widget.job.companyLogoUrl,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => _buildLogoFallback(),
+                            // Falha de rede / DNS / 404 → fallback letter avatar.
+                            // CachedNetworkImage não polui o console com stack
+                            // traces como o Image.network nativo faz.
+                            errorWidget: (_, __, ___) => _buildLogoFallback(),
+                            placeholder: (_, __) => _buildLogoFallback(),
                           )
                         : _buildLogoFallback(),
                   ),

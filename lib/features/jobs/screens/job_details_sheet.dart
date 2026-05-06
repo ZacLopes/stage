@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/job.dart';
@@ -309,10 +310,11 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(16),
                         child: widget.job.companyLogoUrl.isNotEmpty
-                            ? Image.network(
-                                widget.job.companyLogoUrl,
+                            ? CachedNetworkImage(
+                                imageUrl: widget.job.companyLogoUrl,
                                 fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => _logoFallback(),
+                                errorWidget: (_, __, ___) => _logoFallback(),
+                                placeholder: (_, __) => _logoFallback(),
                               )
                             : _logoFallback(),
                       ),
