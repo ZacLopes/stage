@@ -480,6 +480,19 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
 
     // Empty state — sem jobs OU todos já foram swipados
     if (vm.jobs.isEmpty || vm.remainingCount == 0) {
+      // Distingue 2 cenários: filtros zeraram tudo (vagas existem mas não
+      // batem) vs. realmente esgotou. Mensagem e CTA mudam.
+      final isFiltersTooStrict = vm.filtersAreTooRestrictive;
+      final iconData = isFiltersTooStrict
+          ? Icons.filter_alt_off_rounded
+          : Icons.rocket_launch_rounded;
+      final title = isFiltersTooStrict
+          ? 'Nenhuma vaga bate com seus filtros'
+          : 'Você explorou tudo!';
+      final subtitle = isFiltersTooStrict
+          ? 'Existem ${vm.totalAvailable} vagas ativas, mas seus\nfiltros estão muito restritivos. Tente afrouxar.'
+          : 'Ajuste seus filtros ou volte\nmais tarde para novas oportunidades.';
+
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -498,17 +511,17 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                   ),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.rocket_launch_rounded,
+                child: Icon(
+                  iconData,
                   size: 48,
-                  color: Color(0xFF4F46E5),
+                  color: const Color(0xFF4F46E5),
                 ),
               ),
               const SizedBox(height: 24),
-              const Text(
-                'Você explorou tudo!',
+              Text(
+                title,
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w900,
                   color: Color(0xFF0F172A),
@@ -516,10 +529,10 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                 ),
               ),
               const SizedBox(height: 10),
-              const Text(
-                'Ajuste seus filtros ou volte\nmais tarde para novas oportunidades.',
+              Text(
+                subtitle,
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 15,
                   color: Color(0xFF64748B),
                   height: 1.5,
@@ -529,16 +542,29 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _buildOutlinedActionButton(
-                    label: 'Filtros',
-                    icon: Icons.tune_rounded,
-                    onTap: _openPreferences,
-                  ),
+                  if (isFiltersTooStrict)
+                    _buildOutlinedActionButton(
+                      label: 'Limpar filtros',
+                      icon: Icons.filter_alt_off_rounded,
+                      onTap: () async {
+                        await vm.clearPreferences();
+                      },
+                    )
+                  else
+                    _buildOutlinedActionButton(
+                      label: 'Filtros',
+                      icon: Icons.tune_rounded,
+                      onTap: _openPreferences,
+                    ),
                   const SizedBox(width: 12),
                   _buildGradientButton(
-                    label: 'Recarregar',
-                    icon: Icons.refresh_rounded,
-                    onTap: () => vm.reloadJobs(),
+                    label: isFiltersTooStrict ? 'Ajustar' : 'Recarregar',
+                    icon: isFiltersTooStrict
+                        ? Icons.tune_rounded
+                        : Icons.refresh_rounded,
+                    onTap: isFiltersTooStrict
+                        ? _openPreferences
+                        : () => vm.reloadJobs(),
                   ),
                 ],
               ),

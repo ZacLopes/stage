@@ -1,5 +1,6 @@
 import '../models/job.dart';
 import '../models/user_preferences.dart';
+import 'filter_helpers.dart';
 
 /// Resultado de um cálculo de match: score 0-100 + razões explicáveis.
 class MatchResult {
@@ -66,8 +67,11 @@ class MatchScoreCalculator {
     int totalWeight = 0;
 
     // ── 1. Área (30) ────────────────────────────────────────────────
+    // Usa o mesmo matcher do filtro pra UI ser consistente: se o filtro
+    // deixou passar, o score reflete isso (sinônimos + acento-insensível).
     if (prefs.areas.isNotEmpty) {
-      final matched = job.area != null && prefs.areas.contains(job.area);
+      final hasArea = job.area != null && job.area!.trim().isNotEmpty;
+      final matched = hasArea && FilterHelpers.isAreaMatch(job.area, prefs.areas);
       const weight = 30;
       totalWeight += weight;
       if (matched) score += weight;
@@ -75,7 +79,7 @@ class MatchScoreCalculator {
         label: 'Área de interesse',
         matched: matched,
         weight: weight,
-        detail: job.area,
+        detail: job.area ?? '—',
       ));
     }
 
@@ -95,16 +99,15 @@ class MatchScoreCalculator {
 
     // ── 3. Cidade (15) ──────────────────────────────────────────────
     if (prefs.locations.isNotEmpty) {
-      bool matched = false;
-      String? detail;
-      if (job.workModelRaw == 'remoto') {
-        matched = true;
-        detail = 'Remoto';
-      } else if (job.locationCity != null) {
-        final cityLower = job.locationCity!.toLowerCase();
-        matched = prefs.locations.any((loc) => cityLower.contains(loc.toLowerCase()));
-        detail = job.locationCity;
-      }
+      final matched = FilterHelpers.isLocationMatch(
+        userLocations: prefs.locations,
+        jobCity: job.locationCity,
+        jobState: job.locationState,
+        workModelRaw: job.workModelRaw,
+      );
+      final detail = job.workModelRaw == 'remoto'
+          ? 'Remoto'
+          : (job.locationCity ?? '—');
       const weight = 15;
       totalWeight += weight;
       if (matched) score += weight;

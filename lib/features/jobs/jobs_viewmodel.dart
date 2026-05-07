@@ -31,6 +31,11 @@ class JobsViewModel extends ChangeNotifier {
   int _currentPage = 0;
   bool _hasMorePages = true;
 
+  // Diagnóstico do último fetch — pra UI distinguir "esgotou tudo" de
+  // "filtros muito restritivos".
+  int _totalAvailable = 0;
+  int _totalAfterFilters = 0;
+
   // Stack of swiped jobs (mais recente no fim) pra suportar undo
   final List<Job> _undoStack = [];
 
@@ -52,6 +57,17 @@ class JobsViewModel extends ChangeNotifier {
   int get likedCount => _likedJobs.length;
   int get appliedCount => _likedJobs.where((l) => l.applied).length;
   int get pendingCount => likedCount - appliedCount;
+
+  int get totalAvailable => _totalAvailable;
+  int get totalAfterFilters => _totalAfterFilters;
+
+  /// Verdadeiro quando há vagas no banco mas os filtros do user excluíram
+  /// todas. UI usa pra mostrar "afrouxe os filtros" em vez de "explorou tudo".
+  bool get filtersAreTooRestrictive =>
+      _totalAvailable > 0 &&
+      _totalAfterFilters == 0 &&
+      _preferences != null &&
+      !_preferences!.isEmpty;
 
   String? get userId => Supabase.instance.client.auth.currentUser?.id;
 
@@ -94,13 +110,16 @@ class JobsViewModel extends ChangeNotifier {
   Future<void> _performFetch() async {
     // Load preferences first
     _preferences = await _preferencesRepository.getPreferences(userId!);
-    
+
     // Then load jobs with those preferences
     _currentPage = 0;
-    _jobs = await _jobRepository.fetchJobs(
+    final result = await _jobRepository.fetchJobsWithDiagnostics(
       preferences: _preferences,
       page: _currentPage,
     );
+    _jobs = result.jobs;
+    _totalAvailable = result.totalAvailable;
+    _totalAfterFilters = result.totalAfterFilters;
     _hasMorePages = _jobs.length >= 10;
   }
 

@@ -1,8 +1,17 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../jobs_viewmodel.dart';
 import '../models/user_preferences.dart';
 
+/// Tela de preferências de vagas. Bottom sheet em altura ~92% da tela.
+///
+/// Design alinhado com `jobs_swipe_screen`:
+/// gradient indigo→purple no header, cards com sombra leve, chips
+/// inline (sem pickers em modal extra). Tudo num scroll só pro user
+/// ver de relance o que está selecionado.
 class JobPreferencesScreen extends StatefulWidget {
   const JobPreferencesScreen({super.key});
 
@@ -11,44 +20,91 @@ class JobPreferencesScreen extends StatefulWidget {
 }
 
 class _JobPreferencesScreenState extends State<JobPreferencesScreen> {
-  // Local state mirrors what's in the ViewModel — we commit on save.
-  List<String> _areas = [];
-  List<String> _locations = [];
+  // ── Local edit state (commit on save) ──────────────────────────────
+  Set<String> _selectedAreas = {};
+  Set<String> _selectedLocations = {};
   Set<String> _selectedWorkModels = {};
   Set<String> _selectedJobTypes = {};
-  int? _minSalary;
+  int? _minSalary; // em centavos
   bool _loaded = false;
   bool _saving = false;
 
-  // Maps raw DB values ↔ display labels
-  static const _workModelMap = {
-    'remoto': 'Remoto',
-    'hibrido': 'Híbrido',
-    'presencial': 'Presencial',
-  };
-  static const _jobTypeMap = {
-    'estagio': 'Estágio',
-    'trainee': 'Trainee',
-    'clt_junior': 'CLT Júnior',
-    'temporario': 'Temporário',
-  };
+  // ── Cores unificadas com jobs_swipe_screen ─────────────────────────
+  static const _indigo = Color(0xFF4F46E5);
+  static const _purple = Color(0xFF7C3AED);
+  static const _gradient = LinearGradient(
+    colors: [_indigo, _purple],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
 
+  static const _textPrimary = Color(0xFF0F172A);
+  static const _textSecondary = Color(0xFF475569);
+  static const _textMuted = Color(0xFF94A3B8);
+  static const _border = Color(0xFFE2E8F0);
+
+  // ── Catálogo de opções ─────────────────────────────────────────────
+  // Lista alinhada com `inferArea()` dos edge functions de sync
+  // (sync-jobs-ats, sync-jobs-apify). FilterHelpers cuida de sinônimos
+  // (RH ↔ Recursos Humanos) — não duplique lógica aqui.
+  static const _areas = <_OptionItem>[
+    _OptionItem('Tecnologia', icon: Icons.computer_rounded),
+    _OptionItem('Engenharia', icon: Icons.engineering_rounded),
+    _OptionItem('Design', icon: Icons.palette_rounded),
+    _OptionItem('Produto', icon: Icons.widgets_rounded),
+    _OptionItem('Marketing', icon: Icons.campaign_rounded),
+    _OptionItem('Vendas', icon: Icons.trending_up_rounded),
+    _OptionItem('Finanças', icon: Icons.attach_money_rounded),
+    _OptionItem('Recursos Humanos', icon: Icons.groups_rounded),
+    _OptionItem('Operações', icon: Icons.settings_rounded),
+    _OptionItem('Jurídico', icon: Icons.gavel_rounded),
+    _OptionItem('Administrativo', icon: Icons.folder_rounded),
+    _OptionItem('Geral', icon: Icons.work_rounded),
+  ];
+
+  // Cobertura ampliada das principais capitais + cidades-polo. O matching
+  // em FilterHelpers expande automaticamente: escolher "São Paulo" pega
+  // todas as cidades do estado de SP (Campinas, Santos, etc.).
+  static const _locations = <String>[
+    'São Paulo', 'Rio de Janeiro', 'Belo Horizonte', 'Curitiba',
+    'Porto Alegre', 'Brasília', 'Campinas', 'Recife',
+    'Salvador', 'Fortaleza', 'Florianópolis', 'Goiânia',
+    'Manaus', 'Vitória',
+  ];
+
+  static const _workModels = <_PairItem>[
+    _PairItem('remoto', 'Remoto', icon: Icons.home_work_rounded),
+    _PairItem('hibrido', 'Híbrido', icon: Icons.sync_alt_rounded),
+    _PairItem('presencial', 'Presencial', icon: Icons.business_rounded),
+  ];
+
+  static const _jobTypes = <_PairItem>[
+    _PairItem('estagio', 'Estágio', icon: Icons.school_rounded),
+    _PairItem('trainee', 'Trainee', icon: Icons.rocket_launch_rounded),
+    _PairItem('clt_junior', 'CLT Júnior', icon: Icons.badge_rounded),
+    _PairItem('temporario', 'Temporário', icon: Icons.schedule_rounded),
+  ];
+
+  static const _maxAreas = 5;
+  static const _maxLocations = 5;
+
+  // ── Lifecycle ──────────────────────────────────────────────────────
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!_loaded) {
       _loaded = true;
-      _loadFromViewModel();
+      _hydrateFromViewModel();
     }
   }
 
-  void _loadFromViewModel() {
+  void _hydrateFromViewModel() {
     final vm = context.read<JobsViewModel>();
     final prefs = vm.preferences;
     if (prefs != null) {
       setState(() {
-        _areas = List<String>.from(prefs.areas);
-        _locations = List<String>.from(prefs.locations);
+        _selectedAreas = Set<String>.from(prefs.areas);
+        _selectedLocations = Set<String>.from(prefs.locations);
         _selectedWorkModels = Set<String>.from(prefs.workModels);
         _selectedJobTypes = Set<String>.from(prefs.jobTypes);
         _minSalary = prefs.minSalary;
@@ -56,253 +112,252 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen> {
     }
   }
 
+  // ── Counters ───────────────────────────────────────────────────────
+  int get _activeFiltersCount {
+    var n = 0;
+    if (_selectedAreas.isNotEmpty) n++;
+    if (_selectedLocations.isNotEmpty) n++;
+    if (_selectedWorkModels.isNotEmpty) n++;
+    if (_selectedJobTypes.isNotEmpty) n++;
+    if (_minSalary != null && _minSalary! > 0) n++;
+    return n;
+  }
+
+  bool get _hasUnsavedChanges {
+    final vm = context.read<JobsViewModel>();
+    final prefs = vm.preferences;
+    if (prefs == null) {
+      return _selectedAreas.isNotEmpty ||
+          _selectedLocations.isNotEmpty ||
+          _selectedWorkModels.isNotEmpty ||
+          _selectedJobTypes.isNotEmpty ||
+          (_minSalary != null && _minSalary! > 0);
+    }
+    return !_setEq(_selectedAreas, prefs.areas.toSet()) ||
+        !_setEq(_selectedLocations, prefs.locations.toSet()) ||
+        !_setEq(_selectedWorkModels, prefs.workModels.toSet()) ||
+        !_setEq(_selectedJobTypes, prefs.jobTypes.toSet()) ||
+        _minSalary != prefs.minSalary;
+  }
+
+  bool _setEq(Set<String> a, Set<String> b) {
+    if (a.length != b.length) return false;
+    return a.containsAll(b);
+  }
+
+  // ── Actions ────────────────────────────────────────────────────────
   Future<void> _saveAndClose() async {
+    HapticFeedback.lightImpact();
     final vm = context.read<JobsViewModel>();
     setState(() => _saving = true);
 
     try {
       final prefs = UserJobPreferences(
         userId: vm.userId ?? '',
-        areas: List<String>.from(_areas),
-        locations: List<String>.from(_locations),
+        areas: _selectedAreas.toList(),
+        locations: _selectedLocations.toList(),
         workModels: _selectedWorkModels.toList(),
         jobTypes: _selectedJobTypes.toList(),
         minSalary: _minSalary,
       );
       await vm.savePreferences(prefs);
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Erro ao salvar preferências.')),
         );
       }
     } finally {
-      setState(() => _saving = false);
+      if (mounted) setState(() => _saving = false);
     }
 
     if (mounted) Navigator.pop(context);
   }
 
   void _clearAll() {
+    HapticFeedback.lightImpact();
     setState(() {
-      _areas = [];
-      _locations = [];
+      _selectedAreas = {};
+      _selectedLocations = {};
       _selectedWorkModels = {};
       _selectedJobTypes = {};
       _minSalary = null;
     });
   }
 
+  void _toggleArea(String area) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      if (_selectedAreas.contains(area)) {
+        _selectedAreas.remove(area);
+      } else if (_selectedAreas.length < _maxAreas) {
+        _selectedAreas.add(area);
+      }
+    });
+  }
+
+  void _toggleLocation(String loc) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      if (_selectedLocations.contains(loc)) {
+        _selectedLocations.remove(loc);
+      } else if (_selectedLocations.length < _maxLocations) {
+        _selectedLocations.add(loc);
+      }
+    });
+  }
+
+  void _toggleWorkModel(String key) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _selectedWorkModels.contains(key)
+          ? _selectedWorkModels.remove(key)
+          : _selectedWorkModels.add(key);
+    });
+  }
+
+  void _toggleJobType(String key) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _selectedJobTypes.contains(key)
+          ? _selectedJobTypes.remove(key)
+          : _selectedJobTypes.add(key);
+    });
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final maxHeight = mq.size.height * 0.92;
+
     return Container(
+      constraints: BoxConstraints(maxHeight: maxHeight),
       decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        color: Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Drag handle
-          const SizedBox(height: 12),
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey[300],
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-
-          // Header
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.close, size: 28),
-                  onPressed: () => Navigator.pop(context),
-                  color: const Color(0xFF374151),
-                ),
-                const Text(
-                  'Preferências de Vagas',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF111827),
-                  ),
-                ),
-                TextButton(
-                  onPressed: _clearAll,
-                  child: const Text(
-                    'Limpar',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF6B7280),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-
+          _buildDragHandle(),
+          _buildHeader(),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
               children: [
-                // Areas de interesse
-                _buildSectionHeader('Áreas de interesse', infoText: '(${_areas.length}/5)'),
-                const SizedBox(height: 12),
-                _buildTagBox(
-                  items: _areas,
-                  maxItems: 5,
-                  emptyLabel: 'Adicionar áreas para encontrar vagas',
-                  emptyButtonLabel: 'Adicionar Área',
-                  addMoreLabel: 'área',
-                  onAdd: _showAreaPicker,
-                  onRemove: (item) => setState(() => _areas.remove(item)),
+                _buildSection(
+                  icon: Icons.work_outline_rounded,
+                  title: 'Áreas de interesse',
+                  subtitle: '${_selectedAreas.length}/$_maxAreas selecionadas',
+                  child: _buildAreaChips(),
                 ),
-                const SizedBox(height: 24),
-
-                // Localização
-                _buildSectionHeader('Localização', infoText: '(${_locations.length}/5)'),
-                const SizedBox(height: 12),
-                _buildTagBox(
-                  items: _locations,
-                  maxItems: 5,
-                  emptyLabel: 'Adicionar locais (máximo 5)',
-                  emptyButtonLabel: 'Adicionar Localização',
-                  addMoreLabel: 'local',
-                  onAdd: _showLocationPicker,
-                  onRemove: (item) => setState(() => _locations.remove(item)),
+                const SizedBox(height: 16),
+                _buildSection(
+                  icon: Icons.location_on_outlined,
+                  title: 'Localização',
+                  subtitle: '${_selectedLocations.length}/$_maxLocations • Remoto sempre passa',
+                  child: _buildLocationChips(),
                 ),
-                const SizedBox(height: 32),
-
-                // Premium Filters indicator
-                Row(
-                  children: [
-                    const Text(
-                      'Filtros Premium',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF10B981),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Text(
-                        'Novo',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: 16),
+                _buildSection(
+                  icon: Icons.home_work_outlined,
+                  title: 'Modelo de trabalho',
+                  subtitle: _selectedWorkModels.isEmpty
+                      ? 'Todos os modelos'
+                      : '${_selectedWorkModels.length} selecionado(s)',
+                  child: _buildPairChips(_workModels, _selectedWorkModels, _toggleWorkModel),
                 ),
-                const SizedBox(height: 24),
-
-                // Work model
-                _buildSectionHeader('Modelo de trabalho'),
-                const SizedBox(height: 12),
-                _buildChipGroup(
-                  options: _workModelMap,
-                  selectedOptions: _selectedWorkModels,
+                const SizedBox(height: 16),
+                _buildSection(
+                  icon: Icons.assignment_ind_outlined,
+                  title: 'Tipo de vaga',
+                  subtitle: _selectedJobTypes.isEmpty
+                      ? 'Todos os tipos'
+                      : '${_selectedJobTypes.length} selecionado(s)',
+                  child: _buildPairChips(_jobTypes, _selectedJobTypes, _toggleJobType),
                 ),
-                const SizedBox(height: 24),
-
-                // Job type
-                _buildSectionHeader('Tipo de vaga'),
-                const SizedBox(height: 12),
-                _buildChipGroup(
-                  options: _jobTypeMap,
-                  selectedOptions: _selectedJobTypes,
-                ),
-                const SizedBox(height: 24),
-
-                // Salary
-                _buildSectionHeader('Bolsa mínima'),
-                const SizedBox(height: 12),
-                GestureDetector(
-                  onTap: _showSalaryPicker,
-                  child: Row(
-                    children: [
-                      Text(
-                        _minSalary != null
-                            ? 'R\$ ${(_minSalary! / 100).toStringAsFixed(0)}'
-                            : 'Definir bolsa mínima',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: _minSalary != null
-                              ? const Color(0xFF111827)
-                              : const Color(0xFF9CA3AF),
-                          fontWeight: _minSalary != null
-                              ? FontWeight.w600
-                              : FontWeight.normal,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Icon(
-                        _minSalary != null ? Icons.check_circle : Icons.edit,
-                        size: 16,
-                        color: _minSalary != null
-                            ? const Color(0xFF10B981)
-                            : const Color(0xFF9CA3AF),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 16),
+                _buildSalarySection(),
+                const SizedBox(height: 8),
               ],
             ),
           ),
+          _buildFooter(),
+        ],
+      ),
+    );
+  }
 
-          // Save button
-          Container(
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, -4),
+  // ── Drag handle ────────────────────────────────────────────────────
+  Widget _buildDragHandle() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 4),
+      child: Center(
+        child: Container(
+          width: 44,
+          height: 5,
+          decoration: BoxDecoration(
+            color: _border,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Header ─────────────────────────────────────────────────────────
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.close_rounded, size: 24),
+            color: _textSecondary,
+            onPressed: () => Navigator.pop(context),
+            splashRadius: 22,
+          ),
+          Expanded(
+            child: Column(
+              children: [
+                ShaderMask(
+                  shaderCallback: (bounds) => _gradient.createShader(bounds),
+                  child: const Text(
+                    'Filtros',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.4,
+                    ),
+                  ),
                 ),
+                if (_activeFiltersCount > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      '$_activeFiltersCount filtro${_activeFiltersCount > 1 ? "s" : ""} ativo${_activeFiltersCount > 1 ? "s" : ""}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: _textMuted,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
               ],
             ),
-            child: SizedBox(
-              width: double.infinity,
-              height: 56,
-              child: ElevatedButton(
-                onPressed: _saving ? null : _saveAndClose,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  elevation: 0,
-                ),
-                child: _saving
-                    ? const SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
-                      )
-                    : const Text(
-                        'Aplicar Filtros',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-              ),
+          ),
+          TextButton(
+            onPressed: _activeFiltersCount > 0 ? _clearAll : null,
+            style: TextButton.styleFrom(
+              foregroundColor: _indigo,
+              disabledForegroundColor: _textMuted,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            child: const Text(
+              'Limpar',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
             ),
           ),
         ],
@@ -310,447 +365,472 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen> {
     );
   }
 
-  // ============================================
-  // PICKERS (Multi-select)
-  // ============================================
-
-  void _showAreaPicker() {
-    final availableAreas = [
-      'Marketing', 'Tecnologia', 'Finanças', 'Design',
-      'Engenharia', 'RH', 'Vendas', 'Geral',
-    ];
-
-    // Use a local copy for multi-select within the sheet
-    final selected = Set<String>.from(_areas);
-
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheetState) => Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Selecionar Áreas',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Máximo 5 • ${selected.length} selecionada(s)',
-                style: TextStyle(fontSize: 13, color: Colors.grey[500]),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: availableAreas.map((area) {
-                  final isSelected = selected.contains(area);
-                  return GestureDetector(
-                    onTap: () {
-                      setSheetState(() {
-                        if (isSelected) {
-                          selected.remove(area);
-                        } else if (selected.length < 5) {
-                          selected.add(area);
-                        }
-                      });
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? const Color(0xFF10B981).withOpacity(0.1)
-                            : const Color(0xFFF3F4F6),
-                        border: Border.all(
-                          color: isSelected ? const Color(0xFF10B981) : Colors.transparent,
-                          width: 1.5,
-                        ),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        area,
-                        style: TextStyle(
-                          color: isSelected ? const Color(0xFF10B981) : const Color(0xFF374151),
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    setState(() => _areas = selected.toList());
-                    Navigator.pop(ctx);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: Text('Confirmar (${selected.length})'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showLocationPicker() {
-    final availableLocations = [
-      'São Paulo', 'Rio de Janeiro', 'Belo Horizonte', 'Curitiba',
-      'Porto Alegre', 'Brasília', 'Campinas', 'Recife',
-    ];
-
-    final selected = Set<String>.from(_locations);
-
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheetState) => Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Selecionar Localização',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Máximo 5 • ${selected.length} selecionada(s)',
-                style: TextStyle(fontSize: 13, color: Colors.grey[500]),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: availableLocations.map((loc) {
-                  final isSelected = selected.contains(loc);
-                  return GestureDetector(
-                    onTap: () {
-                      setSheetState(() {
-                        if (isSelected) {
-                          selected.remove(loc);
-                        } else if (selected.length < 5) {
-                          selected.add(loc);
-                        }
-                      });
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? const Color(0xFF10B981).withOpacity(0.1)
-                            : const Color(0xFFF3F4F6),
-                        border: Border.all(
-                          color: isSelected ? const Color(0xFF10B981) : Colors.transparent,
-                          width: 1.5,
-                        ),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        loc,
-                        style: TextStyle(
-                          color: isSelected ? const Color(0xFF10B981) : const Color(0xFF374151),
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    setState(() => _locations = selected.toList());
-                    Navigator.pop(ctx);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: Text('Confirmar (${selected.length})'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showSalaryPicker() {
-    double currentValue = (_minSalary ?? 0) / 100;
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheetState) => Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Bolsa Mínima: R\$ ${currentValue.toInt()}',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              Slider(
-                value: currentValue,
-                min: 0,
-                max: 10000,
-                divisions: 100,
-                activeColor: const Color(0xFF10B981),
-                label: 'R\$ ${currentValue.toInt()}',
-                onChanged: (val) {
-                  setSheetState(() => currentValue = val);
-                },
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () {
-                        setState(() => _minSalary = null);
-                        Navigator.pop(ctx);
-                      },
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: const Text('Limpar'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          _minSalary = currentValue > 0 ? (currentValue * 100).toInt() : null;
-                        });
-                        Navigator.pop(ctx);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF10B981),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: const Text('Aplicar'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ============================================
-  // SHARED WIDGETS
-  // ============================================
-
-  Widget _buildSectionHeader(String title, {String? infoText}) {
-    return Row(
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF111827),
-          ),
-        ),
-        if (infoText != null) ...[
-          const SizedBox(width: 8),
-          Text(
-            infoText,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xFF6B7280),
-            ),
-          ),
-        ],
-        const SizedBox(width: 8),
-        Icon(Icons.info_outline, size: 16, color: Colors.grey[400]),
-      ],
-    );
-  }
-
-  /// Generic tag box that displays items with X buttons and an add more action.
-  Widget _buildTagBox({
-    required List<String> items,
-    required int maxItems,
-    required String emptyLabel,
-    required String emptyButtonLabel,
-    required String addMoreLabel,
-    required VoidCallback onAdd,
-    required void Function(String) onRemove,
+  // ── Section card wrapper ───────────────────────────────────────────
+  Widget _buildSection({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Widget child,
   }) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
       decoration: BoxDecoration(
-        color: const Color(0xFFF9FAFB),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey[200]!),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (items.isNotEmpty) ...[
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: items.map((item) => Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF10B981).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFF10B981).withOpacity(0.3)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      item,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF065F46),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    GestureDetector(
-                      onTap: () => onRemove(item),
-                      child: const Icon(Icons.close, size: 16, color: Color(0xFF065F46)),
-                    ),
-                  ],
-                ),
-              )).toList(),
-            ),
-            if (items.length < maxItems)
-              GestureDetector(
-                onTap: onAdd,
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 12.0),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.add, size: 16, color: Color(0xFF10B981)),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Adicionar $addMoreLabel',
-                        style: const TextStyle(
-                          color: Color(0xFF10B981),
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
+                  gradient: LinearGradient(
+                    colors: [
+                      _indigo.withOpacity(0.12),
+                      _purple.withOpacity(0.12),
                     ],
                   ),
+                  borderRadius: BorderRadius.circular(10),
                 ),
+                child: Icon(icon, size: 18, color: _indigo),
               ),
-          ] else ...[
-            Center(
-              child: GestureDetector(
-                onTap: onAdd,
+              const SizedBox(width: 10),
+              Expanded(
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.add_circle, color: Color(0xFF10B981)),
-                        const SizedBox(width: 8),
-                        Text(
-                          emptyButtonLabel,
-                          style: const TextStyle(
-                            color: Color(0xFF10B981),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
                     Text(
-                      emptyLabel,
-                      textAlign: TextAlign.center,
+                      title,
                       style: const TextStyle(
-                        color: Color(0xFF9CA3AF),
-                        fontSize: 14,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: _textPrimary,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: _textMuted,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
+          const SizedBox(height: 14),
+          child,
         ],
       ),
     );
   }
 
-  Widget _buildChipGroup({
-    required Map<String, String> options,
-    required Set<String> selectedOptions,
-  }) {
+  // ── Chip groups ────────────────────────────────────────────────────
+  Widget _buildAreaChips() {
     return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: options.entries.map((entry) {
-        final rawValue = entry.key;
-        final displayLabel = entry.value;
-        final isSelected = selectedOptions.contains(rawValue);
-        return GestureDetector(
-          onTap: () {
-            setState(() {
-              if (isSelected) {
-                selectedOptions.remove(rawValue);
-              } else {
-                selectedOptions.add(rawValue);
-              }
-            });
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              color: isSelected ? const Color(0xFF4F46E5).withOpacity(0.1) : const Color(0xFFF3F4F6),
-              border: Border.all(
-                color: isSelected ? const Color(0xFF4F46E5) : Colors.transparent,
-                width: 1.5,
-              ),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              displayLabel,
-              style: TextStyle(
-                color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF374151),
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-              ),
-            ),
-          ),
+      spacing: 8,
+      runSpacing: 8,
+      children: _areas.map((area) {
+        final selected = _selectedAreas.contains(area.label);
+        final atMax = _selectedAreas.length >= _maxAreas && !selected;
+        return _GradientChip(
+          label: area.label,
+          icon: area.icon,
+          selected: selected,
+          disabled: atMax,
+          onTap: atMax ? null : () => _toggleArea(area.label),
         );
       }).toList(),
     );
   }
+
+  Widget _buildLocationChips() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: _locations.map((loc) {
+        final selected = _selectedLocations.contains(loc);
+        final atMax = _selectedLocations.length >= _maxLocations && !selected;
+        return _GradientChip(
+          label: loc,
+          selected: selected,
+          disabled: atMax,
+          onTap: atMax ? null : () => _toggleLocation(loc),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildPairChips(
+    List<_PairItem> items,
+    Set<String> selected,
+    void Function(String) onToggle,
+  ) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: items.map((item) {
+        return _GradientChip(
+          label: item.label,
+          icon: item.icon,
+          selected: selected.contains(item.key),
+          onTap: () => onToggle(item.key),
+        );
+      }).toList(),
+    );
+  }
+
+  // ── Salary section ─────────────────────────────────────────────────
+  Widget _buildSalarySection() {
+    final hasValue = _minSalary != null && _minSalary! > 0;
+    final reaisDouble = (_minSalary ?? 0) / 100.0;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      _indigo.withOpacity(0.12),
+                      _purple.withOpacity(0.12),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.payments_outlined, size: 18, color: _indigo),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Bolsa mínima',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: _textPrimary,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Vagas sem salário publicado também aparecem',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _textMuted,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (hasValue)
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  color: _textMuted,
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _minSalary = null);
+                  },
+                  splashRadius: 18,
+                  tooltip: 'Limpar',
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Valor grande estilizado
+          Center(
+            child: ShaderMask(
+              shaderCallback: (bounds) => hasValue
+                  ? _gradient.createShader(bounds)
+                  : const LinearGradient(colors: [_textMuted, _textMuted])
+                      .createShader(bounds),
+              child: Text(
+                hasValue
+                    ? 'R\$ ${reaisDouble.toInt()}'
+                    : 'A combinar',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.8,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: _indigo,
+              inactiveTrackColor: _border,
+              thumbColor: Colors.white,
+              overlayColor: _indigo.withOpacity(0.12),
+              trackHeight: 4,
+              thumbShape: const RoundSliderThumbShape(
+                enabledThumbRadius: 10,
+                elevation: 4,
+              ),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
+            ),
+            child: Slider(
+              value: reaisDouble.clamp(0.0, 10000.0),
+              min: 0,
+              max: 10000,
+              divisions: 100,
+              onChanged: (val) {
+                HapticFeedback.selectionClick();
+                setState(() {
+                  _minSalary = val > 0 ? (val * 100).toInt() : null;
+                });
+              },
+            ),
+          ),
+          // Limites laterais
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: const [
+                Text('R\$ 0', style: TextStyle(fontSize: 11, color: _textMuted, fontWeight: FontWeight.w600)),
+                Text('R\$ 10.000', style: TextStyle(fontSize: 11, color: _textMuted, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Footer (apply button) ──────────────────────────────────────────
+  Widget _buildFooter() {
+    final hasChanges = _hasUnsavedChanges;
+    final label = _activeFiltersCount > 0
+        ? 'Aplicar $_activeFiltersCount filtro${_activeFiltersCount > 1 ? "s" : ""}'
+        : 'Ver todas as vagas';
+
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        child: Container(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            14,
+            20,
+            14 + MediaQuery.of(context).padding.bottom,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.9),
+            border: Border(top: BorderSide(color: _border, width: 0.5)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 54,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    decoration: BoxDecoration(
+                      gradient: _saving ? null : _gradient,
+                      color: _saving ? _textMuted : null,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: _saving
+                          ? null
+                          : [
+                              BoxShadow(
+                                color: _indigo.withOpacity(0.35),
+                                blurRadius: 16,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: _saving ? null : _saveAndClose,
+                        child: Center(
+                          child: _saving
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2.5,
+                                  ),
+                                )
+                              : Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      hasChanges
+                                          ? Icons.tune_rounded
+                                          : Icons.search_rounded,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      label,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: -0.2,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  Internal widgets / models
+// ─────────────────────────────────────────────────────────────────────
+
+/// Chip premium com gradient quando selecionado, neutro quando não.
+class _GradientChip extends StatelessWidget {
+  final String label;
+  final IconData? icon;
+  final bool selected;
+  final bool disabled;
+  final VoidCallback? onTap;
+
+  const _GradientChip({
+    required this.label,
+    this.icon,
+    this.selected = false,
+    this.disabled = false,
+    this.onTap,
+  });
+
+  static const _indigo = Color(0xFF4F46E5);
+  static const _purple = Color(0xFF7C3AED);
+
+  @override
+  Widget build(BuildContext context) {
+    final fadeOpacity = disabled ? 0.4 : 1.0;
+    return Opacity(
+      opacity: fadeOpacity,
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          padding: EdgeInsets.symmetric(
+            horizontal: icon != null ? 12 : 14,
+            vertical: 10,
+          ),
+          decoration: BoxDecoration(
+            gradient: selected
+                ? const LinearGradient(
+                    colors: [_indigo, _purple],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
+            color: selected ? null : const Color(0xFFF1F5F9),
+            border: Border.all(
+              color: selected ? Colors.transparent : const Color(0xFFE2E8F0),
+              width: 1.2,
+            ),
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: _indigo.withOpacity(0.28),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  size: 15,
+                  color: selected ? Colors.white : const Color(0xFF475569),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  color: selected ? Colors.white : const Color(0xFF334155),
+                  letterSpacing: -0.1,
+                ),
+              ),
+              if (selected) ...[
+                const SizedBox(width: 6),
+                const Icon(Icons.check_rounded, size: 15, color: Colors.white),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Item de catálogo simples (label + icone).
+class _OptionItem {
+  final String label;
+  final IconData icon;
+  const _OptionItem(this.label, {required this.icon});
+}
+
+/// Item raw value ↔ display label (modelo, tipo de vaga).
+class _PairItem {
+  final String key; // valor que vai pro DB
+  final String label; // display
+  final IconData icon;
+  const _PairItem(this.key, this.label, {required this.icon});
 }

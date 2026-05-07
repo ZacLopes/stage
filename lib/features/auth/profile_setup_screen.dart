@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/stage_colors.dart';
-import '../jobs/jobs_viewmodel.dart';
-import '../jobs/models/user_preferences.dart';
 import 'user_viewmodel.dart';
 import 'completion_screen.dart';
 
@@ -87,14 +85,13 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         curve: Curves.easeOutCubic,
       );
     } else {
-      // Final Step: Save profile and preferences
+      // Final Step: Save profile (não as preferências de vagas)
       final userVm = context.read<UserViewModel>();
-      final jobsVm = context.read<JobsViewModel>();
 
       // Calculate approximate age
       final today = DateTime.now();
       int age = today.year - _selectedDate!.year;
-      if (today.month < _selectedDate!.month || 
+      if (today.month < _selectedDate!.month ||
           (today.month == _selectedDate!.month && today.day < _selectedDate!.day)) {
         age--;
       }
@@ -108,19 +105,19 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           university: _uniController.text.trim(),
         );
 
-        // Update Job Preferences
-        // minSalary fica null por default (não setamos 0). O usuário configura
-        // depois em Vagas > Filtros se quiser. Se setasse 0, o MatchScoreCalculator
-        // contaria como preferência configurada e daria 10 pontos sempre.
-        final newPrefs = UserJobPreferences(
-          id: '', // Will be assigned by backend
-          userId: userVm.user?.id ?? '',
-          jobTypes: _selectedJobTypes.toList(),
-          workModels: [_selectedWorkModel!],
-          areas: _selectedAreas.toList(),
-          locations: [], // Optional empty default
-        );
-        await jobsVm.savePreferences(newPrefs);
+        // ⚠️ NÃO salvar UserJobPreferences a partir do onboarding.
+        //
+        // O usuário relatou que após criar conta, abrir Vagas e ver feed vazio
+        // é confuso — os filtros vinham auto-aplicados das escolhas do step 3
+        // (áreas, tipo, modelo) e excluíam a maioria das vagas no banco.
+        //
+        // Comportamento agora: o feed começa SEM filtros. As escolhas do step 3
+        // são coletadas pra UX (formulário se sente intencional), mas só viram
+        // filtros se o usuário entrar em Vagas > Filtros e salvar manualmente.
+        //
+        // Se no futuro quisermos "pré-preencher" o picker de filtros com o que
+        // foi respondido aqui, fazer isso na tela de filtros (campo "sugestão"
+        // ou similar) — não auto-salvar.
 
         if (mounted) {
           Navigator.of(context).pushReplacement(
