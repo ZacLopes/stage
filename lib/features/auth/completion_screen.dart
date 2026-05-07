@@ -148,7 +148,7 @@ class _CompletionScreenState extends State<CompletionScreen>
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
-        builder: (_) => const TargetJobScreen(homeTabIndex: 1), // Trilha
+        builder: (_) => const TargetJobScreen(homeTabIndex: 2), // Trilha (índice 2 após Curtidas)
       ),
       (route) => false,
     );

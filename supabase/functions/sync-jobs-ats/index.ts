@@ -184,56 +184,106 @@ async function getOrCreateCompany(
 }
 
 // Palavras-chave que tipicamente prefixam seções no HTML de vagas (PT/EN)
+// Importante: PT pluraliza `el` → `eis` (Desejável → Desejáveis), então
+// usamos prefixos que casam ambos (`desej[áa]ve` cobre vel/veis).
 const REQ_KEYWORDS = [
-  'requisitos', 'qualifica', 'requirements', 'qualifications',
-  'pr[ée][- ]requisitos', 'desej[áa]vel', 'must have', 'nice to have',
-  'who you are', 'what we are looking',
+  /requisitos/i, /qualifica/i, /requirements/i, /qualifications/i,
+  /pr[ée][- ]requisitos/i, /desej[áa]ve/i, /obrigat[óo]rios/i,
+  /must have/i, /nice to have/i, /who you are/i, /what we are looking/i,
+  /what you'?ll need/i, /habilidades/i, /skills/i,
+  /o que esperamos/i, /esperamos de voc[êe]/i, /o que buscamos/i,
+  /o que precisa ter/i, /o que voc[êe] precisa/i, /quem somos buscando/i,
 ];
 const BENEFIT_KEYWORDS = [
-  'benef[íi]cios', 'benefits', 'perks', 'oferecemos', 'we offer',
-  'vantagens', 'what we offer', 'o que oferecemos',
+  /benef[íi]cios/i, /benefits/i, /perks/i, /oferecemos/i, /we offer/i,
+  /vantagens/i, /what we offer/i, /o que oferecemos/i, /additional information/i,
 ];
 
 /**
- * Tenta extrair items de uma seção (Requisitos / Benefícios) do HTML.
- * Procura por header com palavra-chave + lista subsequente.
- * Retorna [] se não achar.
+ * Decodifica entidades HTML comuns. Alguns ATSs (Greenhouse) entregam content
+ * já com `&lt;`, `&gt;` etc, então precisamos decodificar antes de aplicar regex.
  */
-function extractSection(html: string | null | undefined, keywords: string[]): string[] {
-  if (!html) return [];
-  for (const kw of keywords) {
-    const re = new RegExp(
-      `<(?:h[1-6]|strong|b|p)[^>]*>[^<]*${kw}[^<]*<\\/(?:h[1-6]|strong|b|p)>([\\s\\S]*?)(?=<(?:h[1-6]|strong|b)\\b|$)`,
-      'i',
-    );
-    const m = html.match(re);
-    if (!m || !m[1]) continue;
-
-    const sectionHtml = m[1];
-    const liMatches = sectionHtml.match(/<li[^>]*>([\s\S]*?)<\/li>/gi);
-    if (liMatches && liMatches.length > 0) {
-      return liMatches
-        .map((li) => htmlToText(li).trim())
-        .filter((s) => s.length > 3 && s.length < 500)
-        .slice(0, 15);
-    }
-  }
-  return [];
-}
-
-function htmlToText(html: string | null | undefined): string {
-  if (!html) return "";
-  return html
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n\n")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
+function decodeEntities(s: string): string {
+  return s
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&ndash;/g, "–")
+    .replace(/&mdash;/g, "—")
+    .replace(/&hellip;/g, "…")
+    .replace(/&amp;/g, "&"); // por último pra não dupla-decodificar
+}
+
+/**
+ * Tenta extrair items de uma seção (Requisitos / Benefícios) do HTML.
+ * Estratégia: encontra todos os headers (h1-h6 ou <p><strong>), strippa tags
+ * inline pra pegar só o texto, casa contra os keywords. Conteúdo da seção é
+ * tudo até o próximo header. Suporta tags aninhadas (<h2><strong>X</strong></h2>).
+ */
+function extractSection(html: string | null | undefined, keywords: RegExp[]): string[] {
+  if (!html) return [];
+  const decoded = decodeEntities(html);
+
+  // Coleta headers candidatos. Importante: NÃO incluir bare <strong> porque
+  // muitas vagas têm <strong> dentro de <li> (ex: "<li>... entre <strong>Dez 2023</strong>...</li>")
+  // e isso truncaria a seção antes dela ter qualquer <li> completo.
+  const headerRe =
+    /<(h[1-6])[^>]*>([\s\S]*?)<\/\1>|<p[^>]*>\s*<strong[^>]*>([\s\S]*?)<\/strong>\s*<\/p>/gi;
+
+  type Header = { startIdx: number; endIdx: number; text: string };
+  const headers: Header[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = headerRe.exec(decoded)) !== null) {
+    const inner = m[2] ?? m[3] ?? "";
+    const text = inner.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    if (text.length > 0 && text.length < 200) {
+      headers.push({ startIdx: m.index, endIdx: headerRe.lastIndex, text });
+    }
+  }
+
+  // Acumula items de TODOS os headers que casam — alguns sites separam em
+  // sub-seções (ex: Inter usa "Obrigatórios:" + "Desejáveis:" ambos pra requisitos).
+  const allItems: string[] = [];
+  const seenIdx = new Set<number>();
+
+  for (let i = 0; i < headers.length; i++) {
+    if (seenIdx.has(i)) continue;
+    const matches = keywords.some((kw) => kw.test(headers[i].text));
+    if (!matches) continue;
+    seenIdx.add(i);
+
+    const start = headers[i].endIdx;
+    const end = i + 1 < headers.length ? headers[i + 1].startIdx : decoded.length;
+    const sectionHtml = decoded.slice(start, end);
+
+    const liMatches = sectionHtml.match(/<li[^>]*>([\s\S]*?)<\/li>/gi);
+    if (!liMatches || liMatches.length === 0) continue;
+
+    const items = liMatches
+      .map((li) => htmlToText(li).trim())
+      .filter((s) => s.length > 3 && s.length < 500);
+    allItems.push(...items);
+
+    if (allItems.length >= 15) break;
+  }
+
+  return allItems.slice(0, 15);
+}
+
+function htmlToText(html: string | null | undefined): string {
+  if (!html) return "";
+  return decodeEntities(html)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "• ")
+    .replace(/<[^>]*>/g, " ")
     .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

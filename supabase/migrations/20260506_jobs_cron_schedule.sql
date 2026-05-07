@@ -18,7 +18,18 @@
 --        'Shared secret for pg_cron → Edge Functions auth'
 --      );
 --
--- 3. Substituir a constante PROJECT_REF abaixo se for diferente.
+-- 3. Salvar o SUPABASE_ANON_KEY no Vault. O gateway das Edge Functions exige
+--    `Authorization: Bearer <jwt>` mesmo quando a função é deployada com
+--    `--no-verify-jwt`. O anon key é público (já é embutido em qualquer cliente)
+--    e satisfaz o gateway. A autorização real é feita pelo `x-cron-secret`.
+--
+--      SELECT vault.create_secret(
+--        '<COLE_AQUI_O_SUPABASE_ANON_KEY>',
+--        'supabase_anon_key',
+--        'Anon key usado pelo pg_cron para satisfazer o gateway das Edge Functions'
+--      );
+--
+-- 4. Substituir a constante PROJECT_REF abaixo se for diferente.
 
 DO $$
 DECLARE
@@ -26,11 +37,12 @@ DECLARE
   fn_apify_url TEXT;
   fn_ats_url   TEXT;
   cron_secret  TEXT;
+  anon_key     TEXT;
 BEGIN
   fn_apify_url := format('https://%s.supabase.co/functions/v1/sync-jobs-apify', project_ref);
   fn_ats_url   := format('https://%s.supabase.co/functions/v1/sync-jobs-ats',   project_ref);
 
-  -- Lê o secret do Vault (criado no passo 2 acima)
+  -- Lê o cron secret do Vault (criado no passo 2 acima)
   SELECT decrypted_secret INTO cron_secret
   FROM vault.decrypted_secrets
   WHERE name = 'cron_secret_jobs_sync'
@@ -38,6 +50,16 @@ BEGIN
 
   IF cron_secret IS NULL THEN
     RAISE EXCEPTION 'Secret cron_secret_jobs_sync não encontrado. Crie via vault.create_secret antes.';
+  END IF;
+
+  -- Lê o anon key do Vault (criado no passo 3 acima)
+  SELECT decrypted_secret INTO anon_key
+  FROM vault.decrypted_secrets
+  WHERE name = 'supabase_anon_key'
+  LIMIT 1;
+
+  IF anon_key IS NULL THEN
+    RAISE EXCEPTION 'Secret supabase_anon_key não encontrado. Crie via vault.create_secret antes.';
   END IF;
 
   -- Remove jobs antigos com mesmo nome se existirem (idempotente)
@@ -60,11 +82,12 @@ BEGIN
         url := %L,
         headers := jsonb_build_object(
           'Content-Type', 'application/json',
+          'Authorization', %L,
           'x-cron-secret', %L
         ),
         body := jsonb_build_object('maxResults', 50)
       );
-    $cmd$, fn_apify_url, cron_secret)
+    $cmd$, fn_apify_url, 'Bearer ' || anon_key, cron_secret)
   );
 
   -- ATS (Greenhouse + Lever) — 7:30 UTC = 4:30 BRT, 1x/dia
@@ -76,10 +99,11 @@ BEGIN
         url := %L,
         headers := jsonb_build_object(
           'Content-Type', 'application/json',
+          'Authorization', %L,
           'x-cron-secret', %L
         )
       );
-    $cmd$, fn_ats_url, cron_secret)
+    $cmd$, fn_ats_url, 'Bearer ' || anon_key, cron_secret)
   );
 END $$;
 

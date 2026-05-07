@@ -69,4 +69,80 @@ class SwipeRepository {
       rethrow;
     }
   }
+
+  /// Vagas curtidas + dados completos da vaga + flag de aplicada,
+  /// ordenadas por curtida mais recente. Usado pela aba "Curtidas".
+  Future<List<LikedJob>> getLikedJobsWithDetails(String userId) async {
+    try {
+      final response = await _client
+          .from('swipe_actions')
+          .select(
+              'id, job_id, applied, applied_at, created_at, jobs(*, companies(*))')
+          .eq('user_id', userId)
+          .eq('action', 'liked')
+          .order('created_at', ascending: false);
+
+      final list = <LikedJob>[];
+      for (final row in response as List) {
+        final m = Map<String, dynamic>.from(row);
+        final jobJson = m['jobs'];
+        if (jobJson == null) continue; // job foi removido (CASCADE não cobriu)
+        list.add(LikedJob(
+          swipeId: m['id'] as String,
+          job: Job.fromJson(Map<String, dynamic>.from(jobJson)),
+          applied: m['applied'] == true,
+          appliedAt: m['applied_at'] != null
+              ? DateTime.tryParse(m['applied_at'] as String)
+              : null,
+          likedAt: DateTime.parse(m['created_at'] as String),
+        ));
+      }
+      return list;
+    } catch (e) {
+      print('Error getting liked jobs with details: $e');
+      rethrow;
+    }
+  }
+
+  /// Alterna o flag `applied` da vaga curtida do user.
+  Future<void> setApplied(String userId, String jobId, bool applied) async {
+    try {
+      await _client
+          .from('swipe_actions')
+          .update({
+            'applied': applied,
+            'applied_at': applied ? DateTime.now().toIso8601String() : null,
+          })
+          .eq('user_id', userId)
+          .eq('job_id', jobId);
+    } catch (e) {
+      print('Error setting applied flag: $e');
+      rethrow;
+    }
+  }
+}
+
+/// Wrapper retornado pela aba "Curtidas" — combina o swipe + a vaga.
+class LikedJob {
+  final String swipeId;
+  final Job job;
+  final bool applied;
+  final DateTime? appliedAt;
+  final DateTime likedAt;
+
+  LikedJob({
+    required this.swipeId,
+    required this.job,
+    required this.applied,
+    required this.appliedAt,
+    required this.likedAt,
+  });
+
+  LikedJob copyWith({bool? applied, DateTime? appliedAt}) => LikedJob(
+        swipeId: swipeId,
+        job: job,
+        applied: applied ?? this.applied,
+        appliedAt: appliedAt ?? this.appliedAt,
+        likedAt: likedAt,
+      );
 }

@@ -34,6 +34,10 @@ class JobsViewModel extends ChangeNotifier {
   // Stack of swiped jobs (mais recente no fim) pra suportar undo
   final List<Job> _undoStack = [];
 
+  // Liked jobs (aba "Curtidas") — populado on-demand
+  List<LikedJob> _likedJobs = [];
+  bool _likedJobsLoading = false;
+
   // Getters
   List<Job> get jobs => _jobs;
   Set<String> get swipedIds => _swipedIds;
@@ -43,6 +47,11 @@ class JobsViewModel extends ChangeNotifier {
   bool get isPreferencesLoading => _isPreferencesLoading;
   String? get errorMessage => _errorMessage;
   bool get hasMorePages => _hasMorePages;
+  List<LikedJob> get likedJobs => _likedJobs;
+  bool get likedJobsLoading => _likedJobsLoading;
+  int get likedCount => _likedJobs.length;
+  int get appliedCount => _likedJobs.where((l) => l.applied).length;
+  int get pendingCount => likedCount - appliedCount;
 
   String? get userId => Supabase.instance.client.auth.currentUser?.id;
 
@@ -134,6 +143,11 @@ class JobsViewModel extends ChangeNotifier {
 
     try {
       await _swipeRepository.recordSwipe(userId!, job.id, action);
+      // Atualiza badge da aba "Curtidas" após swipe right.
+      // Silent refresh não bloqueia a UI do swiper.
+      if (action == 'liked') {
+        loadLikedJobs(silent: true);
+      }
     } catch (e) {
       // Rollback otimista
       print('Error recording swipe: $e');
@@ -158,6 +172,8 @@ class JobsViewModel extends ChangeNotifier {
 
       _undoStack.removeLast();
       _swipedIds.remove(undoneJobId);
+      // Remove da lista local de curtidas (caso fosse um like desfeito)
+      _likedJobs.removeWhere((l) => l.job.id == undoneJobId);
       notifyListeners();
     } catch (e) {
       print('Error undoing swipe: $e');
@@ -218,6 +234,54 @@ class JobsViewModel extends ChangeNotifier {
     } catch (e) {
       print('Error getting job details: $e');
       return null;
+    }
+  }
+
+  // ============================================
+  // LIKED JOBS (aba "Curtidas")
+  // ============================================
+
+  /// Carrega vagas curtidas do user. Chamado quando a aba abre, no init,
+  /// e após cada swipe right (pra manter o badge atualizado).
+  Future<void> loadLikedJobs({bool silent = false}) async {
+    if (userId == null) return;
+
+    if (!silent) {
+      _likedJobsLoading = true;
+      notifyListeners();
+    }
+
+    try {
+      _likedJobs = await _swipeRepository.getLikedJobsWithDetails(userId!);
+    } catch (e) {
+      print('Error loading liked jobs: $e');
+    } finally {
+      _likedJobsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Marca/desmarca vaga como aplicada. Otimista: atualiza UI antes do DB.
+  Future<void> setApplied(String jobId, bool applied) async {
+    if (userId == null) return;
+
+    final idx = _likedJobs.indexWhere((l) => l.job.id == jobId);
+    if (idx == -1) return;
+
+    final old = _likedJobs[idx];
+    _likedJobs[idx] = old.copyWith(
+      applied: applied,
+      appliedAt: applied ? DateTime.now() : null,
+    );
+    notifyListeners();
+
+    try {
+      await _swipeRepository.setApplied(userId!, jobId, applied);
+    } catch (e) {
+      // Rollback otimista
+      print('Error setting applied: $e');
+      _likedJobs[idx] = old;
+      notifyListeners();
     }
   }
 }

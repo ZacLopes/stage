@@ -198,7 +198,7 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
             onAction: () {
               Navigator.pop(ctx); // close dialog
               // navigate to Resume tab
-              context.read<HomeViewModel>().requestTabChange(1);
+              context.read<HomeViewModel>().requestTabChange(2); // Trilha (índice 2 após Curtidas)
               Navigator.popUntil(context, (route) => route.isFirst);
             },
           );

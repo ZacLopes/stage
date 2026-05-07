@@ -62,7 +62,7 @@ class TutorialService {
               _isShowing = false;
               
               if (onTabChange != null) {
-                onTabChange(1); // Navigate to Trilha tab immediately
+                onTabChange(2); // Trilha (índice 2 após adicionar Curtidas)
               }
             },
           );

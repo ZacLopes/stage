@@ -26,6 +26,7 @@ class Job {
   final String? workModelRaw; // 'presencial', 'hibrido', 'remoto'
   final String? jobTypeRaw;   // 'estagio', 'trainee', 'clt_junior', 'temporario'
   final String? area;
+  final String? externalUrl; // URL do site da empresa pra aplicar (Greenhouse/Lever/Apify)
   final Company? company;
 
   Job({
@@ -52,6 +53,7 @@ class Job {
     this.workModelRaw,
     this.jobTypeRaw,
     this.area,
+    this.externalUrl,
     this.company,
   });
 
@@ -158,6 +160,7 @@ class Job {
       workModelRaw: workModelRaw,
       jobTypeRaw: jobTypeRaw,
       area: json['area'] as String?,
+      externalUrl: json['external_url'] as String?,
       company: company,
     );
   }
