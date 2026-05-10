@@ -1,7 +1,22 @@
 import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/models/models.dart';
+import '../features/jobs/models/adapted_resume.dart';
 import '../features/jobs/utils/match_score.dart';
+
+/// Erro estruturado da adaptação de currículo. UI usa `code` pra distinguir
+/// "perfil incompleto" (sugere completar) de erro temporário (oferece retry).
+class ResumeAdaptationException implements Exception {
+  /// 'profile_incomplete', 'rate_limited', 'adaptation_rejected',
+  /// 'ai_response_invalid', 'job_not_found', 'unauthorized', 'timeout',
+  /// 'network'.
+  final String code;
+  final String message;
+  const ResumeAdaptationException(this.code, this.message);
+
+  @override
+  String toString() => 'ResumeAdaptationException($code): $message';
+}
 
 class AIService {
   final SupabaseClient _client = Supabase.instance.client;
@@ -52,6 +67,110 @@ class AIService {
       // Falha no SELECT não pode quebrar a tela. Cliente cai pro determinístico.
       print('fetchCachedMatches failed: $e');
       return const {};
+    }
+  }
+
+  // ============================================================
+  // Resume adaptation (gpt-4o-mini com cache em adapted_resumes)
+  // ============================================================
+
+  /// Cache em memória pra mesma sessão (evita re-fetch quando usuário fecha
+  /// e reabre o sheet rapidamente). Cache server-side (tabela
+  /// adapted_resumes) cobre sessões diferentes.
+  final Map<String, AdaptedResume> _adaptedCache = {};
+
+  /// Adapta o currículo do user pra uma vaga específica.
+  ///
+  /// Lança [ResumeAdaptationException] em todas falhas previsíveis (perfil
+  /// incompleto, rate limit, rejeição do validador anti-invenção). UI usa
+  /// `e.code` pra mostrar mensagem certa.
+  ///
+  /// Quando `force=true`, ignora o cache server-side e força nova geração
+  /// (usado pelo botão "Tentar de novo" da UI).
+  Future<AdaptedResume> adaptResume(String jobId, {bool force = false}) async {
+    if (!force) {
+      final cached = _adaptedCache[jobId];
+      if (cached != null) return cached;
+    }
+
+    try {
+      final response = await _client.functions
+          .invoke(
+            'adapt-resume-to-job',
+            body: {'job_id': jobId, if (force) 'force': true},
+          )
+          .timeout(const Duration(seconds: 30));
+
+      // Status 200 path. Em status != 200 o invoke lança FunctionException
+      // (capturado abaixo) — não dá pra confiar em response.status aqui.
+      final data = response.data;
+      if (data is! Map) {
+        throw const ResumeAdaptationException(
+          'ai_response_invalid',
+          'Resposta inválida do servidor.',
+        );
+      }
+      final mapped = Map<String, dynamic>.from(data);
+
+      final adapted = AdaptedResume.fromJson(mapped, jobId: jobId);
+      _adaptedCache[jobId] = adapted;
+      return adapted;
+    } on ResumeAdaptationException {
+      rethrow;
+    } on FunctionException catch (e) {
+      // Edge function retornou status != 200. O body com {error, detail} vem
+      // em e.details. Convertemos pro nosso erro estruturado pra UI saber
+      // distinguir "profile_incomplete" (mostra ícone de pessoa + CTA pra
+      // completar perfil) de erros técnicos.
+      final details = e.details;
+      String code = 'unknown';
+      String? detail;
+      if (details is Map) {
+        code = details['error']?.toString() ?? 'unknown';
+        detail = details['detail']?.toString();
+      }
+      throw ResumeAdaptationException(code, detail ?? _humanizeError(code));
+    } on FormatException catch (e) {
+      throw ResumeAdaptationException(
+        'ai_response_invalid',
+        'Não consegui ler a resposta: ${e.message}',
+      );
+    } catch (e) {
+      // Timeout, conectividade, etc.
+      final msg = e.toString();
+      if (msg.toLowerCase().contains('timeout')) {
+        throw const ResumeAdaptationException(
+          'timeout',
+          'A adaptação demorou demais. Tente de novo.',
+        );
+      }
+      throw ResumeAdaptationException('network', msg);
+    }
+  }
+
+  /// Limpa cache em memória pra uma vaga (ex: depois que user editou perfil).
+  void clearAdaptedCache(String jobId) {
+    _adaptedCache.remove(jobId);
+  }
+
+  /// Mensagens humanas pra códigos de erro do edge function. Source-of-truth
+  /// pra UI mostrar texto consistente.
+  static String _humanizeError(String code) {
+    switch (code) {
+      case 'profile_incomplete':
+        return 'Complete seu perfil ou suba seu currículo antes de adaptar.';
+      case 'job_not_found':
+        return 'Esta vaga não está mais disponível.';
+      case 'rate_limited':
+        return 'Você atingiu o limite diário de adaptações. Tente amanhã.';
+      case 'adaptation_rejected':
+        return 'A adaptação não passou na verificação de integridade. Tente novamente.';
+      case 'ai_response_invalid':
+        return 'Resposta da IA veio em formato inesperado. Tente de novo.';
+      case 'unauthorized':
+        return 'Sessão expirou. Faça login novamente.';
+      default:
+        return 'Algo deu errado. Tente de novo em instantes.';
     }
   }
 

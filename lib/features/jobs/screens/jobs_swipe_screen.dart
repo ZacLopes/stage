@@ -10,6 +10,7 @@ import '../jobs_viewmodel.dart';
 import '../models/job.dart';
 import '../utils/match_score.dart';
 import '../widgets/job_card.dart';
+import '../widgets/resume_adaptation_sheet.dart';
 import 'job_details_sheet.dart';
 import 'job_preferences_screen.dart';
 
@@ -105,6 +106,29 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (context) => JobDetailsSheet(job: job, match: match),
+    );
+  }
+
+  /// Abre a sheet de adaptação de currículo pra a vaga atual do swiper.
+  /// Usa `_currentIndex` (mantido em sincronia pelo onSwipe do CardSwiper).
+  /// Não-op se ainda não há vagas carregadas ou índice fora dos limites.
+  void _openAdaptationSheet() {
+    final vm = context.read<JobsViewModel>();
+    if (vm.jobs.isEmpty) return;
+    final idx = _currentIndex.clamp(0, vm.jobs.length - 1);
+    final job = vm.jobs[idx];
+    final match = _matchCache[job.id];
+
+    HapticFeedback.mediumImpact();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => ResumeAdaptationSheet(
+        job: job,
+        matchScoreFromCard: match?.score,
+      ),
     );
   }
 
@@ -767,23 +791,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
             iconSize: 30,
             colors: [const Color(0xFF4F46E5), const Color(0xFF7C3AED)],
             shadowColor: const Color(0xFF4F46E5).withOpacity(0.45),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Row(
-                    children: [
-                      Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 18),
-                      SizedBox(width: 10),
-                      Text('Adaptação com IA em breve!'),
-                    ],
-                  ),
-                  backgroundColor: const Color(0xFF4F46E5),
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            },
+            onTap: _openAdaptationSheet,
           ),
 
           // Like
