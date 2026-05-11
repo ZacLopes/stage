@@ -112,9 +112,21 @@ class AIService {
       }
       final mapped = Map<String, dynamic>.from(data);
 
-      final adapted = AdaptedResume.fromJson(mapped, jobId: jobId);
-      _adaptedCache[jobId] = adapted;
-      return adapted;
+      try {
+        final adapted = AdaptedResume.fromJson(mapped, jobId: jobId);
+        _adaptedCache[jobId] = adapted;
+        return adapted;
+      } catch (parseErr, parseStack) {
+        // Erros de parse aqui são bugs do contrato edge↔client (não do user).
+        // Logamos pra debug e jogamos exception estruturada.
+        print('[AIService.adaptResume] parse failed: $parseErr');
+        print('[AIService.adaptResume] stack: $parseStack');
+        print('[AIService.adaptResume] payload keys: ${mapped.keys.toList()}');
+        throw ResumeAdaptationException(
+          'ai_response_invalid',
+          'Resposta veio em formato inesperado: $parseErr',
+        );
+      }
     } on ResumeAdaptationException {
       rethrow;
     } on FunctionException catch (e) {

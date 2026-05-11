@@ -120,7 +120,9 @@ class JobsViewModel extends ChangeNotifier {
     _jobs = result.jobs;
     _totalAvailable = result.totalAvailable;
     _totalAfterFilters = result.totalAfterFilters;
-    _hasMorePages = _jobs.length >= 10;
+    // Único page request hoje retorna até o cap do JobRepository. Sinaliza
+    // pra UI se atingiu o cap (improvável na prática).
+    _hasMorePages = _jobs.length >= 5000;
   }
 
   /// Reload jobs (e.g. after changing preferences).
@@ -132,6 +134,7 @@ class JobsViewModel extends ChangeNotifier {
     _currentPage = 0;
     _undoStack.clear();
     _swipedIds.clear();
+    _autoReloadAttempted = false;
     notifyListeners();
 
     try {
@@ -141,6 +144,30 @@ class JobsViewModel extends ChangeNotifier {
       print('Error reloading jobs: $e');
     } finally {
       _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Marcador pra UI: o auto-reload já foi tentado e ainda assim o feed
+  /// está vazio. Sem isso, UI ficava em loop tentando recarregar.
+  bool _autoReloadAttempted = false;
+  bool get autoReloadAttempted => _autoReloadAttempted;
+
+  /// Chamado pela UI quando o user esgota o feed (`remainingCount == 0`).
+  /// Tenta recarregar UMA vez por sessão pra capturar vagas que entraram
+  /// via sync recente. Se ainda assim vier vazio, marca o flag pra UI
+  /// mostrar o estado "esgotou tudo".
+  Future<void> tryAutoReload() async {
+    if (_autoReloadAttempted) return;
+    if (_isLoading) return;
+    _autoReloadAttempted = true;
+    notifyListeners(); // pra UI saber que tentamos (evita re-trigger)
+
+    try {
+      await _performFetch();
+    } catch (e) {
+      print('Auto-reload failed: $e');
+    } finally {
       notifyListeners();
     }
   }

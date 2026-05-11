@@ -285,8 +285,6 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
           child: Column(
             children: [
               const SizedBox(height: 4),
-              if (!vm.isLoading && vm.remainingCount > 0)
-                _buildCounterBadge(vm.remainingCount),
 
               // Stack so we can draw the fixed swipe overlay on top of the cards
               Expanded(
@@ -368,46 +366,48 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     );
   }
 
-  Widget _buildCounterBadge(int count) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+  /// Loader exibido enquanto o auto-reload (depois do user esgotar o feed)
+  /// está rodando em background. Visual mais leve que o `_buildLoading`
+  /// inicial — comunica "buscando mais vagas pra você".
+  Widget _buildAutoReloadLoading() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            width: 56,
+            height: 56,
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+              ),
+              shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.06),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
+                  color: const Color(0xFF4F46E5).withOpacity(0.25),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
                 ),
               ],
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF10B981),
-                    shape: BoxShape.circle,
-                  ),
+            child: const Center(
+              child: SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2.5,
                 ),
-                const SizedBox(width: 6),
-                Text(
-                  '$count vagas disponíveis',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF334155),
-                  ),
-                ),
-              ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          const Text(
+            'Buscando mais vagas…',
+            style: TextStyle(
+              fontSize: 14,
+              color: Color(0xFF475569),
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -504,6 +504,19 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
 
     // Empty state — sem jobs OU todos já foram swipados
     if (vm.jobs.isEmpty || vm.remainingCount == 0) {
+      // Auto-reload uma vez antes de mostrar o estado vazio. Captura vagas
+      // novas que entraram via sync entre o último fetch e agora. Se já
+      // tentou e ainda está vazio (`autoReloadAttempted`), aí mostra o
+      // estado normal.
+      if (!vm.autoReloadAttempted &&
+          !vm.isLoading &&
+          !vm.filtersAreTooRestrictive) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          vm.tryAutoReload();
+        });
+        // Renderiza loading enquanto auto-reload acontece.
+        return _buildAutoReloadLoading();
+      }
       // Distingue 2 cenários: filtros zeraram tudo (vagas existem mas não
       // batem) vs. realmente esgotou. Mensagem e CTA mudam.
       final isFiltersTooStrict = vm.filtersAreTooRestrictive;

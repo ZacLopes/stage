@@ -30,7 +30,10 @@ const corsHeaders = {
 }
 
 const MODEL = 'gpt-4o-mini'
-const PROMPT_VERSION = 'v1'
+// v2: usa match_score real (do match_analyses cache) como "before" em vez
+// do heurístico antigo. Invalida cache antigo (scores 30→36 não fazem
+// sentido — eram apenas tokens textuais sem relação com o match real).
+const PROMPT_VERSION = 'v2'
 const RATE_LIMIT_PER_DAY = 30
 const OPENAI_TIMEOUT_MS = 25000
 const MAX_BULLET_INFLATION = 1.3 // adapt não pode > 1.3x bullets do original
@@ -61,6 +64,16 @@ function normalize(s: string | null | undefined): string {
     .trim()
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
+}
+
+/**
+ * Normalize + colapsa QUALQUER whitespace (newlines, tabs, espaços múltiplos)
+ * em um único espaço. Usar pra comparar contra raw_text extraído de PDF, que
+ * costuma vir com cada palavra numa linha separada (`Liga\nde\nMercado`),
+ * fazendo `normalize()` simples falhar nas comparações `.includes(...)`.
+ */
+function flatten(s: string | null | undefined): string {
+  return normalize(s).replace(/\s+/g, ' ').trim()
 }
 
 /** True se duas strings batem após normalização. */
@@ -299,81 +312,86 @@ interface JobContext {
 function buildUserPrompt(input: InputResume, job: JobContext): string {
   const lines: string[] = []
 
-  lines.push('## CURRÍCULO ORIGINAL DO CANDIDATO (fonte de verdade)')
-  lines.push('')
-  lines.push('### Dados pessoais (IMUTÁVEIS — copie exato)')
-  lines.push(`Nome: ${input.fullName}`)
-  if (input.email) lines.push(`Email: ${input.email}`)
-  if (input.phone) lines.push(`Telefone: ${input.phone}`)
-  if (input.linkedin) lines.push(`LinkedIn: ${input.linkedin}`)
-  if (input.location) lines.push(`Localização: ${input.location}`)
-
-  if (input.summary) {
-    lines.push('')
-    lines.push('### Resumo atual')
-    lines.push(input.summary)
-  }
-
-  if (input.skills.length > 0) {
-    lines.push('')
-    lines.push('### Skills atuais (você pode reordenar/remover, NÃO adicionar)')
-    lines.push(input.skills.join(' | '))
-  }
-
-  if (input.experiences.length > 0) {
-    lines.push('')
-    lines.push('### Experiências (datas/empresas/cargos IMUTÁVEIS — bullets podem ser reformulados)')
-    for (let i = 0; i < input.experiences.length; i++) {
-      const e = input.experiences[i]
-      lines.push(`[${i}] ${e.role} @ ${e.company} (${e.period}${e.location ? ', ' + e.location : ''})`)
-      if (e.description) {
-        const bullets = e.description.split('\n').map((b) => b.trim()).filter(Boolean)
-        bullets.forEach((b) => lines.push(`    • ${b}`))
-      }
-    }
-  }
-
-  if (input.education.length > 0) {
-    lines.push('')
-    lines.push('### Formação (IMUTÁVEL)')
-    input.education.forEach((e) => {
-      lines.push(`- ${e.degree} @ ${e.institution} (${e.period}${e.location ? ', ' + e.location : ''})`)
-      if (e.details) lines.push(`  ${e.details}`)
-    })
-  }
-
-  if (input.achievements.length > 0) {
-    lines.push('')
-    lines.push('### Conquistas (IMUTÁVEL — pode reordenar/omitir)')
-    input.achievements.forEach((a) => lines.push(`- ${a}`))
-  }
-
-  if (input.interests.length > 0) {
-    lines.push('')
-    lines.push(`### Interesses: ${input.interests.join(', ')}`)
-  }
-
-  // CV importado bruto: incluímos quando os dados estruturados estão escassos
-  // (typical: usuário fez upload de PDF mas não passou pela trilha — então
-  // só temos raw_text). O modelo extrai experiências/educação/skills DO TEXTO
-  // e adapta. Validador depois confirma que cada item retornado de fato
-  // aparece no raw_text (substring normalizada).
-  //
-  // Quando o usuário TEM dados estruturados, não mandamos raw_text pra evitar
-  // diluir o sinal e tentar invenção.
+  // Detecta modo: structured (tem experiências/educação parseadas) ou
+  // cv-only (só raw_text). No CV-only, o `profile.name` pode estar
+  // desatualizado (ex: "da ava" placeholder) enquanto o CV traz o nome
+  // real. Então NÃO impomos profile.fullName como imutável — instruímos
+  // a IA a extrair tudo do CV.
   const hasStructured =
     input.experiences.length > 0 ||
     input.education.length > 0 ||
     input.skills.length > 0
-  if (!hasStructured && input.importedCvText && input.importedCvText.length > 100) {
-    // Limita a 5000 chars (suficiente pra um CV completo, evita custo alto).
-    const cv = input.importedCvText.slice(0, 5000)
+  const cvOnly = !hasStructured && !!input.importedCvText && input.importedCvText.length > 100
+
+  lines.push('## CURRÍCULO ORIGINAL DO CANDIDATO (fonte de verdade)')
+  lines.push('')
+
+  if (cvOnly) {
+    // No modo CV-only, o CV bruto É a fonte de verdade. Tudo vem dele.
+    lines.push('### CV importado (texto bruto extraído do PDF — fonte de verdade absoluta)')
+    lines.push('EXTRAIA do texto abaixo: nome completo, email, telefone, LinkedIn, localização, resumo, skills, experiências (com bullets), formação. Não invente nada que não esteja aqui. Não use dados de outras fontes.')
     lines.push('')
-    lines.push('### CV importado (texto bruto extraído do PDF — fonte de verdade)')
-    lines.push('Os dados estruturados estão vazios; extraia experiências, educação e skills DESTE texto. Não invente nada que não esteja aqui.')
+    lines.push('REGRA CRÍTICA PARA SKILLS: Liste APENAS skills que aparecem TEXTUALMENTE no CV abaixo, palavra por palavra. NÃO infira skills correlatas (ex: se o CV diz "Gestão de projetos", você NÃO pode adicionar "Organização", "Liderança" ou "Planejamento" — só pode usar "Gestão de projetos" como está). Copie skills EXATAMENTE como escritas no CV.')
+    lines.push('')
+    lines.push('REGRA CRÍTICA PARA EXPERIÊNCIAS: Use APENAS empresas/cargos/períodos que aparecem TEXTUALMENTE no CV. Se o CV diz "CEO @ Stage", retorne EXATAMENTE "CEO" e "Stage" — não invente subtítulos nem mude palavras.')
+    lines.push('')
+    lines.push('REGRA CRÍTICA PARA LOCALIZAÇÃO/CONTATO: A localização, telefone, email, LinkedIn do CANDIDATO são os que estão no TOPO do CV abaixo. NUNCA copie a localização da VAGA pro candidato. Se o CV diz "Londrina - PR", a localização do candidato é "Londrina - PR" (NÃO a da vaga).')
     lines.push('---')
-    lines.push(cv)
+    lines.push(input.importedCvText!.slice(0, 5000))
     lines.push('---')
+  } else {
+    // Modo structured: dados pessoais do profile são fonte de verdade.
+    lines.push('### Dados pessoais (IMUTÁVEIS — copie exato)')
+    lines.push(`Nome: ${input.fullName}`)
+    if (input.email) lines.push(`Email: ${input.email}`)
+    if (input.phone) lines.push(`Telefone: ${input.phone}`)
+    if (input.linkedin) lines.push(`LinkedIn: ${input.linkedin}`)
+    if (input.location) lines.push(`Localização: ${input.location}`)
+
+    if (input.summary) {
+      lines.push('')
+      lines.push('### Resumo atual')
+      lines.push(input.summary)
+    }
+
+    if (input.skills.length > 0) {
+      lines.push('')
+      lines.push('### Skills atuais (você pode reordenar/remover, NÃO adicionar)')
+      lines.push(input.skills.join(' | '))
+    }
+
+    if (input.experiences.length > 0) {
+      lines.push('')
+      lines.push('### Experiências (datas/empresas/cargos IMUTÁVEIS — bullets podem ser reformulados)')
+      for (let i = 0; i < input.experiences.length; i++) {
+        const e = input.experiences[i]
+        lines.push(`[${i}] ${e.role} @ ${e.company} (${e.period}${e.location ? ', ' + e.location : ''})`)
+        if (e.description) {
+          const bullets = e.description.split('\n').map((b) => b.trim()).filter(Boolean)
+          bullets.forEach((b) => lines.push(`    • ${b}`))
+        }
+      }
+    }
+
+    if (input.education.length > 0) {
+      lines.push('')
+      lines.push('### Formação (IMUTÁVEL)')
+      input.education.forEach((e) => {
+        lines.push(`- ${e.degree} @ ${e.institution} (${e.period}${e.location ? ', ' + e.location : ''})`)
+        if (e.details) lines.push(`  ${e.details}`)
+      })
+    }
+
+    if (input.achievements.length > 0) {
+      lines.push('')
+      lines.push('### Conquistas (IMUTÁVEL — pode reordenar/omitir)')
+      input.achievements.forEach((a) => lines.push(`- ${a}`))
+    }
+
+    if (input.interests.length > 0) {
+      lines.push('')
+      lines.push(`### Interesses: ${input.interests.join(', ')}`)
+    }
   }
 
   lines.push('')
@@ -510,7 +528,9 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<{
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        temperature: 0.3,
+        // Temperature baixa (0.1) pra reduzir inferência criativa. Adaptação
+        // de currículo é trabalho de fidelidade, não de geração livre.
+        temperature: 0.1,
         max_tokens: 2500,
         response_format: { type: 'json_schema', json_schema: JSON_SCHEMA },
       }),
@@ -552,33 +572,72 @@ function validateAdaptation(input: InputResume, parsed: any): void {
   const r = parsed?.resume
   if (!r || typeof r !== 'object') throw new ValidationError('resume', 'objeto ausente')
 
-  // 1. Dados imutáveis batem 100% (não vazio quando original é não vazio,
-  // valor exato quando presente).
-  if (input.fullName && !eq(r.fullName, input.fullName)) {
-    throw new ValidationError('fullName', `mudou: "${input.fullName}" → "${r.fullName}"`)
-  }
-  if (input.email && !eq(r.email, input.email)) {
-    throw new ValidationError('email', `mudou`)
-  }
-  if (input.phone && !eq(r.phone, input.phone)) {
-    throw new ValidationError('phone', `mudou`)
-  }
-  if (input.linkedin && !eq(r.linkedin, input.linkedin)) {
-    throw new ValidationError('linkedin', `mudou`)
-  }
-  if (input.location && !eq(r.location, input.location)) {
-    throw new ValidationError('location', `mudou`)
-  }
-
   // Modo de validação:
   // - "structured": user tem experiências/educação estruturadas → matching
   //   estrito por (company, role) / (institution, degree).
   // - "cv-only": user só tem raw_text do CV → validamos que cada empresa /
-  //   instituição da resposta APARECE como substring (normalizada) no CV.
-  //   Isso evita invenção sem exigir parser perfeito.
-  const cvNorm = input.importedCvText ? normalize(input.importedCvText) : ''
+  //   instituição / nome / email da resposta APARECE como substring
+  //   (normalizada + whitespace flat) no CV. Isso evita invenção sem exigir
+  //   parser perfeito.
+  //
+  // Usamos `flatten` (que colapsa whitespace) pra comparar contra raw_text
+  // do PDF — o extractor costuma quebrar cada palavra em \n separado, então
+  // `normalize()` puro não bateria em "Liga de Mercado Financeiro" vs
+  // "Liga\nde\nMercado\nFinanceiro".
+  const cvFlat = input.importedCvText ? flatten(input.importedCvText) : ''
   const hasStructuredExperiences = input.experiences.length > 0
   const hasStructuredEducation = input.education.length > 0
+  const cvOnlyMode = !hasStructuredExperiences && !hasStructuredEducation && !!cvFlat
+
+  // 1. Dados imutáveis
+  // Em modo CV-only, o profile.name pode estar desatualizado ("da ava") mas
+  // o CV tem o nome real do candidato. Aceitamos que fullName/email venham
+  // do CV — desde que apareçam no raw_text.
+  // Campos secundários (phone/linkedin/location): se a IA inventou (ex:
+  // pegou localização da vaga em vez do candidato), zeramos silenciosamente
+  // em vez de derrubar a adaptação inteira. Currículo gerado fica com
+  // campo vazio, mas o resto da adaptação é válido.
+  if (cvOnlyMode) {
+    // Estritos: fullName e email (críticos pra identificação)
+    const strictChecks: Array<[string, string | undefined]> = [
+      ['fullName', r.fullName],
+      ['email', r.email],
+    ]
+    for (const [field, value] of strictChecks) {
+      if (!value) continue
+      const v = flatten(String(value))
+      if (v && !cvFlat.includes(v)) {
+        throw new ValidationError(field, `"${value}" não aparece no CV`)
+      }
+    }
+    // Tolerantes: phone, linkedin, location → zera se não bater
+    const lenientFields: Array<'phone' | 'linkedin' | 'location'> = ['phone', 'linkedin', 'location']
+    for (const field of lenientFields) {
+      const value = r[field]
+      if (!value) continue
+      const v = flatten(String(value))
+      if (v && !cvFlat.includes(v)) {
+        console.warn(`[adapt-resume] clearing invented ${field}: "${value}"`)
+        r[field] = ''
+      }
+    }
+  } else {
+    if (input.fullName && !eq(r.fullName, input.fullName)) {
+      throw new ValidationError('fullName', `mudou: "${input.fullName}" → "${r.fullName}"`)
+    }
+    if (input.email && !eq(r.email, input.email)) {
+      throw new ValidationError('email', `mudou`)
+    }
+    if (input.phone && !eq(r.phone, input.phone)) {
+      throw new ValidationError('phone', `mudou`)
+    }
+    if (input.linkedin && !eq(r.linkedin, input.linkedin)) {
+      throw new ValidationError('linkedin', `mudou`)
+    }
+    if (input.location && !eq(r.location, input.location)) {
+      throw new ValidationError('location', `mudou`)
+    }
+  }
 
   // 2. Experiências
   if (!Array.isArray(r.experiences)) {
@@ -618,16 +677,16 @@ function validateAdaptation(input: InputResume, parsed: any): void {
         )
       }
     }
-  } else if (cvNorm) {
+  } else if (cvFlat) {
     // Modo CV-only: cada experiência precisa ter empresa que apareça no CV.
     // Cap em 8 experiências (CV típico tem 1-5; 8 é generoso).
     if (r.experiences.length > 8) {
       throw new ValidationError('experiences', `excesso: ${r.experiences.length}`)
     }
     for (const exp of r.experiences) {
-      const company = normalize(String(exp.company ?? ''))
+      const company = flatten(String(exp.company ?? ''))
       if (!company) continue
-      if (!cvNorm.includes(company)) {
+      if (!cvFlat.includes(company)) {
         throw new ValidationError(
           'experiences',
           `empresa "${exp.company}" não aparece no CV`,
@@ -658,14 +717,14 @@ function validateAdaptation(input: InputResume, parsed: any): void {
         )
       }
     }
-  } else if (cvNorm) {
+  } else if (cvFlat) {
     if (r.education.length > 5) {
       throw new ValidationError('education', `excesso: ${r.education.length}`)
     }
     for (const ed of r.education) {
-      const inst = normalize(String(ed.institution ?? ''))
+      const inst = flatten(String(ed.institution ?? ''))
       if (!inst) continue
-      if (!cvNorm.includes(inst)) {
+      if (!cvFlat.includes(inst)) {
         throw new ValidationError(
           'education',
           `instituição "${ed.institution}" não aparece no CV`,
@@ -676,25 +735,56 @@ function validateAdaptation(input: InputResume, parsed: any): void {
     throw new ValidationError('education', 'sem fonte de dados')
   }
 
-  // 4. Skills: cada skill da resposta tem que estar no input OU no
-  //    keyword pool (CV bruto + skills + experiências).
+  // 4. Skills: validação anti-invenção
+  //    - Modo structured: skill deve estar no input.skills OU ter todos os
+  //      tokens significativos no keywordPool (CV + experiences + ...).
+  //    - Modo CV-only: skill DEVE aparecer textualmente no CV bruto
+  //      (flatten/substring). A IA pode reescrever espacamento mas não pode
+  //      inventar palavras novas. Permite tolerância de até 1 skill rejeitada
+  //      silenciosamente em vez de derrubar tudo — é comum a IA tentar
+  //      melhorar 1-2 itens mesmo com prompt forte.
   if (!Array.isArray(r.skills)) throw new ValidationError('skills', 'não é array')
   if (r.skills.length > 15) {
     throw new ValidationError('skills', `excesso: ${r.skills.length} skills`)
   }
   const originalSkillsNorm = new Set(input.skills.map((s) => normalize(s)))
+  const filteredSkills: string[] = []
+  let droppedSkills = 0
   for (const s of r.skills) {
     const sNorm = normalize(s)
     if (!sNorm) continue
-    if (originalSkillsNorm.has(sNorm)) continue
-    // Permite se cada token da skill está no pool.
-    const tokens = tokenize(s)
-    if (tokens.length === 0) continue
-    const allInPool = tokens.every((t) => input.keywordPool.has(t))
-    if (!allInPool) {
-      throw new ValidationError('skills', `skill inventada: "${s}"`)
+    if (originalSkillsNorm.has(sNorm)) {
+      filteredSkills.push(s)
+      continue
+    }
+
+    let accepted = false
+    if (cvFlat) {
+      // CV-only: substring no CV achatado (cobre "Gestão de projetos" mesmo
+      // que o PDF venha como "Gestão\nde\nprojetos").
+      const sFlat = flatten(s)
+      if (sFlat && cvFlat.includes(sFlat)) accepted = true
+    } else {
+      // structured: todos tokens significativos têm que estar no pool.
+      const tokens = tokenize(s)
+      if (tokens.length > 0 && tokens.every((t) => input.keywordPool.has(t))) {
+        accepted = true
+      }
+    }
+
+    if (accepted) {
+      filteredSkills.push(s)
+    } else {
+      droppedSkills++
+      console.warn(`[adapt-resume] dropping invented skill: "${s}"`)
     }
   }
+  // Atualiza a resposta in-place: skills inventadas são silenciosamente
+  // removidas (até 3). Se a IA inventou MAIS que 3, considera má fé e rejeita.
+  if (droppedSkills > 3) {
+    throw new ValidationError('skills', `${droppedSkills} skills inventadas`)
+  }
+  r.skills = filteredSkills
 
   // 5. Achievements: subset (case-insensível) ou reformulação que
   //    ainda esteja contida em algum original. Mantemos checagem
@@ -717,42 +807,66 @@ function validateAdaptation(input: InputResume, parsed: any): void {
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * Estima upgrade de match: conta quantas palavras-chave dos requisitos da
- * vaga aparecem no resume original vs adaptado. Retorna {before, after} de
- * 0 a 100. Heurístico, mas dá um sinal motivacional ao user.
+ * Calcula upgrade de match. O "before" usa o SCORE REAL que o usuário já vê
+ * no card de swipe (de `match_analyses`, o cache do analyze-match) — garante
+ * consistência conceitual: o sheet começa do mesmo número que o card mostra.
+ *
+ * O "after" estima o ganho da adaptação contando quantos requisitos da vaga
+ * passaram a estar TEXTUALMENTE no CV adaptado mas NÃO estavam no original.
+ * Cada requisito novo vale ~3 pontos, cap de +20 pontos total. Garante que
+ * after >= before (a adaptação nunca regride).
+ *
+ * Se não há `beforeScore` (sem cache de match_analyses ainda), retorna o
+ * mesmo valor pros dois — UI não mostra upgrade nesse caso.
  */
 function computeMatchUpgrade(
   input: InputResume,
   adapted: any,
   job: JobContext,
+  beforeScore: number | undefined,
 ): { before: number; after: number } {
+  // Sem score real cacheado → não conseguimos mostrar upgrade significativo.
+  if (beforeScore == null) {
+    return { before: 0, after: 0 }
+  }
+
   const reqTokens = new Set<string>()
   for (const r of job.requirements) tokenize(r).forEach((t) => reqTokens.add(t))
   tokenize(job.description).forEach((t) => reqTokens.add(t))
-  if (reqTokens.size === 0) return { before: 50, after: 50 }
-
-  function countMatches(skills: string[], experiences: any[], summary: string): number {
-    const text = [
-      ...skills,
-      ...experiences.map((e: any) => `${e.role} ${e.description ?? ''}`),
-      summary,
-    ].join(' ')
-    const tokens = new Set(tokenize(text))
-    let n = 0
-    for (const t of reqTokens) if (tokens.has(t)) n++
-    return n
+  if (reqTokens.size === 0) {
+    return { before: beforeScore, after: beforeScore }
   }
 
-  const before = countMatches(input.skills, input.experiences, input.summary)
-  const after = countMatches(
-    adapted.skills ?? [],
-    adapted.experiences ?? [],
-    adapted.summary ?? '',
-  )
+  // Texto "original" do candidato: structured se tem, senão raw_text do CV.
+  const originalText = input.importedCvText && input.importedCvText.length > 0
+    ? input.importedCvText
+    : [
+        ...input.skills,
+        ...input.experiences.map((e) => `${e.role} ${e.description}`),
+        input.summary,
+      ].join(' ')
+  const originalTokens = new Set(tokenize(originalText))
 
-  const beforePct = Math.min(100, Math.round((before / reqTokens.size) * 100) + 30)
-  const afterPct = Math.min(100, Math.round((after / reqTokens.size) * 100) + 30)
-  return { before: beforePct, after: Math.max(afterPct, beforePct) }
+  // Texto "adaptado" (skills + experiences + summary da resposta).
+  const adaptedText = [
+    ...(Array.isArray(adapted.skills) ? adapted.skills : []),
+    ...(Array.isArray(adapted.experiences)
+      ? adapted.experiences.map((e: any) => `${e.role ?? ''} ${e.description ?? ''}`)
+      : []),
+    adapted.summary ?? '',
+  ].join(' ')
+  const adaptedTokens = new Set(tokenize(adaptedText))
+
+  // Requisitos que agora estão no CV adaptado mas NÃO estavam no original.
+  let newReqMatches = 0
+  for (const t of reqTokens) {
+    if (adaptedTokens.has(t) && !originalTokens.has(t)) newReqMatches++
+  }
+
+  // Cada novo requisito vale ~3 pontos, cap em +20 (adaptação não faz milagre).
+  const delta = Math.min(20, newReqMatches * 3)
+  const after = Math.min(100, beforeScore + delta)
+  return { before: beforeScore, after }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -806,16 +920,20 @@ serve(async (req) => {
       )
     }
 
-    // 4. Fetch em paralelo: job + companies, profile
+    // 4. Fetch em paralelo: job + companies, profile.
+    //    Profile lido via service role pra bypass de RLS — o user.id vem
+    //    do JWT validado, então é o próprio usuário; não há leak.
+    //    Caso contrário, RLS pode esconder o profile e a função pensa que
+    //    o perfil está vazio quando na verdade está bloqueado por permissão.
     const [jobR, profileR] = await Promise.all([
       supabaseClient
         .from('jobs')
         .select('*, companies(name)')
         .eq('id', jobId)
         .maybeSingle(),
-      supabaseClient
+      supabaseAdmin
         .from('user_profiles')
-        .select('id, name, email, phone, location, gamification_data')
+        .select('id, name, email, gamification_data')
         .eq('id', user.id)
         .maybeSingle(),
     ])
@@ -848,8 +966,21 @@ serve(async (req) => {
       gamification_data: {},
     }
 
+    // DEBUG: log do que chegou pra debugar quando user reporta profile_incomplete
+    const _gd: any = profileFallback?.gamification_data ?? {}
+    const _imp = _gd?.imported_resume ?? {}
+    console.log(`[adapt-resume] user=${user.id} email=${user.email} ` +
+      `profileRowExists=${!!profileR.data} ` +
+      `name="${profileFallback?.name ?? ''}" ` +
+      `rawTextLen=${typeof _imp?.raw_text === 'string' ? _imp.raw_text.length : 0} ` +
+      `hasParsed=${!!_imp?.parsed} ` +
+      `hasWhoIAm=${!!_gd?.whoIAm?.derived}`)
+
     const input = buildInputResume(profileFallback)
     if (!input) {
+      console.warn(`[adapt-resume] profile_incomplete for user=${user.id}: ` +
+        `fullName="${profileFallback?.name ?? ''}" ` +
+        `rawTextLen=${typeof _imp?.raw_text === 'string' ? _imp.raw_text.length : 0}`)
       return jsonResponse(
         {
           error: 'profile_incomplete',
@@ -858,6 +989,10 @@ serve(async (req) => {
         422,
       )
     }
+    console.log(`[adapt-resume] input built: fullName="${input.fullName}" ` +
+      `experiences=${input.experiences.length} education=${input.education.length} ` +
+      `skills=${input.skills.length} summary=${input.summary.length}chars ` +
+      `importedCv=${input.importedCvText?.length ?? 0}chars`)
 
     // 5. Cache lookup
     const sourceHash = await sha256Hex(pickInputForHash(input) + '|' + jobId)
@@ -888,7 +1023,9 @@ serve(async (req) => {
 
     // 6. Call OpenAI
     const userPrompt = buildUserPrompt(input, job)
+    console.log(`[adapt-resume] calling OpenAI (prompt ${userPrompt.length} chars)`)
     const ai = await callOpenAI(SYSTEM_PROMPT, userPrompt)
+    console.log(`[adapt-resume] OpenAI responded (${ai.totalTokens} tokens)`)
 
     let parsed: any
     try {
@@ -914,11 +1051,23 @@ serve(async (req) => {
       )
     }
 
-    // 8. Match score upgrade (heurístico)
-    const matchUpgrade = computeMatchUpgrade(input, parsed.resume, job)
+    // 8. Match score upgrade
+    // Pegamos o score REAL do analyze-match (cache em match_analyses) pra
+    // usar como "before" — assim o sheet começa do mesmo número que o card
+    // de swipe mostra. Sem isso, before/after eram inventados e não batiam
+    // com o que o user vê no resto da app.
+    const matchAnalysisR = await supabaseAdmin
+      .from('match_analyses')
+      .select('score')
+      .eq('user_id', user.id)
+      .eq('job_id', jobId)
+      .maybeSingle()
+    const realMatchScore = (matchAnalysisR.data?.score as number | undefined)
+    const matchUpgrade = computeMatchUpgrade(input, parsed.resume, job, realMatchScore)
+    console.log(`[adapt-resume] match upgrade: before=${matchUpgrade.before} after=${matchUpgrade.after} (real cached: ${realMatchScore ?? 'none'})`)
 
     // 9. Persiste cache (service role bypassa RLS)
-    await supabaseAdmin.from('adapted_resumes').upsert(
+    const upsertR = await supabaseAdmin.from('adapted_resumes').upsert(
       {
         user_id: user.id,
         job_id: jobId,
@@ -933,6 +1082,11 @@ serve(async (req) => {
       },
       { onConflict: 'user_id,job_id' },
     )
+    if (upsertR.error) {
+      console.error(`[adapt-resume] upsert failed:`, upsertR.error)
+    } else {
+      console.log(`[adapt-resume] upsert OK`)
+    }
 
     await supabaseClient.from('ai_generation_logs').insert({
       user_id: user.id,
@@ -940,6 +1094,9 @@ serve(async (req) => {
       tokens_used: ai.totalTokens,
     })
 
+    console.log(`[adapt-resume] SUCCESS user=${user.id} job=${jobId} ` +
+      `changes=${parsed.changes?.length ?? 0} ` +
+      `score=${matchUpgrade.before}→${matchUpgrade.after}`)
     return jsonResponse({
       changes: parsed.changes,
       resume_data: parsed.resume,

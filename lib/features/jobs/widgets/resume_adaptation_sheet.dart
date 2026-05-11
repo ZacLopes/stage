@@ -65,9 +65,18 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
   bool _isExporting = false;
   bool _retrying = false;
 
+  /// Lock pra prevenir chamadas paralelas de `_adapt`. Sem isso, taps
+  /// rápidos em "Tentar de novo" criam duas Futures concorrentes — a
+  /// que resolve por último sobrescreve o estado da primeira, causando
+  /// UI piscando entre loading/sucesso/erro.
+  bool _adapting = false;
+
   // Animações
   late final AnimationController _scoreController;
-  late final Animation<int> _scoreAnimation;
+  // Reatribuído quando o resultado chega (em _animateScoreUpgrade), por isso
+  // não é `final` — apenas `late`. Foi um bug com `late final`: tentar
+  // reatribuir lança LateInitializationError.
+  late Animation<int> _scoreAnimation;
 
   // Loading message rotation (pra latência não parecer travada)
   Timer? _loadingMessageTimer;
@@ -113,24 +122,62 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
   }
 
   Future<void> _adapt({bool force = false}) async {
+    if (_adapting) {
+      // Já tem chamada em voo — ignora tap duplo / re-entrada.
+      return;
+    }
+    _adapting = true;
     setState(() {
       _isLoading = true;
       _error = null;
       if (force) _retrying = true;
     });
+
+    AdaptedResume? result;
     try {
-      final result = await _aiService.adaptResume(widget.job.id, force: force);
+      result = await _aiService.adaptResume(widget.job.id, force: force);
+    } catch (e, stack) {
+      // Logamos pra rastrear erros assíncronos que não viram
+      // ResumeAdaptationException — ex: timeout não-formatado, http error
+      // não previsto no AIService.
+      // ignore: avoid_print
+      print('[ResumeAdaptationSheet] adaptResume failed: $e');
+      // ignore: avoid_print
+      print('[ResumeAdaptationSheet] stack: $stack');
       if (!mounted) return;
+      setState(() {
+        _error = e;
+        _isLoading = false;
+        _retrying = false;
+      });
+      return;
+    } finally {
+      _adapting = false;
+    }
+
+    if (!mounted) return;
+    // Tudo daqui pra baixo é caminho feliz: aplica state + roda animação.
+    // Qualquer crash aqui é bug no client (não erro de IA) — log + cai pro
+    // estado de erro com mensagem clara.
+    try {
       setState(() {
         _adapted = result;
         _isLoading = false;
         _retrying = false;
+        _error = null;
       });
       _animateScoreUpgrade(result);
-    } catch (e) {
+    } catch (e, stack) {
+      // ignore: avoid_print
+      print('[ResumeAdaptationSheet] post-success crash: $e');
+      // ignore: avoid_print
+      print('[ResumeAdaptationSheet] stack: $stack');
       if (!mounted) return;
       setState(() {
-        _error = e;
+        _error = ResumeAdaptationException(
+          'render_error',
+          'Erro ao mostrar o resultado: $e',
+        );
         _isLoading = false;
         _retrying = false;
       });
@@ -195,7 +242,11 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
               _buildDragHandle(),
               _buildHeader(),
               Expanded(child: _buildBody(scrollController)),
-              if (_adapted != null && _error == null) _buildFooter(mq),
+              // Footer só aparece no estado de sucesso "limpo" — sem
+              // loading, sem erro. Evita "Baixar PDF" piscando enquanto
+              // uma nova chamada está em voo.
+              if (_adapted != null && _error == null && !_isLoading)
+                _buildFooter(mq),
             ],
           ),
         );

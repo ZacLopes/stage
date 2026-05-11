@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/job.dart';
 import '../models/user_preferences.dart';
@@ -25,7 +27,12 @@ class JobFetchResult {
 class JobRepository {
   final SupabaseClient _client = Supabase.instance.client;
 
-  static const int _pageSize = 10;
+  // Sem cap prático: carregamos todas as vagas ativas elegíveis numa
+  // única sessão. O `CardSwiper` exige array imutável durante a sessão
+  // (mexer descincroniza current-index), então paginação progressiva
+  // exigiria refactor. Quando o user esgota o feed, ViewModel faz reload
+  // automático pra pegar novas vagas que entraram via sync.
+  static const int _pageSize = 5000;
 
   /// Fetches active jobs, filtered by user preferences and excluding already-swiped jobs.
   /// Uses Supabase's select with `companies(*)` for the JOIN.
@@ -97,7 +104,13 @@ class JobRepository {
 
       final totalAfterFilters = jobs.length;
 
-      // 5. Paginate
+      // 5. Embaralha a lista pra cada sessão ver vagas em ordem diferente.
+      // Sem isso, o user sempre via as mesmas vagas no topo (`published_at DESC`)
+      // e o engajamento caía. Random sem seed = cada fetch tem ordem nova,
+      // que combina bem com auto-reload.
+      jobs.shuffle(Random());
+
+      // 6. Paginate
       final start = page * _pageSize;
       if (start >= jobs.length) {
         return JobFetchResult(
