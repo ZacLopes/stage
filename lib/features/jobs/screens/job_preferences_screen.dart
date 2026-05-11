@@ -26,6 +26,7 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen> {
   Set<String> _selectedWorkModels = {};
   Set<String> _selectedJobTypes = {};
   int? _minSalary; // em centavos
+  int? _minMatchScore; // 0-100, null = sem filtro
   bool _loaded = false;
   bool _saving = false;
 
@@ -108,6 +109,7 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen> {
         _selectedWorkModels = Set<String>.from(prefs.workModels);
         _selectedJobTypes = Set<String>.from(prefs.jobTypes);
         _minSalary = prefs.minSalary;
+        _minMatchScore = prefs.minMatchScore;
       });
     }
   }
@@ -120,6 +122,7 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen> {
     if (_selectedWorkModels.isNotEmpty) n++;
     if (_selectedJobTypes.isNotEmpty) n++;
     if (_minSalary != null && _minSalary! > 0) n++;
+    if (_minMatchScore != null && _minMatchScore! > 0) n++;
     return n;
   }
 
@@ -131,13 +134,15 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen> {
           _selectedLocations.isNotEmpty ||
           _selectedWorkModels.isNotEmpty ||
           _selectedJobTypes.isNotEmpty ||
-          (_minSalary != null && _minSalary! > 0);
+          (_minSalary != null && _minSalary! > 0) ||
+          (_minMatchScore != null && _minMatchScore! > 0);
     }
     return !_setEq(_selectedAreas, prefs.areas.toSet()) ||
         !_setEq(_selectedLocations, prefs.locations.toSet()) ||
         !_setEq(_selectedWorkModels, prefs.workModels.toSet()) ||
         !_setEq(_selectedJobTypes, prefs.jobTypes.toSet()) ||
-        _minSalary != prefs.minSalary;
+        _minSalary != prefs.minSalary ||
+        _minMatchScore != prefs.minMatchScore;
   }
 
   bool _setEq(Set<String> a, Set<String> b) {
@@ -159,6 +164,7 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen> {
         workModels: _selectedWorkModels.toList(),
         jobTypes: _selectedJobTypes.toList(),
         minSalary: _minSalary,
+        minMatchScore: _minMatchScore,
       );
       await vm.savePreferences(prefs);
     } catch (_) {
@@ -182,6 +188,7 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen> {
       _selectedWorkModels = {};
       _selectedJobTypes = {};
       _minSalary = null;
+      _minMatchScore = null;
     });
   }
 
@@ -277,6 +284,8 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen> {
                       : '${_selectedJobTypes.length} selecionado(s)',
                   child: _buildPairChips(_jobTypes, _selectedJobTypes, _toggleJobType),
                 ),
+                const SizedBox(height: 16),
+                _buildMatchScoreSection(),
                 const SizedBox(height: 16),
                 _buildSalarySection(),
                 const SizedBox(height: 8),
@@ -491,6 +500,181 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen> {
           onTap: () => onToggle(item.key),
         );
       }).toList(),
+    );
+  }
+
+  // ── Match Score section ────────────────────────────────────────────
+  /// Filtro por match score (0-100). null/0 = sem filtro. Score combina
+  /// análise IA cacheada + fallback determinístico (calculado client-side
+  /// no JobsViewModel).
+  Widget _buildMatchScoreSection() {
+    final hasValue = _minMatchScore != null && _minMatchScore! > 0;
+    final value = (_minMatchScore ?? 0).toDouble();
+
+    // Cor dinâmica baseada no nível selecionado (verde alto, amber médio, neutro baixo)
+    final accent = !hasValue
+        ? _textMuted
+        : value >= 80
+            ? const Color(0xFF10B981)
+            : value >= 60
+                ? const Color(0xFF3B82F6)
+                : const Color(0xFFF59E0B);
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      _indigo.withOpacity(0.12),
+                      _purple.withOpacity(0.12),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.auto_awesome_rounded, size: 18, color: _indigo),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Match score mínimo',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: _textPrimary,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Só mostra vagas com afinidade alta com você',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _textMuted,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (hasValue)
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  color: _textMuted,
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _minMatchScore = null);
+                  },
+                  splashRadius: 18,
+                  tooltip: 'Limpar',
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                ShaderMask(
+                  shaderCallback: (b) => hasValue
+                      ? LinearGradient(colors: [accent, accent]).createShader(b)
+                      : const LinearGradient(colors: [_textMuted, _textMuted])
+                          .createShader(b),
+                  child: Text(
+                    hasValue ? '${value.toInt()}' : 'Off',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.8,
+                      height: 1,
+                    ),
+                  ),
+                ),
+                if (hasValue)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4, left: 2),
+                    child: Text(
+                      '/100',
+                      style: TextStyle(
+                        color: _textMuted,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: accent,
+              inactiveTrackColor: _border,
+              thumbColor: Colors.white,
+              overlayColor: accent.withOpacity(0.12),
+              trackHeight: 4,
+              thumbShape: const RoundSliderThumbShape(
+                enabledThumbRadius: 10,
+                elevation: 4,
+              ),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
+            ),
+            child: Slider(
+              value: value.clamp(0.0, 100.0),
+              min: 0,
+              max: 100,
+              divisions: 20, // step de 5 em 5 — granularidade suficiente
+              onChanged: (val) {
+                HapticFeedback.selectionClick();
+                setState(() {
+                  _minMatchScore = val > 0 ? val.toInt() : null;
+                });
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: const [
+                Text('Qualquer',
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: _textMuted,
+                        fontWeight: FontWeight.w600)),
+                Text('Excelente fit',
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: _textMuted,
+                        fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

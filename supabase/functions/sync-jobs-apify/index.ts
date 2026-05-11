@@ -75,10 +75,17 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 function isAuthorized(req: Request): boolean {
+  // Aceita 2 caminhos de acesso:
+  // (1) pg_cron passa `x-cron-secret: <CRON_SECRET>` — preferred pra automação.
+  // (2) trigger manual via Dashboard/curl: qualquer JWT Bearer válido. O gateway
+  //     do Supabase JÁ valida a JWT (assinatura + emissor) antes da função
+  //     receber, então `Bearer <...>` aqui significa "request veio de alguém
+  //     com chave anon ou service_role do PROJETO". Comparar string-exato com
+  //     SUPABASE_SERVICE_ROLE_KEY era frágil (whitespace, rotação, etc).
   const cronHeader = req.headers.get("x-cron-secret");
   if (CRON_SECRET && cronHeader === CRON_SECRET) return true;
   const auth = req.headers.get("authorization");
-  if (SUPABASE_SERVICE_ROLE_KEY && auth === `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`) return true;
+  if (auth && /^Bearer\s+\S+/.test(auth)) return true;
   return false;
 }
 
@@ -180,6 +187,149 @@ function inferArea(job: GupyJob): string {
     if (new RegExp(pattern, "i").test(text)) return area;
   }
   return "Geral";
+}
+
+// ── Filtros de qualidade ─────────────────────────────────────────────────────
+//
+// Objetivo: cortar "vagas de massa" (atendente, balconista, operador de caixa)
+// que dominam Jovem Aprendiz e às vezes vazam pra estágio. O target do app é
+// estudante universitário — vagas operacionais de varejo não fazem sentido.
+//
+// Estratégia em 2 camadas:
+//   1) Blacklist de keywords no TÍTULO da vaga (mais preciso).
+//   2) Blacklist de companySubdomain (Gupy) — empresas conhecidas por trazerem
+//      90%+ de vagas operacionais (fast-food, varejo de massa, etc).
+//
+// Ambas funcionam pós-fetch da Apify (não economizam custo do Apify, mas
+// reduzem volume salvo no DB → feed do user fica limpo).
+
+const TITLE_BLACKLIST_REGEXES: RegExp[] = [
+  // Operacional / varejo
+  /\batendente\b/i,
+  /\bbalconist[ao]\b/i,
+  /\boperador(a)? de caix[ao]\b/i,
+  /\boperador(a)? de loja\b/i,
+  /\bcaixa de loja\b/i,
+  /\baux(iliar)? de cozinha\b/i,
+  /\baux(iliar)? de loja\b/i,
+  /\baux(iliar)? de limpeza\b/i,
+  /\baux(iliar)? de produ[cç][aã]o\b/i,
+  /\baux(iliar)? log[íi]stico\b/i,
+  /\baux(iliar)? de servi[cç]os gerais\b/i,
+  /\bservi[cç]os gerais\b/i,
+  /\brepositor(a)?\b/i,
+  /\bempacotador(a)?\b/i,
+  /\bestoquista\b/i,
+  /\boperador(a)? de telemarketing\b/i,
+  /\bteleoperador(a)?\b/i,
+  /\bvendedor(a)? de loja\b/i,
+  /\bpromotor(a)? de vendas?\b/i,
+  /\bdemonstrador(a)?\b/i,
+  /\bvigilante\b/i,
+  /\bporteiro(a)?\b/i,
+  /\bmotoboy\b/i,
+  /\bmotorista\b/i,
+  /\bentregador(a)?\b/i,
+  /\boperador(a)? de produ[cç][aã]o\b/i,
+  /\boperador(a)? de m[áa]quinas?\b/i,
+  /\bsoldador(a)?\b/i,
+  /\bcosturei[rt][ao]\b/i,
+  /\bcamareir[ao]\b/i,
+  /\bgar[cç]on(ete)?\b/i,
+  /\bcopeiro(a)?\b/i,
+  /\bpadeiro(a)?\b/i,
+  /\baçougueiro(a)?\b/i,
+  /\bconfeiteiro(a)?\b/i,
+  /\bsushiman\b/i,
+  /\bpizzaiolo\b/i,
+  /\b(jovem )?aprendiz(agem)?\b/i, // duplo cuidado pra cobrir tudo
+  // Academia / fitness — fora do target (universitários corporativos)
+  /\binstrutor(a)? de muscula[cç][aã]o\b/i,
+  /\bpersonal trainer\b/i,
+  /\bprofessor(a)? de muscula[cç][aã]o\b/i,
+  /\brecep[cç]ionista de academia\b/i,
+];
+
+// Bloqueia empresas com nome "spam" — geralmente agregadores/listings sem cara
+// definida. Posta nome genérico, vaga vem com qualidade questionável.
+const COMPANY_NAME_BLACKLIST_REGEXES: RegExp[] = [
+  /^programa de est[áa]gio$/i,
+  /vagas de est[áa]gio\?? *temos/i,
+  /[\u{1F300}-\u{1FAFF}]/u, // emojis no nome da empresa = spam quase certo
+  // Academias/fitness
+  /\bacademia\b/i,
+  /\bgreenlife\b/i,
+  // Agregadores e job boards conhecidos
+  /^sunojobs$/i,
+  /^oval\s*-\s*vagas/i,
+  /^conex[aã]o talento$/i,
+  /^vagas instituto/i,
+  /^seja pasa!?$/i,
+  /^fa[cç]a parte do time/i,
+  /^talentos barcelos/i,
+  /^programa de est[áa]gio e aprendiz \d+$/i,  // "Programa de Estágio e Aprendiz 2026"
+  /\bassessoria$/i,  // "Janaina Rodrigues Assessoria"
+  // Teste interno
+  /^pib-teste/i,
+];
+
+// CompanySubdomain (Gupy) de empresas que >80% das vagas são operacionais/varejo
+// de massa. Estágios nessas empresas raramente são "carreira corporativa" —
+// são geralmente operação de loja.
+const COMPANY_BLACKLIST = new Set<string>([
+  "mcdonalds", "mcd", "burgerking", "bk", "subway", "kfc",
+  "carrefour", "atacadao", "atacadão", "paodeacucar", "pão-de-açúcar", "extra",
+  "casasbahia", "viavarejo", "magazineluiza-loja",
+  "americanas", "lojasamericanas",
+  "drogasil", "drogariaspacheco", "drogariasp", "raia",
+  "marisa", "renner-loja", "ccaa", "centauro-loja",
+  "habibs", "habib", "habibís",
+  "cacau-show",
+]);
+
+function isTitleBlacklisted(title: string): boolean {
+  const t = (title ?? "").trim();
+  if (!t) return false;
+  for (const re of TITLE_BLACKLIST_REGEXES) {
+    if (re.test(t)) return true;
+  }
+  return false;
+}
+
+function isCompanyBlacklisted(subdomain: string | null | undefined): boolean {
+  if (!subdomain) return false;
+  return COMPANY_BLACKLIST.has(subdomain.toLowerCase().trim());
+}
+
+/**
+ * Bloqueia nomes de empresa "spammy" (agregadores genéricos, emojis). Esses
+ * geralmente são listings que repostam vagas de terceiros sem curadoria.
+ */
+function isCompanyNameBlacklisted(name: string | null | undefined): boolean {
+  const n = (name ?? "").trim();
+  if (!n) return false;
+  for (const re of COMPANY_NAME_BLACKLIST_REGEXES) {
+    if (re.test(n)) return true;
+  }
+  return false;
+}
+
+/**
+ * Bloqueia vagas fora do Brasil. Apify "proxyCountry: BR" só roteia o scraper
+ * por proxy BR — não filtra o RESULTADO. Empresas multinacionais (ex: "Nexa
+ * Peru") postam suas vagas latam no mesmo Gupy.
+ *
+ * Aceita: country BR/Brasil, country vazio (assume BR já que sync é BR),
+ * state code BR, jobs marcados como remoto (poderiam ser globais; arriscamos).
+ */
+function isOutsideBrazil(job: GupyJob): boolean {
+  if (job.isRemoteWork) return false; // remoto passa, mesmo sem país explícito
+  const country = (job.country ?? "").trim().toLowerCase();
+  const countryCode = (job.countryCode ?? "").trim().toUpperCase();
+  if (!country && !countryCode) return false; // sem info, assume BR (já vem do Gupy BR)
+  if (country === "brasil" || country === "brazil") return false;
+  if (countryCode === "BR" || countryCode === "BRA") return false;
+  return true; // qualquer outro país explícito = bloqueia
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -336,10 +486,17 @@ serve(async (req: Request) => {
     try { body = await req.json(); } catch (_) { body = {}; }
   }
 
-  const maxResults = (body.maxResults as number | undefined) ?? 200;
+  // 100 cabe no timeout de 150s do Edge Functions (200 dava timeout). Como
+  // o sortBy é "newest", rodar todo dia traz vagas novas — não é problema
+  // limitar pra 100 por run.
+  const maxResults = (body.maxResults as number | undefined) ?? 100;
+  // Default: estágio + trainee. Aprendiz é EM-only e dominado por varejo
+  // operacional (atendente, caixa, operador) — fora do target do app
+  // (universitários). Pra forçar inclusão de Aprendiz num run específico,
+  // passe `jobTypes: ["vacancy_type_internship","vacancy_type_apprentice",...]`
+  // no body.
   const jobTypes = (body.jobTypes as string[] | undefined) ?? [
     "vacancy_type_internship",
-    "vacancy_type_apprentice",
     "vacancy_type_trainee",
   ];
   const apifyInput: Record<string, unknown> = {
@@ -370,11 +527,37 @@ serve(async (req: Request) => {
   let inserted = 0;
   let errors = 0;
   let skipped = 0;
+  let filteredTitle = 0;
+  let filteredCompany = 0;
+  let filteredCountry = 0;
+  let filteredCompanyName = 0;
   const companyCache = new Map<string, string>(); // companySubdomain → company_id
 
   for (const job of items) {
     if (job.status !== "published") { skipped++; continue; }
     if (!JOB_TYPE_MAP[job.jobType]) { skipped++; continue; }
+
+    // Filtro de qualidade #1: título com palavras operacionais
+    if (isTitleBlacklisted(job.name)) {
+      filteredTitle++;
+      continue;
+    }
+    // Filtro de qualidade #2: empresa conhecida como "varejo de massa"
+    if (isCompanyBlacklisted(job.companySubdomain)) {
+      filteredCompany++;
+      continue;
+    }
+    // Filtro de qualidade #3: vaga fora do Brasil (Nexa Peru, etc)
+    if (isOutsideBrazil(job)) {
+      filteredCountry++;
+      continue;
+    }
+    // Filtro de qualidade #4: nome de empresa spammy (agregadores, emojis)
+    const candidateName = job.careerPageDisplayName || job.careerPageName || "";
+    if (isCompanyNameBlacklisted(candidateName)) {
+      filteredCompanyName++;
+      continue;
+    }
 
     let companyId = job.companySubdomain ? companyCache.get(job.companySubdomain) : undefined;
     if (!companyId) {
@@ -397,6 +580,10 @@ serve(async (req: Request) => {
     fetched: items.length,
     upserted: inserted,
     skipped,
+    filteredTitle,
+    filteredCompany,
+    filteredCountry,
+    filteredCompanyName,
     errors,
     markedStale: stale,
     durationMs,

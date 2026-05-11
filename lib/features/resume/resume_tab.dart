@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../data/models/models.dart';
+import '../../services/cv_import_service.dart';
 import '../auth/user_viewmodel.dart';
 import 'resume_viewmodel.dart';
 import 'pdf_service.dart';
 import 'resume_edit_screen.dart';
 import 'resume_templates.dart';
 import 'widgets/ai_consent_modal.dart';
+import 'widgets/import_cv_button.dart';
 import 'widgets/resume_template_selector.dart';
 import 'dart:async';
 
@@ -180,73 +182,7 @@ class _ResumeTabState extends State<ResumeTab> {
                              const SizedBox(height: 24),
                              
                              if (!resumeVM.isCourseCompleted && !resumeVM.isLoading) ...[
-                               Container(
-                                 height: MediaQuery.of(context).size.height * 0.5,
-                                 alignment: Alignment.center,
-                                 child: Column(
-                                   mainAxisAlignment: MainAxisAlignment.center,
-                                   children: [
-                                     Container(
-                                       padding: const EdgeInsets.all(24),
-                                       decoration: BoxDecoration(
-                                         color: Colors.grey[100],
-                                         shape: BoxShape.circle,
-                                       ),
-                                       child: Icon(Icons.lock_rounded, size: 64, color: Colors.grey[400]),
-                                     ),
-                                     const SizedBox(height: 24),
-                                     Text(
-                                       'Currículo Bloqueado',
-                                       style: TextStyle(
-                                         fontSize: 24,
-                                         fontWeight: FontWeight.w800,
-                                         color: Color(0xFF1F2937),
-                                         fontFamily: 'Outfit',
-                                         letterSpacing: -0.5,
-                                       ),
-                                     ),
-                                     const SizedBox(height: 12),
-                                     Padding(
-                                       padding: const EdgeInsets.symmetric(horizontal: 40),
-                                       child: Text(
-                                         'Complete todas as etapas da sua jornada para desbloquear o gerador de currículo com IA.',
-                                         textAlign: TextAlign.center,
-                                         style: TextStyle(
-                                           fontSize: 16,
-                                           color: Colors.grey[600],
-                                           height: 1.5,
-                                         ),
-                                       ),
-                                     ),
-                                     const SizedBox(height: 32),
-                                     SizedBox(
-                                       width: 200,
-                                       child: ElevatedButton.icon(
-                                         onPressed: () {
-                                            if (widget.onTabChange != null) {
-                                              widget.onTabChange!(1);
-                                            }
-                                         },
-                                         style: ElevatedButton.styleFrom(
-                                           backgroundColor: const Color(0xFF4F46E5),
-                                           foregroundColor: Colors.white,
-                                           padding: const EdgeInsets.symmetric(vertical: 16),
-                                           shape: RoundedRectangleBorder(
-                                             borderRadius: BorderRadius.circular(16),
-                                           ),
-                                           elevation: 4,
-                                           shadowColor: const Color(0xFF4F46E5).withOpacity(0.4),
-                                         ),
-                                         icon: const Icon(Icons.arrow_forward_rounded, size: 20),
-                                         label: const Text(
-                                           'Voltar para a Jornada',
-                                           style: TextStyle(fontWeight: FontWeight.bold),
-                                         ),
-                                       ),
-                                     ),
-                                   ],
-                                 ),
-                               )
+                               _buildLockedState(context, resumeVM),
                              ] else ...[
 
                              const SizedBox(height: 8),
@@ -413,6 +349,346 @@ class _ResumeTabState extends State<ResumeTab> {
     );
   }
 
+  /// Estado "Currículo Bloqueado" — usuário ainda não completou a jornada.
+  /// Apresenta 2 caminhos lado a lado, com hierarquia visual clara:
+  ///   1. (Recomendado) Construir pela trilha — gradient indigo, sugere ação principal.
+  ///   2. Importar CV existente — outlined, alternativa rápida.
+  /// Sem cadeado solto/genérico, sem texto "bloqueado" — foco em ação.
+  Widget _buildLockedState(BuildContext context, ResumeViewModel vm) {
+    const indigo = Color(0xFF4F46E5);
+    const purple = Color(0xFF7C3AED);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── Hero compacto ────────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [indigo, purple],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: indigo.withOpacity(0.3),
+                  blurRadius: 24,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 13),
+                      SizedBox(width: 5),
+                      Text(
+                        'COMECE SEU CURRÍCULO',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Dois jeitos de\nter seu CV pronto',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    height: 1.15,
+                    letterSpacing: -0.5,
+                    fontFamily: 'Outfit',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Escolha o caminho que faz mais sentido pra você agora.',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.85),
+                    fontSize: 13.5,
+                    height: 1.4,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // ── Caminho 1: Construir pela trilha ────────────────────────
+          _buildPathCard(
+            badge: 'RECOMENDADO',
+            badgeColor: const Color(0xFF10B981),
+            icon: Icons.route_rounded,
+            iconBg: indigo,
+            title: 'Construir pela trilha',
+            description:
+                'Responda perguntas no estilo Duolingo e a IA monta seu CV pronto pra usar — formatado, com bullets Harvard.',
+            highlights: const [
+              'Sem precisar saber escrever bullets',
+              'Templates ATS-friendly desbloqueados',
+              'Adaptação por vaga via IA',
+            ],
+            ctaLabel: 'Continuar trilha',
+            ctaIcon: Icons.arrow_forward_rounded,
+            onCtaTap: () => widget.onTabChange?.call(1),
+            ctaVariant: _CtaVariant.gradient,
+          ),
+
+          const SizedBox(height: 14),
+
+          // ── Caminho 2: Importar CV existente ────────────────────────
+          _buildPathCard(
+            badge: 'MAIS RÁPIDO',
+            badgeColor: const Color(0xFFF59E0B),
+            icon: Icons.upload_file_rounded,
+            iconBg: const Color(0xFF0EA5E9),
+            title: 'Importar CV em PDF',
+            description:
+                'Já tem um currículo? Suba o PDF e desbloqueie agora mesmo a adaptação por vaga e o match score com IA.',
+            highlights: const [
+              'Pronto em 5 segundos',
+              'IA extrai automaticamente seus dados',
+              'Funciona com qualquer template de CV',
+            ],
+            ctaLabel: 'Importar PDF',
+            ctaIcon: Icons.upload_file_rounded,
+            onCtaTap: null, // o widget de import lida internamente
+            customCta: ImportCvButton(
+              onImported: () => vm.loadResumeData(),
+            ),
+            ctaVariant: _CtaVariant.custom,
+          ),
+
+          const SizedBox(height: 12),
+
+          // ── Nota final ──────────────────────────────────────────────
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.lock_outline_rounded, size: 13, color: Colors.grey[500]),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      'Seus dados ficam só com você — não compartilhamos com ninguém.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.w500,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Card de "caminho" com badge, ícone, título, lista de benefícios e CTA.
+  Widget _buildPathCard({
+    required String badge,
+    required Color badgeColor,
+    required IconData icon,
+    required Color iconBg,
+    required String title,
+    required String description,
+    required List<String> highlights,
+    required String ctaLabel,
+    required IconData ctaIcon,
+    required VoidCallback? onCtaTap,
+    required _CtaVariant ctaVariant,
+    Widget? customCta,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: iconBg.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: iconBg, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: badgeColor.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        badge,
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w900,
+                          color: badgeColor,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16.5,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF0F172A),
+                        letterSpacing: -0.3,
+                        fontFamily: 'Outfit',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            description,
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.grey[700],
+              height: 1.45,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Highlights
+          ...highlights.map((h) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.check_circle_rounded, size: 15, color: badgeColor),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        h,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: Color(0xFF334155),
+                          fontWeight: FontWeight.w600,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )),
+          const SizedBox(height: 14),
+          // CTA
+          if (ctaVariant == _CtaVariant.gradient)
+            _buildCtaGradient(label: ctaLabel, icon: ctaIcon, onTap: onCtaTap)
+          else if (ctaVariant == _CtaVariant.custom && customCta != null)
+            customCta,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCtaGradient({
+    required String label,
+    required IconData icon,
+    required VoidCallback? onTap,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      height: 50,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Ink(
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF4F46E5).withOpacity(0.35),
+                  blurRadius: 14,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: Colors.white, size: 18),
+                  const SizedBox(width: 7),
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildModernHeader(BuildContext context) {
     return Container(
       padding: const EdgeInsets.only(top: 60, left: 24, right: 24, bottom: 24),
@@ -508,9 +784,9 @@ class _ResumeTabState extends State<ResumeTab> {
                           color: const Color(0xFFF3F4F6),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Icon(Icons.auto_awesome, color: Color(0xFF4F46E5)),
+                        child: const Icon(Icons.more_vert_rounded, color: Color(0xFF4F46E5)),
                       ),
-                      tooltip: 'IA: Atualizar ou Reescrever',
+                      tooltip: 'Mais ações',
                       onSelected: (value) async {
                         if (value == 'update') {
                           if (await _checkAndShowAIConsent(context, vm)) {
@@ -518,15 +794,44 @@ class _ResumeTabState extends State<ResumeTab> {
                           }
                         } else if (value == 'rewrite') {
                           _showRewriteConfirmation(context, vm);
+                        } else if (value == 'import') {
+                          final result = await CvImportService.pickAndImport(context);
+                          if (!context.mounted) return;
+                          if (result.success) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('✓ Currículo importado'),
+                                backgroundColor: Color(0xFF10B981),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                            vm.loadResumeData();
+                          } else if (result.errorMessage != null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(result.errorMessage!),
+                                backgroundColor: Colors.red.shade600,
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
                         }
                       },
                       itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: 'import',
+                          child: Row(children: [
+                            Icon(Icons.upload_file_rounded, color: Color(0xFF4F46E5), size: 20),
+                            SizedBox(width: 8),
+                            Text('Importar CV em PDF'),
+                          ]),
+                        ),
                         const PopupMenuItem(
                           value: 'rewrite',
                           child: Row(children: [
                             Icon(Icons.autorenew, color: Colors.orange, size: 20),
                             SizedBox(width: 8),
-                            Text('Reescrever tudo (Zero)'),
+                            Text('Reescrever tudo (IA)'),
                           ]),
                         ),
                       ],
@@ -1138,3 +1443,6 @@ class _SinglePageWarningBanner extends StatelessWidget {
     );
   }
 }
+
+/// Variantes do CTA usadas em [_buildPathCard].
+enum _CtaVariant { gradient, custom }

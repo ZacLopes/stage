@@ -7,6 +7,11 @@ class UserJobPreferences {
   final List<String> jobTypes;
   final int? minSalary; // in centavos
 
+  /// Match score mínimo (0-100). Vagas com score abaixo disso são ocultadas
+  /// do feed. Avaliado client-side combinando match_analyses cacheado + score
+  /// determinístico fallback. null = sem filtro.
+  final int? minMatchScore;
+
   UserJobPreferences({
     this.id,
     required this.userId,
@@ -15,6 +20,7 @@ class UserJobPreferences {
     this.workModels = const [],
     this.jobTypes = const [],
     this.minSalary,
+    this.minMatchScore,
   });
 
   factory UserJobPreferences.fromJson(Map<String, dynamic> json) {
@@ -26,6 +32,7 @@ class UserJobPreferences {
       workModels: _parseStringList(json['work_models']),
       jobTypes: _parseStringList(json['job_types']),
       minSalary: json['min_salary'] as int?,
+      minMatchScore: json['min_match_score'] as int?,
     );
   }
 
@@ -37,6 +44,7 @@ class UserJobPreferences {
       'work_models': workModels.isEmpty ? null : workModels,
       'job_types': jobTypes.isEmpty ? null : jobTypes,
       'min_salary': minSalary,
+      'min_match_score': minMatchScore,
       'updated_at': DateTime.now().toIso8601String(),
     };
   }
@@ -49,7 +57,9 @@ class UserJobPreferences {
     List<String>? workModels,
     List<String>? jobTypes,
     int? minSalary,
+    int? minMatchScore,
     bool clearMinSalary = false,
+    bool clearMinMatchScore = false,
   }) {
     return UserJobPreferences(
       id: id ?? this.id,
@@ -59,6 +69,8 @@ class UserJobPreferences {
       workModels: workModels ?? this.workModels,
       jobTypes: jobTypes ?? this.jobTypes,
       minSalary: clearMinSalary ? null : (minSalary ?? this.minSalary),
+      minMatchScore:
+          clearMinMatchScore ? null : (minMatchScore ?? this.minMatchScore),
     );
   }
 
@@ -67,7 +79,8 @@ class UserJobPreferences {
       locations.isEmpty &&
       workModels.isEmpty &&
       jobTypes.isEmpty &&
-      minSalary == null;
+      minSalary == null &&
+      minMatchScore == null;
 
   static List<String> _parseStringList(dynamic value) {
     if (value == null) return [];

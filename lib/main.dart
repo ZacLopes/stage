@@ -87,6 +87,7 @@ void main() async {
             JobRepository(),
             SwipeRepository(),
             PreferencesRepository(),
+            aiService,
           ),
         ),
       ],

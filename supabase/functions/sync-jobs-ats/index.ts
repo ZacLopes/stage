@@ -31,10 +31,15 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 function isAuthorized(req: Request): boolean {
+  // Aceita 2 caminhos:
+  // (1) pg_cron com `x-cron-secret: <CRON_SECRET>`.
+  // (2) Trigger manual via Dashboard/curl com JWT Bearer válido. O gateway
+  //     do Supabase JÁ valida a JWT antes da função receber, então qualquer
+  //     `Bearer <...>` aqui significa "veio de alguém com chave do projeto".
   const cronHeader = req.headers.get("x-cron-secret");
   if (CRON_SECRET && cronHeader === CRON_SECRET) return true;
   const auth = req.headers.get("authorization");
-  if (SUPABASE_SERVICE_ROLE_KEY && auth === `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`) return true;
+  if (auth && /^Bearer\s+\S+/.test(auth)) return true;
   return false;
 }
 

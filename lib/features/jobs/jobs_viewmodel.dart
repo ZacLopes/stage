@@ -1,21 +1,73 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../services/ai_service.dart';
 import 'data/job_repository.dart';
 import 'data/swipe_repository.dart';
 import 'data/preferences_repository.dart';
 import 'models/job.dart';
 import 'models/user_preferences.dart';
+import 'utils/match_score.dart';
 
 class JobsViewModel extends ChangeNotifier {
   final JobRepository _jobRepository;
   final SwipeRepository _swipeRepository;
   final PreferencesRepository _preferencesRepository;
+  final AIService _aiService;
+
+  /// Listener pra mudanças no auth Supabase. Garante que `init()` rode
+  /// assim que o user logar (caso o widget tenha sido construído antes
+  /// da sessão estar pronta — race condition que bloqueava o feed até
+  /// hot-restart).
+  StreamSubscription<AuthState>? _authSub;
 
   JobsViewModel(
     this._jobRepository,
     this._swipeRepository,
     this._preferencesRepository,
-  );
+    this._aiService,
+  ) {
+    _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      switch (data.event) {
+        case AuthChangeEvent.signedIn:
+        case AuthChangeEvent.initialSession:
+        case AuthChangeEvent.tokenRefreshed:
+        case AuthChangeEvent.userUpdated:
+          // Session passou a estar disponível. Se ainda não temos vagas
+          // E não estamos carregando, dispara o init. Idempotente —
+          // init() faz no-op se já tem dados.
+          if (_jobs.isEmpty && !_isLoading) {
+            init();
+          }
+          break;
+        case AuthChangeEvent.signedOut:
+        case AuthChangeEvent.userDeleted:
+          // Limpa estado pra o próximo user logar do zero.
+          _jobs = [];
+          _swipedIds.clear();
+          _undoStack.clear();
+          _preferences = null;
+          _likedJobs = [];
+          _errorMessage = null;
+          _autoReloadAttempted = false;
+          _gamificationDataLoaded = false;
+          _cachedGamificationData = null;
+          _totalAvailable = 0;
+          _totalAfterFilters = 0;
+          notifyListeners();
+          break;
+        default:
+          break;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    super.dispose();
+  }
 
   // State
   // _jobs é IMUTÁVEL durante a sessão de swipes: o `flutter_card_swiper`
@@ -71,13 +123,27 @@ class JobsViewModel extends ChangeNotifier {
 
   String? get userId => Supabase.instance.client.auth.currentUser?.id;
 
+  /// Aguarda o auth ficar pronto com short-poll. Retorna o user_id se aparecer
+  /// dentro do timeout, null caso contrário. Usado pra mitigar a race entre o
+  /// widget montar e a sessão Supabase restaurar do storage local (cold start
+  /// do app pode levar 100-500ms).
+  Future<String?> _awaitUserId({Duration timeout = const Duration(seconds: 3)}) async {
+    final id = userId;
+    if (id != null) return id;
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      final retry = userId;
+      if (retry != null) return retry;
+    }
+    return null;
+  }
+
   /// Initialize: load preferences then jobs.
   Future<void> init({bool forceRefresh = false}) async {
-    if (userId == null) return;
-    
-    // Avoid redundant loading if already in progress or if data exists
+    // Avoid redundant loading if already in progress
     if (_isLoading) return;
-    
+
     if (!forceRefresh && _jobs.isNotEmpty) {
        _silentInit();
        return;
@@ -88,6 +154,14 @@ class JobsViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Espera o auth ficar pronto se ainda não estiver (race condition no
+      // cold start). Sem isso, init() rodando antes da sessão restaurar
+      // travava o feed até hot-restart.
+      final id = await _awaitUserId();
+      if (id == null) {
+        // Realmente sem user — provavelmente deslogou. UI mostra estado vazio.
+        return;
+      }
       await _performFetch();
     } catch (e) {
       _errorMessage = 'Erro ao carregar vagas. Tente novamente.';
@@ -111,18 +185,99 @@ class JobsViewModel extends ChangeNotifier {
     // Load preferences first
     _preferences = await _preferencesRepository.getPreferences(userId!);
 
-    // Then load jobs with those preferences
+    // Then load jobs with those preferences (filters de atributos: área,
+    // localização, modelo, tipo, salário — feitos no SQL/repo)
     _currentPage = 0;
     final result = await _jobRepository.fetchJobsWithDiagnostics(
       preferences: _preferences,
       page: _currentPage,
     );
-    _jobs = result.jobs;
+    var jobs = result.jobs;
     _totalAvailable = result.totalAvailable;
-    _totalAfterFilters = result.totalAfterFilters;
+
+    // Filtro adicional: match score mínimo. Aplicado client-side porque
+    // score depende do PAR (user, vaga) e não está na linha de `jobs`.
+    // Combina cache de match_analyses (IA, preciso) + fallback determinístico
+    // — sem custo de IA extra. Aplicado SOMENTE quando o user setou um
+    // mínimo explícito; sem isso, deixamos tudo passar.
+    final minScore = _preferences?.minMatchScore;
+    if (minScore != null && minScore > 0 && jobs.isNotEmpty) {
+      jobs = await _filterByMatchScore(jobs, minScore);
+    }
+
+    _jobs = jobs;
+    _totalAfterFilters = jobs.length;
     // Único page request hoje retorna até o cap do JobRepository. Sinaliza
     // pra UI se atingiu o cap (improvável na prática).
     _hasMorePages = _jobs.length >= 5000;
+  }
+
+  /// Aplica filtro de score mínimo in-memory.
+  /// 1. Busca scores cacheados em batch (1 SQL select).
+  /// 2. Busca `gamification_data` (1 select) pra que o fallback determinístico
+  ///    seja IDÊNTICO ao mostrado no card. Sem isso, o filtro divergia da UI
+  ///    (filtro dizia 75, card mostrava 30) e deixava passar vagas baixas.
+  /// 3. Pra vagas sem cache IA, usa fallback determinístico com mesmo input
+  ///    que o card calcula.
+  /// 4. Retorna só vagas com score >= [minScore].
+  ///
+  /// Falha graciosa: se algo der errado, deixa todas as vagas passar (em vez
+  /// de zerar feed).
+  Future<List<Job>> _filterByMatchScore(List<Job> jobs, int minScore) async {
+    final ids = jobs.map((j) => j.id).toList();
+
+    // Pega cache de match (IA preciso) + gamification_data em paralelo
+    Map<String, MatchResult> cached = const {};
+    Map<String, dynamic>? gamificationData;
+    try {
+      final cachedFuture = _aiService.fetchCachedMatches(ids);
+      final gamifFuture = _fetchGamificationData();
+      cached = await cachedFuture;
+      gamificationData = await gamifFuture;
+    } catch (e) {
+      print('Match score filter: failed to load context, allowing all: $e');
+      return jobs; // falha graciosa — não zera o feed
+    }
+
+    return jobs.where((job) {
+      final aiScore = cached[job.id]?.score;
+      if (aiScore != null && aiScore > 0) {
+        return aiScore >= minScore;
+      }
+      // Fallback determinístico — usa mesmo input que o card (prefs + gamif),
+      // garantindo consistência visual: se filtro deixa passar, card mostra
+      // score >= threshold.
+      final fallback = MatchScoreCalculator.calculate(
+        job: job,
+        prefs: _preferences,
+        gamificationData: gamificationData,
+      );
+      return fallback.score >= minScore;
+    }).toList();
+  }
+
+  /// Lê `gamification_data` do user_profiles. Usado pra alinhar o fallback
+  /// determinístico de match score com o que o card mostra (skills do CV
+  /// importado afetam o score). Cacheia em memória durante a sessão pra
+  /// evitar refetch a cada filtro.
+  Map<String, dynamic>? _cachedGamificationData;
+  bool _gamificationDataLoaded = false;
+  Future<Map<String, dynamic>?> _fetchGamificationData() async {
+    if (_gamificationDataLoaded) return _cachedGamificationData;
+    try {
+      final row = await Supabase.instance.client
+          .from('user_profiles')
+          .select('gamification_data')
+          .eq('id', userId!)
+          .maybeSingle();
+      _cachedGamificationData = row?['gamification_data'] as Map<String, dynamic>?;
+    } catch (e) {
+      print('fetchGamificationData failed: $e');
+      _cachedGamificationData = null;
+    } finally {
+      _gamificationDataLoaded = true;
+    }
+    return _cachedGamificationData;
   }
 
   /// Reload jobs (e.g. after changing preferences).
@@ -135,9 +290,18 @@ class JobsViewModel extends ChangeNotifier {
     _undoStack.clear();
     _swipedIds.clear();
     _autoReloadAttempted = false;
+    // Invalida cache de gamification_data — pode ter mudado (user importou CV,
+    // completou trilha, etc) e isso afeta o fallback do score.
+    _gamificationDataLoaded = false;
+    _cachedGamificationData = null;
     notifyListeners();
 
     try {
+      final id = await _awaitUserId();
+      if (id == null) {
+        _errorMessage = 'Sessão expirada. Faça login novamente.';
+        return;
+      }
       await _performFetch();
     } catch (e) {
       _errorMessage = 'Erro ao carregar vagas. Tente novamente.';
@@ -164,6 +328,8 @@ class JobsViewModel extends ChangeNotifier {
     notifyListeners(); // pra UI saber que tentamos (evita re-trigger)
 
     try {
+      final id = await _awaitUserId();
+      if (id == null) return; // sem user, não tem o que carregar
       await _performFetch();
     } catch (e) {
       print('Auto-reload failed: $e');

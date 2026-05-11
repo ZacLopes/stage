@@ -10,6 +10,7 @@ import '../../../services/ai_service.dart';
 import '../../auth/user_viewmodel.dart';
 import '../../resume/pdf_service.dart';
 import '../../resume/resume_viewmodel.dart';
+import '../../resume/widgets/import_cv_button.dart';
 import '../models/adapted_resume.dart';
 import '../models/job.dart';
 
@@ -518,6 +519,19 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
             onTap: _retrying ? null : () => _adapt(force: true),
             loading: _retrying,
           ),
+        // CTA contextual: se o erro é "perfil incompleto", oferece importar
+        // CV em PDF direto daqui. Sem precisar sair da sheet e ir na aba
+        // Currículo. Após importar com sucesso, re-tenta a adaptação.
+        if (isProfileIncomplete) ...[
+          const SizedBox(height: 8),
+          ImportCvButton(
+            onImported: () {
+              // Limpa cache da chamada anterior e re-tenta.
+              _aiService.clearAdaptedCache(widget.job.id);
+              _adapt(force: true);
+            },
+          ),
+        ],
       ],
     );
   }
