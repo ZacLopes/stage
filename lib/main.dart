@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:posthog_flutter/posthog_flutter.dart';
 import 'data/supabase_repository.dart';
 import 'data/local_storage_repository.dart';
 import 'data/seed_data.dart';
@@ -45,14 +46,30 @@ void main() async {
     anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
   );
 
-  // Initialize Analytics. Plugin lê POSTHOG_API_KEY do Info.plist (iOS) /
-  // AndroidManifest.xml (Android). Sem chave configurada, plugin vira no-op
-  // (não quebra o app). Crashes do init nunca podem propagar — analytics é
-  // best-effort.
+  // Initialize PostHog manualmente (AUTO_INIT=false no Info.plist) — só assim
+  // o session replay funciona no Flutter. Eventos, identify e replay passam
+  // todos por esse init. Sem POSTHOG_API_KEY no .env, o init é skipado e tudo
+  // vira no-op silencioso (não quebra o app).
+  final posthogKey = dotenv.env['POSTHOG_API_KEY'];
+  if (posthogKey != null && posthogKey.isNotEmpty) {
+    try {
+      final config = PostHogConfig(posthogKey)
+        ..host = dotenv.env['POSTHOG_HOST'] ?? 'https://us.i.posthog.com'
+        ..captureApplicationLifecycleEvents = true
+        ..debug = false
+        ..sessionReplay = true;
+      // Mask global OFF — mascara só widgets explícitos via PostHogMaskWidget
+      // (CV, perfil, salário). Sem isso, replay vira tela preta inútil.
+      config.sessionReplayConfig
+        ..maskAllTexts = false
+        ..maskAllImages = false;
+      await Posthog().setup(config);
+    } catch (_) {}
+  }
+
   try {
     await Analytics.shared.init();
     // Dispara o evento "app aberto" no boot — base pra DAU/MAU.
-    // Auto-capture do PostHog Flutter é instável; emitimos manualmente.
     await Analytics.shared.appOpened();
   } catch (_) {}
 
@@ -207,15 +224,21 @@ class CareerGamificationApp extends StatelessWidget {
         ),
       ),
       home: const VersionGate(child: SplashScreen()),
-      // Mounts the tutorial overlay above EVERYTHING (Navigator stack,
-      // dialogs, sheets) so coach marks can spotlight any widget in the
-      // app. Renders nothing when TutorialController is idle.
+      // PosthogObserver: registra screen views automaticamente em cada
+      // Navigator.push/pop — sem ele, o session replay vê telas mas não
+      // sabe nomear a rota.
+      navigatorObservers: [PosthogObserver()],
+      // PostHogWidget habilita session replay (captura de tela). Sem esse
+      // wrapper, a flag sessionReplay no init sozinha não grava nada em
+      // Flutter. Tutorial overlay continua por cima de tudo.
       builder: (context, child) {
-        return Stack(
-          children: [
-            if (child != null) child,
-            const Positioned.fill(child: TutorialOverlay()),
-          ],
+        return PostHogWidget(
+          child: Stack(
+            children: [
+              if (child != null) child,
+              const Positioned.fill(child: TutorialOverlay()),
+            ],
+          ),
         );
       },
       localizationsDelegates: const [

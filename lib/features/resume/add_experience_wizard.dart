@@ -10,6 +10,7 @@ import '../../services/ai_service.dart';
 import '../gamification/bullet_review_screen.dart';
 import '../gamification/widgets/experience_detail_form_widget.dart';
 import 'resume_viewmodel.dart';
+import '../../core/widgets/pii_mask.dart';
 
 /// Reproduces the gamification trail's D1-D6 flow as a self-contained wizard
 /// the user can launch from the resume edit screen to add a brand-new
@@ -369,7 +370,7 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PiiMask(child: Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
       appBar: AppBar(
         title: Text('Adicionar $_categoryLabel'),
@@ -433,7 +434,7 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
           _buildBottomBar(),
         ],
       ),
-    );
+    ));
   }
 
   Widget _buildStepD1() {

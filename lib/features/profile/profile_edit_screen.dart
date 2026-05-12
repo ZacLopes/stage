@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../data/models/models.dart';
+import '../../core/widgets/pii_mask.dart';
 
 class ProfileEditScreen extends StatefulWidget {
   final ProfileContent initialContent;
@@ -58,7 +59,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PiiMask(child: Scaffold(
       appBar: AppBar(
         title: const Text('Editar Perfil'),
         actions: [
@@ -83,7 +84,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           ],
         ),
       ),
-    );
+    ));
   }
 
   Widget _buildField(String label, TextEditingController controller, {int maxLines = 1, String? hint}) {

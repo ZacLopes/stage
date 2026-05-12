@@ -9,6 +9,7 @@ import '../../services/ai_service.dart';
 import '../gamification/bullet_review_screen.dart';
 import '../gamification/widgets/experience_detail_form_widget.dart';
 import 'resume_viewmodel.dart';
+import '../../core/widgets/pii_mask.dart';
 
 /// Edit screen for an existing experience: lets the user update the D1
 /// fields (org, role, dates, city) and manage the list of approved bullets
@@ -269,7 +270,7 @@ class _EditExperienceScreenState extends State<EditExperienceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PiiMask(child: Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
       appBar: AppBar(
         title: const Text('Editar experiência'),
@@ -295,7 +296,7 @@ class _EditExperienceScreenState extends State<EditExperienceScreen> {
                 ],
               ),
             ),
-    );
+    ));
   }
 
   Widget _buildD1Card() {

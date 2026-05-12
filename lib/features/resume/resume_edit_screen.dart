@@ -14,6 +14,7 @@ import '../gamification/summary_generation_screen.dart';
 import 'add_experience_wizard.dart';
 import 'edit_experience_screen.dart';
 import 'resume_viewmodel.dart';
+import '../../core/widgets/pii_mask.dart';
 
 /// Edit mode for the user's CV. Each card persists changes directly to the
 /// source-of-truth (user_answers / target_jobs / section_versions) so that
@@ -420,7 +421,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<ResumeViewModel>();
-    return Scaffold(
+    return PiiMask(child: Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
       appBar: AppBar(
         title: Text(
@@ -501,7 +502,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen> {
               ),
             ),
       bottomNavigationBar: _buildRegenerateBar(vm),
-    );
+    ));
   }
 
   /// Section group label rendered above each logical block of cards.

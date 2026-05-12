@@ -7,6 +7,7 @@ import '../home/home_viewmodel.dart';
 import '../settings/settings_screen.dart';
 import 'resume_detail_screen.dart';
 import '../../data/models/models.dart';
+import '../../core/widgets/pii_mask.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -40,7 +41,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
         }
 
-        return Scaffold(
+        return PiiMask(child: Scaffold(
           backgroundColor: const Color(0xFFF3F4F6),
           body: Column(
             children: [
@@ -81,7 +82,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ],
           ),
-        );
+        ));
       },
     );
   }

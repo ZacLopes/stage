@@ -14,6 +14,7 @@ import '../resume/resume_viewmodel.dart';
 import '../resume/widgets/ai_consent_modal.dart';
 import '../resume/widgets/resume_template_selector.dart';
 import 'profile_viewmodel.dart';
+import '../../core/widgets/pii_mask.dart';
 
 /// Detail/editor screen for a saved resume, opened from the Profile
 /// library. Has two modes:
@@ -155,7 +156,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PiiMask(child: Scaffold(
       backgroundColor: const Color(0xFFF3F4F6),
       appBar: AppBar(
         centerTitle: true,
@@ -183,7 +184,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen> {
         ],
       ),
       body: _isEditable ? _buildEditableBody() : _buildViewOnlyBody(),
-    );
+    ));
   }
 
   // ── Editable mode (trail-generated CV) ─────────────────────────────

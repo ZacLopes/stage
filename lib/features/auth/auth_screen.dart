@@ -10,6 +10,7 @@ import 'completion_screen.dart';
 import 'target_job_screen.dart';
 import 'user_viewmodel.dart';
 import 'email_signup_screen.dart';
+import '../../core/widgets/pii_mask.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -132,7 +133,7 @@ class _AuthScreenState extends State<AuthScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PiiMask(child: Scaffold(
       backgroundColor: StageColors.offWhite,
       body: SafeArea(
         child: SingleChildScrollView(
@@ -321,7 +322,7 @@ class _AuthScreenState extends State<AuthScreen>
           ),
         ),
       ),
-    );
+    ));
   }
 }
 

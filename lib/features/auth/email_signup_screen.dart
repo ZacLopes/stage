@@ -6,6 +6,7 @@ import '../../core/utils/auth_error_formatter.dart';
 import '../../services/analytics_service.dart';
 import 'user_viewmodel.dart';
 import 'profile_setup_screen.dart';
+import '../../core/widgets/pii_mask.dart';
 
 class EmailSignupScreen extends StatefulWidget {
   const EmailSignupScreen({super.key});
@@ -94,7 +95,7 @@ class _EmailSignupScreenState extends State<EmailSignupScreen> {
   Widget build(BuildContext context) {
     final isLoading = context.watch<UserViewModel>().isLoading;
 
-    return Scaffold(
+    return PiiMask(child: Scaffold(
       backgroundColor: StageColors.offWhite,
       appBar: AppBar(
         backgroundColor: StageColors.offWhite,
@@ -299,7 +300,7 @@ class _EmailSignupScreenState extends State<EmailSignupScreen> {
           ),
         ),
       ),
-    );
+    ));
   }
 
   Widget _buildTextField({

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../core/widgets/pii_mask.dart';
 
 class ResumePreviewScreen extends StatelessWidget {
   final String title;
@@ -15,7 +16,7 @@ class ResumePreviewScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PiiMask(child: Scaffold(
       backgroundColor: const Color(0xFFF3F4F6),
       appBar: AppBar(
         centerTitle: true,
@@ -105,6 +106,6 @@ class ResumePreviewScreen extends StatelessWidget {
           );
         },
       ),
-    );
+    ));
   }
 }

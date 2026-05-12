@@ -5,6 +5,7 @@ import '../../core/constants/stage_colors.dart';
 import '../../services/analytics_service.dart';
 import 'user_viewmodel.dart';
 import 'completion_screen.dart';
+import '../../core/widgets/pii_mask.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
   const ProfileSetupScreen({super.key});
@@ -409,7 +410,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   // --- Main Build ---
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PiiMask(child: Scaffold(
       backgroundColor: StageColors.offWhite,
       body: SafeArea(
         child: Column(
@@ -498,7 +499,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           ],
         ),
       ),
-    );
+    ));
   }
 
   InputDecoration _inputDecoration(String label, IconData icon, {String? hint}) {

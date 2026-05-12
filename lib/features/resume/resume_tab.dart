@@ -7,6 +7,7 @@ import '../tutorial/tutorial_keys.dart';
 import 'resume_viewmodel.dart';
 import 'widgets/import_cv_button.dart';
 import '../../services/cv_import_service.dart';
+import '../../core/widgets/pii_mask.dart';
 
 /// Entry-point da aba Currículo (após a unificação Trilha + Currículo).
 ///
@@ -68,7 +69,7 @@ class _ResumeTabState extends State<ResumeTab> {
     }
     return Consumer2<ResumeViewModel, ProfileViewModel>(
       builder: (context, resumeVM, profileVM, _) {
-        return Scaffold(
+        return PiiMask(child: Scaffold(
           backgroundColor: const Color(0xFFF3F4F6),
           body: SafeArea(
             child: Padding(
@@ -76,7 +77,7 @@ class _ResumeTabState extends State<ResumeTab> {
               child: _buildEntryState(context, resumeVM, profileVM),
             ),
           ),
-        );
+        ));
       },
     );
   }
