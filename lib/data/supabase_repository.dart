@@ -822,7 +822,7 @@ class SupabaseRepository {
     }
   }
 
-  Future<void> saveResume(String title, List<int> pdfBytes) async {
+  Future<SavedResume> saveResume(String title, List<int> pdfBytes) async {
     try {
       final userId = _client.auth.currentUser?.id;
       if (userId == null) throw Exception('User not authenticated');
@@ -838,12 +838,18 @@ class SupabaseRepository {
         fileOptions: const FileOptions(contentType: 'application/pdf'),
       );
 
-      // 2. Save record to table
-      await _client.from('saved_resumes').insert({
-        'user_id': userId,
-        'title': title,
-        'file_path': storagePath,
-      });
+      // 2. Save record to table and return the inserted row
+      final inserted = await _client
+          .from('saved_resumes')
+          .insert({
+            'user_id': userId,
+            'title': title,
+            'file_path': storagePath,
+          })
+          .select()
+          .single();
+
+      return SavedResume.fromMap(inserted);
     } catch (e) {
       print('Error saving resume: $e');
       rethrow;

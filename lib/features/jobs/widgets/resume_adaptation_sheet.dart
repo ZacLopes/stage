@@ -538,7 +538,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
         if (isProfileIncomplete) ...[
           const SizedBox(height: 8),
           ImportCvButton(
-            onImported: () {
+            onImported: (_) {
               // Limpa cache da chamada anterior e re-tenta.
               _aiService.clearAdaptedCache(widget.job.id);
               _adapt(force: true);

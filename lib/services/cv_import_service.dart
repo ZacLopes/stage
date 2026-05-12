@@ -18,6 +18,7 @@ class CvImportResult {
   final bool success;
   final String? errorMessage;
   final String? title;
+  final String? savedResumeId;
   final int extractedTextLength;
   final bool textWasUsable;
 
@@ -25,6 +26,7 @@ class CvImportResult {
     required this.success,
     this.errorMessage,
     this.title,
+    this.savedResumeId,
     this.extractedTextLength = 0,
     this.textWasUsable = false,
   });
@@ -32,6 +34,10 @@ class CvImportResult {
   const CvImportResult.cancelled() : this(success: false);
   const CvImportResult.error(String msg) : this(success: false, errorMessage: msg);
 }
+
+/// Default base title for imported PDFs in the library. The first import
+/// is saved as exactly this; subsequent imports get "(2)", "(3)", ...
+const String kImportedResumeBaseTitle = 'Meu Currículo';
 
 /// Serviço único pra importar CV em PDF. Usado em:
 /// - Onboarding (completion_screen)
@@ -76,13 +82,13 @@ class CvImportService {
 
       // 1. Salva o PDF na biblioteca (Supabase Storage + tabela saved_resumes)
       if (!context.mounted) return const CvImportResult.cancelled();
-      final dt = DateTime.now();
-      final title = file.name.isNotEmpty
-          ? file.name.replaceAll(RegExp(r'\.pdf$'), '')
-          : 'Currículo importado (${dt.day}/${dt.month})';
+      final profileVM = context.read<ProfileViewModel>();
+      final title = await profileVM.resolveUniqueTitle(kImportedResumeBaseTitle);
 
+      String? savedId;
       try {
-        await context.read<ProfileViewModel>().saveResume(title, byteList);
+        final saved = await profileVM.saveResume(title, byteList);
+        savedId = saved.id;
       } catch (e) {
         return CvImportResult.error('Erro ao salvar o currículo: $e');
       }
@@ -115,6 +121,7 @@ class CvImportService {
       return CvImportResult(
         success: true,
         title: title,
+        savedResumeId: savedId,
         extractedTextLength: rawTextLen,
         textWasUsable: usable,
       );

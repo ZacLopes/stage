@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import '../auth/user_viewmodel.dart';
 import '../auth/onboarding_screen.dart';
 import 'edit_account_screen.dart';
-import '../../services/tutorial_service.dart';
+import '../tutorial/tutorial_controller.dart';
 import '../../core/utils/app_notifications.dart';
 import '../../services/analytics_service.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -141,11 +141,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: 'Tutorial',
                   iconColor: Colors.blue,
                   onTap: () {
-                    // Trigger tutorial replay
-                     Navigator.pop(context);
-                     Future.delayed(const Duration(milliseconds: 300), () {
-                        TutorialService.triggerTutorial();
-                     });
+                    // Replay do tutorial dinâmico. HomeScreen escuta
+                    // `replayRequested` e dispara `start()` quando o
+                    // pop do Settings termina.
+                    context.read<TutorialController>().requestReplay();
+                    Navigator.pop(context);
                   },
                 ),
 

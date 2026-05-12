@@ -7,7 +7,6 @@ import 'package:file_picker/file_picker.dart';
 import '../../core/constants/stage_colors.dart';
 import '../../services/analytics_service.dart';
 import '../../services/pdf_text_extractor.dart';
-import '../../services/tutorial_service.dart';
 import '../profile/profile_viewmodel.dart';
 import '../auth/user_viewmodel.dart';
 import 'target_job_screen.dart';
@@ -131,7 +130,6 @@ class _CompletionScreenState extends State<CompletionScreen>
 
       Analytics.shared.cvImportSucceeded(extractedChars: extractedChars);
 
-      await TutorialService().markAsSeen();
       if (!mounted) return;
 
       // Vai pedir o cargo-alvo e cai na Home na aba Vagas (já tem CV pronto).
@@ -155,7 +153,6 @@ class _CompletionScreenState extends State<CompletionScreen>
 
   /// Caminho B: construir o CV pela trilha.
   Future<void> _startTrackPath() async {
-    await TutorialService().markAsSeen();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(

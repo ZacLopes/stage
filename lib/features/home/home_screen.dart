@@ -2,15 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../profile/profile_screen.dart';
-import 'tracks_tab.dart';
 import '../resume/resume_tab.dart';
 import '../resume/resume_viewmodel.dart';
 import '../jobs/screens/jobs_swipe_screen.dart';
 import '../jobs/screens/liked_jobs_screen.dart';
 import '../jobs/jobs_viewmodel.dart';
+import '../shared/widgets/cv_landing_overlay.dart';
+import '../tutorial/tutorial_controller.dart';
+import '../tutorial/tutorial_keys.dart';
+import '../tutorial/tutorial_step.dart';
 import 'home_viewmodel.dart';
-
-import '../../services/tutorial_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -27,38 +28,164 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      TutorialService().showTutorialIfNeeded(
-        context,
-        onTabChange: (index) {
-          _navigateToPage(index);
-        },
-      );
-
-      // Listen for tab-change requests coming from deep navigation screens
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Listener de deep-nav tem que entrar antes de qualquer outra coisa
+      // pra capturar troca de aba disparada pelo tutorial.
       context.read<HomeViewModel>().addListener(_onHomeViewModelChange);
-    });
 
-    TutorialService.tutorialTrigger.addListener(() {
-      if (mounted) {
-        _navigateToPage(2); // Trilha (deslocou de 1 → 2 com nova tab Curtidas)
+      // Escuta pedidos de replay vindos de Configurações → Tutorial.
+      context.read<TutorialController>().addListener(_onTutorialControllerChange);
 
-        Future.delayed(const Duration(milliseconds: 500), () {
-          print("Iniciando tutorial...");
-          TutorialService().showTutorial(
-            context,
-            onTabChange: (index) {
-              _navigateToPage(index);
-            },
-          );
-        });
-      }
+      // Tutorial: roda 1x na primeira vez que o user chega na home.
+      // (Pode ser re-disparado depois via Configurações → Tutorial.)
+      final alreadySeen = await TutorialController.hasSeen();
+      if (!mounted || alreadySeen) return;
+      // Pequeno delay pra deixar a UI assentar antes de pôr overlay.
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (!mounted) return;
+      _startTutorial();
     });
   }
+
+  void _onTutorialControllerChange() {
+    if (!mounted) return;
+    final tutorial = context.read<TutorialController>();
+    if (tutorial.replayRequested && !tutorial.isRunning) {
+      tutorial.consumeReplayRequest();
+      // Pequeno delay pra deixar a transição do pop do Settings terminar.
+      Future.delayed(const Duration(milliseconds: 350), () {
+        if (mounted) _startTutorial();
+      });
+    }
+  }
+
+  /// Inicia (ou reinicia) o tutorial dinâmico — a sequência leva o user
+  /// pelas 4 abas e pelos elementos-chave (botão IA, cards da Currículo).
+  /// Cada passo cuida da troca de aba via `onEnter`.
+  void _startTutorial() {
+    final tutorial = context.read<TutorialController>();
+    tutorial.start(steps: _buildTutorialSteps());
+  }
+
+  List<TutorialStep> _buildTutorialSteps() {
+    Future<void> goTo(int index) async {
+      _navigateToPage(index);
+    }
+
+    return [
+      const TutorialStep(
+        title: 'Bem-vindo ao Stage 👋',
+        description:
+            'Vou te mostrar como o app funciona em menos de 1 minuto. '
+            'Você pode pular a qualquer momento.',
+        anchor: TutorialTooltipAnchor.center,
+      ),
+      TutorialStep(
+        title: 'Aba Vagas',
+        description:
+            'Aqui você descobre estágios. Deslize o card pra DIREITA pra salvar '
+            'a vaga, ou pra ESQUERDA pra pular.',
+        targetKey: TutorialKeys.jobsTab,
+        onEnter: () => goTo(HomeTabs.jobs),
+      ),
+      TutorialStep(
+        title: 'Adapta CV pra vaga com IA',
+        description:
+            'Esse botão central adapta seu currículo pra vaga que tá vendo agora — '
+            'destaca o que importa pro recrutador.',
+        targetKey: TutorialKeys.aiButton,
+        padding: 12,
+        radius: 40,
+        onEnter: () => goTo(HomeTabs.jobs),
+      ),
+      TutorialStep(
+        title: 'Vagas Salvas',
+        description:
+            'Suas curtidas ficam aqui. Marque "aplicada" quando se candidatar '
+            'pra não perder o controle.',
+        targetKey: TutorialKeys.savedTab,
+        onEnter: () => goTo(HomeTabs.saved),
+      ),
+      TutorialStep(
+        title: 'Aba Currículo',
+        description:
+            'Dois caminhos pra ter seu CV: construir pela trilha gamificada ou '
+            'subir um PDF que você já tem.',
+        targetKey: TutorialKeys.resumeTab,
+        onEnter: () => goTo(HomeTabs.resume),
+      ),
+      TutorialStep(
+        title: 'Construir pela trilha',
+        description:
+            'Responda perguntas no estilo Duolingo. A IA monta seu CV com bullets '
+            'no padrão Harvard — sem você precisar escrever bullet nenhum.',
+        targetKey: TutorialKeys.trailCard,
+        onEnter: () => goTo(HomeTabs.resume),
+      ),
+      TutorialStep(
+        title: 'Já tem um currículo?',
+        description:
+            'Suba o PDF aqui em segundos. A IA lê automaticamente seus dados pra '
+            'desbloquear adaptação por vaga e match score.',
+        targetKey: TutorialKeys.importCard,
+        onEnter: () => goTo(HomeTabs.resume),
+      ),
+      TutorialStep(
+        title: 'Aba Perfil',
+        description:
+            'Seus currículos gerados ou importados ficam aqui na biblioteca. '
+            'Toque em qualquer um pra ver, editar e exportar em PDF.',
+        targetKey: TutorialKeys.profileTab,
+        onEnter: () => goTo(HomeTabs.profile),
+      ),
+      const TutorialStep(
+        title: 'Pronto, bora! 🚀',
+        description:
+            'Pode rever esse tutorial a qualquer momento em '
+            'Perfil → Configurações → Tutorial.',
+        anchor: TutorialTooltipAnchor.center,
+      ),
+    ];
+  }
+
+  bool _runningLanding = false;
 
   void _onHomeViewModelChange() {
     if (!mounted) return;
     final homeVM = context.read<HomeViewModel>();
+
+    if (homeVM.pendingLandingAnimation && !_runningLanding) {
+      _runningLanding = true;
+      homeVM.clearLandingAnimation();
+      final pendingTab = homeVM.pendingTabIndex;
+      // Don't clear highlight here — ProfileScreen reads it on mount.
+      if (pendingTab != null) {
+        homeVM.clearPendingTabChange();
+      }
+
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) {
+          _runningLanding = false;
+          return;
+        }
+        await playCvLandingAnimation(
+          context,
+          profileIconKey: homeVM.profileNavKey,
+        );
+        if (!mounted) {
+          _runningLanding = false;
+          return;
+        }
+        if (pendingTab != null) {
+          _navigateToPage(pendingTab);
+        }
+        // Apply the deferred highlight now that ProfileScreen is visible.
+        homeVM.consumeDeferredHighlight();
+        _runningLanding = false;
+      });
+      return;
+    }
+
     if (homeVM.pendingTabIndex != null) {
       _navigateToPage(homeVM.pendingTabIndex!);
       homeVM.clearPendingTabChange();
@@ -76,17 +203,19 @@ class _HomeScreenState extends State<HomeScreen> {
       curve: Curves.easeInOut,
     );
 
-    // Refresh resume data if switching to that tab (índice 3 após adicionar Curtidas)
-    if (index == 3) {
+    // Refresh resume data when entering the Currículo tab so dynamic
+    // card text (e.g. "Atualizar pela trilha") reflects current state.
+    if (index == HomeTabs.resume) {
        context.read<ResumeViewModel>().loadResumeData();
     }
   }
 
   @override
   void dispose() {
-    // Remove the listener safely — the viewmodel outlives this widget
+    // Remove the listeners safely — the viewmodels outlive this widget
     try {
       context.read<HomeViewModel>().removeListener(_onHomeViewModelChange);
+      context.read<TutorialController>().removeListener(_onTutorialControllerChange);
     } catch (_) {}
     _pageController.dispose();
     super.dispose();
@@ -94,17 +223,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Rebuild tabs to pass callbacks
-    final List<Widget> tabs = [
-      const JobsSwipeScreen(),
-      const LikedJobsScreen(),
-      const TracksTab(),
-      ResumeTab(
-        onTabChange: (index) {
-          _navigateToPage(index);
-        },
-      ),
-      const ProfileScreen(),
+    final homeVM = context.read<HomeViewModel>();
+
+    final List<Widget> tabs = const [
+      JobsSwipeScreen(),
+      LikedJobsScreen(),
+      ResumeTab(),
+      ProfileScreen(),
     ];
 
     return Scaffold(
@@ -143,10 +268,21 @@ class _HomeScreenState extends State<HomeScreen> {
           showUnselectedLabels: true,
           type: BottomNavigationBarType.fixed,
           elevation: 0,
+          // Atenção: as TutorialKeys ficam no `activeIcon` (não no `icon`).
+          // BottomNavigationBar só renderiza um dos dois por item — e como
+          // o tutorial sempre navega pra aba ANTES de destacá-la, na hora
+          // da medição a aba alvo está selecionada → activeIcon presente.
+          // A profileNavKey (usada pela animação do CV voando) fica no
+          // `icon` porque a animação dispara quando o user NÃO está no
+          // Perfil ainda.
           items: [
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.work_outline),
-              activeIcon: Icon(Icons.work),
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.work_outline),
+              activeIcon: Padding(
+                key: TutorialKeys.jobsTab,
+                padding: EdgeInsets.zero,
+                child: const Icon(Icons.work),
+              ),
               label: 'Vagas',
             ),
             BottomNavigationBarItem(
@@ -154,25 +290,38 @@ class _HomeScreenState extends State<HomeScreen> {
                 icon: Icons.bookmark_border,
                 count: context.watch<JobsViewModel>().pendingCount,
               ),
-              activeIcon: _PendingBadgeIcon(
-                icon: Icons.bookmark,
-                count: context.watch<JobsViewModel>().pendingCount,
+              activeIcon: Padding(
+                key: TutorialKeys.savedTab,
+                padding: EdgeInsets.zero,
+                child: _PendingBadgeIcon(
+                  icon: Icons.bookmark,
+                  count: context.watch<JobsViewModel>().pendingCount,
+                ),
               ),
               label: 'Salvas',
             ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.map_outlined),
-              activeIcon: Icon(Icons.map),
-              label: 'Trilha',
-            ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.description_outlined),
-              activeIcon: Icon(Icons.description),
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.description_outlined),
+              activeIcon: Padding(
+                key: TutorialKeys.resumeTab,
+                padding: EdgeInsets.zero,
+                child: const Icon(Icons.description),
+              ),
               label: 'Currículo',
             ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline),
-              activeIcon: Icon(Icons.person),
+            BottomNavigationBarItem(
+              icon: Padding(
+                // profileNavKey é da animação "CV voando" (dispara enquanto
+                // o user NÃO está no Perfil → icon não-ativo é o renderizado)
+                key: homeVM.profileNavKey,
+                padding: EdgeInsets.zero,
+                child: const Icon(Icons.person_outline),
+              ),
+              activeIcon: Padding(
+                key: TutorialKeys.profileTab,
+                padding: EdgeInsets.zero,
+                child: const Icon(Icons.person),
+              ),
               label: 'Perfil',
             ),
           ],

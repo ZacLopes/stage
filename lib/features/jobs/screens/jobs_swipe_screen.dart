@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../../services/ai_service.dart';
 import '../../../services/analytics_service.dart';
 import '../../auth/user_viewmodel.dart';
+import '../../tutorial/tutorial_keys.dart';
 import '../jobs_viewmodel.dart';
 import '../models/job.dart';
 import '../utils/match_score.dart';
@@ -24,7 +25,14 @@ class JobsSwipeScreen extends StatefulWidget {
 }
 
 class _JobsSwipeScreenState extends State<JobsSwipeScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+  // Mantém o State vivo quando o user troca de aba e volta — sem isso o
+  // PageView descarta páginas que ficam a 2+ índices da atual, o que
+  // reinicia o CardSwiper, perde a posição do card e dispara um re-fetch
+  // que reshuffleia a ordem das vagas.
+  @override
+  bool get wantKeepAlive => true;
+
   final CardSwiperController _swiperController = CardSwiperController();
   bool _initialized = false;
 
@@ -333,6 +341,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // requerido pelo AutomaticKeepAliveClientMixin
     final vm = context.watch<JobsViewModel>();
 
     // Hidrata cache + dispara IA quando vm.jobs chega pela primeira vez.
@@ -873,14 +882,17 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
           ),
 
           // AI (Center - largest)
-          _buildGradientActionButton(
-            key: 'ai',
-            icon: Icons.auto_awesome_rounded,
-            size: 70,
-            iconSize: 30,
-            colors: [const Color(0xFF4F46E5), const Color(0xFF7C3AED)],
-            shadowColor: const Color(0xFF4F46E5).withOpacity(0.45),
-            onTap: _openAdaptationSheet,
+          KeyedSubtree(
+            key: TutorialKeys.aiButton,
+            child: _buildGradientActionButton(
+              key: 'ai',
+              icon: Icons.auto_awesome_rounded,
+              size: 70,
+              iconSize: 30,
+              colors: [const Color(0xFF4F46E5), const Color(0xFF7C3AED)],
+              shadowColor: const Color(0xFF4F46E5).withOpacity(0.45),
+              onTap: _openAdaptationSheet,
+            ),
           ),
 
           // Like

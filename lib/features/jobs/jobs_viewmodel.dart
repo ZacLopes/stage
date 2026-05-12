@@ -140,13 +140,16 @@ class JobsViewModel extends ChangeNotifier {
   }
 
   /// Initialize: load preferences then jobs.
+  ///
+  /// Idempotente: chamadas subsequentes não fazem nada se já carregou.
+  /// O repo embaralha a lista a cada fetch (linha 111 de job_repository),
+  /// então reentrar nesse fluxo sem necessidade trocaria a ordem dos
+  /// cards visíveis pro user — efeito ruim ao voltar pra aba Vagas.
+  /// Use [forceRefresh] ou [reloadJobs] quando quiser re-fetch explícito.
   Future<void> init({bool forceRefresh = false}) async {
-    // Avoid redundant loading if already in progress
     if (_isLoading) return;
-
     if (!forceRefresh && _jobs.isNotEmpty) {
-       _silentInit();
-       return;
+      return; // no-op: já inicializado, mantém ordem atual dos cards
     }
 
     _isLoading = true;
@@ -169,15 +172,6 @@ class JobsViewModel extends ChangeNotifier {
     } finally {
       _isLoading = false;
       notifyListeners();
-    }
-  }
-
-  Future<void> _silentInit() async {
-    try {
-      await _performFetch();
-      notifyListeners();
-    } catch (e) {
-      print('Silent job refresh error: $e');
     }
   }
 

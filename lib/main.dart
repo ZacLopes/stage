@@ -20,6 +20,8 @@ import 'features/jobs/jobs_viewmodel.dart';
 import 'features/jobs/data/job_repository.dart';
 import 'features/jobs/data/swipe_repository.dart';
 import 'features/jobs/data/preferences_repository.dart';
+import 'features/tutorial/tutorial_controller.dart';
+import 'features/tutorial/tutorial_overlay.dart';
 import 'services/ai_service.dart';
 import 'services/analytics_service.dart';
 import 'features/splash/splash_screen.dart';
@@ -102,6 +104,9 @@ void main() async {
             PreferencesRepository(),
             aiService,
           ),
+        ),
+        ChangeNotifierProvider<TutorialController>(
+          create: (_) => TutorialController(),
         ),
       ],
       child: const CareerGamificationApp(),
@@ -202,6 +207,17 @@ class CareerGamificationApp extends StatelessWidget {
         ),
       ),
       home: const VersionGate(child: SplashScreen()),
+      // Mounts the tutorial overlay above EVERYTHING (Navigator stack,
+      // dialogs, sheets) so coach marks can spotlight any widget in the
+      // app. Renders nothing when TutorialController is idle.
+      builder: (context, child) {
+        return Stack(
+          children: [
+            if (child != null) child,
+            const Positioned.fill(child: TutorialOverlay()),
+          ],
+        );
+      },
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,

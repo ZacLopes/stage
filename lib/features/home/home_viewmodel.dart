@@ -5,6 +5,16 @@ import '../../data/supabase_repository.dart';
 
 enum TrackStatus { locked, available, completed }
 
+/// Bottom-nav tab indices (post-unification of Trilha into Currículo).
+/// Exposed here so screens can reference indices without a cyclic import
+/// of HomeScreen.
+class HomeTabs {
+  static const int jobs = 0;
+  static const int saved = 1;
+  static const int resume = 2;
+  static const int profile = 3;
+}
+
 class HomeViewModel extends ChangeNotifier {
   final SupabaseRepository _repository;
   List<Track> _tracks = [];
@@ -137,5 +147,70 @@ class HomeViewModel extends ChangeNotifier {
   void clearPendingTabChange() {
     _pendingTabIndex = null;
     // No notifyListeners() to avoid rebuild loops
+  }
+
+  // ── Profile resume highlight (used after auto-save from trail/import) ─────
+  /// The Profile tab reads this when it mounts/rebuilds to play a brief
+  /// entrance animation on the matching resume card, then calls
+  /// [clearProfileHighlight] to dismiss.
+  String? _pendingHighlightResumeId;
+  String? get pendingHighlightResumeId => _pendingHighlightResumeId;
+
+  void requestProfileHighlight(String resumeId) {
+    _pendingHighlightResumeId = resumeId;
+    notifyListeners();
+  }
+
+  void clearProfileHighlight() {
+    _pendingHighlightResumeId = null;
+    // No notifyListeners() to avoid rebuild loops
+  }
+
+  // ── Bottom-nav Profile icon key (target for the landing animation) ────────
+  /// HomeScreen sets this key on the Profile bottom-nav item so other
+  /// screens can compute its position on-screen and animate towards it.
+  final GlobalKey profileNavKey = GlobalKey(debugLabel: 'profileNavKey');
+
+  // ── Pending CV-landing animation trigger ──────────────────────────────────
+  /// HomeScreen watches this and plays the "document flying to Profile"
+  /// animation when set to true. Used by callers (e.g. the
+  /// CurriculumReadyDialog after popping) that can't safely hold their
+  /// own context to run the overlay animation themselves.
+  bool _pendingLandingAnimation = false;
+  bool get pendingLandingAnimation => _pendingLandingAnimation;
+
+  void triggerLandingAnimation() {
+    _pendingLandingAnimation = true;
+    notifyListeners();
+  }
+
+  void clearLandingAnimation() {
+    _pendingLandingAnimation = false;
+    // No notifyListeners() to avoid rebuild loops
+  }
+
+  /// Atomic announce after auto-save: HomeScreen orchestrates the
+  /// animation, then switches to [targetTab], then sets the highlight
+  /// so the Profile screen plays the entrance animation on the right
+  /// card after the user can actually see it.
+  String? _deferredHighlightId;
+  String? get deferredHighlightId => _deferredHighlightId;
+
+  void announceCvCreated({
+    required int targetTab,
+    required String highlightId,
+  }) {
+    _pendingLandingAnimation = true;
+    _deferredHighlightId = highlightId; // applied after tab change
+    _pendingTabIndex = targetTab;
+    notifyListeners();
+  }
+
+  void consumeDeferredHighlight() {
+    if (_deferredHighlightId != null) {
+      _pendingHighlightResumeId = _deferredHighlightId;
+      _deferredHighlightId = null;
+      notifyListeners();
+    }
   }
 }

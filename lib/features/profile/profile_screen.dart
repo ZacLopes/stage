@@ -1,13 +1,11 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:printing/printing.dart';
 import 'profile_viewmodel.dart';
 import '../auth/user_viewmodel.dart';
+import '../home/home_viewmodel.dart';
 import '../settings/settings_screen.dart';
-import 'profile_edit_screen.dart';
-import 'resume_preview_screen.dart';
+import 'resume_detail_screen.dart';
 import '../../data/models/models.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -22,6 +20,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final userVM = context.watch<UserViewModel>();
     final user = userVM.user;
+    final homeVM = context.watch<HomeViewModel>();
+    final highlightId = homeVM.pendingHighlightResumeId;
+
+    // Clear the highlight after this frame so it only plays once per
+    // request. _ResumeCard reads the id on construct and animates.
+    if (highlightId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        context.read<HomeViewModel>().clearProfileHighlight();
+      });
+    }
 
     return Consumer<ProfileViewModel>(
       builder: (context, viewModel, child) {
@@ -62,7 +71,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         if (viewModel.savedResumes.isEmpty)
                           _buildEmptyState()
                         else
-                          _buildResumeList(viewModel),
+                          _buildResumeList(viewModel, highlightId),
                           
                         const SizedBox(height: 40),
                       ],
@@ -217,7 +226,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildResumeList(ProfileViewModel viewModel) {
+  Widget _buildResumeList(ProfileViewModel viewModel, String? highlightId) {
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -231,8 +240,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       itemBuilder: (context, index) {
         final resume = viewModel.savedResumes[index];
         return _ResumeCard(
+          key: ValueKey(resume.id),
           resume: resume,
           viewModel: viewModel,
+          highlight: resume.id == highlightId,
           onDelete: () => _showDeleteConfirmation(context, viewModel, resume),
         );
       },
@@ -365,56 +376,104 @@ class _ResumeCard extends StatefulWidget {
   final SavedResume resume;
   final ProfileViewModel viewModel;
   final VoidCallback onDelete;
+  final bool highlight;
 
   const _ResumeCard({
+    super.key,
     required this.resume,
     required this.viewModel,
     required this.onDelete,
+    this.highlight = false,
   });
 
   @override
   State<_ResumeCard> createState() => _ResumeCardState();
 }
 
-class _ResumeCardState extends State<_ResumeCard> {
-  bool _isOpening = false;
+class _ResumeCardState extends State<_ResumeCard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _scale;
+  late final Animation<double> _glow;
 
-  void _handlePreview() async {
-    setState(() => _isOpening = true);
-    final bytes = await widget.viewModel.downloadResumeBytes(widget.resume);
-    setState(() => _isOpening = false);
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _scale = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween(begin: 0.85, end: 1.05)
+            .chain(CurveTween(curve: Curves.easeOutBack)),
+        weight: 45,
+      ),
+      TweenSequenceItem(
+        tween: Tween(begin: 1.05, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeInOutCubic)),
+        weight: 55,
+      ),
+    ]).animate(_controller);
+    _glow = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 30),
+      TweenSequenceItem(tween: ConstantTween(1.0), weight: 30),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 40),
+    ]).animate(_controller);
 
-    if (bytes != null && mounted) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => ResumePreviewScreen(
-            title: widget.resume.title,
-            pdfBytes: bytes,
-          ),
-        ),
-      );
+    if (widget.highlight) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _controller.forward();
+      });
+    } else {
+      _controller.value = 1.0; // settled state
     }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _openDetail() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ResumeDetailScreen(resume: widget.resume),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final dateStr = '${widget.resume.createdAt.day.toString().padLeft(2, '0')}/${widget.resume.createdAt.month.toString().padLeft(2, '0')}';
 
-    return GestureDetector(
-      onTap: _handlePreview,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: _scale.value,
+          child: GestureDetector(
+            onTap: _openDetail,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                  if (_glow.value > 0)
+                    BoxShadow(
+                      color: const Color(0xFF4F46E5).withOpacity(0.45 * _glow.value),
+                      blurRadius: 24,
+                      spreadRadius: 2,
+                    ),
+                ],
+              ),
         clipBehavior: Clip.antiAlias,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -459,15 +518,6 @@ class _ResumeCardState extends State<_ResumeCard> {
                       ),
                     ),
                     
-                    // Loading Overlay
-                    if (_isOpening)
-                      Container(
-                        color: Colors.white.withOpacity(0.8),
-                        child: const Center(
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF2E7D32)),
-                        ),
-                      ),
-                    
                     // Quick Action Link
                     Positioned(
                       top: 4,
@@ -484,7 +534,7 @@ class _ResumeCardState extends State<_ResumeCard> {
                             } else if (value == 'share') {
                               widget.viewModel.downloadAndShareResume(widget.resume);
                             } else if (value == 'open') {
-                              _handlePreview();
+                              _openDetail();
                             }
                           },
                           itemBuilder: (context) => [
@@ -563,7 +613,10 @@ class _ResumeCardState extends State<_ResumeCard> {
             ),
           ],
         ),
-      ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

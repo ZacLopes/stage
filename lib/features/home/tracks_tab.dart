@@ -6,7 +6,13 @@ import 'gamified_track_list.dart';
 import '../gamification/gamification_viewmodel.dart';
 
 class TracksTab extends StatelessWidget {
-  const TracksTab({super.key});
+  /// Optional back affordance shown as an arrow in the header's top-left
+  /// corner. When the tab is rendered embedded inside another screen
+  /// (e.g. as a sub-page of the Currículo tab), the host passes this to
+  /// let the user return to the entry-point.
+  final VoidCallback? onBack;
+
+  const TracksTab({super.key, this.onBack});
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +29,7 @@ class TracksTab extends StatelessWidget {
               if (viewModel.isLoading) {
                 return const Center(child: CircularProgressIndicator());
               }
-              
+
               return GamifiedTrackList(tracks: viewModel.tracks);
             },
           ),
@@ -58,6 +64,26 @@ class TracksTab extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
+                  if (onBack != null) ...[
+                    GestureDetector(
+                      onTap: onBack,
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3F4F6),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.arrow_back_rounded,
+                          color: Color(0xFF4F46E5),
+                          size: 22,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

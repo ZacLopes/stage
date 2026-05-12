@@ -101,15 +101,33 @@ class ProfileViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> saveResume(String title, List<int> pdfBytes) async {
+  Future<SavedResume> saveResume(String title, List<int> pdfBytes) async {
     try {
-      await _repository.saveResume(title, pdfBytes);
+      final saved = await _repository.saveResume(title, pdfBytes);
       await loadSavedResumes(); // Refresh list
+      return saved;
     } catch (e) {
       print('Error saving resume: $e');
       _error = 'Erro ao salvar currículo';
       notifyListeners();
       rethrow;
     }
+  }
+
+  /// Resolves a unique title given a base. If the base already exists in
+  /// the user's library, appends "(2)", "(3)", ... until a free slot is
+  /// found. Loads the library if it hasn't been loaded yet so the check
+  /// has fresh data.
+  Future<String> resolveUniqueTitle(String base) async {
+    if (_savedResumes.isEmpty) {
+      await loadSavedResumes();
+    }
+    final taken = _savedResumes.map((r) => r.title).toSet();
+    if (!taken.contains(base)) return base;
+    var n = 2;
+    while (taken.contains('$base ($n)')) {
+      n++;
+    }
+    return '$base ($n)';
   }
 }

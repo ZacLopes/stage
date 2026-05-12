@@ -1991,14 +1991,59 @@ class ResumeViewModel extends ChangeNotifier {
     try {
       // 1. Generate PDF bytes
       final bytes = await PdfService.generateResumeBytes(user, _resumeData!, _selectedTemplateId);
-      
+
       // 2. Save to Supabase
       await _repository.saveResume(title, bytes);
-      
+
       print('DEBUG: Resume saved to library: $title');
     } catch (e) {
       print('Error saving to library: $e');
       _error = 'Erro ao salvar na biblioteca: $e';
+      rethrow;
+    } finally {
+      _isSaving = false;
+      notifyListeners();
+    }
+  }
+
+  /// Default title used for auto-saved trail-generated resumes. Suffix
+  /// "(2)", "(3)", ... appended when the title already exists in the
+  /// user's library (resolved via ProfileViewModel.resolveUniqueTitle).
+  static const String kTrailResumeBaseTitle = 'Currículo Stage';
+
+  /// Auto-saves the current trail-generated resume to the library. Called
+  /// from the Curriculum Ready dialog (Track 5 completion). Returns the
+  /// newly-created SavedResume so callers can highlight it on the Profile
+  /// tab.
+  ///
+  /// If [resumeData] is still loading, waits up to a short timeout. If
+  /// data is genuinely unavailable, falls back to a placeholder PDF so
+  /// the user still gets a library entry — they can re-export later from
+  /// the detail screen.
+  Future<SavedResume> autoSaveTrailResume(
+    UserProfile? user,
+    Future<String> Function(String base) resolveUniqueTitle,
+    Future<SavedResume> Function(String title, List<int> bytes) saveAndRefresh,
+  ) async {
+    _isSaving = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      if (_resumeData == null) {
+        await loadResumeData();
+      }
+      final data = _resumeData ?? ResumeData(fullName: user?.name ?? '', email: user?.email ?? '');
+      final title = await resolveUniqueTitle(kTrailResumeBaseTitle);
+      final bytes = await PdfService.generateResumeBytes(user, data, _selectedTemplateId);
+      // Importante: passamos pelo ProfileViewModel.saveResume (via callback)
+      // pra que `savedResumes` seja atualizada — sem isso a aba Perfil mostra
+      // a lista stale até pull-to-refresh.
+      final saved = await saveAndRefresh(title, bytes);
+      return saved;
+    } catch (e) {
+      print('Error auto-saving trail resume: $e');
+      _error = 'Erro ao salvar currículo: $e';
       rethrow;
     } finally {
       _isSaving = false;

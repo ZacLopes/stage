@@ -12,7 +12,9 @@ import '../../../services/cv_import_service.dart';
 /// - [variant: ImportCvVariant.secondary] — outlined, mais discreto
 /// - [variant: ImportCvVariant.compact] — tile pequeno pra usar em listas
 class ImportCvButton extends StatefulWidget {
-  final VoidCallback? onImported;
+  /// Called after a successful import. Receives the new SavedResume id
+  /// (when available) so callers can highlight or navigate to it.
+  final void Function(String? newResumeId)? onImported;
   final ImportCvVariant variant;
   final String label;
 
@@ -48,7 +50,7 @@ class _ImportCvButtonState extends State<ImportCvButton> {
             : '✓ Currículo salvo, mas não consegui ler o texto. Match score pode ficar limitado.',
         success: true,
       );
-      widget.onImported?.call();
+      widget.onImported?.call(result.savedResumeId);
     } else if (result.errorMessage != null) {
       _showSnack(result.errorMessage!, success: false);
     }

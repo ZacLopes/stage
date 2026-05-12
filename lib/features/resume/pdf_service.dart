@@ -482,179 +482,168 @@ class PdfService {
   //   linearmente — alinhamento é só visual)
   // - Sem imagens, sem ícones, sem emojis
   // - PDF gerado por Printing.convertHtml → texto selecionável
+  // ───────────────────────────────────────────────────────────────────
+  //  Jake's Resume — LaTeX classic (serif, two-line entries, HR dividers)
+  // ───────────────────────────────────────────────────────────────────
+  //
+  // Identidade visual: cabeçalho serifado grande centralizado, sem caps
+  // forte. Cada seção tem uma linha horizontal AO LADO do título (HR
+  // após o nome da seção). Cada entrada tem 2 linhas: (a) instituição
+  // bold + local à direita, (b) cargo italic + datas à direita italic.
+  // Inspirado no template de Jake Gutierrez tão usado em vagas de tech.
   static String _buildJakesResumeHtml(UserProfile? user, ResumeData resume) {
     final lang = resume.language;
     final name = (resume.fullName.isNotEmpty ? resume.fullName : (user?.name ?? '')).trim();
 
-    // Contact line — ATS-friendly: separado por `|` pra ser facilmente parseado.
     final contactParts = <String>[];
     if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(resume.phone));
     if (resume.email.isNotEmpty) contactParts.add(_escapeHtml(resume.email));
-    if (resume.linkedin.isNotEmpty) contactParts.add(_escapeHtml(resume.linkedin));
+    if (resume.linkedin.isNotEmpty) {
+      contactParts.add(_escapeHtml(resume.linkedin.replaceAll(RegExp(r'^https?://(www\.)?'), '')));
+    }
     if (resume.location.isNotEmpty) contactParts.add(_escapeHtml(resume.location));
     final contactLine = contactParts.join(' | ');
 
-    // Summary (optional)
+    String section(String title) =>
+        '<div class="sec-row"><span class="sec">${title.toUpperCase()}</span><span class="sec-hr"></span></div>';
+
+    String entry({
+      required String tl,
+      required String tr,
+      String bl = '',
+      String br = '',
+      String details = '',
+      String description = '',
+    }) {
+      final bullets = description.trim().isEmpty
+          ? ''
+          : '<ul>${description.split('\n').where((l) => l.trim().isNotEmpty).map((l) {
+              final clean = l.replaceAll('•', '').trim();
+              return '<li>${_emphasizeMetrics(_escapeHtml(clean))}</li>';
+            }).join()}</ul>';
+      final det = details.trim().isEmpty
+          ? ''
+          : '<div class="det">${_escapeHtml(details.trim())}</div>';
+      final sub = (bl.isNotEmpty || br.isNotEmpty)
+          ? '<div class="row sub"><span class="i">${_escapeHtml(bl)}</span><span class="r i">${_escapeHtml(br)}</span></div>'
+          : '';
+      return '''
+        <div class="entry">
+          <div class="row top"><span class="b">${_escapeHtml(tl)}</span><span class="r">${_escapeHtml(tr)}</span></div>
+          $sub
+          $det
+          $bullets
+        </div>
+      ''';
+    }
+
     final summaryHtml = resume.summary.trim().isNotEmpty
-        ? '<h2>${_l10n('summary', lang)}</h2><p class="summary">${_escapeHtml(resume.summary.trim())}</p>'
+        ? '${section(_l10n('summary', lang))}<p class="summary">${_escapeHtml(resume.summary.trim())}</p>'
         : '';
 
-    // Education
     final eduHtml = resume.education.isEmpty
         ? ''
-        : '<h2>${_l10n('education', lang)}</h2>' +
-            resume.education.map((e) {
-              final loc = e.location.isNotEmpty ? e.location : resume.location;
-              return '''
-              <div class="entry">
-                <div class="entry-line"><span class="bold">${_escapeHtml(e.institution)}</span><span class="right">${_escapeHtml(loc)}</span></div>
-                <div class="entry-line"><span class="italic">${_escapeHtml(e.degree)}</span><span class="right italic">${_escapeHtml(e.period)}</span></div>
-                ${e.coursework.isNotEmpty ? '<div class="sub"><span class="bold">${_l10n('coursework', lang)}:</span> ${_escapeHtml(e.coursework)}</div>' : ''}
-                ${e.details.isNotEmpty ? '<div class="sub">${_escapeHtml(e.details)}</div>' : ''}
-              </div>
-              ''';
-            }).join('');
+        : section(_l10n('education', lang)) +
+            resume.education.map((e) => entry(
+                  tl: e.institution,
+                  tr: e.location.isNotEmpty ? e.location : resume.location,
+                  bl: e.degree,
+                  br: e.period,
+                  details: [
+                    if (e.gpa.isNotEmpty) '${_l10n('edu_gpa', lang)}: ${e.gpa}',
+                    if (e.coursework.isNotEmpty) '${_l10n('coursework', lang)}: ${e.coursework}',
+                    if (e.details.isNotEmpty) e.details,
+                  ].join(' · '),
+                )).join();
 
-    // Experience
     final expHtml = resume.experiences.isEmpty
         ? ''
-        : '<h2>${_l10n('experience', lang)}</h2>' +
-            resume.experiences.map((e) {
-              final loc = e.location.isNotEmpty ? e.location : resume.location;
-              final bullets = e.description
-                  .split('\n')
-                  .map((b) => b.trim())
-                  .where((b) => b.isNotEmpty)
-                  .map((b) => '<li>${_escapeHtml(b)}</li>')
-                  .join('');
-              return '''
-              <div class="entry">
-                <div class="entry-line"><span class="bold">${_escapeHtml(e.role)}</span><span class="right italic">${_escapeHtml(e.period)}</span></div>
-                <div class="entry-line"><span class="italic">${_escapeHtml(e.company)}</span><span class="right">${_escapeHtml(loc)}</span></div>
-                ${bullets.isNotEmpty ? '<ul>$bullets</ul>' : ''}
-              </div>
-              ''';
-            }).join('');
+        : section(_l10n('experience', lang)) +
+            resume.experiences.map((e) => entry(
+                  tl: e.role,
+                  tr: e.period,
+                  bl: e.company,
+                  br: e.location.isNotEmpty ? e.location : resume.location,
+                  description: e.description,
+                )).join();
 
-    // Projects / Leadership (concatenados sob "Projects")
     final projItems = <String>[];
     for (final p in resume.academicProjects) {
-      final bullets = p.description
-          .split('\n')
-          .map((b) => b.trim())
-          .where((b) => b.isNotEmpty)
-          .map((b) => '<li>${_escapeHtml(b)}</li>')
-          .join('');
-      projItems.add('''
-        <div class="entry">
-          <div class="entry-line"><span class="bold">${_escapeHtml(p.title)}</span>${p.role.isNotEmpty ? ' | <span class="italic">${_escapeHtml(p.role)}</span>' : ''}<span class="right italic">${_escapeHtml(p.period)}</span></div>
-          ${bullets.isNotEmpty ? '<ul>$bullets</ul>' : ''}
-        </div>
-        ''');
+      projItems.add(entry(
+        tl: p.title,
+        tr: p.period,
+        bl: p.role,
+        br: p.location.isNotEmpty ? p.location : resume.location,
+        description: p.description,
+      ));
     }
     for (final l in resume.leadership) {
-      final bullets = l.description
-          .split('\n')
-          .map((b) => b.trim())
-          .where((b) => b.isNotEmpty)
-          .map((b) => '<li>${_escapeHtml(b)}</li>')
-          .join('');
-      projItems.add('''
-        <div class="entry">
-          <div class="entry-line"><span class="bold">${_escapeHtml(l.organization)}</span>${l.role.isNotEmpty ? ' | <span class="italic">${_escapeHtml(l.role)}</span>' : ''}<span class="right italic">${_escapeHtml(l.period)}</span></div>
-          ${bullets.isNotEmpty ? '<ul>$bullets</ul>' : ''}
-        </div>
-        ''');
+      projItems.add(entry(
+        tl: l.organization,
+        tr: l.period,
+        bl: l.role,
+        br: l.location.isNotEmpty ? l.location : resume.location,
+        description: l.description,
+      ));
     }
     final projHtml = projItems.isEmpty
         ? ''
-        : '<h2>${_l10n('projects', lang)}</h2>${projItems.join('')}';
+        : section(_l10n('projects', lang)) + projItems.join();
 
-    // Technical Skills
     final skillsParts = <String>[];
     if (resume.skills.isNotEmpty) {
-      skillsParts.add('<span class="bold">${_l10n('technical_skills', lang)}:</span> ${_escapeHtml(resume.skills.join(', '))}');
+      skillsParts.add('<div class="skline"><b>${_l10n('technical_skills', lang)}:</b> ${_escapeHtml(resume.skills.join(', '))}</div>');
     }
     if (resume.languages.isNotEmpty) {
-      final langs = resume.languages.map((l) => '${l.language} (${l.level})').join(', ');
-      skillsParts.add('<span class="bold">${_l10n('languages', lang)}:</span> ${_escapeHtml(langs)}');
+      skillsParts.add('<div class="skline"><b>${_l10n('languages', lang)}:</b> ${_buildLanguagesText(resume.languages, lang)}</div>');
+    }
+    if (resume.toolsText.trim().isNotEmpty) {
+      skillsParts.add('<div class="skline"><b>${_l10n('tools', lang)}:</b> ${_escapeHtml(resume.toolsText.trim())}</div>');
+    } else if (resume.tools.isNotEmpty) {
+      skillsParts.add('<div class="skline"><b>${_l10n('tools', lang)}:</b> ${_buildToolsText(resume.tools, lang)}</div>');
     }
     if (resume.courses.isNotEmpty) {
-      final courses = resume.courses.map((c) => c.title).join(', ');
-      skillsParts.add('<span class="bold">${_l10n('courses', lang)}:</span> ${_escapeHtml(courses)}');
+      final cs = resume.courses.map((c) => c.title).join(', ');
+      skillsParts.add('<div class="skline"><b>${_l10n('courses', lang)}:</b> ${_escapeHtml(cs)}</div>');
     }
     if (resume.interests.isNotEmpty) {
-      skillsParts.add('<span class="bold">${_l10n('interests', lang)}:</span> ${_escapeHtml(resume.interests.join(', '))}');
+      skillsParts.add('<div class="skline"><b>${_l10n('interests', lang)}:</b> ${_escapeHtml(resume.interests.join(', '))}</div>');
     }
     final skillsHtml = skillsParts.isEmpty
         ? ''
-        : '<h2>${_l10n('technical_skills', lang)}</h2>' +
-            skillsParts.map((p) => '<div class="skill-line">$p</div>').join('');
+        : section(_l10n('technical_skills', lang)) + skillsParts.join();
 
-    return '''
-<!DOCTYPE html>
+    return '''<!DOCTYPE html>
 <html lang="${lang == 'en' ? 'en' : 'pt-BR'}">
 <head>
-<meta charset="UTF-8" />
-<title>${_escapeHtml(name)}</title>
+<meta charset="UTF-8">
 <style>
-  @page { size: A4; margin: 0.5in 0.7in; }
-  body {
-    font-family: "Garamond", "EB Garamond", "Georgia", serif;
-    font-size: 10.5pt;
-    color: #000;
-    margin: 0;
-    line-height: 1.25;
-  }
-  .header { text-align: center; margin-bottom: 8px; }
-  .header h1 {
-    font-size: 22pt;
-    font-weight: normal;
-    margin: 0 0 4px 0;
-    letter-spacing: 0.5px;
-  }
-  .header .contact {
-    font-size: 10pt;
-    color: #000;
-  }
-  h2 {
-    text-transform: uppercase;
-    font-size: 11pt;
-    margin: 10px 0 3px 0;
-    padding-bottom: 1px;
-    border-bottom: 0.75pt solid #000;
-    letter-spacing: 0.5px;
-  }
-  .entry { margin-bottom: 6px; }
-  .entry-line {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-  }
-  .right { float: none; }
-  .bold { font-weight: bold; }
-  .italic { font-style: italic; }
-  .sub {
-    font-size: 10pt;
-    margin-top: 1px;
-  }
-  ul {
-    margin: 3px 0 4px 0;
-    padding-left: 22px;
-  }
-  li {
-    margin-bottom: 2px;
-    font-size: 10.5pt;
-  }
-  .summary {
-    margin: 4px 0;
-  }
-  .skill-line { margin: 1px 0; }
+@page { size: A4; margin: 0.5in 0.6in; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Latin Modern Roman', 'Computer Modern', 'Georgia', 'Cambria', serif; font-size: 11pt; color: #000; line-height: 1.28; }
+.header { text-align: center; margin-bottom: 6pt; }
+.name { font-size: 24pt; font-weight: normal; letter-spacing: 0.5pt; }
+.contact { font-size: 10pt; margin-top: 3pt; }
+.sec-row { display: flex; align-items: center; margin: 10pt 0 4pt; }
+.sec { font-size: 11pt; font-weight: bold; letter-spacing: 1pt; margin-right: 6pt; white-space: nowrap; }
+.sec-hr { flex: 1; height: 0; border-top: 0.6pt solid #000; }
+.entry { margin-bottom: 6pt; }
+.row { display: flex; justify-content: space-between; align-items: baseline; font-size: 10.5pt; }
+.row.top { font-size: 11pt; }
+.row.sub { margin-top: 1pt; }
+.row .r { white-space: nowrap; margin-left: 10pt; }
+.b { font-weight: bold; }
+.i { font-style: italic; }
+.summary { font-size: 10.5pt; margin: 2pt 0 0; }
+.det { font-size: 10pt; margin-top: 2pt; font-style: italic; }
+ul { margin: 3pt 0 0 0; padding-left: 18pt; }
+li { font-size: 10.5pt; margin-bottom: 1pt; }
+.skline { font-size: 10.5pt; margin-bottom: 2pt; }
 </style>
 </head>
 <body>
   <div class="header">
-    <h1>${_escapeHtml(name)}</h1>
+    <div class="name">${_escapeHtml(name)}</div>
     <div class="contact">$contactLine</div>
   </div>
   $summaryHtml
@@ -663,8 +652,7 @@ class PdfService {
   $projHtml
   $skillsHtml
 </body>
-</html>
-''';
+</html>''';
   }
 
   // ───────────────────────────────────────────────────────────────────
@@ -681,208 +669,192 @@ class PdfService {
   //
   // Order: Education (primeiro, padrão MBA) → Experience → Leadership/Activities
   // → Skills/Additional Information
+  // ───────────────────────────────────────────────────────────────────
+  //  Forte Foundation — MBA banking/consulting (CAPS, double-border, formal)
+  // ───────────────────────────────────────────────────────────────────
+  //
+  // Identidade visual: nome em CAIXA ALTA centralizado com tracking
+  // exagerado (espaço entre letras), DUAS linhas horizontais abaixo
+  // do cabeçalho (estilo emblema). Seções com borda superior + inferior
+  // (look "double-line"). Hyphens (–) nos bullets. Education primeiro
+  // com GPA prominente. Pensado pra Goldman, McKinsey, BCG, MBA.
   static String _buildForteFoundationHtml(UserProfile? user, ResumeData resume) {
     final lang = resume.language;
-    final name = (resume.fullName.isNotEmpty ? resume.fullName : (user?.name ?? '')).trim();
+    final name = (resume.fullName.isNotEmpty ? resume.fullName : (user?.name ?? '')).trim().toUpperCase();
 
     final contactParts = <String>[];
     if (resume.location.isNotEmpty) contactParts.add(_escapeHtml(resume.location));
     if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(resume.phone));
     if (resume.email.isNotEmpty) contactParts.add(_escapeHtml(resume.email));
-    if (resume.linkedin.isNotEmpty) contactParts.add(_escapeHtml(resume.linkedin));
+    if (resume.linkedin.isNotEmpty) {
+      contactParts.add(_escapeHtml(resume.linkedin.replaceAll(RegExp(r'^https?://(www\.)?'), '')));
+    }
     final contactLine = contactParts.join(' • ');
 
-    // Education — prominent placement (top), with GPA if available
+    String section(String title) =>
+        '<div class="sec">${title.toUpperCase()}</div>';
+
+    String bulletList(String desc) {
+      final lines = desc.split('\n').map((l) => l.replaceAll('•', '').trim()).where((l) => l.isNotEmpty).toList();
+      if (lines.isEmpty) return '';
+      return '<ul>${lines.map((l) => '<li>${_emphasizeMetrics(_escapeHtml(l))}</li>').join()}</ul>';
+    }
+
+    String entryEdu({
+      required String institution,
+      required String location,
+      required String degree,
+      required String period,
+      String gpa = '',
+      String honors = '',
+      String coursework = '',
+      String details = '',
+    }) {
+      final extras = <String>[];
+      if (gpa.isNotEmpty) extras.add('${_l10n('edu_gpa', lang)}: $gpa');
+      if (honors.isNotEmpty) extras.add(honors);
+      final extrasLine = extras.isEmpty
+          ? ''
+          : '<div class="extras">${_escapeHtml(extras.join('  |  '))}</div>';
+      final cw = coursework.isEmpty
+          ? ''
+          : '<div class="course"><i>${_l10n('edu_coursework', lang)}:</i> ${_escapeHtml(coursework)}</div>';
+      final det = details.isEmpty
+          ? ''
+          : '<div class="det">${_escapeHtml(details)}</div>';
+      return '''
+        <div class="entry">
+          <table class="entry-row"><tr>
+            <td class="left bold">${_escapeHtml(institution)}</td>
+            <td class="right bold">${_escapeHtml(location)}</td>
+          </tr></table>
+          <table class="entry-row"><tr>
+            <td class="left italic">${_escapeHtml(degree)}</td>
+            <td class="right italic">${_escapeHtml(period)}</td>
+          </tr></table>
+          $extrasLine
+          $cw
+          $det
+        </div>
+      ''';
+    }
+
+    String entryExp({
+      required String company,
+      required String location,
+      required String role,
+      required String period,
+      required String description,
+    }) {
+      return '''
+        <div class="entry">
+          <table class="entry-row"><tr>
+            <td class="left bold">${_escapeHtml(company)}</td>
+            <td class="right bold">${_escapeHtml(location)}</td>
+          </tr></table>
+          <table class="entry-row"><tr>
+            <td class="left italic">${_escapeHtml(role)}</td>
+            <td class="right italic">${_escapeHtml(period)}</td>
+          </tr></table>
+          ${bulletList(description)}
+        </div>
+      ''';
+    }
+
     final eduHtml = resume.education.isEmpty
         ? ''
-        : '<h2>${_l10n('education', lang)}</h2>' +
-            resume.education.map((e) {
-              final loc = e.location.isNotEmpty ? e.location : resume.location;
-              final extras = <String>[];
-              if (e.gpa.isNotEmpty) extras.add('${_l10n('edu_gpa', lang)}: ${_escapeHtml(e.gpa)}');
-              if (e.honors.isNotEmpty) extras.add(_escapeHtml(e.honors));
-              if (e.repRole.isNotEmpty) extras.add(_escapeHtml(e.repRole));
-              final extrasLine = extras.isNotEmpty ? '<div class="extras">${extras.join(' &nbsp;|&nbsp; ')}</div>' : '';
-              final coursework = e.coursework.isNotEmpty
-                  ? '<div class="coursework"><span class="italic">${_l10n('edu_coursework', lang)}:</span> ${_escapeHtml(e.coursework)}</div>'
-                  : '';
-              return '''
-              <div class="entry">
-                <div class="entry-head">
-                  <span class="bold">${_escapeHtml(e.institution)}</span>
-                  <span class="right bold">${_escapeHtml(loc)}</span>
-                </div>
-                <div class="entry-sub">
-                  <span class="italic">${_escapeHtml(e.degree)}</span>
-                  <span class="right italic">${_escapeHtml(e.period)}</span>
-                </div>
-                $extrasLine
-                $coursework
-              </div>
-              ''';
-            }).join('');
+        : section(_l10n('education', lang)) +
+            resume.education.map((e) => entryEdu(
+                  institution: e.institution,
+                  location: e.location.isNotEmpty ? e.location : resume.location,
+                  degree: e.degree,
+                  period: e.period,
+                  gpa: e.gpa,
+                  honors: e.honors,
+                  coursework: e.coursework,
+                  details: e.details,
+                )).join();
 
     final expHtml = resume.experiences.isEmpty
         ? ''
-        : '<h2>${_l10n('experience', lang)}</h2>' +
-            resume.experiences.map((e) {
-              final loc = e.location.isNotEmpty ? e.location : resume.location;
-              final bullets = e.description
-                  .split('\n')
-                  .map((b) => b.trim())
-                  .where((b) => b.isNotEmpty)
-                  .map((b) => '<li>${_escapeHtml(b)}</li>')
-                  .join('');
-              return '''
-              <div class="entry">
-                <div class="entry-head">
-                  <span class="bold">${_escapeHtml(e.company)}</span>
-                  <span class="right bold">${_escapeHtml(loc)}</span>
-                </div>
-                <div class="entry-sub">
-                  <span class="italic">${_escapeHtml(e.role)}</span>
-                  <span class="right italic">${_escapeHtml(e.period)}</span>
-                </div>
-                ${bullets.isNotEmpty ? '<ul>$bullets</ul>' : ''}
-              </div>
-              ''';
-            }).join('');
+        : section(_l10n('experience', lang)) +
+            resume.experiences.map((e) => entryExp(
+                  company: e.company,
+                  location: e.location.isNotEmpty ? e.location : resume.location,
+                  role: e.role,
+                  period: e.period,
+                  description: e.description,
+                )).join();
 
-    // Leadership / Activities
     final actItems = <String>[];
-    for (final l in resume.leadership) {
-      final loc = l.location.isNotEmpty ? l.location : resume.location;
-      final bullets = l.description
-          .split('\n')
-          .map((b) => b.trim())
-          .where((b) => b.isNotEmpty)
-          .map((b) => '<li>${_escapeHtml(b)}</li>')
-          .join('');
-      actItems.add('''
-        <div class="entry">
-          <div class="entry-head">
-            <span class="bold">${_escapeHtml(l.organization)}</span>
-            <span class="right bold">${_escapeHtml(loc)}</span>
-          </div>
-          <div class="entry-sub">
-            <span class="italic">${_escapeHtml(l.role)}</span>
-            <span class="right italic">${_escapeHtml(l.period)}</span>
-          </div>
-          ${bullets.isNotEmpty ? '<ul>$bullets</ul>' : ''}
-        </div>
-        ''');
-    }
     for (final p in resume.academicProjects) {
-      final bullets = p.description
-          .split('\n')
-          .map((b) => b.trim())
-          .where((b) => b.isNotEmpty)
-          .map((b) => '<li>${_escapeHtml(b)}</li>')
-          .join('');
-      actItems.add('''
-        <div class="entry">
-          <div class="entry-head">
-            <span class="bold">${_escapeHtml(p.title)}</span>
-            <span class="right bold">${_escapeHtml(p.location.isNotEmpty ? p.location : resume.location)}</span>
-          </div>
-          <div class="entry-sub">
-            <span class="italic">${_escapeHtml(p.role)}</span>
-            <span class="right italic">${_escapeHtml(p.period)}</span>
-          </div>
-          ${bullets.isNotEmpty ? '<ul>$bullets</ul>' : ''}
-        </div>
-        ''');
+      actItems.add(entryExp(
+        company: p.title,
+        location: p.location.isNotEmpty ? p.location : resume.location,
+        role: p.role,
+        period: p.period,
+        description: p.description,
+      ));
     }
-    final actHtml = actItems.isEmpty
-        ? ''
-        : '<h2>${_l10n('leadership', lang)}</h2>${actItems.join('')}';
+    for (final l in resume.leadership) {
+      actItems.add(entryExp(
+        company: l.organization,
+        location: l.location.isNotEmpty ? l.location : resume.location,
+        role: l.role,
+        period: l.period,
+        description: l.description,
+      ));
+    }
+    final actHtml = actItems.isEmpty ? '' : section(_l10n('leadership', lang)) + actItems.join();
 
-    // Additional Information (skills + languages + interests) — one consolidated section
     final addParts = <String>[];
     if (resume.skills.isNotEmpty) {
-      addParts.add('<div><span class="bold">${_l10n('technical_skills', lang)}:</span> ${_escapeHtml(resume.skills.join(', '))}</div>');
+      addParts.add('<div class="add-row"><b>${_l10n('technical_skills', lang)}:</b> ${_escapeHtml(resume.skills.join(', '))}.</div>');
     }
     if (resume.languages.isNotEmpty) {
-      final langs = resume.languages.map((l) => '${_escapeHtml(l.language)} (${_escapeHtml(l.level)})').join(', ');
-      addParts.add('<div><span class="bold">${_l10n('languages', lang)}:</span> $langs</div>');
+      addParts.add('<div class="add-row"><b>${_l10n('languages', lang)}:</b> ${_buildLanguagesText(resume.languages, lang)}.</div>');
     }
     if (resume.courses.isNotEmpty) {
-      final courses = resume.courses
-          .map((c) => '${_escapeHtml(c.title)}${c.institution.isNotEmpty ? ' (${_escapeHtml(c.institution)})' : ''}')
-          .join(', ');
-      addParts.add('<div><span class="bold">${_l10n('courses', lang)}:</span> $courses</div>');
+      final cs = resume.courses.map((c) => c.title).join(', ');
+      addParts.add('<div class="add-row"><b>${_l10n('courses', lang)}:</b> ${_escapeHtml(cs)}.</div>');
     }
     if (resume.interests.isNotEmpty) {
-      addParts.add('<div><span class="bold">${_l10n('interests', lang)}:</span> ${_escapeHtml(resume.interests.join(', '))}</div>');
+      addParts.add('<div class="add-row"><b>${_l10n('interests', lang)}:</b> ${_escapeHtml(resume.interests.join(', '))}.</div>');
     }
-    final addHtml = addParts.isEmpty
-        ? ''
-        : '<h2>${lang == 'en' ? 'ADDITIONAL INFORMATION' : 'INFORMAÇÕES ADICIONAIS'}</h2><div class="add-block">${addParts.join('')}</div>';
+    final addTitle = lang == 'en' ? 'ADDITIONAL INFORMATION' : 'INFORMAÇÕES ADICIONAIS';
+    final addHtml = addParts.isEmpty ? '' : '<div class="sec">$addTitle</div>${addParts.join()}';
 
-    return '''
-<!DOCTYPE html>
+    return '''<!DOCTYPE html>
 <html lang="${lang == 'en' ? 'en' : 'pt-BR'}">
 <head>
-<meta charset="UTF-8" />
-<title>${_escapeHtml(name)}</title>
+<meta charset="UTF-8">
 <style>
-  @page { size: A4; margin: 0.6in 0.7in; }
-  body {
-    font-family: "Times New Roman", "Times", "Georgia", serif;
-    font-size: 10.5pt;
-    color: #000;
-    margin: 0;
-    line-height: 1.3;
-  }
-  .header {
-    text-align: center;
-    border-bottom: 1.2pt solid #000;
-    padding-bottom: 6px;
-    margin-bottom: 8px;
-  }
-  .header h1 {
-    font-size: 18pt;
-    font-weight: bold;
-    text-transform: uppercase;
-    margin: 0 0 3px 0;
-    letter-spacing: 2.5px;
-  }
-  .header .contact { font-size: 10pt; }
-  h2 {
-    text-transform: uppercase;
-    font-size: 11pt;
-    font-weight: bold;
-    margin: 12px 0 4px 0;
-    padding-bottom: 1px;
-    border-bottom: 0.5pt solid #000;
-    letter-spacing: 1.2px;
-  }
-  .entry { margin-bottom: 8px; }
-  .entry-head, .entry-sub {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-  }
-  .bold { font-weight: bold; }
-  .italic { font-style: italic; }
-  .extras, .coursework {
-    font-size: 9.5pt;
-    margin-top: 2px;
-  }
-  ul {
-    margin: 3px 0 4px 0;
-    padding-left: 22px;
-  }
-  li {
-    margin-bottom: 2px;
-    font-size: 10.5pt;
-  }
-  .add-block div { margin: 1px 0; font-size: 10pt; }
+@page { size: A4; margin: 0.6in 0.65in; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Times New Roman', 'Times', serif; font-size: 10.5pt; color: #000; line-height: 1.32; }
+.header { text-align: center; margin-bottom: 10pt; padding: 8pt 0; border-top: 2pt solid #000; border-bottom: 0.5pt solid #000; }
+.name { font-size: 19pt; font-weight: bold; letter-spacing: 6pt; text-transform: uppercase; }
+.contact { font-size: 9.5pt; margin-top: 5pt; letter-spacing: 0.5pt; }
+.sec { font-size: 11pt; font-weight: bold; letter-spacing: 2pt; text-transform: uppercase; text-align: center; margin: 12pt 0 5pt; padding: 2pt 0; border-top: 0.4pt solid #000; border-bottom: 0.4pt solid #000; }
+.entry { margin-bottom: 7pt; }
+.entry-row { width: 100%; border-collapse: collapse; }
+.entry-row td { vertical-align: baseline; padding: 0; font-size: 10.5pt; }
+.left { text-align: left; }
+.right { text-align: right; white-space: nowrap; }
+.bold { font-weight: bold; }
+.italic { font-style: italic; }
+.extras { font-size: 9.5pt; margin-top: 2pt; }
+.course { font-size: 10pt; margin-top: 2pt; }
+.det { font-size: 10pt; margin-top: 2pt; }
+ul { margin: 3pt 0 0 0; padding: 0; list-style: none; }
+li { font-size: 10.5pt; margin-bottom: 1pt; padding-left: 12pt; text-indent: -10pt; }
+li::before { content: "– "; font-weight: bold; }
+.add-row { font-size: 10.5pt; margin-bottom: 2pt; }
 </style>
 </head>
 <body>
   <div class="header">
-    <h1>${_escapeHtml(name)}</h1>
+    <div class="name">${_escapeHtml(name)}</div>
     <div class="contact">$contactLine</div>
   </div>
   $eduHtml
@@ -890,8 +862,7 @@ class PdfService {
   $actHtml
   $addHtml
 </body>
-</html>
-''';
+</html>''';
   }
 
   // ───────────────────────────────────────────────────────────────────
@@ -907,6 +878,15 @@ class PdfService {
   //
   // Order: Header → Education → Experience → Projects → Skills (priority
   // pra estudante que tem mais formação que experiência).
+  // ───────────────────────────────────────────────────────────────────
+  //  One-Page Compact — modern student (sans-serif, indigo, single-line entries)
+  // ───────────────────────────────────────────────────────────────────
+  //
+  // Identidade visual: nome ALINHADO À ESQUERDA grande em sans-serif
+  // bold, contato em linha abaixo. Seções com cor INDIGO (#4F46E5),
+  // sem bordas, só destaque por cor. Cada entrada é uma LINHA SÓ
+  // (role · company · period · location inline) — mais compacto que
+  // os outros. Bullets com chevron (›). Pensado pra trainees/estágios.
   static String _buildOnePageHtml(UserProfile? user, ResumeData resume) {
     final lang = resume.language;
     final name = (resume.fullName.isNotEmpty ? resume.fullName : (user?.name ?? '')).trim();
@@ -914,196 +894,156 @@ class PdfService {
     final contactParts = <String>[];
     if (resume.email.isNotEmpty) contactParts.add(_escapeHtml(resume.email));
     if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(resume.phone));
-    if (resume.linkedin.isNotEmpty) contactParts.add(_escapeHtml(resume.linkedin));
+    if (resume.linkedin.isNotEmpty) {
+      contactParts.add(_escapeHtml(resume.linkedin.replaceAll(RegExp(r'^https?://(www\.)?'), '')));
+    }
     if (resume.location.isNotEmpty) contactParts.add(_escapeHtml(resume.location));
-    final contactLine = contactParts.join(' · ');
+    final contactLine = contactParts.join('  ·  ');
+
+    String section(String title) => '<div class="sec">${title.toLowerCase()}</div>';
+
+    String bulletList(String desc) {
+      final lines = desc.split('\n').map((l) => l.replaceAll('•', '').trim()).where((l) => l.isNotEmpty).toList();
+      if (lines.isEmpty) return '';
+      return '<ul>${lines.map((l) => '<li>${_emphasizeMetrics(_escapeHtml(l))}</li>').join()}</ul>';
+    }
+
+    String singleLineEntry({
+      required String primary, // bold (role / institution / title)
+      required String secondary, // company / degree / org
+      String tertiary = '', // period
+      String location = '',
+      String description = '',
+      String details = '',
+    }) {
+      final inlineParts = <String>[];
+      if (secondary.isNotEmpty) inlineParts.add('<span class="sec-text">${_escapeHtml(secondary)}</span>');
+      if (tertiary.isNotEmpty) inlineParts.add('<span class="meta">${_escapeHtml(tertiary)}</span>');
+      if (location.isNotEmpty) inlineParts.add('<span class="meta">${_escapeHtml(location)}</span>');
+      final inlineLine = inlineParts.join('  ·  ');
+      final det = details.isEmpty ? '' : '<div class="det">${_escapeHtml(details)}</div>';
+      return '''
+        <div class="entry">
+          <div class="line"><span class="primary">${_escapeHtml(primary)}</span>${inlineLine.isNotEmpty ? '<span class="dot"> · </span>' : ''}$inlineLine</div>
+          $det
+          ${bulletList(description)}
+        </div>
+      ''';
+    }
 
     final summaryHtml = resume.summary.trim().isNotEmpty
-        ? '<p class="summary">${_escapeHtml(resume.summary.trim())}</p>'
+        ? '${section(_l10n('summary', lang))}<p class="summary">${_escapeHtml(resume.summary.trim())}</p>'
         : '';
 
     final eduHtml = resume.education.isEmpty
         ? ''
-        : '<h2>${_l10n('education', lang)}</h2>' +
-            resume.education.map((e) {
-              final loc = e.location.isNotEmpty ? e.location : resume.location;
-              return '''
-              <div class="row">
-                <div class="row-main">
-                  <span class="bold">${_escapeHtml(e.degree)}</span> · ${_escapeHtml(e.institution)}
-                  ${e.gpa.isNotEmpty ? '· <span class="dim">${_l10n('edu_gpa', lang)} ${_escapeHtml(e.gpa)}</span>' : ''}
-                </div>
-                <div class="row-meta">${_escapeHtml(e.period)} · ${_escapeHtml(loc)}</div>
-                ${e.coursework.isNotEmpty ? '<div class="row-sub"><span class="dim">${_l10n('edu_coursework', lang)}:</span> ${_escapeHtml(e.coursework)}</div>' : ''}
-                ${e.details.isNotEmpty ? '<div class="row-sub">${_escapeHtml(e.details)}</div>' : ''}
-              </div>
-              ''';
-            }).join('');
+        : section(_l10n('education', lang)) +
+            resume.education.map((e) => singleLineEntry(
+                  primary: e.degree,
+                  secondary: e.institution,
+                  tertiary: e.period,
+                  location: e.location.isNotEmpty ? e.location : resume.location,
+                  details: [
+                    if (e.gpa.isNotEmpty) '${_l10n('edu_gpa', lang)}: ${e.gpa}',
+                    if (e.coursework.isNotEmpty) e.coursework,
+                    if (e.details.isNotEmpty) e.details,
+                  ].join(' · '),
+                )).join();
 
     final expHtml = resume.experiences.isEmpty
         ? ''
-        : '<h2>${_l10n('experience', lang)}</h2>' +
-            resume.experiences.map((e) {
-              final loc = e.location.isNotEmpty ? e.location : resume.location;
-              final bullets = e.description
-                  .split('\n')
-                  .map((b) => b.trim())
-                  .where((b) => b.isNotEmpty)
-                  .map((b) => '<li>${_escapeHtml(b)}</li>')
-                  .join('');
-              return '''
-              <div class="row">
-                <div class="row-main">
-                  <span class="bold">${_escapeHtml(e.role)}</span> · ${_escapeHtml(e.company)}
-                </div>
-                <div class="row-meta">${_escapeHtml(e.period)} · ${_escapeHtml(loc)}</div>
-                ${bullets.isNotEmpty ? '<ul>$bullets</ul>' : ''}
-              </div>
-              ''';
-            }).join('');
+        : section(_l10n('experience', lang)) +
+            resume.experiences.map((e) => singleLineEntry(
+                  primary: e.role,
+                  secondary: e.company,
+                  tertiary: e.period,
+                  location: e.location.isNotEmpty ? e.location : resume.location,
+                  description: e.description,
+                )).join();
 
-    // Projects (academic + leadership condensed)
     final projItems = <String>[];
     for (final p in resume.academicProjects) {
-      final bullets = p.description
-          .split('\n')
-          .map((b) => b.trim())
-          .where((b) => b.isNotEmpty)
-          .map((b) => '<li>${_escapeHtml(b)}</li>')
-          .join('');
-      projItems.add('''
-        <div class="row">
-          <div class="row-main"><span class="bold">${_escapeHtml(p.title)}</span>${p.role.isNotEmpty ? ' · ${_escapeHtml(p.role)}' : ''}</div>
-          <div class="row-meta">${_escapeHtml(p.period)}</div>
-          ${bullets.isNotEmpty ? '<ul>$bullets</ul>' : ''}
-        </div>
-        ''');
+      projItems.add(singleLineEntry(
+        primary: p.title,
+        secondary: p.role,
+        tertiary: p.period,
+        description: p.description,
+      ));
     }
     for (final l in resume.leadership) {
-      final bullets = l.description
-          .split('\n')
-          .map((b) => b.trim())
-          .where((b) => b.isNotEmpty)
-          .map((b) => '<li>${_escapeHtml(b)}</li>')
-          .join('');
-      projItems.add('''
-        <div class="row">
-          <div class="row-main"><span class="bold">${_escapeHtml(l.organization)}</span>${l.role.isNotEmpty ? ' · ${_escapeHtml(l.role)}' : ''}</div>
-          <div class="row-meta">${_escapeHtml(l.period)}</div>
-          ${bullets.isNotEmpty ? '<ul>$bullets</ul>' : ''}
-        </div>
-        ''');
+      projItems.add(singleLineEntry(
+        primary: l.organization,
+        secondary: l.role,
+        tertiary: l.period,
+        description: l.description,
+      ));
     }
-    final projHtml = projItems.isEmpty
-        ? ''
-        : '<h2>${_l10n('projects', lang)}</h2>${projItems.join('')}';
+    final projHtml = projItems.isEmpty ? '' : section(_l10n('projects', lang)) + projItems.join();
 
-    // Skills consolidated em uma linha cada
-    final skillItems = <String>[];
+    // Skills as pill-grouped chips per category
+    final skillBlocks = <String>[];
     if (resume.skills.isNotEmpty) {
-      skillItems.add('<div><span class="bold">${_l10n('technical_skills', lang)}:</span> ${_escapeHtml(resume.skills.join(' · '))}</div>');
+      final pills = resume.skills.map((s) => '<span class="pill">${_escapeHtml(s)}</span>').join();
+      skillBlocks.add('<div class="skblock"><span class="sklabel">${_l10n('technical_skills', lang)}</span><div class="skpills">$pills</div></div>');
     }
     if (resume.languages.isNotEmpty) {
-      final langs = resume.languages.map((l) => '${_escapeHtml(l.language)} (${_escapeHtml(l.level)})').join(' · ');
-      skillItems.add('<div><span class="bold">${_l10n('languages', lang)}:</span> $langs</div>');
+      final pills = resume.languages.map((l) => '<span class="pill">${_escapeHtml(l.language)} <span class="pill-meta">${_escapeHtml(_translateLevel(l.level, lang))}</span></span>').join();
+      skillBlocks.add('<div class="skblock"><span class="sklabel">${_l10n('languages', lang)}</span><div class="skpills">$pills</div></div>');
     }
     if (resume.courses.isNotEmpty) {
-      final courses = resume.courses.map((c) => _escapeHtml(c.title)).join(' · ');
-      skillItems.add('<div><span class="bold">${_l10n('courses', lang)}:</span> $courses</div>');
+      final pills = resume.courses.map((c) => '<span class="pill">${_escapeHtml(c.title)}</span>').join();
+      skillBlocks.add('<div class="skblock"><span class="sklabel">${_l10n('courses', lang)}</span><div class="skpills">$pills</div></div>');
     }
     if (resume.interests.isNotEmpty) {
-      skillItems.add('<div><span class="bold">${_l10n('interests', lang)}:</span> ${_escapeHtml(resume.interests.join(' · '))}</div>');
+      final pills = resume.interests.map((i) => '<span class="pill">${_escapeHtml(i)}</span>').join();
+      skillBlocks.add('<div class="skblock"><span class="sklabel">${_l10n('interests', lang)}</span><div class="skpills">$pills</div></div>');
     }
-    final skillsHtml = skillItems.isEmpty
+    final skillsHtml = skillBlocks.isEmpty
         ? ''
-        : '<h2>${_l10n('technical_skills', lang)}</h2><div class="skills">${skillItems.join('')}</div>';
+        : section(_l10n('technical_skills', lang)) + skillBlocks.join();
 
-    return '''
-<!DOCTYPE html>
+    return '''<!DOCTYPE html>
 <html lang="${lang == 'en' ? 'en' : 'pt-BR'}">
 <head>
-<meta charset="UTF-8" />
-<title>${_escapeHtml(name)}</title>
+<meta charset="UTF-8">
 <style>
-  @page { size: A4; margin: 0.45in 0.55in; }
-  body {
-    font-family: "Helvetica", "Arial", "Segoe UI", sans-serif;
-    font-size: 10pt;
-    color: #1f2937;
-    margin: 0;
-    line-height: 1.32;
-  }
-  .header {
-    margin-bottom: 6px;
-  }
-  .header h1 {
-    font-size: 19pt;
-    font-weight: 700;
-    margin: 0 0 2px 0;
-    color: #0f172a;
-    letter-spacing: -0.3pt;
-  }
-  .header .contact {
-    font-size: 9.5pt;
-    color: #475569;
-  }
-  h2 {
-    text-transform: uppercase;
-    font-size: 9.5pt;
-    color: #0f172a;
-    margin: 9px 0 3px 0;
-    padding-bottom: 2px;
-    border-bottom: 0.75pt solid #cbd5e1;
-    font-weight: 700;
-    letter-spacing: 1pt;
-  }
-  .row { margin-bottom: 6px; }
-  .row-main {
-    font-size: 10.5pt;
-    color: #0f172a;
-  }
-  .row-meta {
-    font-size: 9pt;
-    color: #64748b;
-    margin-top: 1px;
-  }
-  .row-sub {
-    font-size: 9.5pt;
-    color: #334155;
-    margin-top: 2px;
-  }
-  .bold { font-weight: 700; }
-  .dim { color: #64748b; }
-  ul {
-    margin: 3px 0 0 0;
-    padding-left: 18px;
-  }
-  li {
-    margin-bottom: 1px;
-    font-size: 10pt;
-    color: #334155;
-  }
-  .summary {
-    margin: 4px 0 0 0;
-    font-size: 10pt;
-    color: #334155;
-  }
-  .skills div { margin: 1px 0; font-size: 9.5pt; }
+@page { size: A4; margin: 0.5in 0.55in; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Helvetica', 'Arial', 'Segoe UI', sans-serif; font-size: 10pt; color: #1f2937; line-height: 1.4; }
+.header { text-align: left; margin-bottom: 8pt; padding-bottom: 6pt; border-bottom: 2pt solid #4F46E5; }
+.name { font-size: 24pt; font-weight: 800; color: #0f172a; letter-spacing: -0.5pt; }
+.contact { font-size: 9.5pt; color: #64748b; margin-top: 4pt; }
+.sec { font-size: 11pt; font-weight: 800; color: #4F46E5; text-transform: lowercase; margin: 10pt 0 4pt; letter-spacing: -0.2pt; }
+.entry { margin-bottom: 5pt; }
+.line { font-size: 10.5pt; }
+.primary { font-weight: 700; color: #0f172a; }
+.sec-text { color: #334155; font-weight: 500; }
+.meta { color: #64748b; font-size: 9.5pt; }
+.dot { color: #cbd5e1; }
+.summary { font-size: 10pt; color: #334155; margin: 2pt 0 0; }
+.det { font-size: 9.5pt; color: #64748b; margin-top: 1pt; font-style: italic; }
+ul { margin: 2pt 0 0 0; padding: 0; list-style: none; }
+li { font-size: 10pt; color: #334155; margin-bottom: 1pt; padding-left: 12pt; text-indent: -10pt; }
+li::before { content: "› "; color: #4F46E5; font-weight: bold; }
+.skblock { margin-bottom: 4pt; }
+.sklabel { display: inline-block; font-size: 9pt; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.8pt; margin-right: 6pt; }
+.skpills { display: inline; }
+.pill { display: inline-block; background: #EEF2FF; color: #3730A3; padding: 1pt 6pt; border-radius: 8pt; margin: 1pt 2pt 1pt 0; font-size: 9pt; }
+.pill-meta { color: #6366F1; font-size: 8.5pt; }
 </style>
 </head>
 <body>
   <div class="header">
-    <h1>${_escapeHtml(name)}</h1>
+    <div class="name">${_escapeHtml(name)}</div>
     <div class="contact">$contactLine</div>
-    $summaryHtml
   </div>
+  $summaryHtml
   $eduHtml
   $expHtml
   $projHtml
   $skillsHtml
 </body>
-</html>
-''';
+</html>''';
   }
 
   /// Builds the optional address line (above the contact line) when the user

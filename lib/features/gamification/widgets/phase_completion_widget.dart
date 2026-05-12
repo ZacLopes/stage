@@ -1,10 +1,15 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:career_gamification/features/gamification/gamification_viewmodel.dart';
 import 'package:career_gamification/features/home/home_viewmodel.dart';
 import 'package:career_gamification/features/auth/user_viewmodel.dart';
+import 'package:career_gamification/features/profile/profile_viewmodel.dart';
+import 'package:career_gamification/features/resume/resume_viewmodel.dart';
+import 'package:career_gamification/features/resume/widgets/ai_consent_modal.dart';
 import 'package:career_gamification/data/models/models.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Particle model for confetti effects
@@ -161,8 +166,18 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
       await context.read<HomeViewModel>().refresh();
       if (!mounted) return;
 
-      if (_isLastPhaseOfTrack) {
-        // Show the track-completion (or curriculum-ready) dialog on top
+      // Fonte de verdade primária: checar se TODAS as fases do curso estão
+      // completas via repo. Cobre o caso em que `_phases` está stale (user
+      // entrou na fase via unified_track_list sem passar pelo
+      // track_details_screen que chama loadPhases). Se sim, sempre mostra
+      // o currículo-pronto, independente da detecção local de "last phase".
+      final entireCourseDone = await widget.viewModel.isEntireCourseCompleted();
+      if (!mounted) return;
+
+      if (entireCourseDone) {
+        _isLastTrack = true; // garante que o dialog certo aparece
+        await _showTrackCompletionDialog();
+      } else if (_isLastPhaseOfTrack) {
         await _showTrackCompletionDialog();
       } else {
         Navigator.pop(context);
@@ -175,6 +190,122 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
         setState(() => _isSaving = false);
       }
     }
+  }
+
+  /// Called from the Curriculum Ready dialog button. Orchestrates the
+  /// full trail-end sequence:
+  ///   1. Ask for AI consent if not yet granted.
+  ///   2. Generate the CV with AI (forceRefresh on the ResumeViewModel).
+  ///   3. Auto-save the result to the user's library.
+  ///   4. Pop gamification stack → animate "document → Profile tab" →
+  ///      switch to Profile + highlight the new card.
+  ///
+  /// If consent is declined: aborts gracefully, closing the celebration
+  /// without generating anything. The user can revisit later.
+  Future<void> _completeAndGuideToProfile(BuildContext dialogCtx) async {
+    final homeVM = context.read<HomeViewModel>();
+    final resumeVM = context.read<ResumeViewModel>();
+    final profileVM = context.read<ProfileViewModel>();
+    final userVM = context.read<UserViewModel>();
+
+    // Step 1: AI consent. If not yet granted, ask now — this is the moment
+    // the user actually needs IA, so the prompt makes sense in context.
+    final user = userVM.user;
+    if (user != null && !user.aiConsent) {
+      final accepted = await _askAiConsent(dialogCtx);
+      if (!mounted) return;
+      if (!accepted) {
+        // User declined — close celebration and let them stay on the
+        // phase-completion screen. They can re-tap the button to retry.
+        Navigator.pop(dialogCtx);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Sem o consentimento, não conseguimos gerar seu currículo com IA. '
+                'Você pode aceitar nos ajustes a qualquer momento.',
+              ),
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+    }
+
+    // Step 2: replace the celebration with a fullscreen "generating" overlay
+    // so user has visual feedback during the (potentially 5–10s) AI call.
+    Navigator.pop(dialogCtx); // close celebration
+    if (!mounted) return;
+    final overlay = _GeneratingOverlay.show(context);
+
+    SavedResume? saved;
+    try {
+      // Force regenerate to make sure we have fresh content from the
+      // just-completed trail answers (cached _resumeData may be stale).
+      await resumeVM.loadResumeData(forceRefresh: true);
+      if (!mounted) {
+        overlay.remove();
+        return;
+      }
+
+      // Step 3: save snapshot to library with unique "Currículo Stage" title.
+      // Passa profileVM.saveResume como callback pra atualizar a lista
+      // local (`savedResumes`) — sem isso a aba Perfil mostra stale até
+      // pull-to-refresh.
+      saved = await resumeVM.autoSaveTrailResume(
+        userVM.user,
+        profileVM.resolveUniqueTitle,
+        profileVM.saveResume,
+      );
+    } catch (e) {
+      debugPrint('Trail completion CV pipeline failed: $e');
+    } finally {
+      overlay.remove();
+    }
+
+    if (!mounted) return;
+
+    // Step 4: pop gamification stack, then hand off to HomeScreen which
+    // plays the landing animation + switches tab + highlights the card.
+    Navigator.popUntil(context, (route) => route.isFirst);
+
+    if (saved != null) {
+      homeVM.announceCvCreated(
+        targetTab: HomeTabs.profile,
+        highlightId: saved.id,
+      );
+    } else {
+      // CV pipeline failed but user still ends up on Profile so they can
+      // see whatever entries they have / retry from there.
+      homeVM.requestTabChange(HomeTabs.profile);
+    }
+  }
+
+  /// Shows the AI consent modal. Resolves to `true` only if the user
+  /// explicitly accepts; declining/dismissing resolves to `false`.
+  /// Also persists the consent in user_profiles on accept.
+  Future<bool> _askAiConsent(BuildContext anchorCtx) async {
+    final userVM = context.read<UserViewModel>();
+    final completer = Completer<bool>();
+
+    showGeneralDialog(
+      context: anchorCtx,
+      barrierDismissible: false,
+      pageBuilder: (_, __, ___) => AIConsentModal(
+        onAccept: () async {
+          await userVM.updateAIConsent(true);
+          if (anchorCtx.mounted) Navigator.pop(anchorCtx);
+          if (!completer.isCompleted) completer.complete(true);
+        },
+        onCancel: () {
+          if (anchorCtx.mounted) Navigator.pop(anchorCtx);
+          if (!completer.isCompleted) completer.complete(false);
+        },
+      ),
+    );
+
+    return completer.future;
   }
 
   Future<void> _showTrackCompletionDialog() async {
@@ -195,12 +326,7 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
       pageBuilder: (ctx, _, __) {
         if (_isLastTrack) {
           return _CurriculumReadyDialog(
-            onAction: () {
-              Navigator.pop(ctx); // close dialog
-              // navigate to Resume tab
-              context.read<HomeViewModel>().requestTabChange(2); // Trilha (índice 2 após Curtidas)
-              Navigator.popUntil(context, (route) => route.isFirst);
-            },
+            onAction: () => _completeAndGuideToProfile(ctx),
           );
         } else {
           return _TrackCompletionDialog(
@@ -1115,4 +1241,89 @@ class _StarFieldPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_StarFieldPainter old) => false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Generating overlay — fullscreen blocking overlay shown while the trail-end
+// pipeline (CV regen via AI → auto-save) runs. Removed when the work is done.
+// ─────────────────────────────────────────────────────────────────────────────
+class _GeneratingOverlay {
+  final OverlayEntry _entry;
+  bool _removed = false;
+
+  _GeneratingOverlay._(this._entry);
+
+  static _GeneratingOverlay show(BuildContext context) {
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => const _GeneratingOverlayContent(),
+    );
+    Overlay.of(context, rootOverlay: true).insert(entry);
+    return _GeneratingOverlay._(entry);
+  }
+
+  void remove() {
+    if (_removed) return;
+    _removed = true;
+    _entry.remove();
+  }
+}
+
+class _GeneratingOverlayContent extends StatelessWidget {
+  const _GeneratingOverlayContent();
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black.withOpacity(0.55),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1B4B),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF4F46E5).withOpacity(0.4),
+                blurRadius: 30,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 42,
+                height: 42,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFFD700)),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Gerando seu currículo…',
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'A IA tá montando bullets Harvard com suas respostas',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
