@@ -6,6 +6,7 @@ import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../services/ai_service.dart';
+import '../../../services/analytics_service.dart';
 import '../../auth/user_viewmodel.dart';
 import '../jobs_viewmodel.dart';
 import '../models/job.dart';
@@ -101,6 +102,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
 
   void _openJobDetails(Job job, [MatchResult? match]) {
     HapticFeedback.lightImpact();
+    Analytics.shared.jobDetailsOpened(jobId: job.id);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -155,6 +157,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         subject: 'Vaga: ${job.title} @ ${job.companyName}',
         sharePositionOrigin: origin,
       );
+      Analytics.shared.jobShared(jobId: job.id);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -203,6 +206,17 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       HapticFeedback.lightImpact();
     }
     vm.onSwipe(previousIndex, action);
+
+    // Analytics: instrumenta o swipe pra medir engagement (top funnel)
+    if (previousIndex < vm.jobs.length) {
+      final job = vm.jobs[previousIndex];
+      final cachedMatch = _matchCache[job.id]?.score;
+      Analytics.shared.jobSwiped(
+        jobId: job.id,
+        action: action == 'liked' ? 'like' : 'reject',
+        matchScore: cachedMatch,
+      );
+    }
 
     // Atualiza posição interna e dispara IA pras próximas vagas (buffer ahead)
     _currentIndex = currentIndex ?? (previousIndex + 1);

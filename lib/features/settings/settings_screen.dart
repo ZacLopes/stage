@@ -5,6 +5,7 @@ import '../auth/onboarding_screen.dart';
 import 'edit_account_screen.dart';
 import '../../services/tutorial_service.dart';
 import '../../core/utils/app_notifications.dart';
+import '../../services/analytics_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -421,6 +422,7 @@ class _FoundersContactSheet extends StatelessWidget {
   const _FoundersContactSheet();
 
   Future<void> _openWhatsApp(BuildContext context) async {
+    Analytics.shared.foundersContactOpened(channel: 'whatsapp');
     final userName = context.read<UserViewModel>().user?.name ?? '';
     final greeting = userName.isNotEmpty ? 'Oi, sou o(a) $userName.' : 'Oi!';
     final text = Uri.encodeComponent(
@@ -431,11 +433,13 @@ class _FoundersContactSheet extends StatelessWidget {
   }
 
   Future<void> _openPhone(BuildContext context) async {
+    Analytics.shared.foundersContactOpened(channel: 'phone');
     final url = Uri.parse('tel:${_FoundersContact.phoneNumber}');
     await _safeLaunch(context, url, 'ligação');
   }
 
   Future<void> _openEmail(BuildContext context) async {
+    Analytics.shared.foundersContactOpened(channel: 'email');
     final userName = context.read<UserViewModel>().user?.name ?? '';
     final subject = Uri.encodeComponent('Feedback Stage — ${userName.isNotEmpty ? userName : 'Usuário'}');
     final body = Uri.encodeComponent(

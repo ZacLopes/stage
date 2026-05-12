@@ -40,6 +40,11 @@ PODS:
     - Flutter
   - objective_c (0.0.1):
     - Flutter
+  - PostHog (3.58.1)
+  - posthog_flutter (0.0.1):
+    - Flutter
+    - FlutterMacOS
+    - PostHog (~> 3.22)
   - printing (1.0.0):
     - Flutter
   - SDWebImage (5.21.7):
@@ -65,6 +70,7 @@ DEPENDENCIES:
   - Flutter (from `Flutter`)
   - flutter_native_splash (from `.symlinks/plugins/flutter_native_splash/ios`)
   - objective_c (from `.symlinks/plugins/objective_c/ios`)
+  - posthog_flutter (from `.symlinks/plugins/posthog_flutter/ios`)
   - printing (from `.symlinks/plugins/printing/ios`)
   - share_plus (from `.symlinks/plugins/share_plus/ios`)
   - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
@@ -76,6 +82,7 @@ SPEC REPOS:
   trunk:
     - DKImagePickerController
     - DKPhotoGallery
+    - PostHog
     - SDWebImage
     - SwiftyGif
 
@@ -90,6 +97,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/flutter_native_splash/ios"
   objective_c:
     :path: ".symlinks/plugins/objective_c/ios"
+  posthog_flutter:
+    :path: ".symlinks/plugins/posthog_flutter/ios"
   printing:
     :path: ".symlinks/plugins/printing/ios"
   share_plus:
@@ -111,6 +120,8 @@ SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   flutter_native_splash: c32d145d68aeda5502d5f543ee38c192065986cf
   objective_c: 89e720c30d716b036faf9c9684022048eee1eee2
+  PostHog: 162c013c6a8e442382f6804076bf3ad072c8778a
+  posthog_flutter: 631ab870f7daf1ed190deeb2414eb3e347445f37
   printing: 54ff03f28fe9ba3aa93358afb80a8595a071dd07
   SDWebImage: e9fc87c1aab89a8ab1bbd74eba378c6f53be8abf
   share_plus: 50da8cb520a8f0f65671c6c6a99b3617ed10a58a

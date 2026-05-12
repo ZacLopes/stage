@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../data/models/models.dart';
+import '../../services/analytics_service.dart';
 import '../../services/cv_import_service.dart';
 import '../auth/user_viewmodel.dart';
 import 'resume_viewmodel.dart';
@@ -24,7 +25,9 @@ class ResumeTab extends StatefulWidget {
 
 class _ResumeTabState extends State<ResumeTab> {
   bool _isGeneratingPdf = false;
-  String _selectedTemplate = 'quickcv';
+  // Default ATS-safe. Variável local mantida pra compat, mas o source-of-truth
+  // é `ResumeViewModel.selectedTemplateId`.
+  String _selectedTemplate = 'harvard_ats';
 
   Future<void> _exportToPdf(UserProfile? user, ResumeData resume) async {
     setState(() => _isGeneratingPdf = true);
@@ -35,6 +38,7 @@ class _ResumeTabState extends State<ResumeTab> {
 
       print('DEBUG: Calling PdfService with templateId: $finalTemplateId');
       await PdfService.generateResume(user, resume, finalTemplateId);
+      Analytics.shared.cvExported(templateId: finalTemplateId);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -291,22 +295,13 @@ class _ResumeTabState extends State<ResumeTab> {
                                                     switchOutCurve: Curves.easeIn,
                                                     child: Builder(
                                                       builder: (context) {
-                                                        switch (resumeVM.selectedTemplateId) {
-                                                          case 'clean':
-                                                            return CleanResumeTemplate(user: user, resume: resume);
-                                                          case 'modern':
-                                                            return ModernResumeTemplate(user: user, resume: resume);
-                                                          case 'creative':
-                                                            return CreativeResumeTemplate(user: user, resume: resume);
-                                                          case 'executive':
-                                                            return ExecutiveResumeTemplate(user: user, resume: resume);
-                                                          case 'harvard_ats':
-                                                            return HarvardAtsBrasilTemplate(user: user, resume: resume);
-                                                          case 'quickcv':
-                                                            return QuickCvResumeTemplate(user: user, resume: resume);
-                                                          default:
-                                                            return BasicResumeTemplate(user: user, resume: resume);
-                                                        }
+                                                        // Os 4 templates ATS exportam HTML estruturalmente similar
+                                                        // (1 coluna, serif/sans simples, headers padronizados).
+                                                        // O preview usa o Harvard ATS como proxy visual — basta
+                                                        // pro user ver se os campos estão preenchidos. As
+                                                        // diferenças (fonte, spacing, alinhamento) só aparecem
+                                                        // no PDF exportado.
+                                                        return HarvardAtsBrasilTemplate(user: user, resume: resume);
                                                       },
                                                     ),
                                                   ),

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../services/ai_service.dart';
+import '../../../services/analytics_service.dart';
 import '../../auth/user_viewmodel.dart';
 import '../../resume/pdf_service.dart';
 import '../../resume/resume_viewmodel.dart';
@@ -134,6 +135,8 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
       if (force) _retrying = true;
     });
 
+    Analytics.shared.cvAdaptationStarted(jobId: widget.job.id);
+
     AdaptedResume? result;
     try {
       result = await _aiService.adaptResume(widget.job.id, force: force);
@@ -145,6 +148,8 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
       print('[ResumeAdaptationSheet] adaptResume failed: $e');
       // ignore: avoid_print
       print('[ResumeAdaptationSheet] stack: $stack');
+      final code = e is ResumeAdaptationException ? e.code : 'unknown';
+      Analytics.shared.cvAdaptationFailed(jobId: widget.job.id, code: code);
       if (!mounted) return;
       setState(() {
         _error = e;
@@ -168,6 +173,13 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
         _error = null;
       });
       _animateScoreUpgrade(result);
+      Analytics.shared.cvAdaptationSucceeded(
+        jobId: widget.job.id,
+        changesCount: result.changes.length,
+        scoreBefore: result.matchScoreBefore,
+        scoreAfter: result.matchScoreAfter,
+        cached: result.cached,
+      );
     } catch (e, stack) {
       // ignore: avoid_print
       print('[ResumeAdaptationSheet] post-success crash: $e');
@@ -209,6 +221,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
       final templateId =
           context.read<ResumeViewModel>().selectedTemplateId;
       await PdfService.generateResume(user, adapted.resumeData, templateId);
+      Analytics.shared.cvAdaptationPdfDownloaded(jobId: widget.job.id);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

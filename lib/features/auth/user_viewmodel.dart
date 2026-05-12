@@ -7,6 +7,7 @@ import '../../data/models/models.dart';
 import '../../data/supabase_repository.dart';
 import '../../data/local_storage_repository.dart';
 import '../../data/database_helper.dart';
+import '../../services/analytics_service.dart';
 import '../../services/pdf_text_extractor.dart';
 
 class UserViewModel extends ChangeNotifier {
@@ -43,12 +44,33 @@ class UserViewModel extends ChangeNotifier {
     // Listen to auth state changes
     _supabase.auth.onAuthStateChange.listen((data) {
       final AuthChangeEvent event = data.event;
-      if (event == AuthChangeEvent.signedIn) {
-        _loadUser();
-      } else if (event == AuthChangeEvent.signedOut) {
-        _user = null;
-        _currentCampaign = null;
-        notifyListeners();
+      switch (event) {
+        case AuthChangeEvent.signedIn:
+        case AuthChangeEvent.initialSession:
+        case AuthChangeEvent.tokenRefreshed:
+        case AuthChangeEvent.userUpdated:
+          // Qualquer evento com user ativo dispara identify. signIn é login
+          // novo. initialSession é cold start (session restaurada do storage).
+          // tokenRefreshed/userUpdated cobrem keep-alive e mudanças de perfil.
+          _loadUser();
+          final uid = _supabase.auth.currentUser?.id;
+          final email = _supabase.auth.currentUser?.email;
+          if (uid != null) {
+            Analytics.shared.identify(uid, properties: {
+              if (email != null) 'email': email,
+            });
+          }
+          break;
+        case AuthChangeEvent.signedOut:
+        case AuthChangeEvent.userDeleted:
+          _user = null;
+          _currentCampaign = null;
+          notifyListeners();
+          Analytics.shared.logoutCompleted();
+          Analytics.shared.reset();
+          break;
+        default:
+          break;
       }
     });
     
@@ -190,6 +212,7 @@ class UserViewModel extends ChangeNotifier {
       if (response.user != null) {
         // Profile is automatically created by database trigger
         await _loadUser();
+        Analytics.shared.signUpCompleted(method: 'email');
       }
     } catch (e) {
       // Check if error is "User already registered"
@@ -232,8 +255,9 @@ class UserViewModel extends ChangeNotifier {
         email: email,
         password: password,
       );
-      
+
       await _loadUser();
+      Analytics.shared.loginCompleted(method: 'email');
     } catch (e) {
       print('Error signing in: $e');
       rethrow;

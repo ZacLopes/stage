@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../features/auth/user_viewmodel.dart';
 import '../features/profile/profile_viewmodel.dart';
+import 'analytics_service.dart';
 import 'pdf_text_extractor.dart';
 
 /// Resultado de uma importação de CV. UI pode usar `success` pra decidir
@@ -51,6 +52,7 @@ class CvImportService {
   /// Abre o picker e processa o PDF selecionado. Retorna [CvImportResult].
   /// Não navega nem mostra UI — caller decide o que fazer.
   static Future<CvImportResult> pickAndImport(BuildContext context) async {
+    Analytics.shared.cvImportStarted();
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -109,6 +111,7 @@ class CvImportService {
         debugPrint('PDF text extraction failed (non-blocking): $e');
       }
 
+      Analytics.shared.cvImportSucceeded(extractedChars: rawTextLen);
       return CvImportResult(
         success: true,
         title: title,
@@ -116,6 +119,7 @@ class CvImportService {
         textWasUsable: usable,
       );
     } catch (e) {
+      Analytics.shared.cvImportFailed(reason: e.toString().split('\n').first);
       return CvImportResult.error('Falha inesperada: $e');
     }
   }

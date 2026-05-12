@@ -21,6 +21,7 @@ import 'features/jobs/data/job_repository.dart';
 import 'features/jobs/data/swipe_repository.dart';
 import 'features/jobs/data/preferences_repository.dart';
 import 'services/ai_service.dart';
+import 'services/analytics_service.dart';
 import 'features/splash/splash_screen.dart';
 
 void main() async {
@@ -40,6 +41,17 @@ void main() async {
     url: dotenv.env['SUPABASE_URL']!,
     anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
   );
+
+  // Initialize Analytics. Plugin lê POSTHOG_API_KEY do Info.plist (iOS) /
+  // AndroidManifest.xml (Android). Sem chave configurada, plugin vira no-op
+  // (não quebra o app). Crashes do init nunca podem propagar — analytics é
+  // best-effort.
+  try {
+    await Analytics.shared.init();
+    // Dispara o evento "app aberto" no boot — base pra DAU/MAU.
+    // Auto-capture do PostHog Flutter é instável; emitimos manualmente.
+    await Analytics.shared.appOpened();
+  } catch (_) {}
 
   // Initialize Repository
   final repository = SupabaseRepository();
