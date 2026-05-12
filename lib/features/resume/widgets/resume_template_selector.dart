@@ -20,6 +20,14 @@ class ResumeTemplateSelector extends StatelessWidget {
         'color': Colors.black,
       },
       {
+        'id': 'jakes_resume',
+        'name': 'Jake\'s Resume',
+        'description': 'Template padrão de tech/engenharia, inspirado no clássico LaTeX do Jake Gutierrez. Layout em coluna única, fonte serifada, headers com underline. Aprovado por Big Techs, FAANG, fintechs e startups.',
+        'ats': 'Alta',
+        'style': 'Serif clássico, denso e elegante',
+        'color': const Color(0xFF1F2937),
+      },
+      {
         'id': 'quickcv',
         'name': 'Quick CV',
         'description': 'Modelo moderno com duas colunas, ideal para currículos mais visuais e rápidos de ler.',

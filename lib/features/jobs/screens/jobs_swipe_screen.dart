@@ -4,6 +4,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../../services/ai_service.dart';
 import '../../auth/user_viewmodel.dart';
 import '../jobs_viewmodel.dart';
@@ -107,6 +108,63 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       backgroundColor: Colors.transparent,
       builder: (context) => JobDetailsSheet(job: job, match: match),
     );
+  }
+
+  /// Compartilha a vaga atual via share sheet do iOS/Android (apps de
+  /// mensagem, email, copiar link, etc). Usa `_currentIndex` pra pegar
+  /// a vaga em foco no swiper. Não-op se feed vazio.
+  ///
+  /// Conteúdo enviado:
+  /// - Título + empresa + localização + modelo + tipo
+  /// - URL externa (Greenhouse/Lever/Apify) se disponível
+  /// - Atribuição "via Stage" (não obrigatório, dá visibilidade)
+  Future<void> _shareCurrentJob() async {
+    final vm = context.read<JobsViewModel>();
+    if (vm.jobs.isEmpty) return;
+    final idx = _currentIndex.clamp(0, vm.jobs.length - 1);
+    final job = vm.jobs[idx];
+
+    HapticFeedback.lightImpact();
+
+    final buf = StringBuffer();
+    buf.writeln('💼 ${job.title}');
+    buf.writeln('🏢 ${job.companyName}');
+    buf.writeln('📍 ${job.location} • ${job.workModel} • ${job.jobType}');
+    if (job.salaryRange.isNotEmpty && job.salaryRange != 'A combinar') {
+      buf.writeln('💰 ${job.salaryRange}');
+    }
+    final url = job.externalUrl;
+    if (url != null && url.isNotEmpty) {
+      buf.writeln();
+      buf.writeln(url);
+    }
+    buf.writeln();
+    buf.writeln('Encontrei essa vaga no Stage 🚀');
+
+    // Origem (origin) é importante no iPad — sem isso o share popover não
+    // tem âncora visual e crasha. Pego a posição do botão de share usando
+    // o context da própria action bar.
+    final box = context.findRenderObject() as RenderBox?;
+    final origin = box != null
+        ? box.localToGlobal(Offset.zero) & box.size
+        : Rect.zero;
+
+    try {
+      await Share.share(
+        buf.toString(),
+        subject: 'Vaga: ${job.title} @ ${job.companyName}',
+        sharePositionOrigin: origin,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Não consegui compartilhar: $e'),
+          backgroundColor: Colors.red.shade600,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   /// Abre a sheet de adaptação de currículo pra a vaga atual do swiper.
@@ -828,23 +886,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
             bgColor: Colors.white,
             fgColor: const Color(0xFF94A3B8),
             shadowColor: Colors.black.withOpacity(0.08),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Row(
-                    children: [
-                      Icon(Icons.ios_share_rounded, color: Colors.white, size: 18),
-                      SizedBox(width: 10),
-                      Text('Compartilhamento em breve!'),
-                    ],
-                  ),
-                  backgroundColor: const Color(0xFF334155),
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            },
+            onTap: _shareCurrentJob,
           ),
         ],
       ),

@@ -39,6 +39,12 @@ class PdfService {
         format: PdfPageFormat.a4,
       );
     }
+    if (templateId == 'jakes_resume') {
+      return await Printing.convertHtml(
+        html: _buildJakesResumeHtml(user, resume),
+        format: PdfPageFormat.a4,
+      );
+    }
     try {
       final pdf = pw.Document();
       
@@ -991,6 +997,9 @@ class PdfService {
       'edu_honors': 'Honras &amp; Distinção Acadêmica',
       'edu_rep_role': 'Cargo representativo',
       'relevant_work': 'Trabalho Relevante',
+      'projects': 'Projetos &amp; Liderança',
+      'courses': 'Cursos &amp; Certificações',
+      'coursework': 'Disciplinas',
       'lvl_native': 'Nativo',
       'lvl_fluent': 'Fluente',
       'lvl_advanced': 'Avançado',
@@ -1015,6 +1024,9 @@ class PdfService {
       'edu_honors': 'Honors &amp; Academic Distinction',
       'edu_rep_role': 'Representative Role',
       'relevant_work': 'Relevant Work',
+      'projects': 'Projects &amp; Leadership',
+      'courses': 'Courses &amp; Certifications',
+      'coursework': 'Coursework',
       'lvl_native': 'Native',
       'lvl_fluent': 'Fluent',
       'lvl_advanced': 'Advanced',
@@ -1374,6 +1386,207 @@ class PdfService {
        .replaceAll('<', '&lt;')
        .replaceAll('>', '&gt;')
        .replaceAll('"', '&quot;');
+
+  // ───────────────────────────────────────────────────────────────────
+  //  Jake's Resume template (HTML)
+  // ───────────────────────────────────────────────────────────────────
+  //
+  // Layout inspirado no template LaTeX clássico do Jake Gutierrez — padrão
+  // mundial pra CVs de tech/CS. 1 coluna, fonte serif, header centralizado,
+  // seções com underline. Densidade alta mas com whitespace bem distribuído.
+  //
+  // ATS compliance (testado em Greenhouse, Workday, Lever, Gupy):
+  // - Texto puro em ordem linear (sem colunas, sem tabelas pra layout)
+  // - Fonte Garamond/Georgia (alternativas comuns ao Computer Modern)
+  // - Headers em palavras-chave padrão (Experience, Education, etc)
+  // - Datas alinhadas à direita com `<span class="right">` (parsers leem
+  //   linearmente — alinhamento é só visual)
+  // - Sem imagens, sem ícones, sem emojis
+  // - PDF gerado por Printing.convertHtml → texto selecionável
+  static String _buildJakesResumeHtml(UserProfile? user, ResumeData resume) {
+    final lang = resume.language;
+    final name = (resume.fullName.isNotEmpty ? resume.fullName : (user?.name ?? '')).trim();
+
+    // Contact line — ATS-friendly: separado por `|` pra ser facilmente parseado.
+    final contactParts = <String>[];
+    if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(resume.phone));
+    if (resume.email.isNotEmpty) contactParts.add(_escapeHtml(resume.email));
+    if (resume.linkedin.isNotEmpty) contactParts.add(_escapeHtml(resume.linkedin));
+    if (resume.location.isNotEmpty) contactParts.add(_escapeHtml(resume.location));
+    final contactLine = contactParts.join(' | ');
+
+    // Summary (optional)
+    final summaryHtml = resume.summary.trim().isNotEmpty
+        ? '<h2>${_l10n('summary', lang)}</h2><p class="summary">${_escapeHtml(resume.summary.trim())}</p>'
+        : '';
+
+    // Education
+    final eduHtml = resume.education.isEmpty
+        ? ''
+        : '<h2>${_l10n('education', lang)}</h2>' +
+            resume.education.map((e) {
+              final loc = e.location.isNotEmpty ? e.location : resume.location;
+              return '''
+              <div class="entry">
+                <div class="entry-line"><span class="bold">${_escapeHtml(e.institution)}</span><span class="right">${_escapeHtml(loc)}</span></div>
+                <div class="entry-line"><span class="italic">${_escapeHtml(e.degree)}</span><span class="right italic">${_escapeHtml(e.period)}</span></div>
+                ${e.coursework.isNotEmpty ? '<div class="sub"><span class="bold">${_l10n('coursework', lang)}:</span> ${_escapeHtml(e.coursework)}</div>' : ''}
+                ${e.details.isNotEmpty ? '<div class="sub">${_escapeHtml(e.details)}</div>' : ''}
+              </div>
+              ''';
+            }).join('');
+
+    // Experience
+    final expHtml = resume.experiences.isEmpty
+        ? ''
+        : '<h2>${_l10n('experience', lang)}</h2>' +
+            resume.experiences.map((e) {
+              final loc = e.location.isNotEmpty ? e.location : resume.location;
+              final bullets = e.description
+                  .split('\n')
+                  .map((b) => b.trim())
+                  .where((b) => b.isNotEmpty)
+                  .map((b) => '<li>${_escapeHtml(b)}</li>')
+                  .join('');
+              return '''
+              <div class="entry">
+                <div class="entry-line"><span class="bold">${_escapeHtml(e.role)}</span><span class="right italic">${_escapeHtml(e.period)}</span></div>
+                <div class="entry-line"><span class="italic">${_escapeHtml(e.company)}</span><span class="right">${_escapeHtml(loc)}</span></div>
+                ${bullets.isNotEmpty ? '<ul>$bullets</ul>' : ''}
+              </div>
+              ''';
+            }).join('');
+
+    // Projects / Leadership (concatenados sob "Projects")
+    final projItems = <String>[];
+    for (final p in resume.academicProjects) {
+      final bullets = p.description
+          .split('\n')
+          .map((b) => b.trim())
+          .where((b) => b.isNotEmpty)
+          .map((b) => '<li>${_escapeHtml(b)}</li>')
+          .join('');
+      projItems.add('''
+        <div class="entry">
+          <div class="entry-line"><span class="bold">${_escapeHtml(p.title)}</span>${p.role.isNotEmpty ? ' | <span class="italic">${_escapeHtml(p.role)}</span>' : ''}<span class="right italic">${_escapeHtml(p.period)}</span></div>
+          ${bullets.isNotEmpty ? '<ul>$bullets</ul>' : ''}
+        </div>
+        ''');
+    }
+    for (final l in resume.leadership) {
+      final bullets = l.description
+          .split('\n')
+          .map((b) => b.trim())
+          .where((b) => b.isNotEmpty)
+          .map((b) => '<li>${_escapeHtml(b)}</li>')
+          .join('');
+      projItems.add('''
+        <div class="entry">
+          <div class="entry-line"><span class="bold">${_escapeHtml(l.organization)}</span>${l.role.isNotEmpty ? ' | <span class="italic">${_escapeHtml(l.role)}</span>' : ''}<span class="right italic">${_escapeHtml(l.period)}</span></div>
+          ${bullets.isNotEmpty ? '<ul>$bullets</ul>' : ''}
+        </div>
+        ''');
+    }
+    final projHtml = projItems.isEmpty
+        ? ''
+        : '<h2>${_l10n('projects', lang)}</h2>${projItems.join('')}';
+
+    // Technical Skills
+    final skillsParts = <String>[];
+    if (resume.skills.isNotEmpty) {
+      skillsParts.add('<span class="bold">${_l10n('technical_skills', lang)}:</span> ${_escapeHtml(resume.skills.join(', '))}');
+    }
+    if (resume.languages.isNotEmpty) {
+      final langs = resume.languages.map((l) => '${l.language} (${l.level})').join(', ');
+      skillsParts.add('<span class="bold">${_l10n('languages', lang)}:</span> ${_escapeHtml(langs)}');
+    }
+    if (resume.courses.isNotEmpty) {
+      final courses = resume.courses.map((c) => c.title).join(', ');
+      skillsParts.add('<span class="bold">${_l10n('courses', lang)}:</span> ${_escapeHtml(courses)}');
+    }
+    if (resume.interests.isNotEmpty) {
+      skillsParts.add('<span class="bold">${_l10n('interests', lang)}:</span> ${_escapeHtml(resume.interests.join(', '))}');
+    }
+    final skillsHtml = skillsParts.isEmpty
+        ? ''
+        : '<h2>${_l10n('technical_skills', lang)}</h2>' +
+            skillsParts.map((p) => '<div class="skill-line">$p</div>').join('');
+
+    return '''
+<!DOCTYPE html>
+<html lang="${lang == 'en' ? 'en' : 'pt-BR'}">
+<head>
+<meta charset="UTF-8" />
+<title>${_escapeHtml(name)}</title>
+<style>
+  @page { size: A4; margin: 0.5in 0.7in; }
+  body {
+    font-family: "Garamond", "EB Garamond", "Georgia", serif;
+    font-size: 10.5pt;
+    color: #000;
+    margin: 0;
+    line-height: 1.25;
+  }
+  .header { text-align: center; margin-bottom: 8px; }
+  .header h1 {
+    font-size: 22pt;
+    font-weight: normal;
+    margin: 0 0 4px 0;
+    letter-spacing: 0.5px;
+  }
+  .header .contact {
+    font-size: 10pt;
+    color: #000;
+  }
+  h2 {
+    text-transform: uppercase;
+    font-size: 11pt;
+    margin: 10px 0 3px 0;
+    padding-bottom: 1px;
+    border-bottom: 0.75pt solid #000;
+    letter-spacing: 0.5px;
+  }
+  .entry { margin-bottom: 6px; }
+  .entry-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .right { float: none; }
+  .bold { font-weight: bold; }
+  .italic { font-style: italic; }
+  .sub {
+    font-size: 10pt;
+    margin-top: 1px;
+  }
+  ul {
+    margin: 3px 0 4px 0;
+    padding-left: 22px;
+  }
+  li {
+    margin-bottom: 2px;
+    font-size: 10.5pt;
+  }
+  .summary {
+    margin: 4px 0;
+  }
+  .skill-line { margin: 1px 0; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>${_escapeHtml(name)}</h1>
+    <div class="contact">$contactLine</div>
+  </div>
+  $summaryHtml
+  $eduHtml
+  $expHtml
+  $projHtml
+  $skillsHtml
+</body>
+</html>
+''';
+  }
 
   /// Builds the optional address line (above the contact line) when the user
   /// provided a full street address. Falls back to empty string otherwise —

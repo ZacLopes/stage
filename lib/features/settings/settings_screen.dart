@@ -125,6 +125,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: Column(
               children: [
+                // Destaque: Falar com fundadores. Pra MVP, feedback é ouro —
+                // colocamos como primeiro item da seção, com cor diferente.
+                _SettingsTile(
+                  icon: Icons.favorite_rounded,
+                  title: 'Falar com os fundadores',
+                  subtitle: 'Mande sua opinião, sugestão ou problema',
+                  iconColor: const Color(0xFFEF4444),
+                  onTap: () => _showFoundersContactSheet(context),
+                ),
+                const Divider(height: 1),
                 _SettingsTile(
                   icon: Icons.school_outlined,
                   title: 'Tutorial',
@@ -142,7 +152,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _SettingsTile(
                   icon: Icons.info_outline,
                   title: 'Sobre o App',
-                  subtitle: 'Versão 1.0.0',
+                  subtitle: 'Versão 1.1.0',
                   iconColor: Colors.grey,
                   onTap: () {},
                 ),
@@ -383,6 +393,322 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  Founders contact — feedback channels pro MVP
+// ─────────────────────────────────────────────────────────────────────
+
+/// Constantes centralizadas — pra trocar contato é só editar aqui.
+class _FoundersContact {
+  static const String whatsappNumber = '5543991260202'; // DDI+DDD+número, sem +/espaços
+  static const String phoneNumber = '+5543991260202';
+  static const String email = 'zackourilopes@outlook.com';
+  static const String founderName = 'Zac Lopes';
+}
+
+void _showFoundersContactSheet(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => const _FoundersContactSheet(),
+  );
+}
+
+class _FoundersContactSheet extends StatelessWidget {
+  const _FoundersContactSheet();
+
+  Future<void> _openWhatsApp(BuildContext context) async {
+    final userName = context.read<UserViewModel>().user?.name ?? '';
+    final greeting = userName.isNotEmpty ? 'Oi, sou o(a) $userName.' : 'Oi!';
+    final text = Uri.encodeComponent(
+      '$greeting Tô usando o Stage e queria mandar um feedback…',
+    );
+    final url = Uri.parse('https://wa.me/${_FoundersContact.whatsappNumber}?text=$text');
+    await _safeLaunch(context, url, 'WhatsApp');
+  }
+
+  Future<void> _openPhone(BuildContext context) async {
+    final url = Uri.parse('tel:${_FoundersContact.phoneNumber}');
+    await _safeLaunch(context, url, 'ligação');
+  }
+
+  Future<void> _openEmail(BuildContext context) async {
+    final userName = context.read<UserViewModel>().user?.name ?? '';
+    final subject = Uri.encodeComponent('Feedback Stage — ${userName.isNotEmpty ? userName : 'Usuário'}');
+    final body = Uri.encodeComponent(
+      'Oi ${_FoundersContact.founderName}!\n\n'
+      '[Conte o que aconteceu, sua sugestão ou o que você gostaria de ver no Stage]\n\n'
+      '— Enviado pelo app Stage v1.1.0',
+    );
+    final url = Uri.parse(
+      'mailto:${_FoundersContact.email}?subject=$subject&body=$body',
+    );
+    await _safeLaunch(context, url, 'email');
+  }
+
+  Future<void> _safeLaunch(BuildContext context, Uri url, String label) async {
+    try {
+      final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
+      if (!ok && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Não consegui abrir o $label. Tente outro canal.'),
+            backgroundColor: Colors.red.shade600,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else if (context.mounted) {
+        Navigator.pop(context);
+      }
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro ao abrir o $label.'),
+          backgroundColor: Colors.red.shade600,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              // Header
+              Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF4F46E5).withOpacity(0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(Icons.waving_hand_rounded, color: Colors.white, size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Falar com os fundadores',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF0F172A),
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Seu feedback molda o Stage. A gente lê tudo.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF64748B),
+                            fontWeight: FontWeight.w500,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 22),
+              _ContactOption(
+                icon: Icons.chat_bubble_rounded,
+                iconBg: const Color(0xFF25D366),
+                title: 'WhatsApp',
+                subtitle: 'Chat rápido — geralmente respondo em até 1h',
+                badge: 'Mais rápido',
+                onTap: () => _openWhatsApp(context),
+              ),
+              const SizedBox(height: 10),
+              _ContactOption(
+                icon: Icons.phone_rounded,
+                iconBg: const Color(0xFF0EA5E9),
+                title: 'Ligar',
+                subtitle: 'Bug crítico ou conversa direta',
+                onTap: () => _openPhone(context),
+              ),
+              const SizedBox(height: 10),
+              _ContactOption(
+                icon: Icons.mail_rounded,
+                iconBg: const Color(0xFFF59E0B),
+                title: 'Email',
+                subtitle: 'Pra feedback mais elaborado',
+                onTap: () => _openEmail(context),
+              ),
+              const SizedBox(height: 18),
+              Center(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.lock_outline_rounded, size: 13, color: Color(0xFF94A3B8)),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Seu contato fica entre você e o time',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ContactOption extends StatelessWidget {
+  final IconData icon;
+  final Color iconBg;
+  final String title;
+  final String subtitle;
+  final String? badge;
+  final VoidCallback onTap;
+
+  const _ContactOption({
+    required this.icon,
+    required this.iconBg,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.badge,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFF8FAFC),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: iconBg.withOpacity(0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Icon(icon, color: Colors.white, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF0F172A),
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        if (badge != null) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981).withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              badge!,
+                              style: const TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFF047857),
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: Color(0xFF64748B),
+                        height: 1.35,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: Color(0xFF94A3B8)),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
