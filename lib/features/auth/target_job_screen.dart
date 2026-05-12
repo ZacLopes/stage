@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/stage_colors.dart';
+import '../../services/analytics_service.dart';
 import '../home/home_screen.dart';
 import '../home/home_viewmodel.dart';
 import 'user_viewmodel.dart';
@@ -35,6 +36,12 @@ class _TargetJobScreenState extends State<TargetJobScreen> {
   final _urlController = TextEditingController();
   String? _titleError;
   bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Analytics.shared.onboardingStepReached(step: 5);
+  }
 
   @override
   void dispose() {
@@ -82,6 +89,7 @@ class _TargetJobScreenState extends State<TargetJobScreen> {
     try {
       final vm = context.read<UserViewModel>();
       await vm.createCampaign(isSkipped: true);
+      Analytics.shared.onboardingSkipped(atStep: 5);
       if (!mounted) return;
       _navigateHome();
     } catch (e, st) {
@@ -101,6 +109,7 @@ class _TargetJobScreenState extends State<TargetJobScreen> {
   }
 
   void _navigateHome() {
+    Analytics.shared.onboardingCompleted();
     // Se a tela quem nos invocou pediu uma tab específica, agenda antes de
     // empurrar a HomeScreen — o HomeScreen lê esse pendingTabIndex no init.
     if (widget.homeTabIndex != null) {

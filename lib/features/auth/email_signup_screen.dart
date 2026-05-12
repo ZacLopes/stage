@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/stage_colors.dart';
 import '../../core/utils/auth_error_formatter.dart';
+import '../../services/analytics_service.dart';
 import 'user_viewmodel.dart';
 import 'profile_setup_screen.dart';
 
@@ -22,6 +23,12 @@ class _EmailSignupScreenState extends State<EmailSignupScreen> {
   bool _obscurePassword = true;
   bool _acceptedTerms = false;
   String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    Analytics.shared.onboardingStepReached(step: 2);
+  }
 
   @override
   void dispose() {

@@ -27,7 +27,6 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
   late final AnimationController _animController;
   late final Animation<double> _ringAnim;
   late final Animation<double> _slideAnim;
-  bool _isSaved = false;
 
   /// Score efetivo: prioriza o passado externamente (calculado), fallback
   /// pro field do model (que hoje é 0).
@@ -270,30 +269,6 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                 child: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
               ),
               onPressed: () => Navigator.pop(context),
-            ),
-          ),
-
-          // Save button
-          Positioned(
-            top: 0,
-            left: 0,
-            child: StatefulBuilder(
-              builder: (ctx, setSt) => IconButton(
-                icon: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
-                  transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
-                  child: Icon(
-                    _isSaved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-                    key: ValueKey(_isSaved),
-                    color: Colors.white,
-                    size: 24,
-                  ),
-                ),
-                onPressed: () {
-                  HapticFeedback.lightImpact();
-                  setState(() => _isSaved = !_isSaved);
-                },
-              ),
             ),
           ),
 
@@ -949,74 +924,6 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Apply button
-          SizedBox(
-            width: double.infinity,
-            height: 54,
-            child: ElevatedButton(
-              onPressed: () {
-                HapticFeedback.mediumImpact();
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Row(
-                      children: [
-                        const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
-                        const SizedBox(width: 10),
-                        Text('Candidatura enviada para ${widget.job.companyName}! 🎉'),
-                      ],
-                    ),
-                    backgroundColor: const Color(0xFF059669),
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    duration: const Duration(seconds: 3),
-                  ),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.transparent,
-                foregroundColor: Colors.white,
-                shadowColor: Colors.transparent,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                padding: EdgeInsets.zero,
-              ),
-              child: Ink(
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF10B981), Color(0xFF059669)],
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF10B981).withOpacity(0.35),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: const Center(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.send_rounded, size: 20, color: Colors.white),
-                      SizedBox(width: 10),
-                      Text(
-                        'Aplicar para esta vaga',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-
           // AI adapt button
           SizedBox(
             width: double.infinity,

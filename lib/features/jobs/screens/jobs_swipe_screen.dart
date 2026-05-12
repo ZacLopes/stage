@@ -74,8 +74,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     super.didChangeDependencies();
     if (!_initialized) {
       _initialized = true;
-      SchedulerBinding.instance.addPostFrameCallback((_) {
-        context.read<JobsViewModel>().init();
+      SchedulerBinding.instance.addPostFrameCallback((_) async {
+        final vm = context.read<JobsViewModel>();
+        await vm.init();
+        if (mounted) {
+          Analytics.shared.jobFeedOpened(jobsCount: vm.jobs.length);
+        }
       });
     }
   }

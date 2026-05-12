@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/stage_colors.dart';
+import '../../services/analytics_service.dart';
 import 'user_viewmodel.dart';
 import 'completion_screen.dart';
 
@@ -45,6 +46,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   @override
   void initState() {
     super.initState();
+    Analytics.shared.onboardingStepReached(step: 3);
     // Prefill name if available
     final vm = context.read<UserViewModel>();
     _nameController = TextEditingController(text: vm.user?.name ?? '');

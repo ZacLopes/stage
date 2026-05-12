@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/stage_colors.dart';
+import '../../../services/analytics_service.dart';
 import '../data/swipe_repository.dart';
 import '../jobs_viewmodel.dart';
 import 'job_details_sheet.dart';
@@ -32,6 +33,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen> {
 
   void _openJobDetails(LikedJob liked) {
     HapticFeedback.lightImpact();
+    Analytics.shared.jobDetailsOpened(jobId: liked.job.id);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -41,10 +43,11 @@ class _LikedJobsScreenState extends State<LikedJobsScreen> {
     );
   }
 
-  Future<void> _openExternalUrl(String url) async {
+  Future<void> _openExternalUrl(String url, String jobId) async {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
     HapticFeedback.lightImpact();
+    Analytics.shared.jobApplyClicked(jobId: jobId);
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -113,7 +116,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen> {
           liked: liked,
           onTap: () => _openJobDetails(liked),
           onToggleApplied: () => _toggleApplied(liked),
-          onOpenLink: url != null ? () => _openExternalUrl(url) : null,
+          onOpenLink: url != null ? () => _openExternalUrl(url, liked.job.id) : null,
           externalUrl: url,
         );
       },

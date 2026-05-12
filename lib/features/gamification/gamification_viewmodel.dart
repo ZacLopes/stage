@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../data/models/models.dart';
 import '../../data/supabase_repository.dart';
 import '../../services/ai_service.dart';
+import '../../services/analytics_service.dart';
 import 'gamification_logic.dart';
 
 enum PhaseStatus { locked, available, completed }
@@ -173,6 +174,7 @@ class GamificationViewModel extends ChangeNotifier {
 
   // Start a Phase
   Future<void> startPhase(String phaseId) async {
+    Analytics.shared.trackPhaseStarted(phaseId: phaseId);
     _isLoadingQuestions = true;
     _currentQuestionIndex = 0;
     _answers = {};
@@ -667,6 +669,10 @@ class GamificationViewModel extends ChangeNotifier {
   Future<void> saveProgress(String phaseId) async {
     try {
       await _repository.markPhaseCompleted(phaseId);
+      Analytics.shared.trackPhaseCompleted(
+        phaseId: phaseId,
+        xpEarned: 50 + (_questions.length * 10),
+      );
 
       final user = await _repository.getUserProfile();
       if (user != null) {

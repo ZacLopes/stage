@@ -23,6 +23,7 @@ import 'features/jobs/data/preferences_repository.dart';
 import 'services/ai_service.dart';
 import 'services/analytics_service.dart';
 import 'features/splash/splash_screen.dart';
+import 'features/version/version_gate.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -200,7 +201,7 @@ class CareerGamificationApp extends StatelessWidget {
           insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
         ),
       ),
-      home: const SplashScreen(),
+      home: const VersionGate(child: SplashScreen()),
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,

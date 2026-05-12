@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../core/constants/stage_colors.dart';
+import '../../services/analytics_service.dart';
 import '../../services/pdf_text_extractor.dart';
 import '../../services/tutorial_service.dart';
 import '../profile/profile_viewmodel.dart';
@@ -33,6 +34,7 @@ class _CompletionScreenState extends State<CompletionScreen>
   @override
   void initState() {
     super.initState();
+    Analytics.shared.onboardingStepReached(step: 4);
     _appearController = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1200));
 
@@ -63,6 +65,7 @@ class _CompletionScreenState extends State<CompletionScreen>
   /// 3. TargetJobScreen → Home na aba Vagas
   Future<void> _uploadResumePath() async {
     setState(() => _isPickingFile = true);
+    Analytics.shared.cvImportStarted();
 
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -72,6 +75,7 @@ class _CompletionScreenState extends State<CompletionScreen>
       );
 
       if (result == null || result.files.isEmpty) {
+        // User cancelou o picker — não conta como falha.
         if (mounted) setState(() => _isPickingFile = false);
         return;
       }
@@ -81,6 +85,7 @@ class _CompletionScreenState extends State<CompletionScreen>
           (file.path != null ? await File(file.path!).readAsBytes() : null);
 
       if (bytes == null) {
+        Analytics.shared.cvImportFailed(reason: 'read_failed');
         _showError('Não foi possível ler o arquivo.');
         if (mounted) setState(() => _isPickingFile = false);
         return;
@@ -97,15 +102,18 @@ class _CompletionScreenState extends State<CompletionScreen>
               Uint8List.fromList(bytes),
             );
       } catch (e) {
+        Analytics.shared.cvImportFailed(reason: 'save_failed');
         _showError('Erro ao salvar o currículo: $e');
         if (mounted) setState(() => _isPickingFile = false);
         return;
       }
 
       // 2. Extrai texto pra alimentar o match score (sem IA, só keyword overlap)
+      var extractedChars = 0;
       try {
         final rawText = ResumePdfExtractor.extract(Uint8List.fromList(bytes));
         if (ResumePdfExtractor.isUsable(rawText) && mounted) {
+          extractedChars = rawText.length;
           final userVM = context.read<UserViewModel>();
           final currentData = Map<String, dynamic>.from(
               userVM.user?.gamificationData ?? const {});
@@ -120,6 +128,8 @@ class _CompletionScreenState extends State<CompletionScreen>
         // Match score apenas não vai ter o boost de skills do CV.
         debugPrint('PDF text extraction failed (non-blocking): $e');
       }
+
+      Analytics.shared.cvImportSucceeded(extractedChars: extractedChars);
 
       await TutorialService().markAsSeen();
       if (!mounted) return;
@@ -137,6 +147,7 @@ class _CompletionScreenState extends State<CompletionScreen>
         ),
       );
     } catch (e) {
+      Analytics.shared.cvImportFailed(reason: 'unexpected');
       _showError('Erro inesperado: $e');
       if (mounted) setState(() => _isPickingFile = false);
     }
