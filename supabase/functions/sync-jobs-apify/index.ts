@@ -170,8 +170,12 @@ function inferArea(job: GupyJob): string {
   const desc = (job.descriptionPlainText ?? "").toLowerCase().slice(0, 500);
   const text = `${title} ${desc}`;
 
+  // Ordem importa: 1º match wins. Áreas com keywords MAIS específicas vão antes
+  // (Jurídico antes de Tecnologia, senão "Programa de Estágio em Direito" cai
+  // em Tecnologia por causa de "programa").
   const rules: Array<[string, string]> = [
-    ["Tecnologia", "(engenharia de software|desenvolved|software engineer|backend|frontend|full[- ]?stack|dados|data|machine learning|ml|devops|sre|cloud|infraestrutura|qa|testes?|cybersecurity|segurança da informação|tech|tecnologia|programa|sistemas)"],
+    ["Jurídico", "(jur[íi]dic|direito|advog|advocacia|legal|compliance|contencioso|tribut[áa]rio|paralegal|direito (?:empresarial|trabalhista|c[íi]vel|tribut[áa]rio|penal|consumidor)|escrit[óo]rio de advocacia)"],
+    ["Tecnologia", "(engenharia de software|desenvolved|software engineer|backend|frontend|full[- ]?stack|dados|data|machine learning|ml|devops|sre|cloud|infraestrutura|qa|testes?|cybersecurity|segurança da informação|tech|tecnologia|program(?:a[cdr]|ação|ador)|sistemas)"],
     ["Marketing", "(marketing|growth|crm|mídia|branding|comunicação|publicidade|social media)"],
     ["Vendas", "(vendas|sales|comercial|account exec|consultor comercial|business development|bdr|sdr)"],
     ["Finanças", "(finanças|financeir|controladoria|tesouraria|fp&a|contábil|accounting|treasury|investimento)"],
@@ -179,7 +183,6 @@ function inferArea(job: GupyJob): string {
     ["Operações", "(operações|operations|logística|supply chain|cs|customer success|atendimento|suporte)"],
     ["Produto", "(produto|product manager|pm|design de produto|ux|ui|design)"],
     ["Engenharia", "(engenharia(?! de software)|engenheir(?!o de software))"],
-    ["Jurídico", "(jur[íi]dic|direito|advog|advocacia|legal|compliance|contencioso|tribut[áa]rio|paralegal|direito (?:empresarial|trabalhista|c[íi]vel|tribut[áa]rio|penal|consumidor)|escrit[óo]rio de advocacia)"],
     ["Administrativo", "(administrativ|administração|secretaria)"],
   ];
 
