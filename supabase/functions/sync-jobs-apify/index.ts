@@ -179,7 +179,7 @@ function inferArea(job: GupyJob): string {
     ["Operações", "(operações|operations|logística|supply chain|cs|customer success|atendimento|suporte)"],
     ["Produto", "(produto|product manager|pm|design de produto|ux|ui|design)"],
     ["Engenharia", "(engenharia(?! de software)|engenheir(?!o de software))"],
-    ["Jurídico", "(jurídico|legal|advogad|compliance)"],
+    ["Jurídico", "(jur[íi]dic|direito|advog|advocacia|legal|compliance|contencioso|tribut[áa]rio|paralegal|direito (?:empresarial|trabalhista|c[íi]vel|tribut[áa]rio|penal|consumidor)|escrit[óo]rio de advocacia)"],
     ["Administrativo", "(administrativ|administração|secretaria)"],
   ];
 
