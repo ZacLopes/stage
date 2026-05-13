@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../auth/user_viewmodel.dart';
 import 'home_viewmodel.dart';
-import 'gamified_track_list.dart';
+import 'open_trail_view.dart';
 import '../gamification/gamification_viewmodel.dart';
 
 class TracksTab extends StatelessWidget {
@@ -30,7 +30,7 @@ class TracksTab extends StatelessWidget {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              return GamifiedTrackList(tracks: viewModel.tracks);
+              return const OpenTrailView();
             },
           ),
         ),

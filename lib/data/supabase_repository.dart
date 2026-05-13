@@ -187,17 +187,22 @@ class SupabaseRepository {
       if (response == null) {
         // Profile doesn't exist, create it
         final user = _client.auth.currentUser!;
+        // Nome via cadeia de fallbacks (full_name → given+family → email
+        // prefix → null). Quando null, gravamos string vazia — coluna no DB
+        // é NOT NULL. App detecta nome vazio via UserViewModel.needsName e
+        // abre a tela "Como podemos te chamar?".
+        final resolvedName = resolveAuthName(user) ?? '';
         final newProfile = {
           'id': userId,
           'email': user.email ?? '',
-          'name': user.userMetadata?['name'] ?? 'User',
+          'name': resolvedName,
           'course': user.userMetadata?['course'] ?? '',
           'semester': user.userMetadata?['semester'] ?? '',
           'age': user.userMetadata?['age'],
           'ai_consent': false,
           'ai_consent_timestamp': null,
         };
-        
+
         await _client.from('user_profiles').insert(newProfile);
         return UserProfile.fromMap(newProfile);
       }
@@ -1265,5 +1270,94 @@ class SupabaseRepository {
       return null;
     }
   }
+}
+
+/// Normaliza nome humano pra Title Case com preposições BR em minúsculo.
+/// Trim, colapsa whitespace, primeira letra de cada palavra maiúscula.
+///
+/// Exemplos:
+///   "joao silva"        → "Joao Silva"
+///   "JOAO SILVA"        → "Joao Silva"
+///   "  joão  da silva " → "João da Silva"
+///   "MARIA DOS SANTOS"  → "Maria dos Santos"
+///   "Pedro"             → "Pedro"
+///
+/// Preposições ("de", "da", "do", "dos", "das", "e") ficam em minúsculo
+/// **só quando não são a primeira palavra** — "Da Silva" sozinho fica "Da Silva".
+String normalizeName(String input) {
+  final cleaned = input.trim().replaceAll(RegExp(r'\s+'), ' ');
+  if (cleaned.isEmpty) return cleaned;
+
+  const lowercaseConnectors = {
+    'de', 'da', 'do', 'dos', 'das', 'e', 'di', 'du', 'del', 'della', 'van', 'von',
+  };
+
+  final parts = cleaned.split(' ');
+  final buf = <String>[];
+  for (var i = 0; i < parts.length; i++) {
+    final word = parts[i];
+    if (word.isEmpty) continue;
+    final lower = word.toLowerCase();
+    if (i > 0 && lowercaseConnectors.contains(lower)) {
+      buf.add(lower);
+    } else {
+      // toUpperCase do primeiro caracter cobre acentos (á → Á, etc.).
+      buf.add(lower[0].toUpperCase() + lower.substring(1));
+    }
+  }
+  return buf.join(' ');
+}
+
+/// Cadeia de fallbacks pra extrair o nome do usuário a partir do `User` do
+/// Supabase. Retorna `null` se nada decente sobrou — o app trata `null` como
+/// sinal pra abrir a tela "Como podemos te chamar?".
+///
+/// Ordem:
+/// 1. `userMetadata['full_name']` — Google, e Apple quando o name vem no JWT
+/// 2. `userMetadata['name']` — alguns providers
+/// 3. `given_name + family_name` — formato alternativo
+/// 4. Email prefix capitalizado — "joao.silva@gmail.com" → "Joao Silva"
+/// 5. `null` — força a tela de input
+///
+/// Importante: nunca retorna o literal "User" (bug antigo) nem strings com
+/// somente espaços.
+String? resolveAuthName(User user) {
+  final meta = user.userMetadata ?? const {};
+
+  String? clean(dynamic v) {
+    if (v == null) return null;
+    final s = v.toString().trim();
+    if (s.isEmpty) return null;
+    if (s.toLowerCase() == 'user') return null; // sentinela legacy
+    return s;
+  }
+
+  // 1. full_name (Google, Apple quando manda no JWT)
+  final fullName = clean(meta['full_name']);
+  if (fullName != null) return normalizeName(fullName);
+
+  // 2. name
+  final name = clean(meta['name']);
+  if (name != null) return normalizeName(name);
+
+  // 3. given_name + family_name
+  final given = clean(meta['given_name']);
+  final family = clean(meta['family_name']);
+  if (given != null || family != null) {
+    final joined = [given, family].where((s) => s != null).join(' ');
+    return normalizeName(joined);
+  }
+
+  // 4. Email prefix → "joao.silva" / "joao_silva" / "joao+work" → "Joao Silva"
+  final email = clean(user.email);
+  if (email != null && email.contains('@')) {
+    final prefix = email.split('@').first;
+    final cleaned = prefix.split('+').first; // remove "+tag"
+    final spaced = cleaned.split(RegExp(r'[._\-]')).where((p) => p.isNotEmpty).join(' ');
+    if (spaced.isNotEmpty) return normalizeName(spaced);
+  }
+
+  // 5. Nada decente — força a tela de input
+  return null;
 }
 

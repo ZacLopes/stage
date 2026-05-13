@@ -88,12 +88,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildModernHeader(BuildContext context) {
+    // Header transparente — sem faixa branca chapada nem border, consistente
+    // com as abas Vagas e Salvas.
     return Container(
       padding: const EdgeInsets.only(top: 60, left: 16, right: 16, bottom: 24),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
-      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.start,

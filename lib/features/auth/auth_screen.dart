@@ -5,9 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/stage_colors.dart';
 import '../../core/utils/auth_error_formatter.dart';
-import '../home/home_screen.dart';
-import 'completion_screen.dart';
-import 'target_job_screen.dart';
+import '../splash/splash_screen.dart' show AuthGate;
 import 'user_viewmodel.dart';
 import 'email_signup_screen.dart';
 import '../../core/widgets/pii_mask.dart';
@@ -74,18 +72,15 @@ class _AuthScreenState extends State<AuthScreen>
         closeInAppWebView();
       } catch (_) {}
 
-      // Decide próxima tela.
-      // - Se ainda não tem campaign (nunca passou pelo onboarding completo),
-      //   leva pra CompletionScreen (escolha "tenho CV / começar do zero").
-      // - Se já tem campaign, vai direto pra Home.
+      // Roteamento delegado pro AuthGate, que decide entre NameInputScreen /
+      // CompletionScreen / HomeScreen baseado em needsName + hasCampaign.
+      // Empurrar telas específicas daqui causava GlobalKey duplicada
+      // (auth_screen pushava HomeScreen enquanto o AuthGate Consumer
+      // também montava uma — duas BottomNavigationBars na árvore).
       // O caminho de email/senha NÃO usa esse listener — EmailSignup já
       // navega manualmente pra ProfileSetupScreen após o signUp.
-      final nextScreen = vm.hasCampaign
-          ? const HomeScreen()
-          : const CompletionScreen();
-
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => nextScreen),
+        MaterialPageRoute(builder: (_) => const AuthGate()),
         (route) => false,
       );
     }
@@ -420,10 +415,10 @@ class _LoginBottomSheetState extends State<_LoginBottomSheet> {
       );
 
       if (mounted && vm.isLoggedIn) {
+        // Mesmo motivo do _onAuthChanged: roteia via AuthGate pra deixar
+        // o Consumer central decidir entre Name/Completion/Home.
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (_) => vm.hasCampaign ? const HomeScreen() : const CompletionScreen(),
-          ),
+          MaterialPageRoute(builder: (_) => const AuthGate()),
           (route) => false,
         );
       }

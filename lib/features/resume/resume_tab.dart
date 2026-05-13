@@ -64,21 +64,66 @@ class _ResumeTabState extends State<ResumeTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_showingTracks) {
-      return TracksTab(onBack: _exitTracks);
-    }
-    return Consumer2<ResumeViewModel, ProfileViewModel>(
-      builder: (context, resumeVM, profileVM, _) {
-        return PiiMask(child: Scaffold(
-          backgroundColor: const Color(0xFFF3F4F6),
-          body: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-              child: _buildEntryState(context, resumeVM, profileVM),
-            ),
-          ),
-        ));
+    // Transição entre entry-state e trilha:
+    // - Trilha entra com scale 0.92 → 1.0 + fade in (sensação de "abrir")
+    // - Entry-state só faz fade out/in suave por baixo
+    // Volta é mais rápida (280ms vs 380ms) pra sensação snappier.
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 380),
+      reverseDuration: const Duration(milliseconds: 280),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      layoutBuilder: (currentChild, previousChildren) {
+        return Stack(
+          alignment: Alignment.center,
+          children: <Widget>[
+            ...previousChildren,
+            if (currentChild != null) currentChild,
+          ],
+        );
       },
+      transitionBuilder: (child, animation) {
+        final key = child.key;
+        final isTracks = key is ValueKey<String> && key.value == 'tracks';
+        if (isTracks) {
+          return FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.92, end: 1.0).animate(
+                CurvedAnimation(
+                    parent: animation, curve: Curves.easeOutCubic),
+              ),
+              child: child,
+            ),
+          );
+        }
+        // Entry-state: só fade
+        return FadeTransition(opacity: animation, child: child);
+      },
+      child: _showingTracks
+          ? KeyedSubtree(
+              key: const ValueKey<String>('tracks'),
+              child: TracksTab(onBack: _exitTracks),
+            )
+          : KeyedSubtree(
+              key: const ValueKey<String>('entry'),
+              child: Consumer2<ResumeViewModel, ProfileViewModel>(
+                builder: (context, resumeVM, profileVM, _) {
+                  return PiiMask(
+                    child: Scaffold(
+                      backgroundColor: const Color(0xFFF3F4F6),
+                      body: SafeArea(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                          child: _buildEntryState(
+                              context, resumeVM, profileVM),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
     );
   }
 

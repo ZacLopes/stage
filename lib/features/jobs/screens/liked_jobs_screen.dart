@@ -141,18 +141,10 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Header transparente — fica sobre o background do Scaffold sem faixa
+    // branca chapada (mesma padronização da aba Vagas).
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x0A000000),
-            blurRadius: 4,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
       child: Row(
         children: [
           Expanded(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../auth/user_viewmodel.dart';
 import '../../data/models/models.dart';
+import '../../data/supabase_repository.dart' show normalizeName;
 
 class EditAccountScreen extends StatefulWidget {
   const EditAccountScreen({super.key});
@@ -47,7 +48,10 @@ class _EditAccountScreenState extends State<EditAccountScreen> {
       
       // Check what changed
       final user = viewModel.user;
-      String? name = _nameController.text != user?.name ? _nameController.text : null;
+      // Normaliza pra Title Case antes de comparar — assim digitar "joao SILVA"
+      // não conta como mudança se já está salvo como "Joao Silva".
+      final typedName = normalizeName(_nameController.text);
+      String? name = typedName.isNotEmpty && typedName != user?.name ? typedName : null;
       int? age = int.tryParse(_ageController.text) != user?.age ? int.tryParse(_ageController.text) : null;
       String? email = _emailController.text != user?.email ? _emailController.text : null;
       String? password = _passwordController.text.isNotEmpty ? _passwordController.text : null;

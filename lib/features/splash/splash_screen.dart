@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import '../../core/constants/stage_colors.dart';
 import '../auth/user_viewmodel.dart';
 import '../auth/onboarding_screen.dart';
+import '../auth/name_input_screen.dart';
+import '../auth/completion_screen.dart';
 import '../home/home_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -162,6 +164,21 @@ class AuthGate extends StatelessWidget {
         }
 
         if (viewModel.isLoggedIn) {
+          // Roteamento centralizado pós-login. Ordem importa:
+          // 1. needsName (Apple/Google sem nome) → tela bloqueante
+          // 2. !hasCampaign (não passou pelo onboarding completo) → CompletionScreen
+          // 3. tudo certo → HomeScreen
+          //
+          // Esse Consumer re-roteia automaticamente quando o state muda
+          // (ex: user salva nome → needsName vira false → rebuild → próxima tela).
+          // Por isso telas como NameInputScreen NÃO devem fazer push manual —
+          // gera GlobalKey duplicada com a HomeScreen que esse Consumer monta.
+          if (viewModel.needsName) {
+            return const NameInputScreen();
+          }
+          if (!viewModel.hasCampaign) {
+            return const CompletionScreen();
+          }
           return const HomeScreen();
         } else {
           return const OnboardingScreen();

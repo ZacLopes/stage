@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/stage_colors.dart';
@@ -21,6 +22,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   // Step 1
   late TextEditingController _nameController;
   DateTime? _selectedDate;
+  final _dobController = TextEditingController();
+  String? _dobError;
   final _phoneController = TextEditingController();
 
   // Step 2
@@ -57,15 +60,75 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   void dispose() {
     _pageController.dispose();
     _nameController.dispose();
+    _dobController.dispose();
     _phoneController.dispose();
     _uniController.dispose();
     _courseController.dispose();
     super.dispose();
   }
 
+  /// Valida e parseia a string `DD/MM/AAAA` em um DateTime.
+  /// Regras:
+  ///   - Vazio ou incompleto → date=null, sem erro (não polui UI antes da hora)
+  ///   - Mês inválido (00/13+) → erro "Mês inválido"
+  ///   - Dia inválido pro mês (ex: 31/02, 30/02) → erro "Dia inválido"
+  ///   - Ano fora de 1950..hoje → erro "Ano inválido"
+  ///   - Idade < 14 → erro "Idade mínima 14 anos"
+  ///   - Idade > 100 → erro "Verifique a data"
+  _ParsedDob _parseDob(String raw) {
+    if (raw.isEmpty) return const _ParsedDob(null, null);
+    // Aceita DD/MM/AAAA completo. Antes disso, ainda digitando → sem erro.
+    if (raw.length < 10) return const _ParsedDob(null, null);
+
+    final parts = raw.split('/');
+    if (parts.length != 3) return const _ParsedDob(null, 'Data inválida');
+
+    final day = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final year = int.tryParse(parts[2]);
+    if (day == null || month == null || year == null) {
+      return const _ParsedDob(null, 'Data inválida');
+    }
+
+    if (month < 1 || month > 12) {
+      return const _ParsedDob(null, 'Mês inválido');
+    }
+
+    // DateTime.utc faz a checagem de dia: se digitar 31/02 ele retorna 02/03.
+    // Verificamos que o roundtrip bate.
+    final candidate = DateTime(year, month, day);
+    if (candidate.day != day ||
+        candidate.month != month ||
+        candidate.year != year) {
+      return const _ParsedDob(null, 'Dia inválido');
+    }
+
+    final now = DateTime.now();
+    if (year < 1950 || candidate.isAfter(now)) {
+      return const _ParsedDob(null, 'Ano inválido');
+    }
+
+    // Idade aproximada
+    var age = now.year - year;
+    if (now.month < month || (now.month == month && now.day < day)) {
+      age--;
+    }
+    if (age < 14) {
+      return const _ParsedDob(null, 'Idade mínima 14 anos');
+    }
+    if (age > 100) {
+      return const _ParsedDob(null, 'Verifique a data');
+    }
+
+    return _ParsedDob(candidate, null);
+  }
+
   bool get _isCurrentStepValid {
     if (_currentStep == 0) {
-      return _nameController.text.trim().isNotEmpty && _selectedDate != null;
+      // Nome já veio do EmailSignup/social — step 1 pede data de nascimento
+      // + celular (mínimo 10 dígitos pra cobrir fixos e móveis com DDD).
+      final phoneDigits = _phoneController.text.replaceAll(RegExp(r'\D'), '');
+      return _selectedDate != null && phoneDigits.length >= 10;
     } else if (_currentStep == 1) {
       return _uniController.text.trim().isNotEmpty && 
              _courseController.text.trim().isNotEmpty &&
@@ -142,24 +205,6 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     }
   }
 
-  void _skipOptional() {
-    setState(() {
-      if (_currentStep == 0) {
-        // Just fill defaults to pass validation if skipped
-        _selectedDate ??= DateTime(2000, 1, 1);
-        if (_nameController.text.isEmpty) _nameController.text = 'Usuário';
-      } else if (_currentStep == 1) {
-        if (_uniController.text.isEmpty) _uniController.text = 'Não informado';
-        if (_courseController.text.isEmpty) _courseController.text = 'Não informado';
-        _selectedSemester ??= 1;
-      } else if (_currentStep == 2) {
-        if (_selectedJobTypes.isEmpty) _selectedJobTypes.add('Estágio');
-        if (_selectedAreas.isEmpty) _selectedAreas.add('Administração');
-        _selectedWorkModel ??= 'Tanto faz';
-      }
-    });
-    _nextStep();
-  }
 
   // --- Step 1 Build ---
   Widget _buildStep1() {
@@ -167,51 +212,45 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       headline: 'Conta mais\nsobre você',
       subtitle: 'Pra gente personalizar sua experiência.',
       children: [
-        // Name
+        // Nome foi coletado no EmailSignup/social — não pedimos de novo aqui.
+        // O `_nameController` segue vivo (prefilled de vm.user?.name) só pra
+        // alimentar o updateProfile no final.
+
+        // Data de Nascimento — input digitado com máscara DD/MM/AAAA.
+        // Aceita só dígitos, insere as barras automaticamente, valida em
+        // tempo real (mês 01-12, dia válido pro mês, ano entre 1950 e hoje).
         TextField(
-          controller: _nameController,
-          onChanged: (_) => setState(() {}),
-          decoration: _inputDecoration('Nome Completo', Icons.person_outline),
-        ),
-        const SizedBox(height: 20),
-        
-        // Date
-        GestureDetector(
-          onTap: () async {
-            final date = await showDatePicker(
-              context: context,
-              initialDate: DateTime.now().subtract(const Duration(days: 365 * 20)),
-              firstDate: DateTime(1950),
-              lastDate: DateTime.now(),
-              builder: (context, child) => Theme(
-                data: ThemeData.light().copyWith(
-                  colorScheme: const ColorScheme.light(primary: StageColors.brandBlue),
-                ),
-                child: child!,
-              ),
-            );
-            if (date != null) {
-              setState(() => _selectedDate = date);
-            }
+          controller: _dobController,
+          keyboardType: TextInputType.number,
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            _DateInputFormatter(),
+          ],
+          onChanged: (raw) {
+            final parsed = _parseDob(raw);
+            setState(() {
+              _selectedDate = parsed.date;
+              _dobError = parsed.error;
+            });
           },
-          child: AbsorbPointer(
-            child: TextField(
-              controller: TextEditingController(
-                text: _selectedDate == null 
-                  ? '' 
-                  : '${_selectedDate!.day.toString().padLeft(2, '0')}/${_selectedDate!.month.toString().padLeft(2, '0')}/${_selectedDate!.year}',
-              ),
-              decoration: _inputDecoration('Data de Nascimento', Icons.calendar_today),
-            ),
-          ),
+          decoration: _inputDecoration(
+            'Data de Nascimento',
+            Icons.calendar_today,
+            hint: 'DD/MM/AAAA',
+          ).copyWith(errorText: _dobError),
         ),
         const SizedBox(height: 20),
         
-        // Phone (Optional)
+        // Phone (Required) — máscara `(DD) NNNNN-NNNN` automática.
         TextField(
           controller: _phoneController,
           keyboardType: TextInputType.phone,
-          decoration: _inputDecoration('Celular (Opcional)', Icons.phone_outlined, hint: '(11) 99999-9999'),
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            _PhoneInputFormatter(),
+          ],
+          onChanged: (_) => setState(() {}),
+          decoration: _inputDecoration('Celular', Icons.phone_outlined, hint: '(11) 99999-9999'),
         ),
       ],
     );
@@ -267,34 +306,14 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         ),
         const SizedBox(height: 32),
 
-        // Semester
-        Text('Semestre Sugerido', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
-        const SizedBox(height: 12),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: List.generate(11, (index) {
-              final number = index + 1;
-              final isSelected = _selectedSemester == number;
-              final label = number > 10 ? '10+' : number.toString();
-              
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: ChoiceChip(
-                  label: Text(label, style: GoogleFonts.inter(fontWeight: isSelected ? FontWeight.bold : FontWeight.w500)),
-                  selected: isSelected,
-                  selectedColor: StageColors.brandCyan.withOpacity(0.15),
-                  backgroundColor: StageColors.chipUnselectedBg,
-                  side: isSelected ? const BorderSide(color: StageColors.brandCyan) : BorderSide.none,
-                  showCheckmark: false,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  onSelected: (val) {
-                    if (val) setState(() => _selectedSemester = number);
-                  },
-                ),
-              );
-            }),
-          ),
+        // Semester — campo que abre bottom sheet com slide-up suave.
+        // Visualmente igual aos outros TextFields, mas a interação é
+        // mais fluida que o DropdownButtonFormField padrão (que pula
+        // sem animação clara e estoura a tela com 11 items).
+        _SemesterField(
+          value: _selectedSemester,
+          onChanged: (val) => setState(() => _selectedSemester = val),
+          decoration: _inputDecoration('Semestre', Icons.timeline_rounded),
         ),
       ],
     );
@@ -435,7 +454,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                   ),
                   Expanded(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.only(left: 16, right: 24),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(4),
                         child: LinearProgressIndicator(
@@ -446,10 +465,6 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                         ),
                       ),
                     ),
-                  ),
-                  TextButton(
-                    onPressed: _skipOptional,
-                    child: Text('Pular', style: GoogleFonts.inter(color: StageColors.subtitleGray, fontWeight: FontWeight.w600)),
                   ),
                 ],
               ),
@@ -540,6 +555,224 @@ class _StepContentLayout extends StatelessWidget {
           const SizedBox(height: 32),
           ...children,
         ],
+      ),
+    );
+  }
+}
+
+/// Resultado do parsing da data digitada.
+class _ParsedDob {
+  final DateTime? date;
+  final String? error;
+  const _ParsedDob(this.date, this.error);
+}
+
+/// `TextInputFormatter` que aceita só dígitos e insere automaticamente as
+/// barras de DD/MM/AAAA. Suporta backspace corretamente — quando o user
+/// apaga, as barras saem junto se necessário.
+class _DateInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    // Extrai só os dígitos do que o user digitou (descarta barras digitadas)
+    final digits = newValue.text.replaceAll(RegExp(r'\D'), '');
+    final truncated = digits.length > 8 ? digits.substring(0, 8) : digits;
+
+    // Reconstroi com barras: DD/MM/AAAA
+    final buf = StringBuffer();
+    for (var i = 0; i < truncated.length; i++) {
+      if (i == 2 || i == 4) buf.write('/');
+      buf.write(truncated[i]);
+    }
+    final formatted = buf.toString();
+
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+}
+
+/// `TextInputFormatter` pra celular BR no formato `(DD) NNNNN-NNNN`.
+/// Cap em 11 dígitos. Sempre usa split 5-4 (mobile) — fixos de 10 dígitos
+/// ficam como `(11) 99999-999` (sem o último), e o user precisa digitar
+/// mais um dígito pra completar.
+class _PhoneInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text.replaceAll(RegExp(r'\D'), '');
+    final truncated = digits.length > 11 ? digits.substring(0, 11) : digits;
+
+    final buf = StringBuffer();
+    for (var i = 0; i < truncated.length; i++) {
+      if (i == 0) buf.write('(');
+      if (i == 2) buf.write(') ');
+      if (i == 7) buf.write('-');
+      buf.write(truncated[i]);
+    }
+    final formatted = buf.toString();
+
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+}
+
+/// Campo de seleção de semestre. Visualmente idêntico aos TextFields do form.
+/// Tap abre um bottom sheet compacto com slide-up suave, em vez do dropdown
+/// padrão do Flutter (que tem animação seca e estoura a tela com 11 items).
+class _SemesterField extends StatelessWidget {
+  final int? value;
+  final ValueChanged<int> onChanged;
+  final InputDecoration decoration;
+
+  const _SemesterField({
+    required this.value,
+    required this.onChanged,
+    required this.decoration,
+  });
+
+  static String _labelFor(int n) => n > 10 ? '10+ semestre' : '${n}º semestre';
+
+  Future<void> _openPicker(BuildContext context) async {
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      // Animação custom mais suave (300ms ease-out-cubic) em vez do default.
+      transitionAnimationController: AnimationController(
+        vsync: Navigator.of(context),
+        duration: const Duration(milliseconds: 320),
+        reverseDuration: const Duration(milliseconds: 240),
+      ),
+      builder: (ctx) => _SemesterPickerSheet(selected: value),
+    );
+    if (selected != null) onChanged(selected);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openPicker(context),
+      child: AbsorbPointer(
+        child: TextField(
+          controller: TextEditingController(
+            text: value == null ? '' : _labelFor(value!),
+          ),
+          decoration: decoration.copyWith(
+            suffixIcon: const Icon(
+              Icons.arrow_drop_down_rounded,
+              color: StageColors.hintGray,
+            ),
+          ),
+          style: GoogleFonts.inter(
+            color: StageColors.darkText,
+            fontSize: 16,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SemesterPickerSheet extends StatelessWidget {
+  final int? selected;
+  const _SemesterPickerSheet({required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Drag handle visual
+            Container(
+              margin: const EdgeInsets.only(top: 10, bottom: 6),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+              child: Row(
+                children: [
+                  Text(
+                    'Semestre',
+                    style: GoogleFonts.outfit(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: StageColors.titleText,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, size: 20),
+                    color: StageColors.hintGray,
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            // Lista compacta — items pequenos pra caber bem
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                padding: const EdgeInsets.only(bottom: 12),
+                itemCount: 11,
+                itemBuilder: (_, i) {
+                  final n = i + 1;
+                  final isSelected = selected == n;
+                  return InkWell(
+                    onTap: () => Navigator.pop(context, n),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      color: isSelected
+                          ? StageColors.brandCyan.withOpacity(0.08)
+                          : Colors.transparent,
+                      child: Row(
+                        children: [
+                          Text(
+                            _SemesterField._labelFor(n),
+                            style: GoogleFonts.inter(
+                              fontSize: 15,
+                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                              color: isSelected
+                                  ? StageColors.brandBlue
+                                  : StageColors.darkText,
+                            ),
+                          ),
+                          const Spacer(),
+                          if (isSelected)
+                            const Icon(
+                              Icons.check_rounded,
+                              size: 18,
+                              color: StageColors.brandBlue,
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

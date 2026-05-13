@@ -40,6 +40,32 @@ class UserViewModel extends ChangeNotifier {
   bool get showM1ResetNotice =>
       _user?.gamificationData['show_m1_reset_notice'] == true;
 
+  /// Verdadeiro quando o user existe mas o nome é vazio ou o literal "User"
+  /// (sentinela legacy do bug antigo). UI usa pra forçar a tela "Como
+  /// podemos te chamar?" antes de entrar na home.
+  bool get needsName {
+    if (_user == null) return false;
+    final n = _user!.name.trim();
+    if (n.isEmpty) return true;
+    if (n.toLowerCase() == 'user') return true;
+    return false;
+  }
+
+  /// Atualiza só o nome do user (usado pela tela NameInputScreen e pelo
+  /// "editar nome" do perfil). Persiste em `user_profiles` e re-notifica.
+  /// Normaliza pra Title Case: "joao SILVA" → "Joao Silva".
+  Future<void> updateName(String newName) async {
+    final normalized = normalizeName(newName);
+    if (normalized.isEmpty) {
+      throw ArgumentError('Nome não pode ser vazio');
+    }
+    if (_user == null) return;
+    final updated = _user!.copyWith(name: normalized);
+    await _repository.updateUserProfile(updated);
+    _user = updated;
+    notifyListeners();
+  }
+
   void _init() {
     // Listen to auth state changes
     _supabase.auth.onAuthStateChange.listen((data) {
@@ -352,19 +378,33 @@ class UserViewModel extends ChangeNotifier {
         nonce: rawNonce,
       );
 
-      // Load user profile first so _user is populated
-      await _loadUser();
-
-      // Apple only sends the real name on the FIRST authorization.
-      // Capture it immediately and persist if the profile still has
-      // the generic "User" fallback (or is empty).
+      // Apple só manda givenName/familyName no PRIMEIRO autorize. Se vier,
+      // empurramos pro `user_metadata` ANTES do `_loadUser` — assim quando o
+      // repo criar o profile pela primeira vez, o `resolveAuthName` já encontra
+      // `full_name` em vez de cair no email-prefix.
       final givenName = credential.givenName ?? '';
       final familyName = credential.familyName ?? '';
-      final appleName = '$givenName $familyName'.trim();
+      final appleName = normalizeName('$givenName $familyName');
 
+      if (appleName.isNotEmpty) {
+        try {
+          await _supabase.auth.updateUser(
+            UserAttributes(data: {'full_name': appleName}),
+          );
+        } catch (e) {
+          // Não bloqueia o fluxo — pior caso o nome cai no email-prefix.
+          print('updateUser(full_name) failed: $e');
+        }
+      }
+
+      // Agora carrega o profile (cria com nome resolvido se for primeiro login).
+      await _loadUser();
+
+      // Se o profile já existia com nome legacy 'User' ou vazio E a Apple
+      // mandou nome agora, sobrescreve.
       if (appleName.isNotEmpty &&
-          (_user == null || (_user!.name ?? '').isEmpty || _user!.name == 'User')) {
-        // Update profile table with the real name from Apple
+          _user != null &&
+          (_user!.name.trim().isEmpty || _user!.name == 'User')) {
         await _repository.updateUserProfile(
           _user!.copyWith(name: appleName),
         );

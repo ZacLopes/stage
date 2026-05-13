@@ -8,12 +8,14 @@ import '../../core/constants/stage_colors.dart';
 import '../../services/analytics_service.dart';
 import '../../services/pdf_text_extractor.dart';
 import '../profile/profile_viewmodel.dart';
+import '../home/home_viewmodel.dart';
+import '../splash/splash_screen.dart' show AuthGate;
 import '../auth/user_viewmodel.dart';
-import 'target_job_screen.dart';
 
 /// Pós-cadastro: usuário escolhe entre subir um CV pronto (vai pra biblioteca,
-/// sem análise) ou construir o CV pela trilha. Em ambos os caminhos passa
-/// pela TargetJobScreen pra criar a Campaign, depois cai na Home.
+/// sem análise) ou construir o CV pela trilha. Em ambos os caminhos a campaign
+/// é criada como "skipped" — o target da vaga será coletado contextualmente
+/// (na hora de adaptar CV pra uma vaga específica), não em onboarding.
 class CompletionScreen extends StatefulWidget {
   const CompletionScreen({super.key});
 
@@ -61,7 +63,7 @@ class _CompletionScreenState extends State<CompletionScreen>
   /// Caminho A: usuário já tem CV pronto.
   /// 1. Picker → bytes do PDF
   /// 2. Salva na biblioteca (ProfileViewModel.saveResume)
-  /// 3. TargetJobScreen → Home na aba Vagas
+  /// 3. Cria campaign skipped + cai na Home (Vagas)
   Future<void> _uploadResumePath() async {
     setState(() => _isPickingFile = true);
     Analytics.shared.cvImportStarted();
@@ -132,17 +134,23 @@ class _CompletionScreenState extends State<CompletionScreen>
 
       if (!mounted) return;
 
-      // Vai pedir o cargo-alvo e cai na Home na aba Vagas (já tem CV pronto).
-      // A TargetJobScreen navega pra Home com seu próprio context — nada de
-      // callback fechado por _CompletionScreenState (que vai estar
-      // desmontado quando a navegação rodar).
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => const TargetJobScreen(
-            contextHeadline: 'CV salvo na biblioteca',
-            homeTabIndex: 0, // Vagas
-          ),
-        ),
+      // Cria campaign sem target (skipped) — o cargo-alvo será coletado
+      // contextualmente depois (na hora de adaptar CV pra uma vaga específica).
+      // Sem isso o AuthGate continuaria roteando pra CompletionScreen porque
+      // `hasCampaign` é o flag de "onboarding finalizado".
+      try {
+        await context.read<UserViewModel>().createCampaign(isSkipped: true);
+      } catch (e) {
+        debugPrint('createCampaign(skip) failed (non-blocking): $e');
+      }
+
+      if (!mounted) return;
+
+      Analytics.shared.onboardingCompleted();
+      // AuthGate vai detectar hasCampaign=true e levar pra HomeScreen (Vagas).
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
       );
     } catch (e) {
       Analytics.shared.cvImportFailed(reason: 'unexpected');
@@ -151,13 +159,25 @@ class _CompletionScreenState extends State<CompletionScreen>
     }
   }
 
-  /// Caminho B: construir o CV pela trilha.
+  /// Caminho B: construir o CV pela trilha (dentro da aba Currículo).
   Future<void> _startTrackPath() async {
     if (!mounted) return;
+    setState(() => _isPickingFile = true);
+
+    try {
+      await context.read<UserViewModel>().createCampaign(isSkipped: true);
+    } catch (e) {
+      debugPrint('createCampaign(skip) failed (non-blocking): $e');
+    }
+
+    if (!mounted) return;
+
+    // Pede pra abrir na aba Currículo (que tem a trilha de construção).
+    context.read<HomeViewModel>().requestTabChange(HomeTabs.resume);
+
+    Analytics.shared.onboardingCompleted();
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => const TargetJobScreen(homeTabIndex: 2), // Trilha (índice 2 após Curtidas)
-      ),
+      MaterialPageRoute(builder: (_) => const AuthGate()),
       (route) => false,
     );
   }
