@@ -40,6 +40,43 @@ class UserViewModel extends ChangeNotifier {
   bool get showM1ResetNotice =>
       _user?.gamificationData['show_m1_reset_notice'] == true;
 
+  /// Verdadeiro quando o user tem algum "perfil profissional" no app — seja
+  /// CV importado (raw_text suficiente) seja trilha minimamente preenchida
+  /// (skills/summary/interests gerados).
+  ///
+  /// Usado pra decidir se faz sentido calcular/mostrar match score: sem CV
+  /// nem trilha, score IA cai no Cenário C (50 fixo) e o determinístico não
+  /// tem skills pra comparar — UI fica enganosa. Melhor não mostrar score.
+  bool get hasResume {
+    final data = _user?.gamificationData;
+    if (data == null) return false;
+
+    // CV importado tem texto útil (>= 200 chars cobre PDFs reais)
+    final imported = data['imported_resume'];
+    if (imported is Map) {
+      final raw = imported['raw_text']?.toString() ?? '';
+      if (raw.length >= 200) return true;
+    }
+
+    // Ou trilha gerou skills/summary/interests
+    final who = data['whoIAm'];
+    if (who is Map) {
+      final derived = who['derived'];
+      if (derived is Map) {
+        final skills = derived['skills']?.toString() ?? '';
+        final summary = derived['summary']?.toString() ?? '';
+        final interests = derived['interests']?.toString() ?? '';
+        if (skills.trim().isNotEmpty ||
+            summary.trim().isNotEmpty ||
+            interests.trim().isNotEmpty) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
   /// Verdadeiro quando o user existe mas o nome é vazio ou o literal "User"
   /// (sentinela legacy do bug antigo). UI usa pra forçar a tela "Como
   /// podemos te chamar?" antes de entrar na home.

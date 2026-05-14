@@ -259,6 +259,13 @@ const COMPANY_NAME_BLACKLIST_REGEXES: RegExp[] = [
   /^programa de est[áa]gio$/i,
   /vagas de est[áa]gio\?? *temos/i,
   /[\u{1F300}-\u{1FAFF}]/u, // emojis no nome da empresa = spam quase certo
+  // Vagas sem nome de empresa real (oculta) — qualidade duvidosa e sem confiança
+  /^confidencial$/i,
+  /^empresa confidencial$/i,
+  /^vaga confidencial$/i,
+  /^anonim[oa]$/i,
+  /^a definir$/i,
+  /^sem identifica[çc][ãa]o$/i,
   // Academias/fitness
   /\bacademia\b/i,
   /\bgreenlife\b/i,

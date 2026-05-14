@@ -3,6 +3,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/job.dart';
 
+// ────────────────────────────────────────────────────────────
+// Pendente = IA ainda calculando. Renderiza placeholder no lugar do
+// score % pra evitar flash de número errado.
+// ────────────────────────────────────────────────────────────
 class JobCard extends StatefulWidget {
   final Job job;
 
@@ -10,10 +14,21 @@ class JobCard extends StatefulWidget {
   /// usa `job.matchScore` (que hoje é 0 por default — placeholder).
   final int? matchScore;
 
+  /// True quando a IA está calculando o score em background. Renderiza
+  /// placeholder (dots animados) em vez do número pra evitar flash visual.
+  final bool isPending;
+
+  /// True quando o user não tem currículo no app (nem importado nem trilha).
+  /// Card mostra CTA "Crie seu currículo" em vez de score — sem CV não há
+  /// como calcular match honesto.
+  final bool isNoResume;
+
   const JobCard({
     super.key,
     required this.job,
     this.matchScore,
+    this.isPending = false,
+    this.isNoResume = false,
   });
 
   @override
@@ -53,19 +68,60 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
   /// (calculado pelo MatchScoreCalculator); fallback pro field do model.
   int get _score => widget.matchScore ?? widget.job.matchScore;
 
+  /// Cor de acento — usada em shadow do card, ring de match, divisor da seção.
+  /// Alinhada com o `_cardGradient` pra UI parecer coerente.
   Color get _matchColor {
-    if (_score >= 85) return const Color(0xFF10B981);
-    if (_score >= 70) return const Color(0xFF3B82F6);
-    return const Color(0xFFF59E0B);
+    if (widget.isNoResume) return const Color(0xFF6366F1); // indigo — convida ação
+    if (widget.isPending) return const Color(0xFF64748B);  // slate neutro
+    if (_score >= 85) return const Color(0xFF10B981);     // esmeralda
+    if (_score >= 70) return const Color(0xFF8B5CF6);     // violeta
+    return const Color(0xFFF59E0B);                        // âmbar
   }
 
+  /// Gradient do header. Antes usava cores quase pretas (verde escuro
+  /// `#064E3B`, marrom morto `#78350F`) com 2 stops planos — o card parecia
+  /// chapado e opaco. Agora: paletas vibrantes mas profundas, 3 stops pra
+  /// criar profundidade, alinhadas com o brand (indigo→violet aparece no
+  /// resto do app).
   List<Color> get _cardGradient {
-    if (_score >= 85) {
-      return [const Color(0xFF064E3B), const Color(0xFF065F46)];
-    } else if (_score >= 70) {
-      return [const Color(0xFF1E3A8A), const Color(0xFF1E40AF)];
+    if (widget.isNoResume) {
+      // Indigo→violet — comunica "ação pendente" + alinha com brand do app
+      return [
+        const Color(0xFF6366F1),
+        const Color(0xFF8B5CF6),
+        const Color(0xFF7C3AED),
+      ];
     }
-    return [const Color(0xFF78350F), const Color(0xFF92400E)];
+    if (widget.isPending) {
+      // Slate elegante — não comunica score nenhum (IA ainda calculando)
+      return [
+        const Color(0xFF475569),
+        const Color(0xFF334155),
+        const Color(0xFF1E293B),
+      ];
+    }
+    if (_score >= 85) {
+      // Esmeralda vibrante → teal → cyan profundo
+      return [
+        const Color(0xFF10B981),
+        const Color(0xFF0D9488),
+        const Color(0xFF0F766E),
+      ];
+    }
+    if (_score >= 70) {
+      // Indigo → violet → purple — premium, casa com o brand do app
+      return [
+        const Color(0xFF6366F1),
+        const Color(0xFF8B5CF6),
+        const Color(0xFF7C3AED),
+      ];
+    }
+    // Âmbar → laranja → coral — calor sem agressividade
+    return [
+      const Color(0xFFF59E0B),
+      const Color(0xFFF97316),
+      const Color(0xFFEA580C),
+    ];
   }
 
   @override
@@ -98,22 +154,20 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
             _buildPremiumHeader(),
 
             // ─────────── Body ───────────
-            // Estrutura: parte de cima rola silenciosamente se o conteúdo
-            // exceder; tap indicator fica pinned no fundo. Isso garante que
-            // chips com texto longo (ex: "R$ 2.000 - R$ 3.000" + "Híbrido"
-            // + "CLT Júnior") nunca overflowem o card.
+            // Estrutura: header info (title/company/chips) tem tamanho natural;
+            // a descrição expande pra ocupar todo o espaço restante até o pill
+            // "Toque para detalhes" no fundo. ShaderMask faz fade visual nas
+            // últimas linhas pra indicar continuidade.
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(22, 14, 22, 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(
-                      child: SingleChildScrollView(
-                        physics: const NeverScrollableScrollPhysics(),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                    // Bloco fixo no topo: title + meta + chips + section header
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                             // Job Title
                             Text(
                               widget.job.title,
@@ -216,30 +270,33 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                               ],
                             ),
                             const SizedBox(height: 6),
+                      ],
+                    ),
 
-                            // Description (clipped silently if too long)
-                            ShaderMask(
-                              shaderCallback: (Rect bounds) {
-                                return const LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [Colors.black, Colors.transparent],
-                                  stops: [0.6, 1.0],
-                                ).createShader(bounds);
-                              },
-                              blendMode: BlendMode.dstIn,
-                              child: Text(
-                                widget.job.description,
-                                maxLines: 6,
-                                overflow: TextOverflow.fade,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: Color(0xFF64748B),
-                                  height: 1.5,
-                                ),
-                              ),
+                    // Description — expande pra preencher TODO espaço restante
+                    // até o pill. ShaderMask faz fade nas últimas ~20% do
+                    // espaço pra sinalizar que tem mais conteúdo se tocar.
+                    Expanded(
+                      child: ShaderMask(
+                        shaderCallback: (Rect bounds) {
+                          return const LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.black, Colors.transparent],
+                            stops: [0.78, 1.0],
+                          ).createShader(bounds);
+                        },
+                        blendMode: BlendMode.dstIn,
+                        child: SingleChildScrollView(
+                          physics: const NeverScrollableScrollPhysics(),
+                          child: Text(
+                            widget.job.description,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Color(0xFF64748B),
+                              height: 1.5,
                             ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
@@ -299,34 +356,69 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: _cardGradient,
+          // 3 stops criam profundidade — meio segura a cor central por
+          // mais tempo, transições nas pontas são mais suaves.
+          stops: _cardGradient.length == 3 ? const [0.0, 0.55, 1.0] : null,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
       ),
       child: Stack(
         children: [
-          // Decorative circles
+          // Glow superior à esquerda — dá sensação de luz incidente
           Positioned(
-            right: -20,
-            top: -20,
+            left: -30,
+            top: -40,
+            child: Container(
+              width: 140,
+              height: 140,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    Colors.white.withOpacity(0.18),
+                    Colors.white.withOpacity(0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // Bolha decorativa direita topo
+          Positioned(
+            right: -25,
+            top: -25,
+            child: Container(
+              width: 110,
+              height: 110,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(0.12),
+              ),
+            ),
+          ),
+          // Bolha menor direita base
+          Positioned(
+            right: 40,
+            bottom: -35,
+            child: Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(0.10),
+              ),
+            ),
+          ),
+          // Acento secundário esquerda
+          Positioned(
+            left: 30,
+            bottom: -50,
             child: Container(
               width: 100,
               height: 100,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.05),
-              ),
-            ),
-          ),
-          Positioned(
-            right: 30,
-            bottom: -30,
-            child: Container(
-              width: 70,
-              height: 70,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.07),
+                color: Colors.white.withOpacity(0.06),
               ),
             ),
           ),
@@ -412,50 +504,54 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                   ),
                 ),
 
-                // Animated Match Ring
-                AnimatedBuilder(
-                  animation: _ringAnimation,
-                  builder: (context, _) {
-                    return SizedBox(
-                      width: 60,
-                      height: 60,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          CustomPaint(
-                            size: const Size(60, 60),
-                            painter: _MatchRingPainter(
-                              progress: _ringAnimation.value,
-                              score: _score,
-                              color: Colors.white,
+                // Match ring — 3 estados: noResume (CTA criar CV) > pending (dots) > score real
+                widget.isNoResume
+                    ? const _NoResumeBadge()
+                    : widget.isPending
+                    ? _MatchPendingRing()
+                    : AnimatedBuilder(
+                        animation: _ringAnimation,
+                        builder: (context, _) {
+                          return SizedBox(
+                            width: 60,
+                            height: 60,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                CustomPaint(
+                                  size: const Size(60, 60),
+                                  painter: _MatchRingPainter(
+                                    progress: _ringAnimation.value,
+                                    score: _score,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      '${(_score * _ringAnimation.value).toInt()}%',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    Text(
+                                      'match',
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.8),
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
-                          ),
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                '${(_score * _ringAnimation.value).toInt()}%',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              Text(
-                                'match',
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.8),
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                          );
+                        },
                       ),
-                    );
-                  },
-                ),
               ],
             ),
           ),
@@ -512,6 +608,137 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
       ),
     );
   }
+}
+
+/// Placeholder do ring de match enquanto IA calcula. Mostra 3 dots pulsando
+/// no lugar do "%match", sem indicar valor ou cor — evita commit visual a um
+/// número que pode mudar.
+/// Badge mostrado no header do card quando o user não tem CV no app. Ocupa
+/// o mesmo slot 60×60 do match ring, mas em vez de número/dots mostra ícone
+/// de documento + texto "Crie seu CV". Tap no card abre detalhes da vaga,
+/// mas o sinal é: pra ter match real, precisa de currículo primeiro.
+class _NoResumeBadge extends StatelessWidget {
+  const _NoResumeBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 60,
+      height: 60,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.white.withOpacity(0.18),
+        border: Border.all(color: Colors.white.withOpacity(0.4), width: 1.5),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(
+            Icons.description_outlined,
+            color: Colors.white,
+            size: 22,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'crie\nseu CV',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.95),
+              fontSize: 8,
+              fontWeight: FontWeight.w700,
+              height: 1.1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MatchPendingRing extends StatefulWidget {
+  @override
+  State<_MatchPendingRing> createState() => _MatchPendingRingState();
+}
+
+class _MatchPendingRingState extends State<_MatchPendingRing>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 60,
+      height: 60,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Anel tracejado sutil (idle)
+          CustomPaint(
+            size: const Size(60, 60),
+            painter: _PendingRingPainter(),
+          ),
+          // 3 dots pulsando em sequência
+          AnimatedBuilder(
+            animation: _ctrl,
+            builder: (context, _) {
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: List.generate(3, (i) {
+                  final phase = (_ctrl.value + i * 0.2) % 1.0;
+                  final scale = 0.6 + 0.4 * (1 - (phase - 0.5).abs() * 2).clamp(0.0, 1.0);
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                    child: Transform.scale(
+                      scale: scale,
+                      child: Container(
+                        width: 5,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.85),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PendingRingPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 5;
+    final paint = Paint()
+      ..color = Colors.white.withOpacity(0.2)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4.0;
+    canvas.drawCircle(center, radius, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _MatchRingPainter extends CustomPainter {

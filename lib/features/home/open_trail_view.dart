@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/utils/app_notifications.dart';
@@ -15,8 +16,68 @@ import 'home_viewmodel.dart';
 /// Lock cascade GLOBAL: a "fase atual" é a primeira não-completa em toda a
 /// lista achatada (atravessa mundos). Fases anteriores: completed. Posteriores:
 /// locked.
-class OpenTrailView extends StatelessWidget {
+class OpenTrailView extends StatefulWidget {
   const OpenTrailView({super.key});
+
+  @override
+  State<OpenTrailView> createState() => _OpenTrailViewState();
+}
+
+class _OpenTrailViewState extends State<OpenTrailView> {
+  final ScrollController _scrollController = ScrollController();
+
+  /// Keys de cada `_WorldSeparator` na ordem em que aparecem. Permite descobrir
+  /// qual mundo está no topo do viewport via `RenderBox.localToGlobal`.
+  final Map<int, GlobalKey> _separatorKeys = {};
+
+  /// Índice do mundo "atual" — atualizado on-scroll. Inicia em null pra evitar
+  /// disparar haptic no primeiro frame (sem scroll, já estamos no mundo 0).
+  int? _currentWorld;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// Detecta cruzamento de mundo durante scroll. Pra cada separator visível,
+  /// computa o topo em coords globais e marca como "mundo atual" o último
+  /// cujo topo passou da borda superior do viewport. Quando esse índice muda,
+  /// dispara um haptic leve (estilo Duolingo).
+  void _onScroll() {
+    final scrollCtx = _scrollController.position.context.notificationContext;
+    final scrollBox = scrollCtx?.findRenderObject() as RenderBox?;
+    if (scrollBox == null) return;
+    final viewportTop = scrollBox.localToGlobal(Offset.zero).dy;
+
+    int? activeWorld;
+    _separatorKeys.forEach((i, key) {
+      final box = key.currentContext?.findRenderObject() as RenderBox?;
+      if (box == null) return;
+      final separatorTop = box.localToGlobal(Offset.zero).dy;
+      // Separator passou (ou está passando) a borda superior do viewport.
+      // Buffer de 60px pra disparar quando ele está saindo de vista no topo.
+      if (separatorTop < viewportTop + 60) {
+        activeWorld = i;
+      }
+    });
+
+    if (activeWorld != _currentWorld) {
+      // Só vibra se já tínhamos um mundo registrado antes (evita o haptic
+      // inicial quando _currentWorld passa de null → 0 ao montar a tela).
+      if (_currentWorld != null && activeWorld != null) {
+        HapticFeedback.lightImpact();
+      }
+      _currentWorld = activeWorld;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,6 +100,10 @@ class OpenTrailView extends StatelessWidget {
     final showM1Banner =
         userVm.showM1ResetNotice && tracks.any((t) => t.id == 'track_1');
 
+    // Reset do mapa de keys a cada build — track list pode mudar (hot reload,
+    // resync) e queremos sempre uma key estável por índice de mundo.
+    _separatorKeys.clear();
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final centerOffset = constraints.maxWidth / 2;
@@ -52,7 +117,11 @@ class OpenTrailView extends StatelessWidget {
           final phases = phasesByTrack[track.id] ?? const <Phase>[];
           if (phases.isEmpty) continue; // pular separator órfão
 
+          final separatorKey = GlobalKey();
+          _separatorKeys[i] = separatorKey;
+
           sections.add(_WorldSeparator(
+            key: separatorKey,
             track: track,
             worldIndex: i,
             isFirst: sections.isEmpty,
@@ -68,6 +137,7 @@ class OpenTrailView extends StatelessWidget {
         }
 
         return SingleChildScrollView(
+          controller: _scrollController,
           physics: const BouncingScrollPhysics(),
           child: Column(
             children: [
@@ -138,6 +208,7 @@ class _WorldSeparator extends StatelessWidget {
   final bool isFirst;
 
   const _WorldSeparator({
+    super.key,
     required this.track,
     required this.worldIndex,
     required this.isFirst,

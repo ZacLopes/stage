@@ -138,11 +138,13 @@ class AnalyticsService {
     required String jobId,
     required String action, // 'like' | 'reject'
     required int? matchScore,
+    String? matchSource, // 'ai' | 'fallback_deterministic' | 'unknown'
   }) =>
       track('job_swiped', props: {
         'job_id': jobId,
         'action': action,
         if (matchScore != null) 'match_score': matchScore,
+        if (matchSource != null) 'match_source': matchSource,
       });
 
   Future<void> jobDetailsOpened({required String jobId}) =>

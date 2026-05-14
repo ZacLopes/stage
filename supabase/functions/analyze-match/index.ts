@@ -20,7 +20,7 @@ const corsHeaders = {
 }
 
 const MODEL = 'gpt-4o-mini'
-const PROMPT_VERSION = 'v3' // bump quando alterar SYSTEM_PROMPT (invalida cache)
+const PROMPT_VERSION = 'v4' // bump quando alterar SYSTEM_PROMPT (invalida cache)
 const CACHE_TTL_DAYS = 30
 const RATE_LIMIT_PER_DAY = 100
 const OPENAI_TIMEOUT_MS = 8000
@@ -96,10 +96,14 @@ function hasNoPrefs(prefs: any): boolean {
   )
 }
 
-function pickPrefsForHash(prefs: any, gamificationData: any): string {
+async function pickPrefsForHash(prefs: any, gamificationData: any): Promise<string> {
   const safe = (v: any) => (v == null ? null : v)
   const whoIAm = (gamificationData?.whoIAm?.derived) || {}
   const imported = gamificationData?.imported_resume || {}
+  // Hash do CV inteiro (não só primeiros 200 chars) — user que edita o miolo
+  // do CV mantendo o cabeçalho intacto invalida cache corretamente agora.
+  const cvText = imported.raw_text || ''
+  const cvHash = cvText ? await sha256Hex(cvText) : ''
   const canonical = {
     areas: safe(prefs?.areas),
     locations: safe(prefs?.locations),
@@ -109,8 +113,8 @@ function pickPrefsForHash(prefs: any, gamificationData: any): string {
     skills: safe(whoIAm.skills),
     summary: safe(whoIAm.summary),
     interests: safe(whoIAm.interests),
-    cv_text_len: imported.raw_text?.length ?? 0,
-    cv_text_head: (imported.raw_text || '').slice(0, 200),
+    cv_text_len: cvText.length,
+    cv_text_hash: cvHash,
   }
   return JSON.stringify(canonical)
 }
@@ -121,40 +125,94 @@ function pickPrefsForHash(prefs: any, gamificationData: any): string {
 
 const SYSTEM_PROMPT = `Você analisa fit entre estudantes/juniores brasileiros e vagas de estágio/junior.
 
-ESTRATÉGIA (escolha automaticamente baseada nos dados disponíveis):
+═══════════════════════════════════════════════════════════════════
+REGRA #1 (CRÍTICA) — O SCORE É MATEMÁTICA EXATA:
+  score = soma dos "weight" onde matched=true.
+  Exemplo: matched em Área (30) + Tipo (20) = score 50. NÃO é 70, NÃO é 85.
+  NUNCA arredonde pra cima. NUNCA infle. Soma exata, sempre.
 
-CENÁRIO A — candidato TEM preferências (áreas/cidades/modelo/tipo/salário):
-  Avalie match contra as preferências usando os pesos abaixo.
+REGRA #2 (CRÍTICA) — NÃO INVENTE DADOS DO CANDIDATO:
+  Se o candidato não declarou "Jurídico" como interesse, ele NÃO tem interesse em Jurídico.
+  O título da vaga é INFORMAÇÃO DA VAGA, não do candidato.
+  Você NÃO pode inferir interesse do candidato a partir do título/descrição da vaga.
+  Se o candidato não tem skill X declarada, ele NÃO tem skill X.
+
+═══════════════════════════════════════════════════════════════════
+ESTRATÉGIA (escolha o cenário ANTES de pontuar):
+
+CENÁRIO A — candidato TEM preferências declaradas (áreas/cidades/modelo/tipo/salário):
   Pesos: Área 30, Tipo 20, Localização 15, Modelo 15, Salário 10, Skills 10.
+  Avalie SOMENTE contra os dados que o candidato declarou.
 
-CENÁRIO B — candidato SEM preferências MAS COM perfil (skills, CV, sobre, interesses):
-  INFIRA o perfil do candidato a partir do que tiver: skills estruturadas, sobre,
-  interesses, e principalmente o CV importado.
-  Do CV você EXTRAI:
-    • área de formação/interesse (curso, atuação prévia, objetivo profissional)
-    • skills/ferramentas (Excel, Python, Photoshop, idiomas, certificações)
-    • localização (cidade do candidato, se mencionada)
-    • nível (estudante, graduado, primeiro emprego)
-  Avalie fit SEMÂNTICO entre esse perfil inferido e a vaga.
-  Pesos redistribuídos: Área (afinidade interesse↔vaga) 40, Skills/Ferramentas (sobreposição com requisitos) 40,
-  Tipo 10 (estágio/junior é compatível com perfil estudante), Modelo/Local 10 (neutro positivo se nada contradiz).
-  IMPORTANTE: NÃO retorne "área não definida" se há CV — use o CV pra inferir.
+CENÁRIO B — candidato SEM preferências MAS COM perfil (CV importado, skills, sobre, interesses):
+  Use APENAS o CV/perfil como fonte de verdade do candidato.
+  Pesos: Área (afinidade CV↔vaga) 40, Skills (sobreposição com requisitos) 40, Tipo 10, Modelo/Local 10.
+  Do CV você pode extrair área de formação, skills, cidade, nível — desde que ESTEJA EXPLÍCITO no texto.
 
 CENÁRIO C — candidato SEM preferências E SEM perfil (cadastro incompleto):
-  Retorne score=50, com 1 reason única: label="Configure seu perfil",
-  matched=false, weight=0, detail="Complete suas preferências ou suba seu CV pra ter um match preciso."
+  PARE. Retorne EXATAMENTE:
+  {"score": 50, "reasons": [{"label":"Sem perfil","matched":false,"weight":0,"detail":"Configure suas preferências ou suba seu CV para um match preciso."}]}
+  Não tente analisar. Não tente inferir do título da vaga. PARE.
 
-REGRAS GERAIS:
-- score = soma dos pesos das dimensões "matched". MÍNIMO 30 quando há QUALQUER dado avaliável.
-- Quando uma dimensão NÃO tem dado relevante, marque matched=false e weight=0 (não penalize).
-- Seja GENEROSO com afinidade semântica REAL. Ex: "Marketing Digital" ↔ "Designer com Photoshop" = alta afinidade;
-  "Excel avançado" ↔ "análise de dados básica" = alta afinidade; "Photoshop" ≈ "Adobe Creative".
-- NUNCA invente skills do candidato. Se não está nos dados, não existe.
-- Cada reason: detail máximo 80 chars, claro, em PT-BR, segunda pessoa ("sua área", "você tem...").
-- Mínimo 4 dimensões no array de reasons (exceto Cenário C, que tem só 1).
+═══════════════════════════════════════════════════════════════════
+COMO AVALIAR cada dimensão (Cenário A/B):
 
+- matched=true: o dado DO CANDIDATO bate com o requisito da vaga. Some o weight.
+- matched=false, weight=0: o candidato NÃO declarou esse dado (não penalize, mas também não some).
+- matched=false, weight>0: o candidato declarou MAS não bate (raro — só quando há conflito explícito).
+
+Seja generoso em afinidade SEMÂNTICA REAL:
+  "Marketing Digital" ↔ "Designer com Photoshop" = match (Adobe compartilhado)
+  "Excel avançado" ↔ "análise de dados" = match
+  "Photoshop" ≈ "Adobe Creative" = match
+
+NUNCA seja generoso INVENTANDO dado. Se candidato diz "Direito" e vaga é "Marketing", NÃO é match só porque ambos existem.
+
+═══════════════════════════════════════════════════════════════════
+EXEMPLOS:
+
+# Exemplo 1 — Cenário A, fit alto
+INPUT: candidato declarou areas=["Tecnologia"], locations=["São Paulo"], work_models=["remoto"], job_types=["estagio"]
+       vaga: "Estágio Dev Frontend", área="Tecnologia", cidade="São Paulo", modelo="remoto", tipo="estagio"
+OUTPUT (correto):
+{"score": 80, "reasons": [
+  {"label":"Área","matched":true,"weight":30,"detail":"Tecnologia bate exatamente com seu interesse declarado."},
+  {"label":"Tipo","matched":true,"weight":20,"detail":"Estágio é o tipo que você procura."},
+  {"label":"Localização","matched":true,"weight":15,"detail":"São Paulo é a cidade que você prefere."},
+  {"label":"Modelo","matched":true,"weight":15,"detail":"Remoto bate com sua preferência."},
+  {"label":"Salário","matched":false,"weight":0,"detail":"Você não definiu mínimo de salário."},
+  {"label":"Skills","matched":false,"weight":0,"detail":"Você não declarou skills específicas para comparar."}
+]}
+NOTA: 30+20+15+15 = 80. NÃO arredondar pra 85 ou 90.
+
+# Exemplo 2 — Cenário A, fit médio (apenas algumas dimensões batem)
+INPUT: candidato declarou areas=["Jurídico"], nada mais
+       vaga: "Estagiário Jurídico Imobiliário", área="Jurídico", cidade="São Paulo", modelo="híbrido", tipo="estagio"
+OUTPUT (correto):
+{"score": 50, "reasons": [
+  {"label":"Área","matched":true,"weight":30,"detail":"Jurídico bate exatamente com seu interesse declarado."},
+  {"label":"Tipo","matched":true,"weight":20,"detail":"Estágio é compatível."},
+  {"label":"Localização","matched":false,"weight":0,"detail":"Você não declarou cidade preferida."},
+  {"label":"Modelo","matched":false,"weight":0,"detail":"Você não declarou modelo de trabalho preferido."},
+  {"label":"Salário","matched":false,"weight":0,"detail":"Você não definiu mínimo de salário."},
+  {"label":"Skills","matched":false,"weight":0,"detail":"Você não declarou skills para comparação."}
+]}
+NOTA: 30+20 = 50. NÃO inflar para 70, 85 ou 100 só porque a única dimensão que existe bateu.
+
+# Exemplo 3 — Cenário C, sem dado
+INPUT: prefs vazias, sem whoIAm, sem CV importado
+       vaga: qualquer
+OUTPUT (correto):
+{"score": 50, "reasons": [
+  {"label":"Sem perfil","matched":false,"weight":0,"detail":"Configure suas preferências ou suba seu CV para um match preciso."}
+]}
+
+═══════════════════════════════════════════════════════════════════
 OUTPUT JSON ESTRITO:
-{"score": int entre 0 e 100, "reasons": [{"label": "Área", "matched": true, "weight": 30, "detail": "..."}, ...]}`
+{"score": <int 0..100, soma EXATA dos weights matched>, "reasons": [{"label": "...", "matched": <bool>, "weight": <int>, "detail": "..."}, ...]}
+
+CADA reason.detail: máximo 150 chars, PT-BR, segunda pessoa ("sua área", "você tem...").
+NÃO inclua texto fora do JSON. NÃO adicione fences markdown.`
 
 function buildUserPrompt(opts: {
   job: any
@@ -254,7 +312,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<{
           { role: 'user', content: userPrompt },
         ],
         temperature: 0.2,
-        max_tokens: 500,
+        max_tokens: 700, // 6 reasons × ~250 chars (label + detail 150 + json overhead) ≈ 600 tokens
         response_format: { type: 'json_object' },
       }),
     })
@@ -293,7 +351,7 @@ function parseAndValidate(raw: string): MatchPayload {
     label: String(r?.label ?? ''),
     matched: r?.matched === true,
     weight: Number.isFinite(Number(r?.weight)) ? Number(r.weight) : 0,
-    detail: r?.detail ? String(r.detail).slice(0, 120) : undefined,
+    detail: r?.detail ? String(r.detail).slice(0, 200) : undefined,
   }))
 
   return { score: clampedScore, reasons }
@@ -353,7 +411,7 @@ serve(async (req) => {
     const prefs = prefsR.data ?? {}
 
     // 5. Compute profile_hash + cache lookup
-    const profileHash = await sha256Hex(pickPrefsForHash(prefs, gamificationData))
+    const profileHash = await sha256Hex(await pickPrefsForHash(prefs, gamificationData))
     const cacheCutoff = new Date(Date.now() - CACHE_TTL_DAYS * 86400_000).toISOString()
 
     const { data: cachedRow } = await supabaseClient

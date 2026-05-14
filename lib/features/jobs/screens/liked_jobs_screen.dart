@@ -104,21 +104,97 @@ class _LikedJobsScreenState extends State<LikedJobsScreen> {
         ],
       );
     }
+
+    // Agrupa em 3 buckets pra UX de acompanhamento:
+    // - pending: ainda não aplicou E prazo NÃO expirou (mais ação a fazer)
+    // - applied: já aplicou E prazo NÃO expirou (acompanhamento positivo)
+    // - expired: prazo expirou — independente de aplicado (baixa prioridade)
+    final now = DateTime.now();
+    final pending = <LikedJob>[];
+    final applied = <LikedJob>[];
+    final expired = <LikedJob>[];
+    for (final liked in vm.likedJobs) {
+      final deadlineAt = liked.job.deadlineAt;
+      final isExpired = deadlineAt != null && deadlineAt.isBefore(now);
+      if (isExpired) {
+        expired.add(liked);
+      } else if (liked.applied) {
+        applied.add(liked);
+      } else {
+        pending.add(liked);
+      }
+    }
+
+    // Constrói lista achatada de items (headers + cards) pra um único ListView.
+    final items = <_ListItem>[];
+    if (pending.isNotEmpty) {
+      items.add(_SectionHeaderItem(
+        title: 'Ainda não apliquei',
+        count: pending.length,
+        color: StageColors.brandBlue,
+        icon: Icons.pending_outlined,
+      ));
+      for (final l in pending) {
+        items.add(_JobCardItem(l));
+      }
+    }
+    if (applied.isNotEmpty) {
+      items.add(_SectionHeaderItem(
+        title: 'Já apliquei',
+        count: applied.length,
+        color: StageColors.ctaGreen,
+        icon: Icons.check_circle_outline_rounded,
+      ));
+      for (final l in applied) {
+        items.add(_JobCardItem(l));
+      }
+    }
+    if (expired.isNotEmpty) {
+      items.add(_SectionHeaderItem(
+        title: 'Prazo expirado',
+        count: expired.length,
+        color: StageColors.hintGray,
+        icon: Icons.event_busy_outlined,
+      ));
+      for (final l in expired) {
+        items.add(_JobCardItem(l, isExpired: true));
+      }
+    }
+
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       physics: const AlwaysScrollableScrollPhysics(),
-      itemCount: vm.likedJobs.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemCount: items.length,
+      separatorBuilder: (_, index) {
+        // Espaçamento maior antes de section header (separação visual de bucket)
+        final next = index + 1 < items.length ? items[index + 1] : null;
+        if (next is _SectionHeaderItem) return const SizedBox(height: 20);
+        return const SizedBox(height: 10);
+      },
       itemBuilder: (context, index) {
-        final liked = vm.likedJobs[index];
-        final url = _resolveExternalUrl(liked);
-        return _LikedJobCard(
-          liked: liked,
-          onTap: () => _openJobDetails(liked),
-          onToggleApplied: () => _toggleApplied(liked),
-          onOpenLink: url != null ? () => _openExternalUrl(url, liked.job.id) : null,
-          externalUrl: url,
-        );
+        final item = items[index];
+        if (item is _SectionHeaderItem) {
+          return _SectionHeader(
+            title: item.title,
+            count: item.count,
+            color: item.color,
+            icon: item.icon,
+          );
+        }
+        if (item is _JobCardItem) {
+          final liked = item.liked;
+          final url = _resolveExternalUrl(liked);
+          return _LikedJobCard(
+            liked: liked,
+            isExpired: item.isExpired,
+            onTap: () => _openJobDetails(liked),
+            onToggleApplied: () => _toggleApplied(liked),
+            onOpenLink:
+                url != null ? () => _openExternalUrl(url, liked.job.id) : null,
+            externalUrl: url,
+          );
+        }
+        return const SizedBox.shrink();
       },
     );
   }
@@ -276,6 +352,10 @@ class _LikedJobCard extends StatelessWidget {
   final VoidCallback onToggleApplied;
   final VoidCallback? onOpenLink;
   final String? externalUrl;
+  /// True quando a vaga já passou do prazo. Card renderiza com style sutil
+  /// (opacity reduzida, borda neutra, badge "Prazo expirado") indicando que
+  /// é histórico, não ação possível.
+  final bool isExpired;
 
   const _LikedJobCard({
     required this.liked,
@@ -283,6 +363,7 @@ class _LikedJobCard extends StatelessWidget {
     required this.onToggleApplied,
     required this.onOpenLink,
     required this.externalUrl,
+    this.isExpired = false,
   });
 
   @override
@@ -291,7 +372,19 @@ class _LikedJobCard extends StatelessWidget {
     final applied = liked.applied;
     final hasUrl = externalUrl != null && externalUrl!.isNotEmpty;
 
-    return Material(
+    // Expired = card desbotado, sem hover effects fortes. Continua clicável
+    // (user pode ver detalhes do que perdeu / marcar como aplicada manualmente
+    // caso tenha aplicado mesmo no prazo).
+    final Color borderColor;
+    if (isExpired) {
+      borderColor = const Color(0xFFE5E7EB);
+    } else if (applied) {
+      borderColor = StageColors.ctaGreen.withValues(alpha: 0.4);
+    } else {
+      borderColor = const Color(0xFFE5E7EB);
+    }
+
+    final card = Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
@@ -302,10 +395,8 @@ class _LikedJobCard extends StatelessWidget {
             color: Colors.white,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: applied
-                  ? StageColors.ctaGreen.withValues(alpha: 0.4)
-                  : const Color(0xFFE5E7EB),
-              width: applied ? 1.5 : 1,
+              color: borderColor,
+              width: applied && !isExpired ? 1.5 : 1,
             ),
             boxShadow: const [
               BoxShadow(
@@ -405,6 +496,14 @@ class _LikedJobCard extends StatelessWidget {
         ),
       ),
     );
+
+    // Card expirado fica visualmente desbotado (opacity 0.6) — comunica
+    // "histórico" sem esconder informação. User ainda pode tap pra ver detalhe
+    // ou marcar como aplicada caso tenha conseguido no prazo.
+    if (isExpired) {
+      return Opacity(opacity: 0.55, child: card);
+    }
+    return card;
   }
 }
 
@@ -554,6 +653,97 @@ class _ActionBtn extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Section: agrupamento da lista em 3 buckets — pending / applied / expired
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Item base da lista achatada. Sealed-style com `is _SectionHeaderItem` /
+/// `is _JobCardItem` no builder. Mantém `ListView.separated` simples sem
+/// recorrer a `CustomScrollView`.
+sealed class _ListItem {
+  const _ListItem();
+}
+
+class _SectionHeaderItem extends _ListItem {
+  final String title;
+  final int count;
+  final Color color;
+  final IconData icon;
+  const _SectionHeaderItem({
+    required this.title,
+    required this.count,
+    required this.color,
+    required this.icon,
+  });
+}
+
+class _JobCardItem extends _ListItem {
+  final LikedJob liked;
+  final bool isExpired;
+  const _JobCardItem(this.liked, {this.isExpired = false});
+}
+
+/// Header de seção (sticky-like — não é sticky de verdade, mas visualmente
+/// claro). Ícone + título + badge de contagem.
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final int count;
+  final Color color;
+  final IconData icon;
+
+  const _SectionHeader({
+    required this.title,
+    required this.count,
+    required this.color,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+      child: Row(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 16, color: color),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            title,
+            style: GoogleFonts.outfit(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: StageColors.titleText,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              '$count',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

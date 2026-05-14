@@ -219,14 +219,29 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     }
     vm.onSwipe(previousIndex, action);
 
-    // Analytics: instrumenta o swipe pra medir engagement (top funnel)
+    // Analytics: instrumenta o swipe pra medir engagement (top funnel).
+    // `matchSource` é o sinal mais importante pra calibração futura: distingue
+    // swipes em score IA (preciso) vs fallback determinístico vs unknown.
     if (previousIndex < vm.jobs.length) {
       final job = vm.jobs[previousIndex];
-      final cachedMatch = _matchCache[job.id]?.score;
+      final cached = _matchCache[job.id];
+      final String matchSource;
+      final int? matchScore;
+      if (cached == null) {
+        matchSource = 'fallback_deterministic';
+        matchScore = null; // UI tava mostrando determinístico — não sabemos qual número exato sem recalcular
+      } else if (cached.isUnknown) {
+        matchSource = 'unknown';
+        matchScore = null;
+      } else {
+        matchSource = 'ai';
+        matchScore = cached.score;
+      }
       Analytics.shared.jobSwiped(
         jobId: job.id,
         action: action == 'liked' ? 'like' : 'reject',
-        matchScore: cachedMatch,
+        matchScore: matchScore,
+        matchSource: matchSource,
       );
     }
 
@@ -250,31 +265,33 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   // Match score — sliding window
   // ──────────────────────────────────────────────────────────────────
 
-  /// Resolve o match pra um job: cache em memória → fallback determinístico.
+  /// Resolve o match pra um job: noResume → cache em memória → pending.
   /// Síncrono, seguro pra usar dentro do cardBuilder do CardSwiper.
-  /// Quando chega no card, dispara [_kickOffMatch] em background pra que
-  /// o score IA atualize na próxima rebuild.
   ///
-  /// Nota: se cache veio com score=0 (IA antiga sem reasons úteis), tratamos
-  /// como inválido e usamos fallback. Isso protege contra dados ruins de
-  /// versões antigas do prompt.
+  /// Prioridades:
+  /// 1. Sem CV importado e sem trilha → `noResume` (não chama IA, UX pede CV)
+  /// 2. Cache em memória existe → retorna o resultado IA
+  /// 3. Sem cache → dispara IA em background, retorna pending (placeholder)
+  ///
+  /// Antes retornava o fallback determinístico como placeholder. Isso causava
+  /// "flash" no card: score abria 75/100 (determinístico inflado), trocava de
+  /// cor 3-5s depois quando IA chegava com 50 real.
   MatchResult _resolveMatch(Job job) {
+    // Sem CV/trilha = sem material pra IA analisar. Mostrar % seria mentira
+    // (Cenário C devolve 50 fixo). Substitui pelo CTA "crie seu currículo".
+    final userVm = context.read<UserViewModel>();
+    if (!userVm.hasResume) {
+      return const MatchResult.noResume();
+    }
+
     final cached = _matchCache[job.id];
-    if (cached != null && cached.score > 0) return cached;
+    if (cached != null) return cached;
 
-    // Fallback instantâneo
-    final vm = context.read<JobsViewModel>();
-    final fallback = MatchScoreCalculator.calculate(
-      job: job,
-      prefs: vm.preferences,
-      gamificationData: context.read<UserViewModel>().user?.gamificationData,
-    );
-
-    // Se ainda não disparou IA pra este job, dispara agora.
+    // Sem cache → dispara IA em background e marca como pending.
     if (!_matchInflight.contains(job.id)) {
       _kickOffMatch(job);
     }
-    return fallback;
+    return const MatchResult.pending();
   }
 
   /// Dispara IA pro job (fire-and-forget). Respeita _maxConcurrent.
@@ -423,25 +440,13 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
             padding: const EdgeInsets.only(right: 12),
             child: GestureDetector(
               onTap: _openPreferences,
-              child: Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF4F46E5).withOpacity(0.35),
-                      blurRadius: 10,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: const Icon(Icons.tune_rounded, color: Colors.white, size: 18),
+              child: _FilterButtonWithBadge(
+                // Watch — rebuilda só esse botão quando o user salva filtros novos
+                activeCount: context
+                        .watch<JobsViewModel>()
+                        .preferences
+                        ?.activeFilterCount ??
+                    0,
               ),
             ),
           ),
@@ -748,7 +753,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
           final match = _resolveMatch(job);
           return GestureDetector(
             onTap: () => _openJobDetails(job, match),
-            child: JobCard(job: job, matchScore: match.score),
+            child: JobCard(
+              job: job,
+              matchScore: match.score,
+              isPending: match.isPending,
+              isNoResume: match.isNoResume,
+            ),
           );
         },
       ),
@@ -1186,6 +1196,77 @@ class _SwipeStamp extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Botão de filtros do AppBar com badge âmbar mostrando quantos filtros estão
+/// ativos. `activeCount = 0` → só o ícone roxo padrão (sem badge).
+class _FilterButtonWithBadge extends StatelessWidget {
+  final int activeCount;
+
+  const _FilterButtonWithBadge({required this.activeCount});
+
+  @override
+  Widget build(BuildContext context) {
+    final hasFilters = activeCount > 0;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF4F46E5).withOpacity(0.35),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: const Icon(Icons.tune_rounded, color: Colors.white, size: 18),
+        ),
+        if (hasFilters)
+          Positioned(
+            right: -4,
+            top: -4,
+            child: Container(
+              constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF59E0B), // âmbar — contrasta com roxo, comunica "atenção" sem ser alarme
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFF59E0B).withOpacity(0.4),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  '$activeCount',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    height: 1.0,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

@@ -41,8 +41,18 @@ class AIService {
     return _parseMatchResult(data);
   }
 
+  /// Versão atual do prompt do match. Tem que bater com `PROMPT_VERSION` em
+  /// `supabase/functions/analyze-match/index.ts` — descasamento vira cache miss
+  /// no cliente também, evitando que scores antigos (com regras desatualizadas)
+  /// apareçam até o Edge Function recomputar.
+  static const String _matchPromptVersion = 'v4';
+
   /// Hidrata cache em batch: 1 SELECT direto na tabela match_analyses.
   /// Sem custo de IA. Retorna mapa jobId → MatchResult pros que estão cacheados.
+  ///
+  /// Filtra por `prompt_version` pra não pegar cache de prompts antigos. Sem
+  /// isso, scores inflados de versões anteriores vazam pra UI até a IA
+  /// recomputar (pode demorar uma sessão inteira).
   Future<Map<String, MatchResult>> fetchCachedMatches(List<String> jobIds) async {
     if (jobIds.isEmpty) return const {};
     final userId = _client.auth.currentUser?.id;
@@ -53,6 +63,7 @@ class AIService {
           .from('match_analyses')
           .select('job_id, score, reasons')
           .eq('user_id', userId)
+          .eq('prompt_version', _matchPromptVersion)
           .inFilter('job_id', jobIds);
 
       final out = <String, MatchResult>{};

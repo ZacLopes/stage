@@ -82,6 +82,20 @@ class UserJobPreferences {
       minSalary == null &&
       minMatchScore == null;
 
+  /// Quantas dimensões de filtro estão ativas. Cada dimensão conta 1 ponto
+  /// (independente de quantos valores selecionados nela). Usado no badge
+  /// "X filtros" do AppBar.
+  int get activeFilterCount {
+    int n = 0;
+    if (areas.isNotEmpty) n++;
+    if (locations.isNotEmpty) n++;
+    if (workModels.isNotEmpty) n++;
+    if (jobTypes.isNotEmpty) n++;
+    if (minSalary != null) n++;
+    if (minMatchScore != null) n++;
+    return n;
+  }
+
   static List<String> _parseStringList(dynamic value) {
     if (value == null) return [];
     if (value is List) return value.cast<String>();

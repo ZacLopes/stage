@@ -16,6 +16,9 @@ class Job {
   final String aboutCompany;
   final String postedDaysAgo;
   final String? deadline;
+  /// Data crua da deadline pra comparação (filtros, agrupamento por prazo
+  /// expirado). `deadline` mantém o display formatado em PT-BR.
+  final DateTime? deadlineAt;
 
   // Raw DB fields (kept for filtering logic)
   final String? companyId;
@@ -45,6 +48,7 @@ class Job {
     required this.aboutCompany,
     required this.postedDaysAgo,
     this.deadline,
+    this.deadlineAt,
     this.companyId,
     this.locationCity,
     this.locationState,
@@ -152,6 +156,7 @@ class Job {
       aboutCompany: _stripHtml(aboutCompany),
       postedDaysAgo: postedDaysAgo,
       deadline: deadlineDisplay,
+      deadlineAt: deadlineRaw,
       companyId: json['company_id'] as String?,
       locationCity: city,
       locationState: state,

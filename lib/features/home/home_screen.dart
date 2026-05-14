@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../profile/profile_screen.dart';
@@ -260,6 +261,10 @@ class _HomeScreenState extends State<HomeScreen> {
         child: BottomNavigationBar(
           currentIndex: _currentIndex,
           onTap: (index) {
+            // Haptic sutil só quando troca de aba (não bate tap repetido na mesma).
+            if (index != _currentIndex) {
+              HapticFeedback.selectionClick();
+            }
             _navigateToPage(index);
           },
           backgroundColor: Colors.white,

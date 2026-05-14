@@ -3,10 +3,65 @@ import '../models/user_preferences.dart';
 import 'filter_helpers.dart';
 
 /// Resultado de um cálculo de match: score 0-100 + razões explicáveis.
+///
+/// Estados especiais:
+/// - [isNoResume]: user não tem CV importado nem trilha preenchida. UI mostra
+///   call-to-action pra criar/importar CV em vez de score (que seria inútil).
+/// - [isUnknown]: não dá pra avaliar (sem prefs E sem perfil). UI mostra
+///   "Configure seu perfil" em vez de número.
+/// - [isPending]: IA ainda calculando. UI mostra placeholder/skeleton em vez
+///   de mostrar score determinístico que pode estar errado e dar flash quando
+///   o IA chegar com número diferente.
 class MatchResult {
   final int score;
   final List<MatchReason> reasons;
-  const MatchResult({required this.score, required this.reasons});
+  final bool isUnknown;
+  final bool isPending;
+  final bool isNoResume;
+  const MatchResult({
+    required this.score,
+    required this.reasons,
+    this.isUnknown = false,
+    this.isPending = false,
+    this.isNoResume = false,
+  });
+
+  /// Estado especial: sem dado suficiente pra avaliar. Score 0 + flag.
+  /// UI deve renderizar como "Sem análise — configure seu perfil".
+  const MatchResult.unknown()
+      : score = 0,
+        reasons = const [
+          MatchReason(
+            label: 'Sem análise',
+            matched: false,
+            weight: 0,
+            detail:
+                'Configure suas preferências ou suba seu CV pra ter um match preciso.',
+          ),
+        ],
+        isUnknown = true,
+        isPending = false,
+        isNoResume = false;
+
+  /// Estado especial: IA está calculando. UI deve renderizar placeholder
+  /// (skeleton/dots) em vez de número. Evita flash de score determinístico
+  /// errado que troca de cor quando IA chega.
+  const MatchResult.pending()
+      : score = 0,
+        reasons = const [],
+        isUnknown = false,
+        isPending = true,
+        isNoResume = false;
+
+  /// Estado especial: user não tem currículo no app (nem importado, nem
+  /// trilha). Score não faz sentido sem dado do candidato — UI substitui o
+  /// número por CTA "Crie seu currículo pra ver matches".
+  const MatchResult.noResume()
+      : score = 0,
+        reasons = const [],
+        isUnknown = false,
+        isPending = false,
+        isNoResume = true;
 }
 
 class MatchReason {
@@ -49,17 +104,8 @@ class MatchScoreCalculator {
     Map<String, dynamic>? gamificationData,
   }) {
     if (prefs == null || prefs.isEmpty) {
-      return const MatchResult(
-        score: 75,
-        reasons: [
-          MatchReason(
-            label: 'Sem preferências',
-            matched: false,
-            weight: 0,
-            detail: 'Configure suas preferências em Vagas > filtros pra match preciso.',
-          ),
-        ],
-      );
+      // Sem prefs → estado unknown explícito. UI trata sem mostrar % inflado.
+      return const MatchResult.unknown();
     }
 
     final reasons = <MatchReason>[];
@@ -167,12 +213,12 @@ class MatchScoreCalculator {
     }
 
     // Normaliza pra escala 0-100 (quando o user só configurou parte das prefs,
-    // totalWeight pode ser <100). Garante mínimo de 30 pra não ser absurdamente
-    // baixo num matching baseline.
+    // totalWeight pode ser <100). Sem piso artificial — score baixo é
+    // honesto: a vaga realmente não bate com o perfil declarado.
     final normalized = totalWeight > 0
         ? (score / totalWeight * 100).round()
-        : 75;
-    final clamped = normalized.clamp(30, 100);
+        : 0;
+    final clamped = normalized.clamp(0, 100);
 
     return MatchResult(score: clamped, reasons: reasons);
   }
