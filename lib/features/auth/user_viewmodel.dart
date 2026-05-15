@@ -561,6 +561,7 @@ class UserViewModel extends ChangeNotifier {
     String? semester,
     String? university,
     int? age,
+    String? phone,
     String? email,
     String? password,
     Map<String, dynamic>? gamificationData,
@@ -592,8 +593,8 @@ class UserViewModel extends ChangeNotifier {
       // unless SupabaseRepository filters it or UserProfile.toMap includes/excludes it.
       // Currently UserProfile.toMap DOES NOT include 'age', so it is safe.
       
-      if (name != null || course != null || semester != null || university != null || age != null || gamificationData != null) {
-        
+      if (name != null || course != null || semester != null || university != null || age != null || phone != null || gamificationData != null) {
+
         // Merge gamification data
         Map<String, dynamic> mergedGamificationData = Map.from(_user!.gamificationData);
         if (gamificationData != null) {
@@ -603,18 +604,24 @@ class UserViewModel extends ChangeNotifier {
           mergedGamificationData['university'] = university;
         }
 
+        // Normaliza phone: salva só dígitos. UI formata na exibição.
+        final normalizedPhone = phone != null
+            ? phone.replaceAll(RegExp(r'\D'), '')
+            : null;
+
         final updatedProfile = _user!.copyWith(
           name: name,
           course: course,
           semester: semester,
           age: age,
-          email: email, 
+          phone: normalizedPhone,
+          email: email,
           gamificationData: mergedGamificationData,
         );
-        
+
         await _repository.updateUserProfile(updatedProfile);
         _user = updatedProfile;
-      } 
+      }
       
       notifyListeners();
     } catch (e) {

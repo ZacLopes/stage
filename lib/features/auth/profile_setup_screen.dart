@@ -166,6 +166,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         await userVm.updateProfile(
           name: _nameController.text.trim(),
           age: age,
+          phone: _phoneController.text,
           course: _courseController.text.trim(),
           semester: _selectedSemester.toString(),
           university: _uniController.text.trim(),

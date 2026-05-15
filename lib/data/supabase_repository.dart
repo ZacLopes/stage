@@ -199,6 +199,7 @@ class SupabaseRepository {
           'course': user.userMetadata?['course'] ?? '',
           'semester': user.userMetadata?['semester'] ?? '',
           'age': user.userMetadata?['age'],
+          'phone': null, // preenchido depois no ProfileSetup
           'ai_consent': false,
           'ai_consent_timestamp': null,
         };

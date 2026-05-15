@@ -5,6 +5,9 @@ class UserProfile {
   final String course;
   final String semester;
   final int? age;
+  /// Celular em DÍGITOS BRUTOS (sem máscara), com DDD. 10 ou 11 dígitos.
+  /// UI formata na hora de exibir.
+  final String? phone;
   final bool aiConsent;
   final DateTime? aiConsentTimestamp;
   final Map<String, dynamic> gamificationData;
@@ -18,6 +21,7 @@ class UserProfile {
     required this.course,
     required this.semester,
     this.age,
+    this.phone,
     this.aiConsent = false,
     this.aiConsentTimestamp,
     this.gamificationData = const {},
@@ -32,6 +36,7 @@ class UserProfile {
       'course': course,
       'semester': semester,
       'age': age,
+      'phone': phone,
       'ai_consent': aiConsent,
       'ai_consent_timestamp': aiConsentTimestamp?.toIso8601String(),
       'gamification_data': gamificationData,
@@ -46,6 +51,7 @@ class UserProfile {
       course: map['course'] ?? '',
       semester: map['semester'] ?? '',
       age: map['age'],
+      phone: map['phone']?.toString(),
       aiConsent: map['ai_consent'] ?? false,
       aiConsentTimestamp: map['ai_consent_timestamp'] != null ? DateTime.parse(map['ai_consent_timestamp']) : null,
       gamificationData: map['gamification_data'] ?? {},
@@ -59,6 +65,7 @@ class UserProfile {
     String? course,
     String? semester,
     int? age,
+    String? phone,
     bool? aiConsent,
     DateTime? aiConsentTimestamp,
     Map<String, dynamic>? gamificationData,
@@ -70,6 +77,7 @@ class UserProfile {
       course: course ?? this.course,
       semester: semester ?? this.semester,
       age: age ?? this.age,
+      phone: phone ?? this.phone,
       aiConsent: aiConsent ?? this.aiConsent,
       aiConsentTimestamp: aiConsentTimestamp ?? this.aiConsentTimestamp,
       gamificationData: gamificationData ?? this.gamificationData,
