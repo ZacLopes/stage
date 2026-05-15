@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -208,9 +209,13 @@ class _AuthScreenState extends State<AuthScreen>
                   ),
                   child: Column(
                     children: [
-                      // Google
+                      // Google — logo oficial colorida (4 cores) via SVG
                       _SocialButton(
-                        icon: Icons.g_mobiledata_rounded,
+                        leadingWidget: SvgPicture.asset(
+                          'assets/icons/google.svg',
+                          width: 22,
+                          height: 22,
+                        ),
                         text: 'Continuar com Google',
                         textColor: StageColors.darkText,
                         backgroundColor: Colors.white,
@@ -322,7 +327,14 @@ class _AuthScreenState extends State<AuthScreen>
 }
 
 class _SocialButton extends StatelessWidget {
-  final IconData icon;
+  /// Ícone do Material — usado pra Apple e Email (monocromáticos).
+  /// Se [leadingWidget] for fornecido, ele substitui o `icon`.
+  final IconData? icon;
+
+  /// Widget customizado pro lugar do ícone — usado pro Google
+  /// (logo colorida via SVG, não dá pra reproduzir com IconData).
+  final Widget? leadingWidget;
+
   final String text;
   final Color textColor;
   final Color backgroundColor;
@@ -330,13 +342,15 @@ class _SocialButton extends StatelessWidget {
   final VoidCallback onPressed;
 
   const _SocialButton({
-    required this.icon,
+    this.icon,
+    this.leadingWidget,
     required this.text,
     required this.textColor,
     required this.backgroundColor,
     required this.borderColor,
     required this.onPressed,
-  });
+  }) : assert(icon != null || leadingWidget != null,
+            'Pass icon (IconData) OR leadingWidget (Widget)');
 
   @override
   Widget build(BuildContext context) {
@@ -356,7 +370,13 @@ class _SocialButton extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Row(
               children: [
-                Icon(icon, color: textColor, size: 28),
+                SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: Center(
+                    child: leadingWidget ?? Icon(icon, color: textColor, size: 28),
+                  ),
+                ),
                 Expanded(
                   child: Text(
                     text,

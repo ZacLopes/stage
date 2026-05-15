@@ -29,6 +29,11 @@ class AdaptedResume {
   /// Modelo usado (ex: "gpt-4o-mini").
   final String? modelUsed;
 
+  /// Skills extras que o user confirmou ter (e que foram incluídas no CV
+  /// adaptado). Vem da tela de "confirmação de skills" antes da adaptação.
+  /// Vazio quando user pulou ou não confirmou nenhuma.
+  final List<String> extraSkillsUsed;
+
   const AdaptedResume({
     required this.jobId,
     required this.changes,
@@ -37,6 +42,7 @@ class AdaptedResume {
     this.matchScoreAfter,
     this.cached = false,
     this.modelUsed,
+    this.extraSkillsUsed = const [],
   });
 
   /// Quantos pontos de match a adaptação adicionou. Null se não temos os dois
@@ -58,6 +64,12 @@ class AdaptedResume {
     }
     final resumeData = _parseResumeData(Map<String, dynamic>.from(rawResume));
 
+    final rawExtra = (json['extra_skills_used'] as List?) ?? const [];
+    final extraSkillsUsed = rawExtra
+        .map((e) => e?.toString() ?? '')
+        .where((s) => s.isNotEmpty)
+        .toList();
+
     return AdaptedResume(
       jobId: jobId,
       changes: changes,
@@ -66,6 +78,7 @@ class AdaptedResume {
       matchScoreAfter: (json['match_score_after'] as num?)?.toInt(),
       cached: json['cached'] == true,
       modelUsed: json['model_used']?.toString(),
+      extraSkillsUsed: extraSkillsUsed,
     );
   }
 

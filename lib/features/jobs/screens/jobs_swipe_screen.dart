@@ -5,15 +5,20 @@ import 'package:flutter/services.dart';
 import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/ai_service.dart';
 import '../../../services/analytics_service.dart';
 import '../../auth/user_viewmodel.dart';
+import '../../home/home_viewmodel.dart';
 import '../../tutorial/tutorial_keys.dart';
 import '../jobs_viewmodel.dart';
 import '../models/job.dart';
 import '../utils/match_score.dart';
+import '../widgets/first_save_celebration.dart';
 import '../widgets/job_card.dart';
 import '../widgets/resume_adaptation_sheet.dart';
+import '../widgets/skills_confirmation_sheet.dart';
 import 'job_details_sheet.dart';
 import 'job_preferences_screen.dart';
 
@@ -58,6 +63,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   static const int _bufferAhead = 5;                // janela à frente
   static const int _initialPrefetch = 10;           // 1ª onda
   static const int _maxConcurrent = 4;              // limite OpenAI paralelo
+
+  /// Snapshot do `hasResume` no UserViewModel — usado pra detectar quando o
+  /// user importa o CV / completa a trilha ENQUANTO o feed está aberto.
+  /// Sem isso, o `_matchCache` em memória mantém `MatchResult.noResume()` da
+  /// sessão anterior e os cards não atualizam mesmo com o CV novo no DB.
+  bool? _lastHasResume;
 
   @override
   void initState() {
@@ -185,7 +196,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   /// Abre a sheet de adaptação de currículo pra a vaga atual do swiper.
   /// Usa `_currentIndex` (mantido em sincronia pelo onSwipe do CardSwiper).
   /// Não-op se ainda não há vagas carregadas ou índice fora dos limites.
-  void _openAdaptationSheet() {
+  Future<void> _openAdaptationSheet() async {
     final vm = context.read<JobsViewModel>();
     if (vm.jobs.isEmpty) return;
     final idx = _currentIndex.clamp(0, vm.jobs.length - 1);
@@ -193,7 +204,37 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     final match = _matchCache[job.id];
 
     HapticFeedback.mediumImpact();
-    showModalBottomSheet(
+
+    // Sheet de confirmação de skills SÓ aparece quando o user tem CV importado
+    // — sem CV não temos como cruzar requisitos da vaga contra parsed/raw_text.
+    // Sem CV: pula direto pro adaptation sheet (comportamento idêntico ao pré-feature).
+    final userVm = context.read<UserViewModel>();
+    final hasResume = userVm.hasResume;
+    List<String> extraSkills = const [];
+
+    if (hasResume) {
+      final result = await showModalBottomSheet<List<String>?>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => SkillsConfirmationSheet(job: job),
+      );
+      if (!mounted) return;
+      // null = user fechou sem decidir (drag down ou close button) → aborta
+      // o fluxo inteiro. Lista vazia = user pulou explicitamente → segue
+      // pra adaptação sem extras.
+      if (result == null) return;
+      extraSkills = result;
+    } else {
+      Analytics.shared.skillsConfirmationAutoSkipped(
+        jobId: job.id,
+        reason: 'no_cv',
+      );
+    }
+
+    if (!mounted) return;
+    await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -201,6 +242,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       builder: (context) => ResumeAdaptationSheet(
         job: job,
         matchScoreFromCard: match?.score,
+        extraSkills: extraSkills,
       ),
     );
   }
@@ -251,7 +293,45 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
 
     // Reset overlay immediately (no setState needed — Listener already stopped)
     if (mounted) setState(() => _swipeFraction = 0.0);
+
+    // Celebração de primeira vaga salva: roda DEPOIS do swipe completar
+    // (post frame) pra não conflitar com a animação do CardSwiper.
+    if (action == 'liked') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _maybeShowFirstSaveCelebration();
+      });
+    }
+
     return true;
+  }
+
+  /// Mostra overlay celebratório APENAS na primeira vez que o usuário salva
+  /// uma vaga. Flag persistida em SharedPreferences por user_id.
+  Future<void> _maybeShowFirstSaveCelebration() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'first_save_celebrated_$userId';
+    if (prefs.getBool(key) == true) return;
+    if (!mounted) return;
+
+    // Marca como visto ANTES de abrir o overlay — evita race condition se
+    // o user salvar 2 vagas rápido (segundo swipe não dispara overlay).
+    await prefs.setBool(key, true);
+    if (!mounted) return;
+
+    Analytics.shared.track('first_save_celebration_shown');
+
+    await showFirstSaveCelebration(
+      context,
+      onSeeSaved: () {
+        if (!mounted) return;
+        Analytics.shared.track('first_save_celebration_continued');
+        // Troca pra aba "Salvas" (index 1) via HomeViewModel.
+        context.read<HomeViewModel>().requestTabChange(1);
+      },
+    );
   }
 
   Future<void> _pressButton(String key, VoidCallback action) async {
@@ -360,6 +440,19 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   Widget build(BuildContext context) {
     super.build(context); // requerido pelo AutomaticKeepAliveClientMixin
     final vm = context.watch<JobsViewModel>();
+    final userVm = context.watch<UserViewModel>();
+
+    // Detecta transição "user acabou de ganhar CV" (importou PDF ou completou
+    // trilha enquanto o feed estava aberto). Sem isso, o `_matchCache` em
+    // memória mantém `MatchResult.noResume()` da hidratação anterior e os
+    // cards continuam mostrando "crie seu CV" mesmo com o CV novo no DB.
+    final currentHasResume = userVm.hasResume;
+    if (_lastHasResume == false && currentHasResume == true) {
+      _matchCache.clear();
+      _matchInflight.clear();
+      _hydrated = false; // re-roda o prefetch IA com o novo perfil
+    }
+    _lastHasResume = currentHasResume;
 
     // Hidrata cache + dispara IA quando vm.jobs chega pela primeira vez.
     if (!_hydrated && !vm.isLoading && vm.jobs.isNotEmpty) {

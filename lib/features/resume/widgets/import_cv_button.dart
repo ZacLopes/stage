@@ -46,7 +46,7 @@ class _ImportCvButtonState extends State<ImportCvButton> {
     if (result.success) {
       _showSnack(
         result.textWasUsable
-            ? '✓ Currículo importado e texto extraído (${result.extractedTextLength} chars).'
+            ? '✓ Currículo importado!'
             : '✓ Currículo salvo, mas não consegui ler o texto. Match score pode ficar limitado.',
         success: true,
       );

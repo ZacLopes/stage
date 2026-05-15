@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/models/models.dart';
 import '../features/jobs/models/adapted_resume.dart';
+import '../features/jobs/models/job_skills_extraction.dart';
 import '../features/jobs/utils/match_score.dart';
 
 /// Erro estruturado da adaptação de currículo. UI usa `code` pra distinguir
@@ -88,7 +89,16 @@ class AIService {
   /// Cache em memória pra mesma sessão (evita re-fetch quando usuário fecha
   /// e reabre o sheet rapidamente). Cache server-side (tabela
   /// adapted_resumes) cobre sessões diferentes.
+  ///
+  /// Key: `"$jobId|${extraSkills.join(',')}"` — adaptações com extra_skills
+  /// diferentes geram cache distinto (alinha com o source_hash server-side).
   final Map<String, AdaptedResume> _adaptedCache = {};
+
+  String _adaptedCacheKey(String jobId, List<String> extraSkills) {
+    if (extraSkills.isEmpty) return jobId;
+    final norm = extraSkills.map((s) => s.trim().toLowerCase()).toList()..sort();
+    return '$jobId|${norm.join(',')}';
+  }
 
   /// Adapta o currículo do user pra uma vaga específica.
   ///
@@ -98,9 +108,18 @@ class AIService {
   ///
   /// Quando `force=true`, ignora o cache server-side e força nova geração
   /// (usado pelo botão "Tentar de novo" da UI).
-  Future<AdaptedResume> adaptResume(String jobId, {bool force = false}) async {
+  ///
+  /// `extraSkills`: skills que o user confirmou ter mas não estão no CV
+  /// (vindas da tela de confirmação de skills). Vão pro server como
+  /// `extra_skills` e são incluídas no CV adaptado.
+  Future<AdaptedResume> adaptResume(
+    String jobId, {
+    bool force = false,
+    List<String> extraSkills = const [],
+  }) async {
+    final cacheKey = _adaptedCacheKey(jobId, extraSkills);
     if (!force) {
-      final cached = _adaptedCache[jobId];
+      final cached = _adaptedCache[cacheKey];
       if (cached != null) return cached;
     }
 
@@ -108,7 +127,11 @@ class AIService {
       final response = await _client.functions
           .invoke(
             'adapt-resume-to-job',
-            body: {'job_id': jobId, if (force) 'force': true},
+            body: {
+              'job_id': jobId,
+              if (force) 'force': true,
+              if (extraSkills.isNotEmpty) 'extra_skills': extraSkills,
+            },
           )
           .timeout(const Duration(seconds: 30));
 
@@ -125,7 +148,7 @@ class AIService {
 
       try {
         final adapted = AdaptedResume.fromJson(mapped, jobId: jobId);
-        _adaptedCache[jobId] = adapted;
+        _adaptedCache[cacheKey] = adapted;
         return adapted;
       } catch (parseErr, parseStack) {
         // Erros de parse aqui são bugs do contrato edge↔client (não do user).
@@ -172,8 +195,45 @@ class AIService {
   }
 
   /// Limpa cache em memória pra uma vaga (ex: depois que user editou perfil).
+  /// Remove TODAS as variações de extraSkills daquele job.
   void clearAdaptedCache(String jobId) {
-    _adaptedCache.remove(jobId);
+    _adaptedCache.removeWhere((key, _) => key == jobId || key.startsWith('$jobId|'));
+  }
+
+  // ============================================================
+  // Skill extraction (gpt-4o-mini, cache server-side por vaga)
+  // ============================================================
+
+  /// Cache em memória das extrações já feitas nesta sessão. Mesmo a 2ª
+  /// abertura do sheet de confirmação não dispara network request quando
+  /// já tem resultado em memória.
+  final Map<String, JobSkillsExtraction> _jobSkillsCache = {};
+
+  /// Extrai skills atômicas dos requisitos+descrição de uma vaga e cruza
+  /// contra o CV do user (in_cv) e contra confirmed_skills (pre_confirmed).
+  ///
+  /// Usado pela `SkillsConfirmationSheet`. Falhas viram exception — caller
+  /// trata como "skip silencioso" (não bloqueia o fluxo de adaptação).
+  Future<JobSkillsExtraction> extractJobSkills(String jobId) async {
+    final cached = _jobSkillsCache[jobId];
+    if (cached != null) return cached;
+
+    final response = await _client.functions
+        .invoke('extract-job-skills', body: {'job_id': jobId})
+        .timeout(const Duration(seconds: 14));
+
+    if (response.status != 200) {
+      throw Exception('extract-job-skills status ${response.status}');
+    }
+    final data = Map<String, dynamic>.from(response.data as Map);
+    final result = JobSkillsExtraction.fromJson(data);
+    _jobSkillsCache[jobId] = result;
+    return result;
+  }
+
+  /// Limpa cache de extrações (ex: ao trocar de user / logout).
+  void clearJobSkillsCache() {
+    _jobSkillsCache.clear();
   }
 
   /// Mensagens humanas pra códigos de erro do edge function. Source-of-truth

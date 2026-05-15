@@ -163,7 +163,7 @@ class PdfService {
     final projectItems = resume.academicProjects
         .map((p) => _buildHarvardActivityItemHtml(
               p.title,
-              p.location.isNotEmpty ? p.location : resume.location,
+              p.location,
               p.role,
               p.period,
               p.description,
@@ -174,7 +174,7 @@ class PdfService {
     final leadItems = resume.leadership
         .map((l) => _buildHarvardActivityItemHtml(
               l.organization,
-              l.location.isNotEmpty ? l.location : resume.location,
+              l.location,
               l.role,
               l.period,
               l.description,
@@ -182,9 +182,20 @@ class PdfService {
               relevantLabel: _l10n('relevant_work', lang),
             ))
         .join('');
+    // Achievements (do servidor: projetos + certificações vindos de adapt-resume).
+    // Cada item vem com marcador `▸` separando title/role/description (até 3 partes).
+    // Renderização: title em bold, role em itálico/cinza, description em texto normal.
+    final achievementsBullets = resume.achievements
+        .where((a) => a.trim().isNotEmpty)
+        .map((a) => _renderAchievementItem(a.trim()))
+        .join('');
+    final achievementsHtml = achievementsBullets.isEmpty
+        ? ''
+        : '<div class="sec">${_l10n('leadership', lang)}</div>$achievementsBullets';
+
     final activitiesHtml = (resume.academicProjects.isNotEmpty || resume.leadership.isNotEmpty)
         ? '<div class="sec">${_l10n('leadership', lang)}</div>$projectItems$leadItems'
-        : '';
+        : achievementsHtml;
 
     final skillParts = <String>[];
     // Harvard MCS order: Technical Skills → Languages → Tools → Certifications
@@ -255,11 +266,16 @@ class PdfService {
     li::before { content: "• "; }
     .sk { font-size: 11pt; margin-bottom: 2pt; }
     .detail { font-size: 9.5pt; margin-top: 1pt; }
+    .ach-item { margin-bottom: 4pt; }
+    .ach-title { font-size: 11pt; font-weight: bold; }
+    .ach-role { font-size: 10pt; font-style: italic; margin-top: 0.5pt; }
+    .ach-meta { font-size: 10pt; color: #444; margin-top: 0.5pt; }
+    .ach-desc { font-size: 10.5pt; margin-top: 1pt; }
   </style>
 </head>
 <body>
   <div class="header">
-    <div class="name">${(user?.name ?? "Seu Nome").toUpperCase()}</div>
+    <div class="name">${(resume.fullName.isNotEmpty ? resume.fullName : (user?.name ?? "Seu Nome")).toUpperCase()}</div>
     ${_buildHarvardAddressLine(resume)}
     <div class="contact">${_buildHarvardContactString(resume)}</div>
   </div>
@@ -274,7 +290,7 @@ class PdfService {
   }
 
   static String _buildHarvardEducationItemHtml(EducationItem edu, ResumeData resume) {
-    final location = edu.location.isNotEmpty ? edu.location : resume.location;
+    final location = edu.location;
     final detailsHtml = edu.details.isNotEmpty
         ? '<div class="detail">${_escapeHtml(edu.details)}</div>'
         : '';
@@ -309,7 +325,7 @@ class PdfService {
   }
 
   static String _buildHarvardExperienceItemHtml(ExperienceItem exp, ResumeData resume) {
-    final location = exp.location.isNotEmpty ? exp.location : resume.location;
+    final location = exp.location;
     // Top row: Company (bold) + Location (right). Bottom row: Role (italic) + Period.
     return '<div class="entry">'
         '<div class="row bold"><span class="l">${exp.company}</span>'
@@ -466,6 +482,42 @@ class PdfService {
        .replaceAll('>', '&gt;')
        .replaceAll('"', '&quot;');
 
+  /// Renderiza um item de achievement do servidor.
+  ///
+  /// Server pode mandar com até 3 partes separadas por " ▸ ": title, role,
+  /// description. Renderiza:
+  ///   - 1 parte: bullet simples
+  ///   - 2 partes: title (bold) + segunda parte (cinza)
+  ///   - 3 partes: title (bold) — role (italic cinza) → description (texto)
+  ///
+  /// Exemplo:
+  ///   "Modelagem Financeira ▸ Wall Street Prep ▸ 2025"
+  ///   → "<b>Modelagem Financeira</b> · Wall Street Prep · <i>2025</i>"
+  ///
+  ///   "Diretor de Projetos na Liga de Mercado Financeiro ▸ Diretor de Projetos ▸ Gerenciei..."
+  ///   → entry com title em bold + role em italic + description embaixo
+  static String _renderAchievementItem(String raw) {
+    final parts = raw.split('▸').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    if (parts.length == 1) {
+      return '<div class="ach-item"><div class="ach-title">${_escapeHtml(parts[0])}</div></div>';
+    }
+    if (parts.length == 2) {
+      return '<div class="ach-item">'
+          '<div class="ach-title">${_escapeHtml(parts[0])}</div>'
+          '<div class="ach-meta">${_escapeHtml(parts[1])}</div>'
+          '</div>';
+    }
+    // 3+ parts: title (bold), role (italic small), description (regular)
+    final title = parts[0];
+    final role = parts[1];
+    final description = parts.sublist(2).join(' — ');
+    return '<div class="ach-item">'
+        '<div class="ach-title">${_escapeHtml(title)}</div>'
+        '<div class="ach-role">${_escapeHtml(role)}</div>'
+        '<div class="ach-desc">${_escapeHtml(description)}</div>'
+        '</div>';
+  }
+
   // ───────────────────────────────────────────────────────────────────
   //  Jake's Resume template (HTML)
   // ───────────────────────────────────────────────────────────────────
@@ -546,7 +598,7 @@ class PdfService {
         : section(_l10n('education', lang)) +
             resume.education.map((e) => entry(
                   tl: e.institution,
-                  tr: e.location.isNotEmpty ? e.location : resume.location,
+                  tr: e.location,
                   bl: e.degree,
                   br: e.period,
                   details: [
@@ -563,7 +615,7 @@ class PdfService {
                   tl: e.role,
                   tr: e.period,
                   bl: e.company,
-                  br: e.location.isNotEmpty ? e.location : resume.location,
+                  br: e.location,
                   description: e.description,
                 )).join();
 
@@ -573,7 +625,7 @@ class PdfService {
         tl: p.title,
         tr: p.period,
         bl: p.role,
-        br: p.location.isNotEmpty ? p.location : resume.location,
+        br: p.location,
         description: p.description,
       ));
     }
@@ -582,12 +634,20 @@ class PdfService {
         tl: l.organization,
         tr: l.period,
         bl: l.role,
-        br: l.location.isNotEmpty ? l.location : resume.location,
+        br: l.location,
         description: l.description,
       ));
     }
+    // Achievements (do servidor: projetos + certificações vindos de adapt-resume).
+    // Render bonito via _renderAchievementItem (split ▸ → title/role/description).
+    final achievementsItemsJ = resume.achievements
+        .where((a) => a.trim().isNotEmpty)
+        .map((a) => _renderAchievementItem(a.trim()))
+        .join('');
     final projHtml = projItems.isEmpty
-        ? ''
+        ? (achievementsItemsJ.isEmpty
+            ? ''
+            : section(_l10n('projects', lang)) + achievementsItemsJ)
         : section(_l10n('projects', lang)) + projItems.join();
 
     final skillsParts = <String>[];
@@ -639,6 +699,11 @@ body { font-family: 'Latin Modern Roman', 'Computer Modern', 'Georgia', 'Cambria
 ul { margin: 3pt 0 0 0; padding-left: 18pt; }
 li { font-size: 10.5pt; margin-bottom: 1pt; }
 .skline { font-size: 10.5pt; margin-bottom: 2pt; }
+.ach-item { margin-bottom: 5pt; }
+.ach-title { font-size: 11pt; font-weight: bold; }
+.ach-role { font-size: 10pt; font-style: italic; margin-top: 1pt; }
+.ach-meta { font-size: 10pt; color: #444; margin-top: 1pt; }
+.ach-desc { font-size: 10.5pt; margin-top: 2pt; }
 </style>
 </head>
 <body>
@@ -766,7 +831,7 @@ li { font-size: 10.5pt; margin-bottom: 1pt; }
         : section(_l10n('education', lang)) +
             resume.education.map((e) => entryEdu(
                   institution: e.institution,
-                  location: e.location.isNotEmpty ? e.location : resume.location,
+                  location: e.location,
                   degree: e.degree,
                   period: e.period,
                   gpa: e.gpa,
@@ -780,7 +845,7 @@ li { font-size: 10.5pt; margin-bottom: 1pt; }
         : section(_l10n('experience', lang)) +
             resume.experiences.map((e) => entryExp(
                   company: e.company,
-                  location: e.location.isNotEmpty ? e.location : resume.location,
+                  location: e.location,
                   role: e.role,
                   period: e.period,
                   description: e.description,
@@ -790,7 +855,7 @@ li { font-size: 10.5pt; margin-bottom: 1pt; }
     for (final p in resume.academicProjects) {
       actItems.add(entryExp(
         company: p.title,
-        location: p.location.isNotEmpty ? p.location : resume.location,
+        location: p.location,
         role: p.role,
         period: p.period,
         description: p.description,
@@ -799,13 +864,23 @@ li { font-size: 10.5pt; margin-bottom: 1pt; }
     for (final l in resume.leadership) {
       actItems.add(entryExp(
         company: l.organization,
-        location: l.location.isNotEmpty ? l.location : resume.location,
+        location: l.location,
         role: l.role,
         period: l.period,
         description: l.description,
       ));
     }
-    final actHtml = actItems.isEmpty ? '' : section(_l10n('leadership', lang)) + actItems.join();
+    // Achievements (do servidor: projetos + certificações vindos de adapt-resume).
+    // Render bonito via _renderAchievementItem.
+    final achievementsItemsF = resume.achievements
+        .where((a) => a.trim().isNotEmpty)
+        .map((a) => _renderAchievementItem(a.trim()))
+        .join('');
+    final actHtml = actItems.isEmpty
+        ? (achievementsItemsF.isEmpty
+            ? ''
+            : section(_l10n('leadership', lang)) + achievementsItemsF)
+        : section(_l10n('leadership', lang)) + actItems.join();
 
     final addParts = <String>[];
     if (resume.skills.isNotEmpty) {
@@ -846,6 +921,11 @@ body { font-family: 'Times New Roman', 'Times', serif; font-size: 10.5pt; color:
 .extras { font-size: 9.5pt; margin-top: 2pt; }
 .course { font-size: 10pt; margin-top: 2pt; }
 .det { font-size: 10pt; margin-top: 2pt; }
+.ach-item { margin-bottom: 6pt; }
+.ach-title { font-size: 10.5pt; font-weight: bold; }
+.ach-role { font-size: 10pt; font-style: italic; margin-top: 1pt; }
+.ach-meta { font-size: 10pt; color: #555; margin-top: 1pt; }
+.ach-desc { font-size: 10pt; margin-top: 2pt; }
 ul { margin: 3pt 0 0 0; padding: 0; list-style: none; }
 li { font-size: 10.5pt; margin-bottom: 1pt; padding-left: 12pt; text-indent: -10pt; }
 li::before { content: "– "; font-weight: bold; }
@@ -942,7 +1022,7 @@ li::before { content: "– "; font-weight: bold; }
                   primary: e.degree,
                   secondary: e.institution,
                   tertiary: e.period,
-                  location: e.location.isNotEmpty ? e.location : resume.location,
+                  location: e.location,
                   details: [
                     if (e.gpa.isNotEmpty) '${_l10n('edu_gpa', lang)}: ${e.gpa}',
                     if (e.coursework.isNotEmpty) e.coursework,
@@ -957,7 +1037,7 @@ li::before { content: "– "; font-weight: bold; }
                   primary: e.role,
                   secondary: e.company,
                   tertiary: e.period,
-                  location: e.location.isNotEmpty ? e.location : resume.location,
+                  location: e.location,
                   description: e.description,
                 )).join();
 
@@ -978,7 +1058,17 @@ li::before { content: "– "; font-weight: bold; }
         description: l.description,
       ));
     }
-    final projHtml = projItems.isEmpty ? '' : section(_l10n('projects', lang)) + projItems.join();
+    // Achievements (do servidor: projetos + certificações vindos de adapt-resume).
+    // Render bonito via _renderAchievementItem.
+    final achievementsItemsO = resume.achievements
+        .where((a) => a.trim().isNotEmpty)
+        .map((a) => _renderAchievementItem(a.trim()))
+        .join('');
+    final projHtml = projItems.isEmpty
+        ? (achievementsItemsO.isEmpty
+            ? ''
+            : section(_l10n('projects', lang)) + achievementsItemsO)
+        : section(_l10n('projects', lang)) + projItems.join();
 
     // Skills as pill-grouped chips per category
     final skillBlocks = <String>[];
@@ -1025,6 +1115,11 @@ body { font-family: 'Helvetica', 'Arial', 'Segoe UI', sans-serif; font-size: 10p
 ul { margin: 2pt 0 0 0; padding: 0; list-style: none; }
 li { font-size: 10pt; color: #334155; margin-bottom: 1pt; padding-left: 12pt; text-indent: -10pt; }
 li::before { content: "› "; color: #4F46E5; font-weight: bold; }
+.ach-item { margin-bottom: 5pt; }
+.ach-title { font-size: 10.5pt; font-weight: 700; color: #0f172a; }
+.ach-role { font-size: 9.5pt; font-style: italic; color: #64748b; margin-top: 1pt; }
+.ach-meta { font-size: 9.5pt; color: #64748b; margin-top: 1pt; }
+.ach-desc { font-size: 10pt; color: #334155; margin-top: 1pt; }
 .skblock { margin-bottom: 4pt; }
 .sklabel { display: inline-block; font-size: 9pt; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.8pt; margin-right: 6pt; }
 .skpills { display: inline; }

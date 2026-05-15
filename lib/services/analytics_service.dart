@@ -194,6 +194,39 @@ class AnalyticsService {
   Future<void> cvAdaptationPdfDownloaded({required String jobId}) =>
       track('cv_adaptation_pdf_downloaded', props: {'job_id': jobId});
 
+  // ── Confirmação de skills antes da adaptação ────────────────────────
+  Future<void> skillsConfirmationOpened({
+    required String jobId,
+    required int totalSkills,
+    required int missingFromCv,
+  }) =>
+      track('skills_confirmation_opened', props: {
+        'job_id': jobId,
+        'total_skills': totalSkills,
+        'missing_from_cv': missingFromCv,
+      });
+
+  Future<void> skillsConfirmationCompleted({
+    required String jobId,
+    required int confirmed,
+    required bool skipped,
+  }) =>
+      track('skills_confirmation_completed', props: {
+        'job_id': jobId,
+        'confirmed': confirmed,
+        'skipped': skipped,
+      });
+
+  /// `reason`: 'all_in_cv' | 'no_cv' | 'no_requirements' | 'extraction_failed'
+  Future<void> skillsConfirmationAutoSkipped({
+    required String jobId,
+    required String reason,
+  }) =>
+      track('skills_confirmation_auto_skipped', props: {
+        'job_id': jobId,
+        'reason': reason,
+      });
+
   // ── Feedback / Founders ─────────────────────────────────────────────
   Future<void> foundersContactOpened({required String channel}) =>
       track('founders_contact_opened', props: {'channel': channel});

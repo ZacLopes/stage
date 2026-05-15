@@ -77,6 +77,27 @@ class UserViewModel extends ChangeNotifier {
     return false;
   }
 
+  /// Verdadeiro quando o user existe mas falta algum campo obrigatório do
+  /// perfil (nome, idade, telefone, curso, semestre, universidade). Usado
+  /// pelo AuthGate pra forçar o `ProfileSetupScreen` antes de seguir pra
+  /// Home — especialmente útil pra users que entraram via Apple/Google,
+  /// que pulam o EmailSignup e por isso nunca preenchem esses campos.
+  ///
+  /// Cobre o caso "Apple sem nome" — se o nome estiver vazio/User, o Step 1
+  /// do ProfileSetup pede o nome. Não precisa de tela separada.
+  bool get needsProfileSetup {
+    final u = _user;
+    if (u == null) return false;
+    final name = u.name.trim();
+    if (name.isEmpty || name.toLowerCase() == 'user') return true;
+    if (u.age == null) return true;
+    if ((u.phone ?? '').replaceAll(RegExp(r'\D'), '').length < 10) return true;
+    if (u.course.trim().isEmpty) return true;
+    if (u.semester.trim().isEmpty) return true;
+    if (u.university.trim().isEmpty) return true;
+    return false;
+  }
+
   /// Verdadeiro quando o user existe mas o nome é vazio ou o literal "User"
   /// (sentinela legacy do bug antigo). UI usa pra forçar a tela "Como
   /// podemos te chamar?" antes de entrar na home.
@@ -571,27 +592,23 @@ class UserViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // 1. Update Auth (Email/Password) + Metadata (Age)
-      final Map<String, dynamic> metadataUpdates = {};
-      
-      // If age is provided, save it to metadata (since DB column might be missing)
-      if (age != null) {
-        metadataUpdates['age'] = age;
-      }
-
-      if (email != null || password != null || metadataUpdates.isNotEmpty) {
-        final attributes = UserAttributes(
-          email: email,
-          password: password,
-          data: metadataUpdates.isNotEmpty ? metadataUpdates : null,
-        );
+      // 1. Update Auth — APENAS pra email/password.
+      //
+      // ATENÇÃO: NÃO incluir `age` (nem outro field do profile) na chamada
+      // `_supabase.auth.updateUser()`. Ela dispara `AuthChangeEvent.userUpdated`
+      // → listener chama `_loadUser()` async → SELECT do user_profiles → quando
+      // race com o passo 2 abaixo, sobrescreve `_user` em memória com dado
+      // velho. Sintoma: depois de salvar o ProfileSetup, a tela volta pro
+      // Step 0 porque `needsProfileSetup` vira true de novo via _user stale.
+      // Age já vai pro DB via `UserProfile.toMap()` no passo 2.
+      if (email != null || password != null) {
+        final attributes = UserAttributes(email: email, password: password);
         await _supabase.auth.updateUser(attributes);
       }
 
-      // 2. Update Profile Table (Name, Course, Semester)
-      // Note: Age is NOT sent to DB here to prevent "column not found" error
-      // unless SupabaseRepository filters it or UserProfile.toMap includes/excludes it.
-      // Currently UserProfile.toMap DOES NOT include 'age', so it is safe.
+      // 2. Update Profile Table (Name, Age, Phone, Course, Semester, etc.)
+      // `UserProfile.toMap()` cobre todos os campos. Coluna `age` existe no
+      // schema desde migração antiga; phone na 20260514000000.
       
       if (name != null || course != null || semester != null || university != null || age != null || phone != null || gamificationData != null) {
 

@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import '../../core/constants/stage_colors.dart';
 import '../../services/analytics_service.dart';
 import 'user_viewmodel.dart';
-import 'completion_screen.dart';
 import '../../core/widgets/pii_mask.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
@@ -51,9 +50,13 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   void initState() {
     super.initState();
     Analytics.shared.onboardingStepReached(step: 3);
-    // Prefill name if available
+    // Prefill name — mas trata "User" (sentinela legacy do bug antigo do Apple
+    // sign-in) como vazio. User antigo via Apple tem name="User" no DB e
+    // pré-preencher esse campo confunde — força o user a editar à mão.
     final vm = context.read<UserViewModel>();
-    _nameController = TextEditingController(text: vm.user?.name ?? '');
+    final rawName = (vm.user?.name ?? '').trim();
+    final cleanName = rawName.toLowerCase() == 'user' ? '' : rawName;
+    _nameController = TextEditingController(text: cleanName);
   }
 
   @override
@@ -125,10 +128,14 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 
   bool get _isCurrentStepValid {
     if (_currentStep == 0) {
-      // Nome já veio do EmailSignup/social — step 1 pede data de nascimento
-      // + celular (mínimo 10 dígitos pra cobrir fixos e móveis com DDD).
+      // Step 1 pede: nome (pode vir pré-preenchido) + nascimento + celular.
+      // Phone: mínimo 10 dígitos (fixos/móveis com DDD).
+      final name = _nameController.text.trim();
       final phoneDigits = _phoneController.text.replaceAll(RegExp(r'\D'), '');
-      return _selectedDate != null && phoneDigits.length >= 10;
+      return name.length >= 2 &&
+          name.toLowerCase() != 'user' &&
+          _selectedDate != null &&
+          phoneDigits.length >= 10;
     } else if (_currentStep == 1) {
       return _uniController.text.trim().isNotEmpty && 
              _courseController.text.trim().isNotEmpty &&
@@ -186,16 +193,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         // foi respondido aqui, fazer isso na tela de filtros (campo "sugestão"
         // ou similar) — não auto-salvar.
 
-        if (mounted) {
-          Navigator.of(context).pushReplacement(
-            PageRouteBuilder(
-              pageBuilder: (context, anim, secAnim) => const CompletionScreen(),
-              transitionsBuilder: (context, anim, secAnim, child) {
-                return FadeTransition(opacity: anim, child: child);
-              },
-            ),
-          );
-        }
+        // Não navegamos manualmente — quem chamou o ProfileSetup foi o
+        // AuthGate (Consumer<UserViewModel>) ou o EmailSignup. Em ambos os
+        // casos, a tela está sob um AuthGate ativo que reage à mudança de
+        // `needsProfileSetup` e re-roteia automaticamente pra CompletionScreen.
+        // Push manual aqui duplicava o AuthGate na árvore → GlobalKey
+        // colisão (tutorial.jobsTab da BottomNav).
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -213,9 +216,16 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       headline: 'Conta mais\nsobre você',
       subtitle: 'Pra gente personalizar sua experiência.',
       children: [
-        // Nome foi coletado no EmailSignup/social — não pedimos de novo aqui.
-        // O `_nameController` segue vivo (prefilled de vm.user?.name) só pra
-        // alimentar o updateProfile no final.
+        // Nome — pré-preenchido pelos providers (email signup, Google, Apple
+        // com nome). Quando vazio (Apple sem nome / providers que não retornam
+        // nome), user edita aqui. Sempre obrigatório no save final.
+        TextField(
+          controller: _nameController,
+          textCapitalization: TextCapitalization.words,
+          onChanged: (_) => setState(() {}),
+          decoration: _inputDecoration('Nome completo', Icons.person_outline),
+        ),
+        const SizedBox(height: 20),
 
         // Data de Nascimento — input digitado com máscara DD/MM/AAAA.
         // Aceita só dígitos, insere as barras automaticamente, valida em

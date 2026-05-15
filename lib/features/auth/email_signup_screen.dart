@@ -4,8 +4,8 @@ import 'package:provider/provider.dart';
 import '../../core/constants/stage_colors.dart';
 import '../../core/utils/auth_error_formatter.dart';
 import '../../services/analytics_service.dart';
+import '../splash/splash_screen.dart' show AuthGate;
 import 'user_viewmodel.dart';
-import 'profile_setup_screen.dart';
 import '../../core/widgets/pii_mask.dart';
 
 class EmailSignupScreen extends StatefulWidget {
@@ -65,14 +65,14 @@ class _EmailSignupScreenState extends State<EmailSignupScreen> {
       );
 
       if (mounted) {
-        // Assume signup success, move to Profile Setup
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            pageBuilder: (context, anim, secAnim) => const ProfileSetupScreen(),
-            transitionsBuilder: (context, anim, secAnim, child) {
-              return FadeTransition(opacity: anim, child: child);
-            },
-          ),
+        // Empurra AuthGate (não ProfileSetup direto): o Consumer central
+        // detecta needsProfileSetup=true e renderiza ProfileSetup. Quando o
+        // user salva, o mesmo Consumer rebuilda pra CompletionScreen.
+        // Empurrar ProfileSetup direto + Consumer rebuild causava duplicata
+        // de GlobalKey (tutorial.jobsTab da BottomNav).
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const AuthGate()),
+          (route) => false,
         );
       }
     } catch (e) {

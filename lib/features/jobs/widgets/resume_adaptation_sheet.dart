@@ -28,10 +28,16 @@ class ResumeAdaptationSheet extends StatefulWidget {
   final Job job;
   final int? matchScoreFromCard;
 
+  /// Skills confirmadas pelo user na tela de confirmação prévia. Vão pro
+  /// server como `extra_skills` e são incluídas no CV adaptado sem serem
+  /// rejeitadas pelo validador anti-invenção.
+  final List<String> extraSkills;
+
   const ResumeAdaptationSheet({
     super.key,
     required this.job,
     this.matchScoreFromCard,
+    this.extraSkills = const [],
   });
 
   @override
@@ -139,7 +145,11 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
 
     AdaptedResume? result;
     try {
-      result = await _aiService.adaptResume(widget.job.id, force: force);
+      result = await _aiService.adaptResume(
+        widget.job.id,
+        force: force,
+        extraSkills: widget.extraSkills,
+      );
     } catch (e, stack) {
       // Logamos pra rastrear erros assíncronos que não viram
       // ResumeAdaptationException — ex: timeout não-formatado, http error
@@ -558,6 +568,10 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
       children: [
         _buildScoreUpgradeCard(adapted),
         const SizedBox(height: 16),
+        if (adapted.extraSkillsUsed.isNotEmpty) ...[
+          _buildExtraSkillsBadge(adapted.extraSkillsUsed),
+          const SizedBox(height: 14),
+        ],
         if (adapted.changes.isNotEmpty) ...[
           Padding(
             padding: const EdgeInsets.only(left: 4, bottom: 10),
@@ -727,6 +741,65 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
               color: Colors.white.withOpacity(0.55),
               fontSize: 11,
               fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Badge mostrando as skills extras que o user confirmou e foram incluídas
+  /// na adaptação. Sinal explícito de "sua confirmação foi respeitada".
+  Widget _buildExtraSkillsBadge(List<String> skills) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [_indigo.withOpacity(0.06), _purple.withOpacity(0.06)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _indigo.withOpacity(0.18), width: 1),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: _indigo.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: const Icon(Icons.add_task_rounded, color: _indigo, size: 17),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  skills.length == 1
+                      ? 'Habilidade adicionada por você'
+                      : '${skills.length} habilidades adicionadas por você',
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: _textPrimary,
+                    letterSpacing: -0.1,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  skills.join(' · '),
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: _textSecondary,
+                    height: 1.35,
+                  ),
+                ),
+              ],
             ),
           ),
         ],

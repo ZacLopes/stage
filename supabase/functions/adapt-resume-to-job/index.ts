@@ -30,10 +30,11 @@ const corsHeaders = {
 }
 
 const MODEL = 'gpt-4o-mini'
-// v2: usa match_score real (do match_analyses cache) como "before" em vez
-// do heurístico antigo. Invalida cache antigo (scores 30→36 não fazem
-// sentido — eram apenas tokens textuais sem relação com o match real).
-const PROMPT_VERSION = 'v2'
+// v13: descrição de projeto não inclui mais o título+role do próximo —
+// _findEndOfDescription corta no ". " seguido de Maiúscula. v12 deixava
+// "Gerenciei... Link Finance. Desenvolvimento de Aplicativo Gamificado
+// Desenvolvedor" como descrição do projeto 1.
+const PROMPT_VERSION = 'v13'
 const RATE_LIMIT_PER_DAY = 30
 const OPENAI_TIMEOUT_MS = 25000
 const MAX_BULLET_INFLATION = 1.3 // adapt não pode > 1.3x bullets do original
@@ -129,6 +130,38 @@ const STOP_WORDS = new Set<string>([
   'the', 'and', 'or', 'of', 'to', 'in', 'for', 'on', 'at', 'by', 'with', 'as',
   'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
   'will', 'would', 'should', 'could',
+  // Termos genéricos comuns em resumos profissionais (não-concretos):
+  // são "ruído" pro check anti-invenção — IA usa pra encadear ideias, não
+  // são afirmações sobre o candidato. Excluir reduz falso-positivos.
+  'onde', 'possa', 'possam', 'possuir', 'possui', 'possuo',
+  'buscando', 'busco', 'buscar', 'busca',
+  'visando', 'vislumbrando', 'almejando',
+  'atuando', 'atuar', 'atuação', 'atuante',
+  'desenvolver', 'desenvolvendo', 'desenvolvimento',
+  'aplicar', 'aplicando', 'aplicação',
+  'contribuir', 'contribuindo', 'contribuição',
+  'aprimorar', 'aprimorando', 'aprimoramento',
+  'ampliar', 'ampliando', 'aprender', 'aprendendo', 'aprendizado',
+  'área', 'areas', 'áreas',
+  'capacidade', 'capacidades', 'capaz',
+  'competência', 'competencias', 'competências',
+  'habilidade', 'habilidades',
+  'conhecimento', 'conhecimentos',
+  'experiência', 'experiencias', 'experiências',
+  'interesse', 'interesses', 'interessado', 'interessada',
+  'forte', 'fortes', 'sólida', 'sólido', 'solida', 'solido',
+  'profissional', 'profissionais',
+  'oportunidade', 'oportunidades',
+  'objetivo', 'objetivos',
+  'foco', 'focado', 'focada',
+  'ambiente', 'ambientes',
+  'desafio', 'desafios', 'desafiador', 'desafiante',
+  'novo', 'nova', 'novos', 'novas',
+  'tornar', 'tornando',
+  'colaborar', 'colaborando', 'colaboração', 'colaborativo', 'colaborativa',
+  'time', 'times', 'equipe', 'equipes',
+  'sempre', 'sendo', 'enquanto', 'assim', 'desta', 'deste', 'esta', 'este',
+  'minhas', 'meus', 'minha', 'meu', 'nossa', 'nosso',
 ])
 
 function tokenize(text: string): string[] {
@@ -141,6 +174,580 @@ function tokenize(text: string): string[] {
     .filter((w) => w.length >= 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w))
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Pre-parser do CV bruto (server-side regex).
+//
+// IA gpt-4o-mini não é confiável pra extrair seções de PDF word-per-line. Em
+// testes ela retorna `experiences: []` mesmo com CV cheio de experiências.
+// Solução: pré-parsear o raw_text aqui, populando input.experiences/education/
+// skills/contact ANTES de chamar a IA. Aí a função usa o modo "structured"
+// (mais rigoroso) em vez de "cv-only".
+//
+// Funciona via heurísticas sobre o output do Syncfusion PDF extractor:
+// cada "linha" do CV vira uma palavra ou frase curta separada por \n.
+// Seções são marcadas por headers em CAPS ("EXPERIÊNCIA PROFISSIONAL", "FORMAÇÃO").
+// ────────────────────────────────────────────────────────────────────────────
+
+interface PreParsedCv {
+  fullName?: string
+  email?: string
+  phone?: string
+  linkedin?: string
+  location?: string
+  summary?: string
+  experiences: InputExperience[]
+  education: InputEducation[]
+  skills: string[]
+  achievements: string[]
+  interests: string[]
+}
+
+/** Reconstrói linhas do PDF achatando whitespace, mas preservando quebras
+ * lógicas: linhas em branco no original viram separadores entre seções. */
+function _splitParagraphs(rawText: string): string[] {
+  // Quebra duplicada (linha em branco) = separador de seção
+  return rawText.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
+}
+
+/** Junta palavra-por-linha em texto fluido. Heurística: se uma linha termina
+ * com letra minúscula ou número e a próxima começa com minúscula, junta com
+ * espaço; se a próxima começa com maiúscula, junta com espaço também (PDF
+ * word-per-line). Só preserva \n entre bullets/items distintos. */
+function _reflowLines(rawText: string): string {
+  return rawText
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Headers reconhecidos (PT-BR e EN). Lookup case-insensitive. */
+const _SECTION_HEADERS: Array<{ keys: string[]; section: string }> = [
+  { keys: ['resumo profissional', 'resumo', 'summary', 'sumario', 'sumário', 'sobre mim', 'about'], section: 'summary' },
+  { keys: ['experiência profissional', 'experiencia profissional', 'experiências', 'experiencias', 'professional experience', 'work experience', 'experience'], section: 'experiences' },
+  { keys: ['formação', 'formacao', 'educação', 'educacao', 'education', 'academic'], section: 'education' },
+  { keys: ['projetos', 'projects', 'projetos pessoais'], section: 'projects' },
+  { keys: ['habilidades', 'skills', 'competências', 'competencias'], section: 'skills' },
+  { keys: ['cursos e certificações', 'cursos', 'certificações', 'certificacoes', 'certifications', 'cursos e certificacoes'], section: 'certifications' },
+  { keys: ['idiomas', 'languages', 'línguas', 'linguas'], section: 'languages' },
+  { keys: ['interesses', 'interests', 'hobbies'], section: 'interests' },
+]
+
+/** Detecta seção de uma linha (header). Retorna nome canônico ou null. */
+function _detectSection(line: string): string | null {
+  const norm = normalize(line)
+  for (const { keys, section } of _SECTION_HEADERS) {
+    for (const k of keys) {
+      if (norm === k || norm === k.replace(/\s/g, '')) return section
+    }
+  }
+  return null
+}
+
+/** Regex de período (Mês Ano - Mês Ano | Mês Ano - Atual | Ano - Ano). Capture global. */
+const PERIOD_REGEX_GLOBAL = /\b(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez|january|february|march|april|may|june|july|august|september|october|november|december|janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\.?\s+20\d{2}\s*[-–—]\s*(?:(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez|january|february|march|april|may|june|july|august|september|october|november|december|janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\.?\s+20\d{2}|atual|present|presente|current)|\b20\d{2}\s*[-–—]\s*(?:20\d{2}|atual|present|presente|current)\b/gi
+
+/**
+ * Parseia uma seção (texto flat) em experiências/formações.
+ *
+ * Estratégia: encontra TODAS as ocorrências de período (Mês Ano - Mês Ano).
+ * Cada match demarca um item. Texto ANTES do período (entre o item anterior
+ * e este período) = role/cargo + company/instituição. Texto DEPOIS = bullets/details.
+ *
+ * Heurística pra role+company: split por whitespace, primeiras 1-3 palavras = role,
+ * resto = company. Ajusta baseado em conhecimento do template (PDF gera word-per-line).
+ */
+function _parsePeriodicalSection(
+  flatSectionText: string,
+  fieldA: 'role' | 'degree',
+  fieldB: 'company' | 'institution',
+): Array<{ a: string; b: string; period: string; description: string }> {
+  if (!flatSectionText || flatSectionText.length < 20) return []
+  const matches: Array<{ index: number; period: string; endIndex: number }> = []
+  PERIOD_REGEX_GLOBAL.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = PERIOD_REGEX_GLOBAL.exec(flatSectionText)) !== null) {
+    matches.push({ index: m.index, period: m[0], endIndex: m.index + m[0].length })
+  }
+  if (matches.length === 0) return []
+
+  const items: Array<{ a: string; b: string; period: string; description: string }> = []
+  for (let i = 0; i < matches.length; i++) {
+    const cur = matches[i]
+    const prevEnd = i > 0 ? matches[i - 1].endIndex : 0
+    const nextStart = i + 1 < matches.length ? matches[i + 1].index : flatSectionText.length
+
+    // Texto antes do período (entre item anterior e este) = role + company
+    let beforeText = flatSectionText.slice(prevEnd, cur.index).trim()
+    const beforeWords = beforeText.split(/\s+/).filter(Boolean)
+    if (beforeWords.length === 0) continue
+    // Pega só as últimas 8 palavras (role + company + possível location)
+    const slice = beforeWords.slice(-Math.min(beforeWords.length, 8))
+
+    // Heurística de split (role/degree vs company/institution):
+    //
+    // Default: PRIMEIRA palavra = role/degree, RESTO = company/institution.
+    // Funciona pra:
+    //   - "CEO Stage" → role="CEO", company="Stage"
+    //   - "Administração Link School of Business" → degree="Administração", institution="Link School of Business"
+    //   - "Estagiária XP Inc" → role="Estagiária", company="XP Inc"
+    //
+    // Casos especiais:
+    //   - 1 palavra: usa como company/institution (role/degree vazio)
+    //   - Role/degree composto (ex: "Financial Analyst" + "Amazon" = 3 palavras):
+    //     se primeira palavra está em lista de "modificadores" (Senior, Junior,
+    //     Pleno, Sr, Jr, Lead, Head, Chief, Vice, Estagiário/a, Assistente),
+    //     pega 2 primeiras palavras como role.
+    let aStr: string, bStr: string
+    const roleModifiers = new Set([
+      'senior', 'junior', 'sr', 'jr', 'lead', 'head', 'chief', 'vice',
+      'estagiario', 'estagiaria', 'estagiário', 'estagiária',
+      'assistente', 'analista', 'analyst', 'engenheiro', 'engenheira',
+      'desenvolvedor', 'desenvolvedora', 'developer', 'gerente', 'manager',
+      'diretor', 'diretora', 'director', 'coordenador', 'coordenadora',
+      'consultor', 'consultora', 'consultant', 'designer', 'product',
+      'project', 'tech', 'pleno', 'trainee',
+    ])
+    if (slice.length === 1) {
+      aStr = ''
+      bStr = slice[0]
+    } else if (slice.length === 2) {
+      aStr = slice[0]
+      bStr = slice[1]
+    } else {
+      // Default: 1 palavra pra role, resto pra company
+      let splitIdx = 1
+      // Se primeira palavra é um modificador conhecido, pega 2 palavras pra role
+      const firstNorm = normalize(slice[0])
+      if (roleModifiers.has(firstNorm) && slice.length >= 3) {
+        splitIdx = 2
+      }
+      aStr = slice.slice(0, splitIdx).join(' ')
+      bStr = slice.slice(splitIdx).join(' ')
+    }
+    aStr = aStr.trim()
+    bStr = bStr.trim()
+    if (!bStr) continue
+
+    // Texto depois do período até próximo período = description/bullets
+    let afterText = flatSectionText.slice(cur.endIndex, nextStart).trim()
+    // Cap description em 1500 chars
+    if (afterText.length > 1500) afterText = afterText.slice(0, 1500)
+
+    items.push({ a: aStr, b: bStr, period: cur.period, description: afterText })
+  }
+  return items
+}
+
+/**
+ * Splita texto da seção PROJETOS em itens estruturados {title, role, description}.
+ *
+ * Estratégia: detecta verbos em 1ª pessoa do passado (Gerenciei, Desenvolvi,
+ * Criei, Liderei, Realizei, Implementei, etc.) como marcadores de início de
+ * descrição. Texto antes do verbo = title + role.
+ *
+ * Exemplo de input flat:
+ *   "Diretor de Projetos na Liga de Mercado Financeiro Diretor de Projetos
+ *    Gerenciei projetos... chamada Link Finance. Desenvolvimento de Aplicativo
+ *    Gamificado Desenvolvedor Desenvolvi um aplicativo..."
+ *
+ * Output:
+ *   [
+ *     { title: "Diretor de Projetos na Liga de Mercado Financeiro", role: "Diretor de Projetos", description: "Gerenciei projetos... Link Finance." },
+ *     { title: "Desenvolvimento de Aplicativo Gamificado", role: "Desenvolvedor", description: "Desenvolvi um aplicativo..." }
+ *   ]
+ */
+function _parseProjectsStructured(sectionText: string): Array<{ title: string; role: string; description: string }> {
+  // Verbos de ação típicos em 1ª pessoa do passado (PT-BR)
+  // e em 3ª pessoa (já adaptado pela IA pra "Desenvolveu", "Gerenciou", etc.)
+  const verbRegex = /\b(Gerenciei|Desenvolvi|Criei|Liderei|Realizei|Implementei|Coordenei|Apoiei|Conduzi|Construi|Participei|Atuei|Contribui|Executei|Estruturei|Estabeleci|Conquistei|Apresentei|Elabore[ei]|Otimizei|Reduzi|Aument(?:ei|ou)|Gerenciou|Desenvolveu|Criou|Liderou|Realizou|Implementou|Coordenou|Apoiou|Conduziu|Construiu|Atuou|Contribuiu|Executou|Estruturou|Estabeleceu|Conquistou|Apresentou|Elaborou|Otimizou|Trabalhei|Trabalhou)\b/g
+
+  const matches: Array<{ index: number; verb: string }> = []
+  let m: RegExpExecArray | null
+  verbRegex.lastIndex = 0
+  while ((m = verbRegex.exec(sectionText)) !== null) {
+    matches.push({ index: m.index, verb: m[0] })
+  }
+  if (matches.length === 0) return []
+
+  const projects: Array<{ title: string; role: string; description: string }> = []
+  for (let i = 0; i < matches.length; i++) {
+    const cur = matches[i]
+    const prevDescEnd = i > 0 ? _findEndOfDescription(sectionText, matches[i - 1].index, cur.index) : 0
+    const nextDescEnd = i + 1 < matches.length ? matches[i + 1].index : sectionText.length
+
+    // Texto antes do verbo (e depois da descrição anterior) = title + role
+    const beforeText = sectionText.slice(prevDescEnd, cur.index).trim()
+    const beforeWords = beforeText.split(/\s+/).filter(Boolean)
+    if (beforeWords.length === 0 && i === 0) continue
+
+    let title = ''
+    let role = ''
+    // Lista de palavras tipicamente usadas como CARGO/ROLE em CVs brasileiros
+    // (substantivos de profissão/posição). Detecção dessas palavras NO FINAL
+    // do beforeText indica boundary entre title e role.
+    const roleEndKeywords = new Set([
+      'desenvolvedor', 'desenvolvedora', 'developer',
+      'diretor', 'diretora', 'director',
+      'gerente', 'manager', 'lead', 'líder', 'lider',
+      'analista', 'analyst',
+      'engenheiro', 'engenheira', 'engineer',
+      'coordenador', 'coordenadora', 'coordinator',
+      'consultor', 'consultora', 'consultant',
+      'estagiario', 'estagiária', 'estagiária', 'intern', 'trainee',
+      'assistente', 'assistant',
+      'designer', 'designer', 'product',
+      'ceo', 'cto', 'cfo', 'coo', 'cmo', 'cio',
+      'presidente', 'president',
+      'vice', 'sr', 'jr', 'senior', 'junior', 'pleno',
+      'representante', 'representative',
+      'voluntario', 'voluntária', 'volunteer',
+      'mentor', 'tutor', 'monitor', 'professor',
+      'embaixador', 'embaixadora', 'ambassador',
+      'fundador', 'fundadora', 'founder', 'co-founder', 'cofounder',
+    ])
+
+    if (beforeWords.length === 1) {
+      title = beforeWords[0]
+      role = ''
+    } else if (beforeWords.length === 2) {
+      title = beforeWords[0]
+      role = beforeWords[1]
+    } else {
+      // Estratégia: procura palavra que parece ROLE no final.
+      // Verifica últimas 3 palavras de trás pra frente.
+      let roleStartIdx = -1
+      for (let j = beforeWords.length - 1; j >= Math.max(0, beforeWords.length - 3); j--) {
+        const norm = normalize(beforeWords[j])
+        if (roleEndKeywords.has(norm)) {
+          roleStartIdx = j
+          break
+        }
+      }
+      if (roleStartIdx > 0) {
+        // Encontrou role — separa
+        role = beforeWords.slice(roleStartIdx).join(' ')
+        title = beforeWords.slice(0, roleStartIdx).join(' ')
+      } else {
+        // Não achou role conhecido. Default: role = últimas 1-2 palavras
+        // (depende do tamanho — pra textos curtos é provável que role
+        // seja só 1 palavra; pra textos longos pode ser 2-3).
+        if (beforeWords.length >= 6) {
+          role = beforeWords.slice(-3).join(' ')
+          title = beforeWords.slice(0, -3).join(' ')
+        } else if (beforeWords.length >= 4) {
+          role = beforeWords.slice(-2).join(' ')
+          title = beforeWords.slice(0, -2).join(' ')
+        } else {
+          role = beforeWords.slice(-1).join(' ')
+          title = beforeWords.slice(0, -1).join(' ')
+        }
+      }
+      // Se title contém o role como substring final, remove duplicação
+      const roleNorm = normalize(role)
+      const titleNorm = normalize(title)
+      if (titleNorm.endsWith(' ' + roleNorm) || titleNorm === roleNorm) {
+        title = title.slice(0, title.length - role.length).trim()
+      }
+    }
+
+    // Descrição: do verbo até o fim do PARÁGRAFO (não até o próximo verbo —
+    // isso incluía o título+role do próximo projeto na descrição).
+    // _findEndOfDescription procura ". " seguido de Maiúscula entre o verbo
+    // atual e o próximo: esse é o ponto onde a sentença termina e o próximo
+    // título começa.
+    const descriptionEnd = i + 1 < matches.length
+      ? _findEndOfDescription(sectionText, cur.index, nextDescEnd)
+      : sectionText.length
+    const description = sectionText.slice(cur.index, descriptionEnd > cur.index ? descriptionEnd : nextDescEnd).trim()
+
+    if (title || description) {
+      projects.push({
+        title: title.trim(),
+        role: role.trim(),
+        description: description.replace(/\s+/g, ' ').trim(),
+      })
+    }
+  }
+  return projects
+}
+
+/** Acha onde a descrição "termina": após ponto final + espaço + nome capitalizado. */
+function _findEndOfDescription(text: string, startIdx: number, maxIdx: number): number {
+  // Procura "ponto + espaço + Maiúscula" entre startIdx e maxIdx
+  const slice = text.slice(startIdx, maxIdx)
+  const endMatch = slice.match(/\.\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ])/)
+  if (endMatch && endMatch.index !== undefined) {
+    return startIdx + endMatch.index + endMatch[0].length
+  }
+  return startIdx
+}
+
+/**
+ * Tenta extrair estrutura básica do raw_text de um CV importado.
+ *
+ * Estratégia: flatten (rejoin word-per-line PDF), split por headers ALL CAPS,
+ * depois processa cada seção. Robusto contra a quebra de palavra por linha
+ * que o Syncfusion PDF extractor produz.
+ */
+function preParseRawCv(rawText: string): PreParsedCv {
+  const result: PreParsedCv = {
+    experiences: [],
+    education: [],
+    skills: [],
+    achievements: [],
+    interests: [],
+  }
+  if (!rawText || rawText.length < 100) return result
+
+  const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (lines.length === 0) return result
+
+  // === EXTRAÇÃO DE HEADER (primeiras 20 linhas: nome, contato) ===
+  const header = lines.slice(0, 20)
+  const headerText = header.join(' ')
+
+  const emailMatch = headerText.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i)
+  if (emailMatch) result.email = emailMatch[0]
+
+  const phoneMatch = headerText.match(/\(?\d{2}\)?\s*\d{4,5}[\s\-]?\d{4}/)
+  if (phoneMatch) result.phone = phoneMatch[0].trim()
+
+  const linkedinMatch = headerText.match(/(?:linkedin\.com\/in\/|linkedin\.com\/)[\w\-/?=&%]+/i)
+  if (linkedinMatch) result.linkedin = linkedinMatch[0]
+
+  const locMatch = headerText.match(/([A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõç]+(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõç]+)*)\s*[-–]\s*([A-Z]{2})\b/)
+  if (locMatch) result.location = `${locMatch[1]} - ${locMatch[2]}`
+
+  // Nome: primeiras linhas com palavras capitalizadas/CAPS antes de contato.
+  const nameTokens: string[] = []
+  for (const line of header.slice(0, 6)) {
+    if (line.includes('@') || phoneMatch?.[0] === line) break
+    const looksLikeName = /^([A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõç]+\s*)+$/.test(line) ||
+      /^([A-ZÁÉÍÓÚÂÊÔÃÕÇ]+\s*)+$/.test(line)
+    if (looksLikeName && line.length >= 2 && line.length <= 30) {
+      nameTokens.push(line)
+      if (nameTokens.length >= 4) break
+    }
+  }
+  if (nameTokens.length > 0) {
+    result.fullName = nameTokens.join(' ').replace(/\s+/g, ' ').trim()
+  }
+
+  // === FLATTEN: junta tudo num texto fluido, preservando whitespace mínimo ===
+  // Substitui \n por espaço, colapsa whitespace.
+  const flat = lines.join(' ').replace(/\s+/g, ' ').trim()
+
+  // === SPLIT POR HEADERS ===
+  // Headers no template típico vêm em CAPS ("EXPERIÊNCIA PROFISSIONAL", "FORMAÇÃO").
+  // CASE-SENSITIVE: sem flag `i`. Sem isso, "Experiência" minúscula em um texto
+  // corrido ("Experiência em liderança de projetos") era detectada como header
+  // e quebrava a divisão de seções. Headers em CVs PT-BR sempre vêm em CAPS.
+  const sectionHeaderRegex = /\b(RESUMO PROFISSIONAL|RESUMO|SUMÁRIO|SUMARIO|SOBRE MIM|FORMAÇÃO|FORMACAO|EDUCAÇÃO|EDUCACAO|EDUCATION|ACADEMIC BACKGROUND|EXPERIÊNCIA PROFISSIONAL|EXPERIENCIA PROFISSIONAL|EXPERIÊNCIA|EXPERIENCIA|PROFESSIONAL EXPERIENCE|WORK EXPERIENCE|EXPERIENCE|PROJETOS|PROJECTS|HABILIDADES|SKILLS|COMPETÊNCIAS|COMPETENCIAS|CURSOS E CERTIFICAÇÕES|CURSOS E CERTIFICACOES|CURSOS|CERTIFICAÇÕES|CERTIFICACOES|CERTIFICATIONS|IDIOMAS|LANGUAGES|LÍNGUAS|LINGUAS|INTERESSES|INTERESTS|HOBBIES)\b/g
+
+  // Encontra todas as posições dos headers no texto flat.
+  const headerPositions: Array<{ idx: number; name: string; canonical: string }> = []
+  let hMatch: RegExpExecArray | null
+  sectionHeaderRegex.lastIndex = 0
+  while ((hMatch = sectionHeaderRegex.exec(flat)) !== null) {
+    const name = hMatch[0]
+    const norm = normalize(name)
+    let canonical: string | null = null
+    if (norm.startsWith('resumo') || norm.startsWith('sumario') || norm.startsWith('sumário') || norm.startsWith('sobre')) canonical = 'summary'
+    else if (norm.startsWith('formacao') || norm.startsWith('formação') || norm.startsWith('educacao') || norm.startsWith('educação') || norm.startsWith('education') || norm.startsWith('academic')) canonical = 'education'
+    else if (norm.startsWith('experiencia') || norm.startsWith('experiência') || norm.includes('experience')) canonical = 'experiences'
+    else if (norm.startsWith('projetos') || norm.startsWith('projects')) canonical = 'projects'
+    else if (norm.startsWith('habilidades') || norm.startsWith('skills') || norm.startsWith('competencias') || norm.startsWith('competências')) canonical = 'skills'
+    else if (norm.startsWith('cursos') || norm.startsWith('certifica')) canonical = 'certifications'
+    else if (norm.startsWith('idiomas') || norm.startsWith('languages') || norm.startsWith('linguas') || norm.startsWith('línguas')) canonical = 'languages'
+    else if (norm.startsWith('interesses') || norm.startsWith('interests') || norm.startsWith('hobbies')) canonical = 'hobbies'
+    if (canonical) {
+      headerPositions.push({ idx: hMatch.index, name, canonical })
+    }
+  }
+
+  if (headerPositions.length === 0) return result
+
+  // Constrói mapa: section → texto da seção (entre seu header e o próximo).
+  const sections: Record<string, string> = {}
+  for (let i = 0; i < headerPositions.length; i++) {
+    const cur = headerPositions[i]
+    const next = headerPositions[i + 1]
+    const start = cur.idx + cur.name.length
+    const end = next ? next.idx : flat.length
+    const content = flat.slice(start, end).trim()
+    sections[cur.canonical] = (sections[cur.canonical] ?? '') + ' ' + content
+  }
+
+  // === SUMÁRIO ===
+  if (sections.summary) {
+    result.summary = sections.summary.trim().slice(0, 800)
+  }
+
+  // === EXPERIÊNCIAS ===
+  if (sections.experiences) {
+    const exps = _parsePeriodicalSection(sections.experiences, 'role', 'company')
+    result.experiences = exps.map((e) => ({
+      role: e.a,
+      company: e.b,
+      period: e.period,
+      description: e.description,
+    })).filter((e) => e.role && e.company)
+  }
+
+  // === FORMAÇÃO ===
+  if (sections.education) {
+    const edus = _parsePeriodicalSection(sections.education, 'degree', 'institution')
+    result.education = edus.map((e) => ({
+      degree: e.a,
+      institution: e.b,
+      period: e.period,
+      details: e.description,
+    })).filter((e) => e.degree && e.institution)
+  }
+
+  // === SKILLS ===
+  if (sections.skills) {
+    // Skills no texto flat: separadas por padrões como "ItemA ItemB" onde
+    // cada item começa com letra maiúscula. Heurística: split em pontos
+    // onde encontra letra Maiúscula precedida por letra minúscula (boundary).
+    // Ex: "Domínio do Pacote Office Conhecimento básico em Excel" →
+    // ["Domínio do Pacote Office", "Conhecimento básico em Excel"]
+    const flatSkills = sections.skills.trim()
+    // Split em fronteiras (palavra minúscula seguida de espaço + palavra Maiúscula).
+    // Cuidado: pode haver false-positives em proper nouns dentro de uma skill ("Pacote Office").
+    // Estratégia conservadora: split em PADRÕES de início de skill ("Domínio do", "Conhecimento", "Habilidade", "Experiência com", "Capacidade", "Comunicação", "Gestão", "Negociação", verbos no infinitivo).
+    const skillStarters = /(?<=[a-záéíóúâêôãõç])\s+(?=(?:Domínio|Conhecimento|Habilidade|Experiência|Experience|Capacidade|Comunicação|Gestão|Negociação|Inglês|Português|Espanhol|Francês|English|Portuguese|Spanish|French|Análise|Liderança|Liderança|Adaptabilidade|Proatividade|Resolução|Trabalho)\b)/g
+    const skillItems = flatSkills.split(skillStarters)
+    // Fallback se o split deu só 1 item: usa o texto inteiro como uma skill OU
+    // tenta split por capitalização agressivo
+    if (skillItems.length === 1) {
+      // Tenta um split por: ". " ou ", " ou múltiplos espaços
+      const altSplit = flatSkills.split(/(?:\.|;|,|  +)/).map((s) => s.trim()).filter(Boolean)
+      result.skills = altSplit.filter((s) => s.length >= 3 && s.length <= 80).slice(0, 30)
+    } else {
+      result.skills = skillItems.map((s) => s.trim()).filter((s) => s.length >= 3 && s.length <= 80).slice(0, 30)
+    }
+  }
+
+  // === CERTIFICAÇÕES → achievements ===
+  // Formato: cada certificação separada por ponto/quebra. Usa marcador "▸"
+  // pra separar título/instituição/ano dentro de cada item (renderização
+  // bonita no template: título em negrito, resto em texto normal).
+  if (sections.certifications) {
+    const certText = sections.certifications.trim()
+    if (certText.length > 5) {
+      // Split por ano (4 dígitos) — cada certificação geralmente termina em ano
+      const certItems = certText.split(/(?<=20\d{2})\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ])/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 5)
+        .slice(0, 8)
+      if (certItems.length === 0) {
+        result.achievements.push(certText.slice(0, 400))
+      } else {
+        for (const item of certItems) {
+          // Tenta formatar: "Modelagem Financeira Wall Street Prep 2025" →
+          // "Modelagem Financeira ▸ Wall Street Prep ▸ 2025"
+          const yearMatch = item.match(/\b(20\d{2})\b\s*$/)
+          if (yearMatch) {
+            const year = yearMatch[1]
+            const beforeYear = item.slice(0, item.length - yearMatch[0].length).trim()
+            const words = beforeYear.split(/\s+/).filter(Boolean)
+            // Lista de palavras que normalmente INICIAM nome de instituição
+            // (split aqui se encontrar).
+            const institutionStarters = new Set([
+              'wall', 'fgv', 'usp', 'unicamp', 'insper', 'coursera', 'udemy',
+              'fia', 'fiap', 'mackenzie', 'puc', 'esalq', 'esag', 'pucsp',
+              'pucrj', 'pucrs', 'pucpr', 'unicid', 'fmu', 'sebrae', 'fiec',
+              'fia', 'getulio', 'getúlio', 'fundacao', 'fundação',
+              'harvard', 'mit', 'stanford', 'yale', 'princeton',
+              'cambridge', 'oxford', 'imperial', 'lse',
+            ])
+            let splitAt = -1
+            for (let i = 1; i < words.length; i++) {
+              const norm = normalize(words[i])
+              if (institutionStarters.has(norm)) {
+                splitAt = i
+                break
+              }
+            }
+            if (splitAt === -1 && words.length >= 4) {
+              // Fallback: split na metade pra baixo (floor) — funciona melhor
+              // pra "Modelagem Financeira | Wall Street Prep" (2/3 split de 5
+              // palavras) do que ceil que gera 3/2.
+              splitAt = Math.floor(words.length / 2)
+            } else if (splitAt === -1) {
+              splitAt = Math.floor(words.length / 2)
+            }
+            if (splitAt >= 1 && splitAt < words.length) {
+              const title = words.slice(0, splitAt).join(' ')
+              const inst = words.slice(splitAt).join(' ')
+              result.achievements.push(`${title} ▸ ${inst} ▸ ${year}`)
+            } else {
+              result.achievements.push(`${beforeYear} ▸ ${year}`)
+            }
+          } else {
+            result.achievements.push(item.slice(0, 400))
+          }
+        }
+      }
+    }
+  }
+
+  // === PROJETOS → achievements ===
+  // Estratégia: split por VERBO em primeira pessoa do passado (Gerenciei,
+  // Desenvolvi, Criei, Liderei, etc.). Cada verbo marca o início de uma
+  // descrição. Texto entre verbos = título + role do próximo projeto.
+  if (sections.projects) {
+    const projText = sections.projects.trim()
+    if (projText.length > 10) {
+      const projects = _parseProjectsStructured(projText)
+      if (projects.length === 0) {
+        // Fallback: dumb push of full content
+        result.achievements.push(projText.slice(0, 600))
+      } else {
+        for (const p of projects) {
+          // Marcador ▸ separa as 3 partes pro template renderizar bonito
+          const parts = [p.title, p.role, p.description].filter((s) => s.trim().length > 0)
+          result.achievements.push(parts.join(' ▸ '))
+        }
+      }
+    }
+  }
+
+  // === IDIOMAS → adiciona em skills ===
+  if (sections.languages) {
+    const langText = sections.languages.trim()
+    // Idiomas geralmente vêm em formato "Idioma - Nível" separados por linha/ponto
+    const langItems = langText
+      .split(/(?:\.|;|,|  +)/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 3 && s.length <= 50)
+      .slice(0, 5)
+    for (const l of langItems) {
+      if (!result.skills.some((s) => normalize(s) === normalize(l))) {
+        result.skills.push(l)
+      }
+    }
+  }
+
+  // === INTERESSES ===
+  if ((sections as any).hobbies) {
+    const interestsText = (sections as any).hobbies.trim()
+    if (interestsText.length > 3) {
+      result.interests = interestsText
+        .split(/[,;]/)
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 3 && s.length <= 60)
+        .slice(0, 8)
+    }
+  }
+
+  return result
+}
+
 /**
  * Lê dados do user e monta o InputResume canônico.
  *
@@ -148,6 +755,7 @@ function tokenize(text: string): string[] {
  * - user_profiles.gamification_data.imported_resume.parsed (se vier do parser)
  * - user_profiles.gamification_data.whoIAm.derived (skills/summary/interests)
  * - user_profiles (name, email, etc.)
+ * - PRE-PARSER do raw_text (fallback quando parsed/whoIAm não existem)
  *
  * Se o user não tem nada (perfil vazio), retorna null.
  */
@@ -156,20 +764,45 @@ function buildInputResume(profile: any): InputResume | null {
   const whoIAm = gd?.whoIAm?.derived ?? {}
   const imported = gd?.imported_resume ?? {}
   const parsed = imported?.parsed ?? {}
+  const rawCvText: string = typeof imported.raw_text === 'string' ? imported.raw_text : ''
 
-  const fullName = String(parsed.fullName ?? profile?.name ?? '').trim()
-  const email = String(parsed.email ?? profile?.email ?? '').trim()
-  const phone = String(parsed.phone ?? profile?.phone ?? '').trim()
-  const linkedin = String(parsed.linkedin ?? '').trim()
-  const location = String(parsed.location ?? profile?.location ?? '').trim()
+  // PRE-PARSER do raw_text: usado quando parsed/whoIAm estão ausentes.
+  // Roda heurísticas regex pra extrair seções (header, summary, experience,
+  // education, skills, etc) direto do PDF bruto. Resultado vira fallback
+  // pra todos os campos abaixo. Sem isso, a IA tinha que parsear o PDF
+  // word-per-line, o que ela não faz de forma confiável.
+  const pre: PreParsedCv = rawCvText.length > 100 ? preParseRawCv(rawCvText) : {
+    experiences: [], education: [], skills: [], achievements: [], interests: [],
+  }
+
+  // Nome: preferência pelo MAIS COMPLETO entre pre-parsed e profile.name.
+  // Apple SignIn frequentemente dá só "primeiro último" sem nome do meio,
+  // enquanto o CV bruto tem o nome completo. Pega o que tiver mais palavras.
+  const candidateNames = [
+    String(parsed.fullName ?? '').trim(),
+    String(pre.fullName ?? '').trim(),
+    String(profile?.name ?? '').trim(),
+  ].filter(Boolean)
+  let fullName = ''
+  for (const n of candidateNames) {
+    const words = n.split(/\s+/).filter(Boolean).length
+    const curWords = fullName.split(/\s+/).filter(Boolean).length
+    if (words > curWords) fullName = n
+  }
+  if (!fullName && candidateNames.length > 0) fullName = candidateNames[0]
+  const email = String(parsed.email ?? pre.email ?? profile?.email ?? '').trim()
+  const phone = String(parsed.phone ?? pre.phone ?? profile?.phone ?? '').trim()
+  const linkedin = String(parsed.linkedin ?? pre.linkedin ?? '').trim()
+  const location = String(parsed.location ?? pre.location ?? profile?.location ?? '').trim()
   const language = String(parsed.language ?? 'pt')
 
-  // Resumo: prefere o do parser; fallback pro whoIAm.summary.
-  const summary = String(parsed.summary ?? whoIAm.summary ?? '').trim().slice(0, 600)
+  // Resumo: prefere o do parser; depois pre-parser; depois whoIAm.summary.
+  const summary = String(parsed.summary ?? pre.summary ?? whoIAm.summary ?? '').trim().slice(0, 600)
 
-  // Skills: junta as estruturadas (whoIAm) com as do parser, dedup.
+  // Skills: junta as estruturadas (whoIAm) com as do parser e do pre-parser, dedup.
   const skillsSet = new Set<string>()
   if (Array.isArray(parsed.skills)) parsed.skills.forEach((s: any) => s && skillsSet.add(String(s).trim()))
+  for (const s of pre.skills) if (s) skillsSet.add(s.trim())
   if (whoIAm.skills) {
     String(whoIAm.skills)
       .split(/[,;\n]/)
@@ -179,7 +812,7 @@ function buildInputResume(profile: any): InputResume | null {
   }
   const skills = Array.from(skillsSet).filter((s) => s.length > 0).slice(0, 30)
 
-  const experiences: InputExperience[] = Array.isArray(parsed.experiences)
+  const parsedExperiences: InputExperience[] = Array.isArray(parsed.experiences)
     ? parsed.experiences.map((e: any) => ({
         role: String(e?.role ?? '').trim(),
         company: String(e?.company ?? '').trim(),
@@ -188,8 +821,10 @@ function buildInputResume(profile: any): InputResume | null {
         location: e?.location ? String(e.location).trim() : undefined,
       })).filter((e: InputExperience) => e.role && e.company)
     : []
+  // Se parsed.experiences está vazio mas o pre-parser achou, usa o pre.
+  const experiences: InputExperience[] = parsedExperiences.length > 0 ? parsedExperiences : pre.experiences
 
-  const education: InputEducation[] = Array.isArray(parsed.education)
+  const parsedEducation: InputEducation[] = Array.isArray(parsed.education)
     ? parsed.education.map((e: any) => ({
         degree: String(e?.degree ?? '').trim(),
         institution: String(e?.institution ?? '').trim(),
@@ -198,17 +833,20 @@ function buildInputResume(profile: any): InputResume | null {
         location: e?.location ? String(e.location).trim() : undefined,
       })).filter((e: InputEducation) => e.degree && e.institution)
     : []
+  const education: InputEducation[] = parsedEducation.length > 0 ? parsedEducation : pre.education
 
-  const achievements: string[] = Array.isArray(parsed.achievements)
+  const parsedAchievements: string[] = Array.isArray(parsed.achievements)
     ? parsed.achievements.map((a: any) => String(a).trim()).filter(Boolean).slice(0, 10)
     : []
+  const achievements: string[] = parsedAchievements.length > 0 ? parsedAchievements : pre.achievements
 
   const interestsRaw = parsed.interests ?? whoIAm.interests
-  const interests: string[] = Array.isArray(interestsRaw)
+  const interestsFromParsed: string[] = Array.isArray(interestsRaw)
     ? interestsRaw.map((s: any) => String(s).trim()).filter(Boolean)
     : (typeof interestsRaw === 'string'
         ? interestsRaw.split(/[,;\n]/).map((s: string) => s.trim()).filter(Boolean)
         : [])
+  const interests: string[] = interestsFromParsed.length > 0 ? interestsFromParsed : pre.interests
 
   // Sanity: pra adaptar com qualidade, precisa ter NOME + alguma fonte de
   // conteúdo (experiência estruturada, skills, resumo, ou CV importado com
@@ -288,6 +926,12 @@ REGRAS INVIOLÁVEIS:
 7. ARRAYS VAZIOS PERMANECEM VAZIOS, EXCETO quando há CV bruto: se "Experiências/Skills atuais" estão vazios mas "CV importado (texto bruto)" foi fornecido, EXTRAIA de lá os dados (empresas, cargos, períodos, skills, formação). Se NEM os campos estruturados NEM o CV bruto trazem informação sobre algo, output desse campo = []. NUNCA invente.
 8. Quando extrair do CV bruto: copie nomes de empresas, instituições e cargos EXATAMENTE como aparecem no CV. Não traduza, não abrevie. Períodos: copie no formato em que aparecem.
 9. Se o input tem pouca informação, retorne o que TEM, sem completar. Currículo curto e honesto > currículo cheio e inventado.
+10. ÁREA DE FORMAÇÃO E STACK TECNOLÓGICO: NUNCA invente área de formação, curso ou stack tecnológico do candidato. Se o CV diz "Administração", o candidato NÃO é "Engenharia da Computação". Se o CV não menciona "Windows" ou "Java", você NÃO PODE incluir essas tecnologias em lugar nenhum (nem no resumo, nem nos bullets, nem nas skills). O resumo profissional DEVE refletir a área REAL do candidato — adaptar o "fit" com a vaga significa destacar como a área dele pode ser útil pra vaga, NÃO transformar ele em outra pessoa.
+11. RESUMO PROFISSIONAL — cada substantivo concreto (área de estudo, tecnologia, ferramenta, indústria, idioma) que aparecer NO RESUMO precisa estar PRESENTE textualmente no CV original. Se o CV não fala em "Testes de Software", NÃO pode escrever "experiência em Testes de Software" no resumo. Pode escrever apenas "interesse em [área da vaga]" se quiser puxar pro fit — mas nunca afirmar experiência/conhecimento que não existe.
+12. PRESERVE TODAS AS EXPERIÊNCIAS DO CV. Nunca remova, oculte ou substitua experiências. Se o CV traz "CEO @ Stage, Dez 2025-Atual" com bullets sobre app gamificado, a versão adaptada DEVE manter exatamente "CEO @ Stage, Dez 2025-Atual" como uma das experiências (com role, company E period preenchidos) — você pode REFORMULAR os bullets pra puxar fit com a vaga, mas o FATO (cargo, empresa, período, projeto descrito) tem que vir do CV. NUNCA crie uma experiência fake alinhada com a vaga pra "encaixar melhor". Se o CV tem 1 experiência só, retorne 1 experiência. Se tem 3, retorne 3 — com os mesmos cargos/empresas/períodos/datas.
+13. PRESERVE TODAS AS SEÇÕES DO CV. Se o CV tem PROJETOS, FORMAÇÃO, CERTIFICAÇÕES, IDIOMAS, INTERESSES — todas devem aparecer no output. Achievements/Conquistas podem agregar projetos+certificações. Interests no output deve vir dos INTERESSES do CV. Educação deve vir da seção FORMAÇÃO. NÃO DROPE seções por achar que "não são relevantes pra vaga" — isso é decisão do recrutador, não sua.
+14. PRESERVE DADOS DE CONTATO. Se o CV tem telefone, LinkedIn, localização — copie EXATAMENTE no output. Telefone, LinkedIn e localização do CV PRECISAM aparecer no output (phone, linkedin, location). NUNCA retorne esses campos vazios se o CV os contém.
+15. BULLETS DE EXPERIÊNCIA: cada palavra concreta (substantivo, nome próprio, tecnologia, métrica) do bullet adaptado tem que vir de palavras presentes no CV (não da vaga). A vaga é só pra DESTACAR o que já existe — não pra INVENTAR métricas, projetos, tecnologias ou números. Se o CV diz "Desenvolvi app gamificado", você pode escrever "Desenvolveu app gamificado que ajudou candidatos a se prepararem pra entrevistas" SE o CV mencionar isso. NUNCA escreva "Apoiou análise de sell in/out" se o CV não mencionar sell in/out.
 
 LIMITES:
 - Bullets por experiência: no máximo o mesmo número que o original (pode ser menos, nunca mais).
@@ -309,7 +953,7 @@ interface JobContext {
   requirements: string[]
 }
 
-function buildUserPrompt(input: InputResume, job: JobContext): string {
+function buildUserPrompt(input: InputResume, job: JobContext, extraSkills: string[] = []): string {
   const lines: string[] = []
 
   // Detecta modo: structured (tem experiências/educação parseadas) ou
@@ -336,6 +980,63 @@ function buildUserPrompt(input: InputResume, job: JobContext): string {
     lines.push('REGRA CRÍTICA PARA EXPERIÊNCIAS: Use APENAS empresas/cargos/períodos que aparecem TEXTUALMENTE no CV. Se o CV diz "CEO @ Stage", retorne EXATAMENTE "CEO" e "Stage" — não invente subtítulos nem mude palavras.')
     lines.push('')
     lines.push('REGRA CRÍTICA PARA LOCALIZAÇÃO/CONTATO: A localização, telefone, email, LinkedIn do CANDIDATO são os que estão no TOPO do CV abaixo. NUNCA copie a localização da VAGA pro candidato. Se o CV diz "Londrina - PR", a localização do candidato é "Londrina - PR" (NÃO a da vaga).')
+    lines.push('')
+    lines.push('🚨 CHECKLIST DE PRESERVAÇÃO OBRIGATÓRIA — antes de retornar, confirme que cada campo abaixo está PRESENTE no output, exatamente como aparece no CV:')
+    lines.push('  ☐ fullName (nome completo, incluindo nome do meio se houver — ex: "Zac Kouri Lopes", NÃO "Zac Lopes")')
+    lines.push('  ☐ email (o que está NO CV, não outro — se o CV mostra "joao@gmail.com", retorne "joao@gmail.com")')
+    lines.push('  ☐ phone (telefone do CV — preservar formato "(43) 99126-0202")')
+    lines.push('  ☐ linkedin (URL do CV)')
+    lines.push('  ☐ location (cidade-UF do CV — ex: "Londrina - PR")')
+    lines.push('  ☐ summary (resumo reformulado mas com a MESMA área/curso/empresa do CV)')
+    lines.push('  ☐ skills (TODAS as skills do CV, reordenadas — não pode descartar nenhuma a menos que seja claramente irrelevante)')
+    lines.push('  ☐ experiences (TODA experiência do CV preservada com role+company+period; bullets reformulados mas FATO original)')
+    lines.push('  ☐ education (TODA formação do CV preservada com degree+institution+period)')
+    lines.push('  ☐ achievements (projetos + certificações do CV agregados aqui)')
+    lines.push('  ☐ interests (interesses do CV)')
+    lines.push('Se algum item acima existe no CV mas você retornar vazio/diferente, sua resposta SERÁ REJEITADA. Currículo adaptado = MESMO conteúdo do original, reorganizado pra vaga.')
+    lines.push('')
+    lines.push('⚠️ IMPORTANTE: experiências que parecem "fora do tema" da vaga AINDA DEVEM aparecer no output. Você NÃO PODE remover experiências por achar que "não são relevantes" — adapte os bullets pra puxar fit com a vaga ou simplesmente preserve como está. Currículo sem experiência = adaptação inválida.')
+    lines.push('')
+    lines.push('📌 EXEMPLO de EXTRAÇÃO CORRETA — se o CV bruto contém este trecho (cada palavra em linha separada por causa do PDF extraction):')
+    lines.push('```')
+    lines.push('EXPERIÊNCIA')
+    lines.push('PROFISSIONAL')
+    lines.push('CEO')
+    lines.push('Stage')
+    lines.push('Dez 2025 - Atual')
+    lines.push('• Desenvolvi um aplicativo gamificado para criação de currículos...')
+    lines.push('• Consegui fechar uma venda para a maior faculdade de empreendedorismo do Brasil.')
+    lines.push('FORMAÇÃO')
+    lines.push('Administração')
+    lines.push('Link School of Business')
+    lines.push('Fev 2026 - Fev 2030')
+    lines.push('```')
+    lines.push('')
+    lines.push('Você DEVE retornar (formato JSON):')
+    lines.push('```json')
+    lines.push('{')
+    lines.push('  "experiences": [')
+    lines.push('    {')
+    lines.push('      "role": "CEO",')
+    lines.push('      "company": "Stage",')
+    lines.push('      "period": "Dez 2025 - Atual",')
+    lines.push('      "description": "• Desenvolveu app gamificado para currículos, [bullet original reformulado pra puxar fit com vaga].\\n• Fechou venda para maior faculdade de empreendedorismo do Brasil.",')
+    lines.push('      "location": ""')
+    lines.push('    }')
+    lines.push('  ],')
+    lines.push('  "education": [')
+    lines.push('    {')
+    lines.push('      "degree": "Administração",')
+    lines.push('      "institution": "Link School of Business",')
+    lines.push('      "period": "Fev 2026 - Fev 2030",')
+    lines.push('      "details": "",')
+    lines.push('      "location": ""')
+    lines.push('    }')
+    lines.push('  ]')
+    lines.push('}')
+    lines.push('```')
+    lines.push('NUNCA retorne `"experiences": []` se o CV tem uma seção EXPERIÊNCIA. NUNCA retorne `"education": []` se o CV tem FORMAÇÃO.')
+    lines.push('')
     lines.push('---')
     lines.push(input.importedCvText!.slice(0, 5000))
     lines.push('---')
@@ -409,6 +1110,15 @@ function buildUserPrompt(input: InputResume, job: JobContext): string {
   if (job.description) {
     lines.push('Descrição (resumida):')
     lines.push(job.description.slice(0, 1500))
+  }
+
+  if (extraSkills.length > 0) {
+    lines.push('')
+    lines.push('## SKILLS CONFIRMADAS PELO CANDIDATO (esqueceu de escrever no CV)')
+    extraSkills.forEach((s) => lines.push(`- ${s}`))
+    lines.push(
+      'O candidato confirmou EXPLICITAMENTE que possui estas skills (ele as marcou na tela de confirmação antes desta adaptação). INCLUA cada uma em `resume.skills` exatamente como listadas (palavra por palavra). Estas skills SOBREPÕEM a regra "skills devem aparecer no CV" — elas vêm da confirmação direta do candidato. Mencione 1-2 delas em bullets de experiência quando fizer sentido pelo contexto, sem inventar nível de proficiência nem onde foi aplicada.',
+    )
   }
 
   lines.push('')
@@ -531,7 +1241,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<{
         // Temperature baixa (0.1) pra reduzir inferência criativa. Adaptação
         // de currículo é trabalho de fidelidade, não de geração livre.
         temperature: 0.1,
-        max_tokens: 2500,
+        max_tokens: 3500,
         response_format: { type: 'json_schema', json_schema: JSON_SCHEMA },
       }),
     })
@@ -568,7 +1278,7 @@ function bulletCount(description: string): number {
  * Garante que a resposta da IA não inventou nada que comprometa a integridade
  * do currículo. Throws ValidationError no primeiro problema encontrado.
  */
-function validateAdaptation(input: InputResume, parsed: any): void {
+function validateAdaptation(input: InputResume, parsed: any, job?: JobContext): void {
   const r = parsed?.resume
   if (!r || typeof r !== 'object') throw new ValidationError('resume', 'objeto ausente')
 
@@ -589,6 +1299,150 @@ function validateAdaptation(input: InputResume, parsed: any): void {
   const hasStructuredEducation = input.education.length > 0
   const cvOnlyMode = !hasStructuredExperiences && !hasStructuredEducation && !!cvFlat
 
+  // 0. INTEGRIDADE ESTRUTURAL — aplica em AMBOS os modos (cv-only e structured).
+  //
+  // Validator era cego pra "sumiço": se a IA retornasse arrays vazios e
+  // campos em branco, passava. Resultado: usuário com CV completo (formação,
+  // 3 experiências, certificações, idiomas, interesses) recebia um adaptado
+  // só com "name + email + summary + 4 skills inventadas".
+  //
+  // Checks que valem em qualquer modo:
+  // - Se input.experiences > 0, output.experiences > 0 (não dropar tudo)
+  // - Se input.education > 0, output.education > 0
+  // - Se input.achievements > 0, output.achievements > 0
+  // - Auto-correct: experience/education location vazia no input força vazia no output
+  if (Array.isArray(input.experiences) && input.experiences.length > 0) {
+    if (!Array.isArray(r.experiences) || r.experiences.length === 0) {
+      throw new ValidationError(
+        'experiences',
+        `input tinha ${input.experiences.length} experiência(s) mas output está vazio`,
+      )
+    }
+  }
+  if (Array.isArray(input.education) && input.education.length > 0) {
+    if (!Array.isArray(r.education) || r.education.length === 0) {
+      throw new ValidationError(
+        'education',
+        `input tinha ${input.education.length} formação(ões) mas output está vazio`,
+      )
+    }
+  }
+  if (Array.isArray(input.achievements) && input.achievements.length > 0) {
+    if (!Array.isArray(r.achievements) || r.achievements.length === 0) {
+      throw new ValidationError(
+        'achievements',
+        `input tinha ${input.achievements.length} conquista(s)/projeto(s) mas output está vazio`,
+      )
+    }
+  }
+  // Interests: mais leniente (alguns CVs nem têm). Só checa se input tinha.
+  if (Array.isArray(input.interests) && input.interests.length > 0) {
+    if (!Array.isArray(r.interests) || r.interests.length === 0) {
+      console.warn(
+        `[adapt-resume] interests dropped: input had ${input.interests.length}, output empty. Auto-restoring from input.`,
+      )
+      r.interests = input.interests
+    }
+  }
+
+  // Cv-only-specific checks (sem dados estruturados de input, valida contra cvFlat)
+  if (cvOnlyMode) {
+    const expMarkers = ['experiencia profissional', 'experience', 'experiencias']
+    const cvHasExperienceSection = expMarkers.some((m) => cvFlat.includes(m))
+    if (cvHasExperienceSection && (!Array.isArray(r.experiences) || r.experiences.length === 0)) {
+      throw new ValidationError(
+        'experiences',
+        'CV contém seção de experiência mas o output está vazio',
+      )
+    }
+
+    const eduMarkers = ['formacao', 'formação', 'educacao', 'educação', 'education', 'graduation', 'bacharel', 'bachelor', 'tecnologo', 'tecnólogo', 'mestrado', 'graduacao', 'graduação']
+    const cvHasEducationSection = eduMarkers.some((m) => cvFlat.includes(m))
+    if (cvHasEducationSection && (!Array.isArray(r.education) || r.education.length === 0)) {
+      throw new ValidationError(
+        'education',
+        'CV contém seção de formação mas o output está vazio',
+      )
+    }
+  }
+
+  // Dados de contato sempre validados (qualquer modo) se o CV bruto tem.
+  if (cvFlat) {
+    const phoneRegex = /\(?\d{2}\)?\s*\d{4,5}[\s\-]?\d{4}/
+    const cvHasPhone = phoneRegex.test(input.importedCvText ?? '')
+    if (cvHasPhone && (!r.phone || String(r.phone).trim().length < 8)) {
+      // Tenta auto-restaurar do input antes de rejeitar.
+      if (input.phone) {
+        console.warn(`[adapt-resume] phone dropped, auto-restoring from input: ${input.phone}`)
+        r.phone = input.phone
+      } else {
+        throw new ValidationError('phone', 'CV tem telefone mas output está vazio')
+      }
+    }
+
+    const emailRegex = /[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,}/i
+    const cvHasEmail = emailRegex.test(input.importedCvText ?? '')
+    if (cvHasEmail && (!r.email || !emailRegex.test(String(r.email)))) {
+      if (input.email) {
+        console.warn(`[adapt-resume] email dropped, auto-restoring: ${input.email}`)
+        r.email = input.email
+      } else {
+        throw new ValidationError('email', 'CV tem email válido mas output não tem')
+      }
+    }
+
+    const locRegex = /[A-Z][a-záéíóúâêôãõç]+\s*[-–]\s*[A-Z]{2}\b/
+    const cvHasLocation = locRegex.test(input.importedCvText ?? '')
+    if (cvHasLocation && (!r.location || String(r.location).trim().length < 4)) {
+      if (input.location) {
+        console.warn(`[adapt-resume] location dropped, auto-restoring: ${input.location}`)
+        r.location = input.location
+      } else {
+        throw new ValidationError('location', 'CV tem localização mas output está vazio')
+      }
+    }
+
+    // LinkedIn: se input tem, output deve ter
+    if (input.linkedin && (!r.linkedin || String(r.linkedin).trim().length < 5)) {
+      console.warn(`[adapt-resume] linkedin dropped, auto-restoring: ${input.linkedin}`)
+      r.linkedin = input.linkedin
+    }
+  }
+
+  // Auto-correct: localização de experiência/educação não pode vir do nada.
+  // Se input.experiences[i].location era undefined/vazia E o output tem
+  // localização preenchida, zera o output. A IA estava inventando ("colocou
+  // Londrina - PR na experiência Stage porque é a cidade do candidato").
+  if (Array.isArray(r.experiences)) {
+    for (const exp of r.experiences) {
+      if (exp.location && String(exp.location).trim().length > 0) {
+        // Procura experiência correspondente no input
+        const match = (input.experiences ?? []).find(
+          (e) => eq(e.company, exp.company) && eq(e.role, exp.role),
+        )
+        const inputLoc = match?.location ? String(match.location).trim() : ''
+        if (!inputLoc) {
+          console.warn(`[adapt-resume] clearing invented experience.location "${exp.location}" for ${exp.role} @ ${exp.company}`)
+          exp.location = ''
+        }
+      }
+    }
+  }
+  if (Array.isArray(r.education)) {
+    for (const ed of r.education) {
+      if (ed.location && String(ed.location).trim().length > 0) {
+        const match = (input.education ?? []).find(
+          (e) => eq(e.institution, ed.institution) && eq(e.degree, ed.degree),
+        )
+        const inputLoc = match?.location ? String(match.location).trim() : ''
+        if (!inputLoc) {
+          console.warn(`[adapt-resume] clearing invented education.location "${ed.location}" for ${ed.degree} @ ${ed.institution}`)
+          ed.location = ''
+        }
+      }
+    }
+  }
+
   // 1. Dados imutáveis
   // Em modo CV-only, o profile.name pode estar desatualizado ("da ava") mas
   // o CV tem o nome real do candidato. Aceitamos que fullName/email venham
@@ -598,18 +1452,68 @@ function validateAdaptation(input: InputResume, parsed: any): void {
   // em vez de derrubar a adaptação inteira. Currículo gerado fica com
   // campo vazio, mas o resto da adaptação é válido.
   if (cvOnlyMode) {
-    // Estritos: fullName e email (críticos pra identificação)
-    const strictChecks: Array<[string, string | undefined]> = [
-      ['fullName', r.fullName],
-      ['email', r.email],
-    ]
-    for (const [field, value] of strictChecks) {
-      if (!value) continue
-      const v = flatten(String(value))
-      if (v && !cvFlat.includes(v)) {
-        throw new ValidationError(field, `"${value}" não aparece no CV`)
+    // fullName: matching token-a-token. Substring estrito quebra quando o
+    // candidato tem 3+ nomes ("ZAC KOURI LOPES" no CV) mas a IA retorna 2
+    // ("zac lopes" — sem o nome do meio), OU quando o profile.name vem de
+    // Apple SignIn como "first+last" sem o meio. Aceita o fullName retornado
+    // se TODAS as palavras significativas (>=2 chars) aparecem no CV em
+    // qualquer ordem.
+    if (r.fullName) {
+      const v = flatten(String(r.fullName))
+      if (v) {
+        const tokens = v.split(/\s+/).filter((t) => t.length >= 2)
+        const allTokensInCv = tokens.length > 0 && tokens.every((t) => cvFlat.includes(t))
+        if (!allTokensInCv) {
+          // Fallback: usa o profile.name (que veio do auth — confiável)
+          // se ele também passa no token check no CV.
+          if (input.fullName) {
+            const fallbackTokens = flatten(input.fullName)
+              .split(/\s+/)
+              .filter((t) => t.length >= 2)
+            const fallbackInCv = fallbackTokens.length > 0 && fallbackTokens.every((t) => cvFlat.includes(t))
+            if (fallbackInCv) {
+              console.warn(`[adapt-resume] fullName "${r.fullName}" not in CV, falling back to profile name "${input.fullName}"`)
+              r.fullName = input.fullName
+            } else {
+              throw new ValidationError('fullName', `"${r.fullName}" não aparece no CV (tokens: ${JSON.stringify(tokens)})`)
+            }
+          } else {
+            throw new ValidationError('fullName', `"${r.fullName}" não aparece no CV (tokens: ${JSON.stringify(tokens)})`)
+          }
+        }
       }
     }
+
+    // email: tolerante. PDF extractor frequentemente quebra emails no @ ou
+    // no .com, então `cvFlat.includes("foo@bar.com")` falha mesmo o email
+    // estando ali. Estratégia em camadas:
+    //   1. Se bate com profile.email (do Supabase auth — fonte confiável), aceita.
+    //   2. Senão, tenta substring no CV achatado.
+    //   3. Senão, tenta um normalize mais agressivo (remove TODO whitespace).
+    //   4. Senão, força r.email = input.email (fallback silencioso pro email do auth).
+    if (r.email) {
+      const rEmail = flatten(String(r.email))
+      const inputEmailFlat = flatten(input.email)
+      const matchesProfile = inputEmailFlat && rEmail === inputEmailFlat
+      const matchesCv = rEmail && cvFlat.includes(rEmail)
+      // Match agressivo: tira todo whitespace do CV e tenta de novo
+      const cvNoWs = cvFlat.replace(/\s+/g, '')
+      const rEmailNoWs = rEmail.replace(/\s+/g, '')
+      const matchesCvAggr = rEmailNoWs && cvNoWs.includes(rEmailNoWs)
+      if (!matchesProfile && !matchesCv && !matchesCvAggr) {
+        if (input.email) {
+          console.warn(`[adapt-resume] email "${r.email}" not found in CV or profile, falling back to profile email`)
+          r.email = input.email
+        } else {
+          console.warn(`[adapt-resume] email "${r.email}" not found, clearing`)
+          r.email = ''
+        }
+      }
+    } else if (input.email) {
+      // IA não retornou email mas o profile tem → usa o do profile
+      r.email = input.email
+    }
+
     // Tolerantes: phone, linkedin, location → zera se não bater
     const lenientFields: Array<'phone' | 'linkedin' | 'location'> = ['phone', 'linkedin', 'location']
     for (const field of lenientFields) {
@@ -636,6 +1540,112 @@ function validateAdaptation(input: InputResume, parsed: any): void {
     }
     if (input.location && !eq(r.location, input.location)) {
       throw new ValidationError('location', `mudou`)
+    }
+  }
+
+  // 1.5. Resumo profissional — anti-invenção.
+  //
+  // Sumário não tinha validação antes. IA podia escrever "Estudante de
+  // Engenharia da Computação com experiência em Windows" pra um candidato
+  // de Administração, e nada barrava. Agora: tokeniza o resumo, tira
+  // stop-words, e exige que >=60% dos tokens significativos apareçam em:
+  //   1. CV bruto (cv-only) ou keywordPool (structured) — fonte do candidato
+  //   2. Job pool (título, área, requisitos, descrição da vaga) — adaptação
+  //      legítima pode mencionar a área da vaga ("interesse em [area]")
+  //
+  // Tolerante o suficiente pra IA reformular ("administrador" vs "gestão")
+  // e puxar fit com a vaga, estrito o suficiente pra barrar invenção de
+  // área/tecnologia que não tá em nenhum dos dois lugares.
+  if (r.summary && typeof r.summary === 'string') {
+    const summaryStr = String(r.summary).trim()
+    if (summaryStr.length > 20) {
+      const summaryTokens = tokenize(summaryStr)
+      if (summaryTokens.length >= 5) {
+        // Pool de tokens da VAGA (título + área + requisitos + descrição).
+        // IA pode legitimamente mencionar a área da vaga no resumo —
+        // ex: "estudante de Administração buscando atuar na área Comercial".
+        // "Comercial" vem da vaga, não do CV — é adaptação legítima.
+        const jobPool = new Set<string>()
+        if (job) {
+          tokenize(`${job.title} ${job.area} ${job.description}`).forEach((t) =>
+            jobPool.add(t),
+          )
+          for (const req of job.requirements) tokenize(req).forEach((t) => jobPool.add(t))
+        }
+
+        let inCvCount = 0       // tokens encontrados no CV (peso forte)
+        let onlyInJobCount = 0  // tokens encontrados SÓ na vaga (peso fraco — não é claim do user)
+        const unknown: string[] = []
+        for (const t of summaryTokens) {
+          const inCv = input.keywordPool.has(t) || (cvFlat && cvFlat.includes(t))
+          if (inCv) {
+            inCvCount++
+            continue
+          }
+          if (jobPool.has(t)) {
+            onlyInJobCount++
+            continue
+          }
+          unknown.push(t)
+        }
+        const total = summaryTokens.length
+        // 1) Threshold geral: pelo menos 60% reconhecidos (CV OU vaga)
+        const recognized = inCvCount + onlyInJobCount
+        const ratio = recognized / total
+        if (ratio < 0.6) {
+          console.warn(
+            `[adapt-resume] summary rejected: only ${recognized}/${total} tokens (${(ratio * 100).toFixed(0)}%) found in CV/job. ` +
+            `Unknown tokens: ${unknown.slice(0, 10).join(',')}`,
+          )
+          throw new ValidationError(
+            'summary',
+            `resumo inventou conteúdo (${recognized}/${total} tokens conhecidos)`,
+          )
+        }
+        // 2) Anti-invenção de experiência: detecta padrões "Experiência em X" /
+        //    "Experiente em X" / "Atuou em X" / "atuação em X" onde X é
+        //    DOMÍNIO DA VAGA (não no CV). IA estava escrevendo "Experiência em
+        //    recuperação de créditos" pra candidato sem isso no CV.
+        const summaryLower = normalize(summaryStr)
+        const dangerousClaims: string[] = []
+        const claimRegexes = [
+          /\bexperi[eê]ncia em ([a-záéíóúâêôãõç ]{3,60}?)(?:[.,]|$| e\b| ou\b| al[eé]m\b| com\b)/g,
+          /\bexperiente em ([a-záéíóúâêôãõç ]{3,60}?)(?:[.,]|$| e\b| ou\b| al[eé]m\b)/g,
+          /\batuou (?:em|na|no|como) ([a-záéíóúâêôãõç ]{3,60}?)(?:[.,]|$| e\b| ou\b)/g,
+          /\batua(?:ndo|cao|ção) (?:em|na|no|como) ([a-záéíóúâêôãõç ]{3,60}?)(?:[.,]|$| e\b| ou\b)/g,
+          /\bvivência em ([a-záéíóúâêôãõç ]{3,60}?)(?:[.,]|$| e\b| ou\b)/g,
+          /\bconhecimento (?:em|de|sobre) ([a-záéíóúâêôãõç ]{3,60}?)(?:[.,]|$| e\b| ou\b)/g,
+          /\bproficien(?:te|cia) em ([a-záéíóúâêôãõç ]{3,60}?)(?:[.,]|$| e\b| ou\b)/g,
+          /\bdomínio (?:em|de|sobre) ([a-záéíóúâêôãõç ]{3,60}?)(?:[.,]|$| e\b| ou\b)/g,
+          /\bexpertise em ([a-záéíóúâêôãõç ]{3,60}?)(?:[.,]|$| e\b| ou\b)/g,
+        ]
+        for (const re of claimRegexes) {
+          re.lastIndex = 0
+          let m: RegExpExecArray | null
+          while ((m = re.exec(summaryLower)) !== null) {
+            const claim = m[1].trim()
+            const claimTokens = tokenize(claim).filter((t) => !STOP_WORDS.has(t))
+            if (claimTokens.length === 0) continue
+            // Quantos dos tokens da claim estão NO CV? Se TODOS estiverem só
+            // na vaga (não no CV), é uma claim INVENTADA.
+            const inCv = claimTokens.filter((t) =>
+              input.keywordPool.has(t) || (cvFlat && cvFlat.includes(t)),
+            ).length
+            if (inCv === 0 && claimTokens.some((t) => jobPool.has(t))) {
+              dangerousClaims.push(claim)
+            }
+          }
+        }
+        if (dangerousClaims.length > 0) {
+          console.warn(
+            `[adapt-resume] summary rejected: claimed experience in vaga's domain: ${JSON.stringify(dangerousClaims)}`,
+          )
+          throw new ValidationError(
+            'summary',
+            `afirmou experiência em "${dangerousClaims[0]}" (vem da vaga, não do CV)`,
+          )
+        }
+      }
     }
   }
 
@@ -678,19 +1688,64 @@ function validateAdaptation(input: InputResume, parsed: any): void {
       }
     }
   } else if (cvFlat) {
-    // Modo CV-only: cada experiência precisa ter empresa que apareça no CV.
-    // Cap em 8 experiências (CV típico tem 1-5; 8 é generoso).
+    // Modo CV-only: cada experiência precisa ter (1) empresa NÃO-VAZIA que
+    // apareça no CV, (2) role/cargo, (3) bullets cujos tokens concretos
+    // venham majoritariamente do CV. Sem isso, a IA inventava experiências
+    // completas alinhadas com a vaga (ex: vaga de Trade Marketing → IA
+    // criava experiência fake "Estagiário Trade Marketing" pra um CEO do
+    // Stage). Limite: 8 experiências (CV típico tem 1-5).
     if (r.experiences.length > 8) {
       throw new ValidationError('experiences', `excesso: ${r.experiences.length}`)
     }
     for (const exp of r.experiences) {
       const company = flatten(String(exp.company ?? ''))
-      if (!company) continue
+      const role = String(exp.role ?? '').trim()
+
+      // (1) Company não pode ser vazia em cv-only — sem isso, IA escapava
+      // criando experiências sem company só com bullets fabricados.
+      if (!company) {
+        throw new ValidationError(
+          'experiences',
+          `experiência sem empresa: role="${role}"`,
+        )
+      }
       if (!cvFlat.includes(company)) {
         throw new ValidationError(
           'experiences',
           `empresa "${exp.company}" não aparece no CV`,
         )
+      }
+
+      // (2) Bullets: para cada bullet, exigir que >=50% dos tokens
+      // significativos (após stop-words) apareçam no CV ou keywordPool.
+      // Pode mencionar termos da vaga (tokens em jobPool seriam aceitos
+      // se passássemos job aqui — não passamos pra manter local, mas
+      // 50% é gentil o bastante pra incluir verbos novos como "auxiliando").
+      const desc = String(exp.description ?? '')
+      if (desc.trim().length > 10) {
+        const bullets = desc
+          .split('\n')
+          .map((b) => b.replace(/^[-•·\s]+/, '').trim())
+          .filter((b) => b.length >= 15)
+        for (const bullet of bullets) {
+          const tokens = tokenize(bullet)
+          if (tokens.length < 4) continue
+          let recognized = 0
+          for (const t of tokens) {
+            if (cvFlat.includes(t) || input.keywordPool.has(t)) recognized++
+          }
+          const ratio = recognized / tokens.length
+          if (ratio < 0.5) {
+            const unknown = tokens.filter((t) => !cvFlat.includes(t) && !input.keywordPool.has(t)).slice(0, 8).join(',')
+            console.warn(
+              `[adapt-resume] bullet rejected in "${exp.company}": ${recognized}/${tokens.length} (${(ratio * 100).toFixed(0)}%) tokens in CV. Unknown: ${unknown}. Bullet: "${bullet.slice(0, 100)}"`,
+            )
+            throw new ValidationError(
+              'experiences',
+              `bullet inventado em "${exp.company}": ${recognized}/${tokens.length} tokens conhecidos`,
+            )
+          }
+        }
       }
     }
   } else if (r.experiences.length > 0) {
@@ -903,6 +1958,27 @@ serve(async (req) => {
       return jsonResponse({ error: 'job_id required' }, 400)
     }
 
+    // extra_skills: skills que o user confirmou ter mas não estão no CV.
+    // Vêm da tela de "confirmação de skills" antes da adaptação. Tratadas
+    // como parte do CV original (entram em input.skills + keywordPool ANTES
+    // da validação) — IA pode usá-las sem ser rejeitada por "invenção".
+    const extraSkills: string[] = Array.isArray(body?.extra_skills)
+      ? (body.extra_skills as unknown[])
+          .map((s) => String(s ?? '').trim())
+          .filter((s) => s.length > 0 && s.length <= 60)
+          .slice(0, 10)
+      : []
+    // Dedup case-insensitive preservando ordem
+    const _seenExtra = new Set<string>()
+    const extraSkillsClean: string[] = []
+    for (const s of extraSkills) {
+      const k = normalize(s)
+      if (!_seenExtra.has(k)) {
+        _seenExtra.add(k)
+        extraSkillsClean.push(s)
+      }
+    }
+
     // 3. Rate limit (cache hits NÃO contam)
     const today = new Date()
     today.setHours(0, 0, 0, 0)
@@ -992,10 +2068,35 @@ serve(async (req) => {
     console.log(`[adapt-resume] input built: fullName="${input.fullName}" ` +
       `experiences=${input.experiences.length} education=${input.education.length} ` +
       `skills=${input.skills.length} summary=${input.summary.length}chars ` +
-      `importedCv=${input.importedCvText?.length ?? 0}chars`)
+      `importedCv=${input.importedCvText?.length ?? 0}chars ` +
+      `phone="${input.phone}" location="${input.location}" linkedin="${input.linkedin}"`)
+    if (input.experiences.length > 0) {
+      console.log(`[adapt-resume] experiences detected: ${JSON.stringify(input.experiences.map((e) => ({ role: e.role, company: e.company, period: e.period })))}`)
+    }
+    if (input.education.length > 0) {
+      console.log(`[adapt-resume] education detected: ${JSON.stringify(input.education.map((e) => ({ degree: e.degree, institution: e.institution, period: e.period })))}`)
+    }
 
-    // 5. Cache lookup
-    const sourceHash = await sha256Hex(pickInputForHash(input) + '|' + jobId)
+    // 4.5. Injeta extra_skills no input ANTES da validação. Cada skill entra
+    // em input.skills (caso ainda não exista) e seus tokens no keywordPool —
+    // o validator anti-invenção (validateAdaptation) passa a aceitá-las como
+    // legítimas. Sem isso, a IA seria forçada a ignorar essas skills mesmo
+    // tendo sido pedidas explicitamente.
+    if (extraSkillsClean.length > 0) {
+      for (const s of extraSkillsClean) {
+        const sNorm = normalize(s)
+        const exists = input.skills.some((existing) => normalize(existing) === sNorm)
+        if (!exists) input.skills.push(s)
+        tokenize(s).forEach((t) => input.keywordPool.add(t))
+      }
+      console.log(`[adapt-resume] injected ${extraSkillsClean.length} extra_skills: ${JSON.stringify(extraSkillsClean)}`)
+    }
+
+    // 5. Cache lookup (extraSkills entra no hash: adaptações com skills
+    // diferentes geram cache distinto)
+    const sourceHash = await sha256Hex(
+      pickInputForHash(input) + '|' + jobId + '|extras:' + extraSkillsClean.join(','),
+    )
 
     if (!force) {
       const { data: cachedRow } = await supabaseAdmin
@@ -1017,12 +2118,13 @@ serve(async (req) => {
           match_score_after: cachedRow.match_score_after,
           cached: true,
           model_used: cachedRow.model_used,
+          extra_skills_used: extraSkillsClean,
         })
       }
     }
 
     // 6. Call OpenAI
-    const userPrompt = buildUserPrompt(input, job)
+    const userPrompt = buildUserPrompt(input, job, extraSkillsClean)
     console.log(`[adapt-resume] calling OpenAI (prompt ${userPrompt.length} chars)`)
     const ai = await callOpenAI(SYSTEM_PROMPT, userPrompt)
     console.log(`[adapt-resume] OpenAI responded (${ai.totalTokens} tokens)`)
@@ -1037,7 +2139,7 @@ serve(async (req) => {
 
     // 7. VALIDAÇÃO ANTI-INVENÇÃO
     try {
-      validateAdaptation(input, parsed)
+      validateAdaptation(input, parsed, job)
     } catch (e) {
       const ve = e as ValidationError
       console.warn(`adaptation rejected for user=${user.id} job=${jobId}: ${ve.message}`)
@@ -1094,6 +2196,34 @@ serve(async (req) => {
       tokens_used: ai.totalTokens,
     })
 
+    // 10. Merge extra_skills no gamification_data.confirmed_skills (global do
+    // user). Skills confirmadas em uma vaga ficam pré-selecionadas pra
+    // vagas futuras que pedirem a mesma skill. Não-fatal se falhar.
+    if (extraSkillsClean.length > 0) {
+      try {
+        const existingGd: any = profileFallback?.gamification_data ?? {}
+        const existingConfirmed: string[] = Array.isArray(existingGd.confirmed_skills)
+          ? existingGd.confirmed_skills.map((s: any) => String(s))
+          : []
+        const mergedSet = new Set<string>()
+        const mergedList: string[] = []
+        for (const s of [...existingConfirmed, ...extraSkillsClean]) {
+          const k = normalize(s)
+          if (!k || mergedSet.has(k)) continue
+          mergedSet.add(k)
+          mergedList.push(s.trim())
+        }
+        const updatedGd = { ...existingGd, confirmed_skills: mergedList }
+        await supabaseAdmin
+          .from('user_profiles')
+          .update({ gamification_data: updatedGd })
+          .eq('id', user.id)
+        console.log(`[adapt-resume] confirmed_skills merged: ${mergedList.length} total`)
+      } catch (e) {
+        console.warn('[adapt-resume] failed to persist confirmed_skills:', (e as Error).message)
+      }
+    }
+
     console.log(`[adapt-resume] SUCCESS user=${user.id} job=${jobId} ` +
       `changes=${parsed.changes?.length ?? 0} ` +
       `score=${matchUpgrade.before}→${matchUpgrade.after}`)
@@ -1104,6 +2234,7 @@ serve(async (req) => {
       match_score_after: matchUpgrade.after,
       cached: false,
       model_used: MODEL,
+      extra_skills_used: extraSkillsClean,
     })
   } catch (err) {
     const msg = (err as Error).message || 'unknown'

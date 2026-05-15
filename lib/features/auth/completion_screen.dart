@@ -9,7 +9,6 @@ import '../../services/analytics_service.dart';
 import '../../services/pdf_text_extractor.dart';
 import '../profile/profile_viewmodel.dart';
 import '../home/home_viewmodel.dart';
-import '../splash/splash_screen.dart' show AuthGate;
 import '../auth/user_viewmodel.dart';
 
 /// Pós-cadastro: usuário escolhe entre subir um CV pronto (vai pra biblioteca,
@@ -147,11 +146,10 @@ class _CompletionScreenState extends State<CompletionScreen>
       if (!mounted) return;
 
       Analytics.shared.onboardingCompleted();
-      // AuthGate vai detectar hasCampaign=true e levar pra HomeScreen (Vagas).
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const AuthGate()),
-        (route) => false,
-      );
+      // Não navega manualmente — o AuthGate (Consumer<UserViewModel>) detecta
+      // hasCampaign=true (setado por createCampaign acima) e re-renderiza
+      // pra HomeScreen automaticamente. Push manual aqui duplicava o AuthGate
+      // na árvore → GlobalKey colisão (tutorial.jobsTab da BottomNav).
     } catch (e) {
       Analytics.shared.cvImportFailed(reason: 'unexpected');
       _showError('Erro inesperado: $e');
@@ -176,10 +174,8 @@ class _CompletionScreenState extends State<CompletionScreen>
     context.read<HomeViewModel>().requestTabChange(HomeTabs.resume);
 
     Analytics.shared.onboardingCompleted();
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const AuthGate()),
-      (route) => false,
-    );
+    // Não navega manualmente — Consumer<UserViewModel> em AuthGate detecta
+    // hasCampaign=true e renderiza HomeScreen. Ver comentário em _uploadResumePath.
   }
 
   void _showError(String message) {

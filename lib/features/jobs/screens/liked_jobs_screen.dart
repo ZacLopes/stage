@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/stage_colors.dart';
@@ -19,12 +21,41 @@ class LikedJobsScreen extends StatefulWidget {
 }
 
 class _LikedJobsScreenState extends State<LikedJobsScreen> {
+  /// Mostra banner explicativo de "como aplicar" na primeira visita pós-
+  /// celebração de "primeira vaga salva". Persiste o estado em
+  /// SharedPreferences (`first_save_banner_dismissed_<userId>`).
+  bool _showFirstSaveBanner = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<JobsViewModel>().loadLikedJobs();
     });
+    _maybeLoadFirstSaveBanner();
+  }
+
+  Future<void> _maybeLoadFirstSaveBanner() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final celebratedKey = 'first_save_celebrated_$userId';
+    final dismissedKey = 'first_save_banner_dismissed_$userId';
+    final celebrated = prefs.getBool(celebratedKey) == true;
+    final dismissed = prefs.getBool(dismissedKey) == true;
+    if (celebrated && !dismissed && mounted) {
+      setState(() => _showFirstSaveBanner = true);
+    }
+  }
+
+  Future<void> _dismissFirstSaveBanner() async {
+    HapticFeedback.lightImpact();
+    setState(() => _showFirstSaveBanner = false);
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('first_save_banner_dismissed_$userId', true);
+    Analytics.shared.track('first_save_banner_dismissed');
   }
 
   Future<void> _refresh() async {
@@ -74,6 +105,8 @@ class _LikedJobsScreenState extends State<LikedJobsScreen> {
                   liked: vm.likedCount,
                   applied: vm.appliedCount,
                 ),
+                if (_showFirstSaveBanner && vm.likedJobs.isNotEmpty)
+                  _FirstSaveBanner(onDismiss: _dismissFirstSaveBanner),
                 Expanded(
                   child: RefreshIndicator(
                     color: StageColors.brandBlue,
@@ -748,3 +781,107 @@ class _SectionHeader extends StatelessWidget {
     );
   }
 }
+
+/// Banner explicativo exibido na primeira visita à aba Salvas após a
+/// celebração de "primeira vaga salva". Mostra como aplicar passo a passo,
+/// com botão X pra dismiss permanente.
+class _FirstSaveBanner extends StatelessWidget {
+  final VoidCallback onDismiss;
+  const _FirstSaveBanner({required this.onDismiss});
+
+  static const _indigo = Color(0xFF4F46E5);
+  static const _purple = Color(0xFF7C3AED);
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, child) {
+        return Transform.translate(
+          offset: Offset(0, (1 - t) * -20),
+          child: Opacity(opacity: t, child: child),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+        padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [_indigo, _purple],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: _indigo.withOpacity(0.32),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.lightbulb_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Como aplicar?',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Toque numa vaga abaixo, leia os detalhes e use o botão "Aplicar no site" pra ir direto pro recrutador. Quando aplicar, marque como "Já apliquei" pra organizar.',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.92),
+                      fontSize: 12.5,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+            InkWell(
+              onTap: onDismiss,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Icon(
+                  Icons.close_rounded,
+                  color: Colors.white.withOpacity(0.8),
+                  size: 18,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
