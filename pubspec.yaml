@@ -59,6 +59,7 @@ dependencies:
   cached_network_image: ^3.4.1
   posthog_flutter: ^4.10.1
   package_info_plus: ^8.0.0
+  onesignal_flutter: ^5.2.9
 
 dev_dependencies:
   flutter_test:

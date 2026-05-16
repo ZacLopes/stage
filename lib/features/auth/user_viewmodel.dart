@@ -8,6 +8,7 @@ import '../../data/supabase_repository.dart';
 import '../../data/local_storage_repository.dart';
 import '../../data/database_helper.dart';
 import '../../services/analytics_service.dart';
+import '../../services/notifications_service.dart';
 import '../../services/pdf_text_extractor.dart';
 
 class UserViewModel extends ChangeNotifier {
@@ -143,6 +144,10 @@ class UserViewModel extends ChangeNotifier {
             Analytics.shared.identify(uid, properties: {
               if (email != null) 'email': email,
             });
+            // Associa o device ao user no OneSignal (push é endereçável por
+            // uid agora). Idempotente — ok chamar em initialSession + signedIn.
+            // ignore: unawaited_futures
+            NotificationsService.shared.login(uid);
           }
           break;
         case AuthChangeEvent.signedOut:
@@ -152,6 +157,8 @@ class UserViewModel extends ChangeNotifier {
           notifyListeners();
           Analytics.shared.logoutCompleted();
           Analytics.shared.reset();
+          // ignore: unawaited_futures
+          NotificationsService.shared.logout();
           break;
         default:
           break;

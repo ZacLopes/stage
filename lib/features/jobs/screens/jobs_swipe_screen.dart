@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/constants/stage_app_links.dart';
 import '../../../services/ai_service.dart';
 import '../../../services/analytics_service.dart';
 import '../../auth/user_viewmodel.dart';
@@ -158,13 +159,10 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     if (job.salaryRange.isNotEmpty && job.salaryRange != 'A combinar') {
       buf.writeln('💰 ${job.salaryRange}');
     }
-    final url = job.externalUrl;
-    if (url != null && url.isNotEmpty) {
-      buf.writeln();
-      buf.writeln(url);
-    }
     buf.writeln();
     buf.writeln('Encontrei essa vaga no Stage 🚀');
+    buf.writeln();
+    buf.writeln(StageAppLinks.shareCallToAction);
 
     // Origem (origin) é importante no iPad — sem isso o share popover não
     // tem âncora visual e crasha. Pego a posição do botão de share usando

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../profile/profile_screen.dart';
 import '../resume/resume_tab.dart';
 import '../resume/resume_viewmodel.dart';
@@ -12,6 +13,7 @@ import '../shared/widgets/cv_landing_overlay.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../tutorial/tutorial_keys.dart';
 import '../tutorial/tutorial_step.dart';
+import '../../services/notifications_service.dart';
 import 'home_viewmodel.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -36,6 +38,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
       // Escuta pedidos de replay vindos de Configurações → Tutorial.
       context.read<TutorialController>().addListener(_onTutorialControllerChange);
+
+      // Push permission: pede assim que o user chega no home. Idempotente —
+      // flag em SharedPreferences (por user_id) garante 1 prompt por vida.
+      // ~1.5s pra UI assentar + user enxergar o home antes do prompt iOS.
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (!mounted) return;
+        final uid = Supabase.instance.client.auth.currentUser?.id;
+        // ignore: unawaited_futures
+        NotificationsService.shared.requestPermissionIfNotShown(uid);
+      });
 
       // Tutorial: roda 1x na primeira vez que o user chega na home.
       // (Pode ser re-disparado depois via Configurações → Tutorial.)
