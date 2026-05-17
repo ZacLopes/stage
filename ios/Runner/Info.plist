@@ -32,22 +32,59 @@
 				<string>io.supabase.stage</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>fb1268158548810380</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>FacebookAdvertiserIDCollectionEnabled</key>
+	<true/>
+	<key>FacebookAppID</key>
+	<string>1268158548810380</string>
+	<key>FacebookAutoLogAppEventsEnabled</key>
+	<true/>
+	<key>FacebookClientToken</key>
+	<string>cea0f8f3b17368c3d0283f2f2a431b73</string>
+	<key>FacebookDisplayName</key>
+	<string>Stage</string>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>https</string>
 		<string>http</string>
+		<string>fbapi</string>
+		<string>fb-messenger-share-api</string>
+		<string>fbauth2</string>
+		<string>fbshareextension</string>
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>O Stage usa a câmera apenas se você escolher tirar uma foto para o seu currículo.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>O Stage não solicita sua localização. Esta descrição existe apenas porque bibliotecas externas referenciam a API de localização do iOS.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>O Stage precisa salvar seu currículo em PDF na biblioteca quando você toca em compartilhar.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>O Stage acessa suas fotos apenas se você escolher selecionar uma imagem para o seu currículo.</string>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>Permitir o rastreamento ajuda o Stage a te mostrar vagas mais relevantes e medir quais campanhas de divulgação trazem candidatos como você.</string>
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>v9wttpbfk9.skadnetwork</string>
+		</dict>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>n38lu8286q.skadnetwork</string>
+		</dict>
+	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>

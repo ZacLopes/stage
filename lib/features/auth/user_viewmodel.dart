@@ -8,6 +8,7 @@ import '../../data/supabase_repository.dart';
 import '../../data/local_storage_repository.dart';
 import '../../data/database_helper.dart';
 import '../../services/analytics_service.dart';
+import '../../services/facebook_events_service.dart';
 import '../../services/notifications_service.dart';
 import '../../services/pdf_text_extractor.dart';
 
@@ -148,6 +149,33 @@ class UserViewModel extends ChangeNotifier {
             // uid agora). Idempotente — ok chamar em initialSession + signedIn.
             // ignore: unawaited_futures
             NotificationsService.shared.login(uid);
+
+            // Facebook CompletedRegistration — fallback pra Google OAuth.
+            // Email/Apple disparam explicitamente em signUp/signInWithApple.
+            // Google volta via deep link → cai aqui no signedIn. Filtros:
+            //  - Só evento signedIn (não initialSession/tokenRefreshed pra
+            //    não disparar em session restore)
+            //  - User precisa ser RECENTE (createdAt < 5 min) pra evitar
+            //    falso-positivo em user existente logando após o update
+            //  - Flag de dedupe em logCompletedRegistrationOnce garante 1x
+            if (event == AuthChangeEvent.signedIn) {
+              final createdAtStr = _supabase.auth.currentUser?.createdAt;
+              if (createdAtStr != null) {
+                final createdAt = DateTime.tryParse(createdAtStr);
+                if (createdAt != null &&
+                    DateTime.now().toUtc().difference(createdAt.toUtc()).inMinutes < 5) {
+                  final provider =
+                      _supabase.auth.currentUser?.appMetadata['provider']
+                              ?.toString() ??
+                          'unknown';
+                  // ignore: unawaited_futures
+                  FacebookEventsService.shared.logCompletedRegistrationOnce(
+                    userId: uid,
+                    method: provider,
+                  );
+                }
+              }
+            }
           }
           break;
         case AuthChangeEvent.signedOut:
@@ -304,6 +332,13 @@ class UserViewModel extends ChangeNotifier {
         // Profile is automatically created by database trigger
         await _loadUser();
         Analytics.shared.signUpCompleted(method: 'email');
+        // Facebook CompletedRegistration — só dispara aqui pq signUp() só
+        // roda em cadastro novo. SignIn não passa por essa branch.
+        // ignore: unawaited_futures
+        FacebookEventsService.shared.logCompletedRegistrationOnce(
+          userId: response.user!.id,
+          method: 'email',
+        );
       }
     } catch (e) {
       // Check if error is "User already registered"
@@ -475,6 +510,17 @@ class UserViewModel extends ChangeNotifier {
         );
         _user = _user!.copyWith(name: appleName);
         notifyListeners();
+      }
+
+      // Facebook CompletedRegistration via Apple. Apple só manda nome no
+      // PRIMEIRO authorize — usamos isso como prova de signup novo.
+      // Idempotente via flag em SharedPreferences (logCompletedRegistrationOnce).
+      if (appleName.isNotEmpty && _user?.id != null) {
+        // ignore: unawaited_futures
+        FacebookEventsService.shared.logCompletedRegistrationOnce(
+          userId: _user!.id,
+          method: 'apple',
+        );
       }
 
     } catch (e) {

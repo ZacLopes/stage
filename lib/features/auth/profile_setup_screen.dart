@@ -126,6 +126,38 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     return _ParsedDob(candidate, null);
   }
 
+  Future<void> _confirmExitOnboarding() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sair do cadastro?'),
+        content: const Text(
+          'Você vai precisar entrar de novo. Seu progresso desta tela será perdido.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Continuar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text('Sair', style: TextStyle(color: StageColors.error)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await context.read<UserViewModel>().logout();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao sair: $e'), backgroundColor: StageColors.error),
+        );
+      }
+    }
+  }
+
   bool get _isCurrentStepValid {
     if (_currentStep == 0) {
       // Step 1 pede: nome (pode vir pré-preenchido) + nascimento + celular.
@@ -459,7 +491,11 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                           curve: Curves.easeOutCubic,
                         );
                       } else {
-                        Navigator.pop(context);
+                        // Step 0: ProfileSetup é root via AuthGate (não foi
+                        // pushed). Navigator.pop() pop a única rota → tela
+                        // preta. Solução: confirma logout, AuthGate auto-
+                        // roteia pra AuthScreen quando user vira null.
+                        _confirmExitOnboarding();
                       }
                     },
                   ),

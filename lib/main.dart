@@ -25,6 +25,7 @@ import 'features/tutorial/tutorial_controller.dart';
 import 'features/tutorial/tutorial_overlay.dart';
 import 'services/ai_service.dart';
 import 'services/analytics_service.dart';
+import 'services/facebook_events_service.dart';
 import 'services/notifications_service.dart';
 import 'features/splash/splash_screen.dart';
 import 'features/version/version_gate.dart';
@@ -74,9 +75,18 @@ void main() async {
     await Analytics.shared.appOpened();
   } catch (_) {}
 
+  // Facebook App Events: init sem pedir ATT ainda. ATT é solicitado depois
+  // (HomeScreen, ~1s após home aparecer) — Apple recomenda ATT ANTES de
+  // qualquer outro prompt de permissão pra atribuição de campanha ficar
+  // correta. Eventos Install/Activate sobem automaticamente.
+  try {
+    await FacebookEventsService.shared.init();
+  } catch (_) {}
+
   // OneSignal: init sem solicitar permissão. O prompt nativo é chamado
-  // depois (na primeira vaga salva — momento de maior intenção). Login do
-  // user é feito no UserViewModel quando o auth listener dispara signedIn.
+  // depois (HomeScreen, ~4s após home — DEPOIS do ATT pra não sobrepor
+  // 2 prompts iOS na mesma tela). Login do user é feito no UserViewModel
+  // quando o auth listener dispara signedIn.
   try {
     await NotificationsService.shared.init();
   } catch (_) {}

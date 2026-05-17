@@ -13,6 +13,7 @@ import '../shared/widgets/cv_landing_overlay.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../tutorial/tutorial_keys.dart';
 import '../tutorial/tutorial_step.dart';
+import '../../services/facebook_events_service.dart';
 import '../../services/notifications_service.dart';
 import 'home_viewmodel.dart';
 
@@ -39,10 +40,22 @@ class _HomeScreenState extends State<HomeScreen> {
       // Escuta pedidos de replay vindos de Configurações → Tutorial.
       context.read<TutorialController>().addListener(_onTutorialControllerChange);
 
-      // Push permission: pede assim que o user chega no home. Idempotente —
-      // flag em SharedPreferences (por user_id) garante 1 prompt por vida.
-      // ~1.5s pra UI assentar + user enxergar o home antes do prompt iOS.
-      Future.delayed(const Duration(milliseconds: 1500), () {
+      // Prompts iOS sequenciais — Apple recomenda ATT ANTES de outros
+      // prompts de permissão pra que o user entenda o contexto de tracking
+      // antes de ser bombardeado com pedidos. Ordem:
+      //
+      //   T+1000ms  → ATT (App Tracking Transparency) - pra Meta Ads/atribuição
+      //   T+4000ms  → Push (OneSignal) - notificação de vagas
+      //
+      // Delay entre os 2 é proposital: dá tempo do user tomar decisão no
+      // primeiro prompt sem ser surpreendido pelo segundo. Cada um tem flag
+      // de "já pediu" persistido — não re-prompt em re-aberturas.
+      Future.delayed(const Duration(milliseconds: 1000), () {
+        if (!mounted) return;
+        // ignore: unawaited_futures
+        FacebookEventsService.shared.requestAttIfNeeded();
+      });
+      Future.delayed(const Duration(milliseconds: 4000), () {
         if (!mounted) return;
         final uid = Supabase.instance.client.auth.currentUser?.id;
         // ignore: unawaited_futures

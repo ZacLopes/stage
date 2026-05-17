@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/stage_colors.dart';
 import '../../../services/analytics_service.dart';
+import '../../../services/facebook_events_service.dart';
 import '../data/swipe_repository.dart';
 import '../jobs_viewmodel.dart';
 import 'job_details_sheet.dart';
@@ -84,7 +85,13 @@ class _LikedJobsScreenState extends State<LikedJobsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Não consegui abrir o link da vaga.')),
       );
+      return;
     }
+    // Facebook SubmittedApplication — dispara APENAS quando o launchUrl
+    // retornou true (site externo abriu de fato, intent confirmada). Se a
+    // URL é inválida ou launch falhou, evento NÃO sobe pra Meta Ads.
+    // ignore: unawaited_futures
+    FacebookEventsService.shared.logSubmittedApplication(jobId: jobId);
   }
 
   void _toggleApplied(LikedJob liked) {
