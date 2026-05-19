@@ -104,6 +104,83 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
     context.read<JobsViewModel>().setApplied(liked.job.id, !liked.applied);
   }
 
+  Future<void> _confirmAndRemove(LikedJob liked) async {
+    HapticFeedback.lightImpact();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Remover das salvas?',
+          style: GoogleFonts.outfit(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: StageColors.titleText,
+          ),
+        ),
+        content: Text(
+          '"${liked.job.title}" sai daqui e volta a aparecer no feed de vagas.',
+          style: GoogleFonts.inter(
+            fontSize: 14,
+            color: StageColors.bodyGray,
+            height: 1.4,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(
+              'Cancelar',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: StageColors.subtitleGray,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(
+              'Remover',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFFDC2626),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final vm = context.read<JobsViewModel>();
+    final ok = await vm.removeLikedJob(liked.job.id);
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não consegui remover. Tente de novo.')),
+      );
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: const Text('Vaga removida das salvas'),
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: 'Desfazer',
+            textColor: StageColors.brandCyan,
+            onPressed: () => vm.restoreLikedJob(liked),
+          ),
+        ),
+      );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -237,6 +314,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
             onOpenLink:
                 url != null ? () => _openExternalUrl(url, liked.job.id) : null,
             externalUrl: url,
+            onRemove: () => _confirmAndRemove(liked),
           );
         }
         return const SizedBox.shrink();
@@ -396,6 +474,7 @@ class _LikedJobCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onToggleApplied;
   final VoidCallback? onOpenLink;
+  final VoidCallback onRemove;
   final String? externalUrl;
   /// True quando a vaga já passou do prazo. Card renderiza com style sutil
   /// (opacity reduzida, borda neutra, badge "Prazo expirado") indicando que
@@ -408,6 +487,7 @@ class _LikedJobCard extends StatelessWidget {
     required this.onToggleApplied,
     required this.onOpenLink,
     required this.externalUrl,
+    required this.onRemove,
     this.isExpired = false,
   });
 
@@ -455,7 +535,7 @@ class _LikedJobCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _Logo(url: job.companyLogoUrl, name: job.companyName),
                   const SizedBox(width: 12),
@@ -508,6 +588,7 @@ class _LikedJobCard extends StatelessWidget {
                       ],
                     ),
                   ),
+                  _CardMenu(onRemove: onRemove),
                 ],
               ),
               const SizedBox(height: 12),
@@ -698,6 +779,58 @@ class _ActionBtn extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Menu compacto (3-dots) no canto do card. Hoje só tem a ação de remover
+/// a vaga das salvas — fica num popup pra não competir visualmente com os
+/// CTAs principais (Aplicar / Marcar como aplicada).
+class _CardMenu extends StatelessWidget {
+  final VoidCallback onRemove;
+  const _CardMenu({required this.onRemove});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 32,
+      height: 32,
+      child: PopupMenuButton<String>(
+        tooltip: 'Mais opções',
+        padding: EdgeInsets.zero,
+        icon: const Icon(
+          Icons.more_vert_rounded,
+          size: 20,
+          color: StageColors.subtitleGray,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        onSelected: (value) {
+          if (value == 'remove') onRemove();
+        },
+        itemBuilder: (_) => [
+          PopupMenuItem<String>(
+            value: 'remove',
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.bookmark_remove_outlined,
+                  size: 18,
+                  color: Color(0xFFDC2626),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'Remover de salvas',
+                  style: GoogleFonts.inter(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFFDC2626),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

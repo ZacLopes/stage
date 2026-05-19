@@ -104,6 +104,47 @@ class SwipeRepository {
     }
   }
 
+  /// Remove o registro de swipe (qualquer action) de um par user×job.
+  /// Usado pra desfazer uma vaga salva — apaga a linha em swipe_actions,
+  /// fazendo a vaga voltar a estar elegível pro feed em fetches futuros.
+  Future<void> removeLike(String userId, String jobId) async {
+    try {
+      await _client
+          .from('swipe_actions')
+          .delete()
+          .eq('user_id', userId)
+          .eq('job_id', jobId);
+    } catch (e) {
+      print('Error removing like: $e');
+      rethrow;
+    }
+  }
+
+  /// Recria um registro de like com o `created_at` original. Usado pra
+  /// desfazer a remoção via SnackBar "Desfazer" — preserva a ordem original
+  /// na lista (que é ordenada por created_at desc).
+  Future<void> restoreLike(
+    String userId,
+    String jobId, {
+    required DateTime createdAt,
+    required bool applied,
+    DateTime? appliedAt,
+  }) async {
+    try {
+      await _client.from('swipe_actions').upsert({
+        'user_id': userId,
+        'job_id': jobId,
+        'action': 'liked',
+        'created_at': createdAt.toIso8601String(),
+        'applied': applied,
+        'applied_at': appliedAt?.toIso8601String(),
+      }, onConflict: 'user_id,job_id');
+    } catch (e) {
+      print('Error restoring like: $e');
+      rethrow;
+    }
+  }
+
   /// Alterna o flag `applied` da vaga curtida do user.
   Future<void> setApplied(String userId, String jobId, bool applied) async {
     try {

@@ -521,6 +521,60 @@ class JobsViewModel extends ChangeNotifier {
     }
   }
 
+  /// Remove uma vaga das salvas. Otimista: tira da lista antes do DB.
+  /// Retorna `true` se removeu com sucesso (UI usa pra mostrar snackbar
+  /// de "Desfazer"). O caller é responsável por chamar [restoreLikedJob]
+  /// caso o user toque "Desfazer".
+  Future<bool> removeLikedJob(String jobId) async {
+    if (userId == null) return false;
+
+    final idx = _likedJobs.indexWhere((l) => l.job.id == jobId);
+    if (idx == -1) return false;
+
+    final removed = _likedJobs.removeAt(idx);
+    // Solta o swipedId pra que a vaga possa voltar ao feed em próximo reload.
+    _swipedIds.remove(jobId);
+    notifyListeners();
+
+    try {
+      await _swipeRepository.removeLike(userId!, jobId);
+      // ignore: unawaited_futures
+      Analytics.shared.track('job_unsaved', props: {'job_id': jobId});
+      return true;
+    } catch (e) {
+      print('Error removing liked job: $e');
+      // Rollback otimista
+      _likedJobs.insert(idx, removed);
+      _swipedIds.add(jobId);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Desfaz o [removeLikedJob] — recria o registro com `created_at` original
+  /// pra preservar a posição na lista. Chamado pela ação "Desfazer" do
+  /// SnackBar mostrado após remoção.
+  Future<void> restoreLikedJob(LikedJob liked) async {
+    if (userId == null) return;
+
+    try {
+      await _swipeRepository.restoreLike(
+        userId!,
+        liked.job.id,
+        createdAt: liked.likedAt,
+        applied: liked.applied,
+        appliedAt: liked.appliedAt,
+      );
+      // Recarrega pra puxar o swipeId novo (gerado pelo DB no upsert) e
+      // manter consistência com a próxima sessão.
+      await loadLikedJobs(silent: true);
+      _swipedIds.add(liked.job.id);
+      notifyListeners();
+    } catch (e) {
+      print('Error restoring liked job: $e');
+    }
+  }
+
   /// Marca/desmarca vaga como aplicada. Otimista: atualiza UI antes do DB.
   Future<void> setApplied(String jobId, bool applied) async {
     if (userId == null) return;
