@@ -1,13 +1,10 @@
-import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'package:file_picker/file_picker.dart';
+import '../../core/analytics/screen_tracking.dart';
 import '../../core/constants/stage_colors.dart';
 import '../../services/analytics_service.dart';
-import '../../services/pdf_text_extractor.dart';
-import '../profile/profile_viewmodel.dart';
+import '../../services/cv_import_service.dart';
 import '../home/home_viewmodel.dart';
 import '../auth/user_viewmodel.dart';
 
@@ -23,7 +20,10 @@ class CompletionScreen extends StatefulWidget {
 }
 
 class _CompletionScreenState extends State<CompletionScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, ScreenTrackingMixin {
+  @override
+  String get screenName => 'onboarding_completion';
+
   late AnimationController _appearController;
   late Animation<double> _fadeHeader;
   late Animation<Offset> _slideCard1;
@@ -34,7 +34,7 @@ class _CompletionScreenState extends State<CompletionScreen>
   @override
   void initState() {
     super.initState();
-    Analytics.shared.onboardingStepReached(step: 4);
+    Analytics.shared.onboardingStepReached(step: 4, stepId: 'cv_upload_choice');
     _appearController = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1200));
 
@@ -60,101 +60,39 @@ class _CompletionScreenState extends State<CompletionScreen>
   }
 
   /// Caminho A: usuário já tem CV pronto.
-  /// 1. Picker → bytes do PDF
-  /// 2. Salva na biblioteca (ProfileViewModel.saveResume)
-  /// 3. Cria campaign skipped + cai na Home (Vagas)
+  /// Delega o pipeline (pick → save → extract + analytics) pro [CvImportService]
+  /// — fonte única pra cv_import_started/succeeded/failed. Aqui só fazemos o
+  /// pós-import (createCampaign skipped + onboardingCompleted).
   Future<void> _uploadResumePath() async {
     setState(() => _isPickingFile = true);
-    Analytics.shared.cvImportStarted();
 
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
-        withData: true,
-      );
+    final result = await CvImportService.pickAndImport(context);
 
-      if (result == null || result.files.isEmpty) {
-        // User cancelou o picker — não conta como falha.
-        if (mounted) setState(() => _isPickingFile = false);
-        return;
-      }
-
-      final file = result.files.single;
-      final bytes = file.bytes ??
-          (file.path != null ? await File(file.path!).readAsBytes() : null);
-
-      if (bytes == null) {
-        Analytics.shared.cvImportFailed(reason: 'read_failed');
-        _showError('Não foi possível ler o arquivo.');
-        if (mounted) setState(() => _isPickingFile = false);
-        return;
-      }
-
-      // 1. Salva o PDF na biblioteca
-      try {
-        final dt = DateTime.now();
-        final title = file.name.isNotEmpty
-            ? file.name.replaceAll(RegExp(r'\.pdf$'), '')
-            : 'Currículo importado (${dt.day}/${dt.month})';
-        await context.read<ProfileViewModel>().saveResume(
-              title,
-              Uint8List.fromList(bytes),
-            );
-      } catch (e) {
-        Analytics.shared.cvImportFailed(reason: 'save_failed');
-        _showError('Erro ao salvar o currículo: $e');
-        if (mounted) setState(() => _isPickingFile = false);
-        return;
-      }
-
-      // 2. Extrai texto pra alimentar o match score (sem IA, só keyword overlap)
-      var extractedChars = 0;
-      try {
-        final rawText = ResumePdfExtractor.extract(Uint8List.fromList(bytes));
-        if (ResumePdfExtractor.isUsable(rawText) && mounted) {
-          extractedChars = rawText.length;
-          final userVM = context.read<UserViewModel>();
-          final currentData = Map<String, dynamic>.from(
-              userVM.user?.gamificationData ?? const {});
-          currentData['imported_resume'] = {
-            'raw_text': rawText,
-            'imported_at': DateTime.now().toIso8601String(),
-          };
-          await userVM.updateProfile(gamificationData: currentData);
-        }
-      } catch (e) {
-        // Falha na extração não bloqueia o fluxo — usuário ainda tem CV salvo.
-        // Match score apenas não vai ter o boost de skills do CV.
-        debugPrint('PDF text extraction failed (non-blocking): $e');
-      }
-
-      Analytics.shared.cvImportSucceeded(extractedChars: extractedChars);
-
-      if (!mounted) return;
-
-      // Cria campaign sem target (skipped) — o cargo-alvo será coletado
-      // contextualmente depois (na hora de adaptar CV pra uma vaga específica).
-      // Sem isso o AuthGate continuaria roteando pra CompletionScreen porque
-      // `hasCampaign` é o flag de "onboarding finalizado".
-      try {
-        await context.read<UserViewModel>().createCampaign(isSkipped: true);
-      } catch (e) {
-        debugPrint('createCampaign(skip) failed (non-blocking): $e');
-      }
-
-      if (!mounted) return;
-
-      Analytics.shared.onboardingCompleted();
-      // Não navega manualmente — o AuthGate (Consumer<UserViewModel>) detecta
-      // hasCampaign=true (setado por createCampaign acima) e re-renderiza
-      // pra HomeScreen automaticamente. Push manual aqui duplicava o AuthGate
-      // na árvore → GlobalKey colisão (tutorial.jobsTab da BottomNav).
-    } catch (e) {
-      Analytics.shared.cvImportFailed(reason: 'unexpected');
-      _showError('Erro inesperado: $e');
+    if (!result.success) {
+      if (result.errorMessage != null) _showError(result.errorMessage!);
       if (mounted) setState(() => _isPickingFile = false);
+      return;
     }
+
+    if (!mounted) return;
+
+    // Cria campaign sem target (skipped) — o cargo-alvo será coletado
+    // contextualmente depois (na hora de adaptar CV pra uma vaga específica).
+    // Sem isso o AuthGate continuaria roteando pra CompletionScreen porque
+    // `hasCampaign` é o flag de "onboarding finalizado".
+    try {
+      await context.read<UserViewModel>().createCampaign(isSkipped: true);
+    } catch (e) {
+      debugPrint('createCampaign(skip) failed (non-blocking): $e');
+    }
+
+    if (!mounted) return;
+
+    Analytics.shared.onboardingCompleted();
+    // Não navega manualmente — o AuthGate (Consumer<UserViewModel>) detecta
+    // hasCampaign=true (setado por createCampaign acima) e re-renderiza
+    // pra HomeScreen automaticamente. Push manual aqui duplicava o AuthGate
+    // na árvore → GlobalKey colisão (tutorial.jobsTab da BottomNav).
   }
 
   /// Caminho B: construir o CV pela trilha (dentro da aba Currículo).

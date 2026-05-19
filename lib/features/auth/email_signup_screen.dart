@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import '../../core/analytics/screen_tracking.dart';
 import '../../core/constants/stage_colors.dart';
 import '../../core/utils/auth_error_formatter.dart';
 import '../../services/analytics_service.dart';
@@ -15,7 +16,11 @@ class EmailSignupScreen extends StatefulWidget {
   State<EmailSignupScreen> createState() => _EmailSignupScreenState();
 }
 
-class _EmailSignupScreenState extends State<EmailSignupScreen> {
+class _EmailSignupScreenState extends State<EmailSignupScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'auth_email_signup';
+
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -28,7 +33,7 @@ class _EmailSignupScreenState extends State<EmailSignupScreen> {
   @override
   void initState() {
     super.initState();
-    Analytics.shared.onboardingStepReached(step: 2);
+    Analytics.shared.onboardingStepReached(step: 2, stepId: 'auth_email_signup');
   }
 
   @override

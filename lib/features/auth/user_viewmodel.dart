@@ -150,30 +150,41 @@ class UserViewModel extends ChangeNotifier {
             // ignore: unawaited_futures
             NotificationsService.shared.login(uid);
 
-            // Facebook CompletedRegistration — fallback pra Google OAuth.
-            // Email/Apple disparam explicitamente em signUp/signInWithApple.
-            // Google volta via deep link → cai aqui no signedIn. Filtros:
-            //  - Só evento signedIn (não initialSession/tokenRefreshed pra
-            //    não disparar em session restore)
-            //  - User precisa ser RECENTE (createdAt < 5 min) pra evitar
-            //    falso-positivo em user existente logando após o update
-            //  - Flag de dedupe em logCompletedRegistrationOnce garante 1x
+            // PostHog: sign_up_completed vs login_completed.
+            // Pre-fix: signUpCompleted era chamado SÓ no email path (linha 334),
+            // então 87% dos novos usuários (Apple Sign-In) ficavam sem evento.
+            // Resultado em prod: 33 sign_up_completed vs 253 onboarding_completed.
+            // Agora centralizamos no listener — cobre Apple/Google/email.
+            // Provider sai do appMetadata (Supabase popula com 'apple',
+            // 'google', 'email' conforme o canal de auth).
+            // Distinção signup vs login: createdAt < 5 min indica usuário
+            // brand-new (mesma heurística usada pra Facebook abaixo).
             if (event == AuthChangeEvent.signedIn) {
               final createdAtStr = _supabase.auth.currentUser?.createdAt;
-              if (createdAtStr != null) {
-                final createdAt = DateTime.tryParse(createdAtStr);
-                if (createdAt != null &&
-                    DateTime.now().toUtc().difference(createdAt.toUtc()).inMinutes < 5) {
-                  final provider =
-                      _supabase.auth.currentUser?.appMetadata['provider']
-                              ?.toString() ??
-                          'unknown';
-                  // ignore: unawaited_futures
-                  FacebookEventsService.shared.logCompletedRegistrationOnce(
-                    userId: uid,
-                    method: provider,
-                  );
-                }
+              final provider = _supabase.auth.currentUser
+                      ?.appMetadata['provider']
+                      ?.toString() ??
+                  'unknown';
+              final createdAt = createdAtStr != null
+                  ? DateTime.tryParse(createdAtStr)
+                  : null;
+              final isFreshSignup = createdAt != null &&
+                  DateTime.now()
+                          .toUtc()
+                          .difference(createdAt.toUtc())
+                          .inMinutes <
+                      5;
+              if (isFreshSignup) {
+                Analytics.shared.signUpCompleted(method: provider);
+                // Facebook CompletedRegistration — mesma freshness window.
+                // Flag de dedupe em logCompletedRegistrationOnce garante 1x.
+                // ignore: unawaited_futures
+                FacebookEventsService.shared.logCompletedRegistrationOnce(
+                  userId: uid,
+                  method: provider,
+                );
+              } else {
+                Analytics.shared.loginCompleted(method: provider);
               }
             }
           }
@@ -329,16 +340,11 @@ class UserViewModel extends ChangeNotifier {
       );
 
       if (response.user != null) {
-        // Profile is automatically created by database trigger
+        // Profile is automatically created by database trigger.
+        // sign_up_completed + Facebook CompletedRegistration são emitidos
+        // pelo listener de onAuthStateChange em _init() (cobre todos os
+        // canais: email, apple, google — não só email).
         await _loadUser();
-        Analytics.shared.signUpCompleted(method: 'email');
-        // Facebook CompletedRegistration — só dispara aqui pq signUp() só
-        // roda em cadastro novo. SignIn não passa por essa branch.
-        // ignore: unawaited_futures
-        FacebookEventsService.shared.logCompletedRegistrationOnce(
-          userId: response.user!.id,
-          method: 'email',
-        );
       }
     } catch (e) {
       // Check if error is "User already registered"
@@ -382,8 +388,9 @@ class UserViewModel extends ChangeNotifier {
         password: password,
       );
 
+      // login_completed é emitido pelo listener de onAuthStateChange em
+      // _init() — cobre todos os canais (email, apple, google).
       await _loadUser();
-      Analytics.shared.loginCompleted(method: 'email');
     } catch (e) {
       print('Error signing in: $e');
       rethrow;
@@ -454,7 +461,12 @@ class UserViewModel extends ChangeNotifier {
   Future<void> signInWithApple() async {
     _isLoading = true;
     notifyListeners();
-    
+    // Analytics: dispara `apple_signin_started` no início. Combinado com
+    // `apple_signin_failed` (catch) e `sign_up_completed`/`login_completed`
+    // (listener), permite calcular abandono entre clique e finalização.
+    // ignore: unawaited_futures
+    Analytics.shared.appleSigninStarted();
+
     try {
       final rawNonce = _supabase.auth.generateRawNonce();
       final hashedNonce = sha256.convert(utf8.encode(rawNonce)).toString();
@@ -469,6 +481,9 @@ class UserViewModel extends ChangeNotifier {
 
       final idToken = credential.identityToken;
       if (idToken == null) {
+        // appleSigninFailed(code: 'token_missing') é emitido no catch abaixo
+        // (a mensagem "Apple Id token missing" entra na detecção). Não emitir
+        // aqui pra evitar evento duplicado.
         throw Exception('Apple Id token missing.');
       }
 
@@ -524,6 +539,20 @@ class UserViewModel extends ChangeNotifier {
       }
 
     } catch (e) {
+      // SignInWithAppleAuthorizationException com code=canceled vem quando
+      // o user clica fora do diálogo iOS. Distinguimos pra separar abandono
+      // (esperado) de falha técnica (não esperada).
+      final errStr = e.toString().toLowerCase();
+      final String code;
+      if (errStr.contains('canceled') || errStr.contains('cancelled')) {
+        code = 'cancelled';
+      } else if (errStr.contains('apple id token missing')) {
+        code = 'token_missing';
+      } else {
+        code = 'unknown';
+      }
+      // ignore: unawaited_futures
+      Analytics.shared.appleSigninFailed(code: code);
       print('Error signing in with Apple natively: $e');
       rethrow;
     } finally {

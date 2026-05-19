@@ -13,9 +13,12 @@ import '../shared/widgets/cv_landing_overlay.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../tutorial/tutorial_keys.dart';
 import '../tutorial/tutorial_step.dart';
+import '../../core/analytics/screen_tracking.dart';
+import '../../services/analytics_service.dart';
 import '../../services/facebook_events_service.dart';
 import '../../services/notifications_service.dart';
 import 'home_viewmodel.dart';
+import 'widgets/pending_adapted_cv_banner.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,7 +27,10 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
+  @override
+  String get screenName => 'home';
+
   int _currentIndex = 0;
   final PageController _pageController = PageController();
 
@@ -218,8 +224,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Mapa estável tab → screen_name pra PostHog. Mantido aqui (não no
+  /// `HomeTabs`) porque é convenção de telemetria, não de domínio.
+  static const Map<int, String> _tabScreenNames = {
+    HomeTabs.jobs: 'jobs_swipe',
+    HomeTabs.saved: 'jobs_liked',
+    HomeTabs.resume: 'resume_tab',
+    HomeTabs.profile: 'profile',
+  };
+
   void _navigateToPage(int index) {
     if (!mounted) return; // Guard: state may be stale from an old closure
+    final previousIndex = _currentIndex;
     setState(() {
       _currentIndex = index;
     });
@@ -233,6 +249,20 @@ class _HomeScreenState extends State<HomeScreen> {
     // card text (e.g. "Atualizar pela trilha") reflects current state.
     if (index == HomeTabs.resume) {
        context.read<ResumeViewModel>().loadResumeData();
+    }
+
+    // Telemetria de troca de aba — dispara `$screen` com o nome real da
+    // tab destino. `ScreenTrackingMixin` cobre a PRIMEIRA visita (initState),
+    // mas com AutomaticKeepAliveClientMixin no JobsSwipeScreen o State
+    // não recria em re-visitas, então este emit é o que mede stickiness
+    // por aba e tempo entre tabs. Emitir só em troca real, não em re-tap
+    // da mesma aba.
+    if (previousIndex != index) {
+      final name = _tabScreenNames[index];
+      if (name != null) {
+        // ignore: unawaited_futures
+        Analytics.shared.screen(name);
+      }
     }
   }
 
@@ -261,15 +291,34 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF3F4F6),
       body: SafeArea(
-        child: PageView(
-          controller: _pageController,
-          physics: const NeverScrollableScrollPhysics(), // Disable swipe
-          onPageChanged: (index) {
-             if (_currentIndex != index) {
-               setState(() => _currentIndex = index);
-             }
-          },
-          children: tabs,
+        child: Column(
+          children: [
+            // F2.5: banner persistente quando o user adaptou CV e ainda
+            // não exportou. Renderiza vazio (SizedBox) se não há pendente.
+            // Tap navega pra aba Vagas — adaptação cached re-aparece sem
+            // custo de IA. Stale > 3 dias é auto-limpo pelo tracker.
+            PendingAdaptedCvBanner(
+              onOpen: (p) {
+                // Pede pro JobsSwipeScreen abrir a sheet de adaptação do
+                // job — JobsSwipeScreen escuta esse pending no build.
+                context.read<JobsViewModel>().requestOpenAdaptSheet(p.jobId);
+                _navigateToPage(HomeTabs.jobs);
+              },
+            ),
+            Expanded(
+              child: PageView(
+                controller: _pageController,
+                physics:
+                    const NeverScrollableScrollPhysics(), // Disable swipe
+                onPageChanged: (index) {
+                  if (_currentIndex != index) {
+                    setState(() => _currentIndex = index);
+                  }
+                },
+                children: tabs,
+              ),
+            ),
+          ],
         ),
       ),
       bottomNavigationBar: Container(

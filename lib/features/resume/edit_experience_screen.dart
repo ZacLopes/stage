@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/analytics/screen_tracking.dart';
 import '../../data/models/models.dart';
 import '../../data/supabase_repository.dart';
 import '../../services/ai_service.dart';
@@ -29,7 +30,15 @@ class EditExperienceScreen extends StatefulWidget {
   State<EditExperienceScreen> createState() => _EditExperienceScreenState();
 }
 
-class _EditExperienceScreenState extends State<EditExperienceScreen> {
+class _EditExperienceScreenState extends State<EditExperienceScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'resume_experience_edit';
+
+  @override
+  Map<String, Object>? get screenProperties =>
+      {'experience_phase_id': widget.experiencePhaseId};
+
   final _repo = SupabaseRepository();
   final _aiService = AIService();
 

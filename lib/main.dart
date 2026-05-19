@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -21,6 +24,7 @@ import 'features/jobs/jobs_viewmodel.dart';
 import 'features/jobs/data/job_repository.dart';
 import 'features/jobs/data/swipe_repository.dart';
 import 'features/jobs/data/preferences_repository.dart';
+import 'features/jobs/pending_adapted_cv_tracker.dart';
 import 'features/tutorial/tutorial_controller.dart';
 import 'features/tutorial/tutorial_overlay.dart';
 import 'services/ai_service.dart';
@@ -30,9 +34,43 @@ import 'services/notifications_service.dart';
 import 'features/splash/splash_screen.dart';
 import 'features/version/version_gate.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+void main() {
+  // Captura global de exceptions. Três caminhos cobertos:
+  //  - FlutterError.onError      → erros do framework Flutter (build, layout, paint)
+  //  - PlatformDispatcher.onError → erros assíncronos não capturados na engine
+  //  - runZonedGuarded            → erros Dart fora do framework (futures, isolates)
+  // Todos rotam pro PostHog via Analytics.shared.captureException, que emite
+  // `$exception` e alimenta o produto Error Tracking. Sem isso, app fica cego
+  // pra crashes (estado pré-fix: 0 exceptions em 7 dias com 1.146 rage clicks).
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
 
+    FlutterError.onError = (FlutterErrorDetails details) {
+      FlutterError.presentError(details);
+      Analytics.shared.captureException(
+        details.exception,
+        stackTrace: details.stack,
+        handled: false,
+        extra: {
+          if (details.library != null) 'flutter_library': details.library!,
+          if (details.context != null)
+            'flutter_context': details.context!.toDescription(),
+        },
+      );
+    };
+
+    PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+      Analytics.shared.captureException(error, stackTrace: stack, handled: false);
+      return true; // marca como tratado pra não derrubar o app
+    };
+
+    await _bootstrap();
+  }, (Object error, StackTrace stack) {
+    Analytics.shared.captureException(error, stackTrace: stack, handled: false);
+  });
+}
+
+Future<void> _bootstrap() async {
   // Trava o app em retrato — não suporta paisagem (UX foi desenhada vertical).
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
@@ -73,6 +111,13 @@ void main() async {
     await Analytics.shared.init();
     // Dispara o evento "app aberto" no boot — base pra DAU/MAU.
     await Analytics.shared.appOpened();
+  } catch (_) {}
+
+  // Hidrata o tracker de "CV adaptado pendente de export" do SharedPreferences
+  // antes da árvore widget montar, pra que o banner do Home apareça já no
+  // primeiro frame se houver pending (sem flash vazio → cheio).
+  try {
+    await PendingAdaptedCvTracker.shared.hydrate();
   } catch (_) {}
 
   // Facebook App Events: init sem pedir ATT ainda. ATT é solicitado depois
@@ -142,6 +187,12 @@ void main() async {
         ),
         ChangeNotifierProvider<TutorialController>(
           create: (_) => TutorialController(),
+        ),
+        // PendingAdaptedCvTracker é singleton — provê via .value pra que
+        // widgets que assinam (banner do Home) reflitam markAdapted/clear
+        // em tempo real, em vez de só atualizar no próximo cold start.
+        ChangeNotifierProvider<PendingAdaptedCvTracker>.value(
+          value: PendingAdaptedCvTracker.shared,
         ),
       ],
       child: const CareerGamificationApp(),

@@ -13,6 +13,7 @@
 
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
+import { trackAIGeneration } from '../_shared/posthog.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -427,6 +428,17 @@ serve(async (req) => {
       cachedRow.prompt_version === PROMPT_VERSION &&
       cachedRow.computed_at >= cacheCutoff
     ) {
+      // Cache hit: emite com tokens=0 e cached=true pra alimentar dashboard
+      // de cache hit rate (objetivo do plano F3.3).
+      trackAIGeneration({
+        userId: user.id,
+        generationType: 'match_analysis',
+        model: cachedRow.model_used ?? MODEL,
+        inputTokens: 0,
+        outputTokens: 0,
+        latencyMs: 0,
+        cached: true,
+      }).catch(() => {})
       return jsonResponse({
         score: cachedRow.score,
         reasons: cachedRow.reasons,
@@ -437,7 +449,19 @@ serve(async (req) => {
 
     // 6. Call OpenAI
     const userPrompt = buildUserPrompt({ job, prefs, gamificationData })
+    const aiStart = Date.now()
     const ai = await callOpenAI(SYSTEM_PROMPT, userPrompt)
+    // PostHog LLM Analytics — habilita comparativo IA vs determinístico
+    // (relatório mostrou like rate IA=16% vs determinístico=24%).
+    trackAIGeneration({
+      userId: user.id,
+      generationType: 'match_analysis',
+      model: MODEL,
+      inputTokens: ai.inputTokens,
+      outputTokens: ai.outputTokens,
+      latencyMs: Date.now() - aiStart,
+      cached: false,
+    }).catch(() => {})
 
     let payload: MatchPayload
     try {

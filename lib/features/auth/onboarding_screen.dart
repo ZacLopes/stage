@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../core/analytics/screen_tracking.dart';
 import '../../core/constants/stage_colors.dart';
 import '../../services/analytics_service.dart';
 import 'auth_screen.dart';
@@ -11,14 +12,18 @@ class OnboardingScreen extends StatefulWidget {
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
+class _OnboardingScreenState extends State<OnboardingScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'onboarding_intro';
+
   final PageController _pageController = PageController();
   int _currentPage = 0;
 
   @override
   void initState() {
     super.initState();
-    Analytics.shared.onboardingStepReached(step: 1);
+    Analytics.shared.onboardingStepReached(step: 1, stepId: 'onboarding_intro');
   }
 
   @override

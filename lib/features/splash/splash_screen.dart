@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import '../../core/analytics/screen_tracking.dart';
 import '../../core/constants/stage_colors.dart';
 import '../auth/user_viewmodel.dart';
 import '../auth/onboarding_screen.dart';
@@ -17,7 +18,10 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, ScreenTrackingMixin {
+  @override
+  String get screenName => 'splash';
+
   late AnimationController _controller;
   late Animation<double> _logoFade;
   late Animation<double> _logoScale;

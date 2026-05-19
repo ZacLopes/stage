@@ -14,6 +14,7 @@ import '../../resume/resume_viewmodel.dart';
 import '../../resume/widgets/import_cv_button.dart';
 import '../models/adapted_resume.dart';
 import '../models/job.dart';
+import '../pending_adapted_cv_tracker.dart';
 
 /// Bottom sheet que adapta o currículo do usuário pra uma vaga específica
 /// usando IA. Mostra diff explicável + botão pra baixar PDF.
@@ -134,6 +135,32 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
       // Já tem chamada em voo — ignora tap duplo / re-entrada.
       return;
     }
+
+    // Pré-check client-side: se o user não tem CV importado nem trilha
+    // preenchida, o server vai retornar 422 `profile_incomplete` depois
+    // de ~15-25s e ainda assim consumir 1 round-trip + tempo de IA. Sob
+    // este caminho pulamos direto pro estado de erro com o mesmo código.
+    // Pré-fix: 18 usuários únicos perderam tempo nessa fricção em 7 dias.
+    if (!force) {
+      final userVM = context.read<UserViewModel>();
+      if (!userVM.hasResume) {
+        Analytics.shared.cvAdaptationStarted(jobId: widget.job.id);
+        Analytics.shared.cvAdaptationFailed(
+          jobId: widget.job.id,
+          code: 'profile_incomplete',
+        );
+        setState(() {
+          _error = const ResumeAdaptationException(
+            'profile_incomplete',
+            'Complete seu perfil ou suba seu currículo antes de adaptar.',
+          );
+          _isLoading = false;
+          _retrying = false;
+        });
+        return;
+      }
+    }
+
     _adapting = true;
     setState(() {
       _isLoading = true;
@@ -190,6 +217,14 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
         scoreAfter: result.matchScoreAfter,
         cached: result.cached,
       );
+      // Marca como pendente de export pro banner do Home (F2.5).
+      // Limpa em _downloadPdf() abaixo (export finalizado).
+      // ignore: unawaited_futures
+      PendingAdaptedCvTracker.shared.markAdapted(
+        jobId: widget.job.id,
+        jobTitle: widget.job.title,
+        company: widget.job.companyName,
+      );
     } catch (e, stack) {
       // ignore: avoid_print
       print('[ResumeAdaptationSheet] post-success crash: $e');
@@ -232,6 +267,9 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
           context.read<ResumeViewModel>().selectedTemplateId;
       await PdfService.generateResume(user, adapted.resumeData, templateId);
       Analytics.shared.cvAdaptationPdfDownloaded(jobId: widget.job.id);
+      // Ciclo completo — apaga o pendente do banner (F2.5).
+      // ignore: unawaited_futures
+      PendingAdaptedCvTracker.shared.clear();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../../core/analytics/screen_tracking.dart';
 import '../../data/models/models.dart';
 import '../../data/supabase_repository.dart';
 import '../auth/user_viewmodel.dart';
@@ -21,7 +22,15 @@ class BulletReviewScreen extends StatefulWidget {
   State<BulletReviewScreen> createState() => _BulletReviewScreenState();
 }
 
-class _BulletReviewScreenState extends State<BulletReviewScreen> {
+class _BulletReviewScreenState extends State<BulletReviewScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'bullet_review';
+
+  @override
+  Map<String, Object>? get screenProperties =>
+      {'experience_phase_id': widget.experiencePhaseId};
+
   final _aiService = AIService();
   final _repo = SupabaseRepository();
 

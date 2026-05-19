@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/analytics/screen_tracking.dart';
 import '../../data/models/models.dart';
 import 'gamification_viewmodel.dart';
 import 'question_screen.dart';
@@ -13,7 +14,14 @@ class TrackDetailsScreen extends StatefulWidget {
   State<TrackDetailsScreen> createState() => _TrackDetailsScreenState();
 }
 
-class _TrackDetailsScreenState extends State<TrackDetailsScreen> {
+class _TrackDetailsScreenState extends State<TrackDetailsScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'track_details';
+
+  @override
+  Map<String, Object>? get screenProperties => {'track_id': widget.track.id};
+
   @override
   void initState() {
     super.initState();

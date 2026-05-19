@@ -20,6 +20,7 @@
 
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
+import { trackAIGeneration } from '../_shared/posthog.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -222,9 +223,13 @@ interface AiSkill {
 async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<{
   skills: AiSkill[]
   totalTokens: number
+  inputTokens: number
+  outputTokens: number
+  latencyMs: number
 }> {
   const ctrl = new AbortController()
   const timeout = setTimeout(() => ctrl.abort(), OPENAI_TIMEOUT_MS)
+  const start = Date.now()
   try {
     const resp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -256,7 +261,13 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<{
       name: String(s?.name ?? '').trim().slice(0, 60),
       source: (s?.source === 'description' ? 'description' : 'requirements') as 'requirements' | 'description',
     })).filter((s: AiSkill) => s.name.length > 0)
-    return { skills, totalTokens: data.usage?.total_tokens ?? 0 }
+    return {
+      skills,
+      totalTokens: data.usage?.total_tokens ?? 0,
+      inputTokens: data.usage?.prompt_tokens ?? 0,
+      outputTokens: data.usage?.completion_tokens ?? 0,
+      latencyMs: Date.now() - start,
+    }
   } finally {
     clearTimeout(timeout)
   }
@@ -381,8 +392,25 @@ serve(async (req) => {
       let aiResult
       try {
         aiResult = await callOpenAI(SYSTEM_PROMPT, userPrompt)
+        trackAIGeneration({
+          userId: user.id,
+          generationType: 'skill_extraction',
+          model: MODEL,
+          inputTokens: aiResult.inputTokens,
+          outputTokens: aiResult.outputTokens,
+          latencyMs: aiResult.latencyMs,
+        }).catch(() => {})
       } catch (e) {
         console.error('OpenAI call failed:', (e as Error).message)
+        trackAIGeneration({
+          userId: user.id,
+          generationType: 'skill_extraction',
+          model: MODEL,
+          inputTokens: 0,
+          outputTokens: 0,
+          latencyMs: 0,
+          isError: true,
+        }).catch(() => {})
         return jsonResponse({ error: 'ai_failed', detail: (e as Error).message.slice(0, 200) }, 502)
       }
 

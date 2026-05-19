@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/analytics/screen_tracking.dart';
 import '../../data/models/models.dart';
 import '../home/home_viewmodel.dart';
 import 'gamification_viewmodel.dart';
@@ -14,7 +15,13 @@ class WorldScreen extends StatefulWidget {
   State<WorldScreen> createState() => _WorldScreenState();
 }
 
-class _WorldScreenState extends State<WorldScreen> {
+class _WorldScreenState extends State<WorldScreen> with ScreenTrackingMixin {
+  @override
+  String get screenName => 'world';
+
+  @override
+  Map<String, Object>? get screenProperties => {'world_id': widget.world.id};
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(

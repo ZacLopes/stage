@@ -81,6 +81,59 @@ class AnalyticsService {
     }
   }
 
+  /// Lê uma feature flag. Retorna a string da variante (ex.: 'ai_match_v1',
+  /// 'deterministic_v1') ou null se a flag não existe / PostHog não está
+  /// inicializado. Use em decisões de produto, NÃO em fluxos que precisam de
+  /// resposta síncrona — esta chamada faz round-trip pra cache do SDK.
+  ///
+  /// Pra A/B test, use `getFeatureFlag(key)` no PostHog e mapeie as variantes:
+  ///   - flag enabled (true)  → variante padrão
+  ///   - string específica    → variante nomeada (multivariate)
+  Future<String?> getFlag(String key) async {
+    if (!_initialized) return null;
+    try {
+      final v = await Posthog().getFeatureFlag(key);
+      if (v == null) return null;
+      if (v is bool) return v ? 'true' : 'false';
+      return v.toString();
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Analytics] getFlag failed: $e');
+      return null;
+    }
+  }
+
+  /// Captura uma exception como evento `$exception`. posthog_flutter 4.11 não
+  /// tem `captureException` nativo, então emitimos manualmente no formato que
+  /// o produto Error Tracking do PostHog reconhece. `handled=false` indica
+  /// crash não tratado (FlutterError/runZonedGuarded); `true` indica try-catch
+  /// onde decidimos reportar.
+  Future<void> captureException(
+    Object error, {
+    StackTrace? stackTrace,
+    bool handled = true,
+    Map<String, Object>? extra,
+  }) async {
+    if (!_initialized) return;
+    try {
+      final exceptionType = error.runtimeType.toString();
+      final exceptionMessage = error.toString();
+      final stackString = stackTrace?.toString() ?? '';
+      await Posthog().capture(
+        eventName: r'$exception',
+        properties: {
+          r'$exception_type': exceptionType,
+          r'$exception_message': exceptionMessage,
+          if (stackString.isNotEmpty) r'$exception_stack_trace_raw': stackString,
+          r'$exception_personURL': '',
+          r'$exception_handled': handled,
+          if (extra != null) ...extra,
+        },
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Analytics] captureException failed: $e');
+    }
+  }
+
   // ════════════════════════════════════════════════════════════════════
   // Eventos tipados — adicionar novos aqui pra manter consistência.
   // ════════════════════════════════════════════════════════════════════
@@ -91,6 +144,20 @@ class AnalyticsService {
   /// dependendo da versão, então emitimos manualmente.
   Future<void> appOpened() => track('app_opened');
 
+  /// Dispara `$screen` com `screen_name` real. O `PosthogObserver` em
+  /// main.dart só captura rotas nomeadas — como a navegação do Stage é
+  /// 100% imperativa (Navigator.push sem RouteSettings.name), o observer
+  /// cai sempre em `root('/')`. Por isso emitimos manualmente do initState
+  /// de cada tela principal via [ScreenTrackingMixin].
+  Future<void> screen(String name, {Map<String, Object>? properties}) async {
+    if (!_initialized) return;
+    try {
+      await Posthog().screen(screenName: name, properties: properties);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Analytics] screen failed: $e');
+    }
+  }
+
   // ── Auth & Onboarding ───────────────────────────────────────────────
   Future<void> signUpCompleted({required String method}) =>
       track('sign_up_completed', props: {'method': method});
@@ -100,8 +167,28 @@ class AnalyticsService {
 
   Future<void> logoutCompleted() => track('logout_completed');
 
-  Future<void> onboardingStepReached({required int step}) =>
-      track('onboarding_step_reached', props: {'step': step});
+  /// Disparado no início de `signInWithApple()`. Combinado com
+  /// `apple_signin_failed` (catch) e `sign_up_completed`/`login_completed`
+  /// (listener), dá pra calcular a taxa de abandono no flow Apple Sign-In.
+  Future<void> appleSigninStarted() => track('apple_signin_started');
+
+  /// `code`: 'cancelled', 'token_missing', 'unknown'. Diferencia abandono
+  /// (cancelled pelo usuário no diálogo iOS) vs falha técnica.
+  Future<void> appleSigninFailed({required String code}) =>
+      track('apple_signin_failed', props: {'code': code});
+
+  /// `step` é a ordem numérica (legacy, mantido pra continuidade de dashboards).
+  /// `stepId` é o identificador semântico — sem ele não dá pra ler funil
+  /// quando o onboarding tem ramos condicionais (caso da refator de 2026-05).
+  /// Sempre passar ambos.
+  Future<void> onboardingStepReached({
+    required int step,
+    String? stepId,
+  }) =>
+      track('onboarding_step_reached', props: {
+        'step': step,
+        if (stepId != null) 'step_id': stepId,
+      });
 
   Future<void> onboardingCompleted() => track('onboarding_completed');
 

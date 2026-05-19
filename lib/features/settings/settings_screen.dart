@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/analytics/screen_tracking.dart';
 import '../auth/user_viewmodel.dart';
 import '../auth/onboarding_screen.dart';
 import 'edit_account_screen.dart';
@@ -17,7 +18,11 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'settings';
+
   @override
   void initState() {
     super.initState();

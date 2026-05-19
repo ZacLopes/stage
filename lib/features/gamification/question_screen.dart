@@ -2,6 +2,7 @@ import 'widgets/step_slider_widget.dart';
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:provider/provider.dart';
+import '../../core/analytics/screen_tracking.dart';
 import '../../data/models/models.dart';
 import '../auth/user_viewmodel.dart';
 import '../home/home_viewmodel.dart';
@@ -62,7 +63,14 @@ class QuestionScreen extends StatefulWidget {
   State<QuestionScreen> createState() => _QuestionScreenState();
 }
 
-class _QuestionScreenState extends State<QuestionScreen> {
+class _QuestionScreenState extends State<QuestionScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'phase_question';
+
+  @override
+  Map<String, Object>? get screenProperties => {'phase_id': widget.phase.id};
+
   final Set<String> _selectedOptions = {};
   bool _isAnswerChecked = false;
   bool _isSaving = false;

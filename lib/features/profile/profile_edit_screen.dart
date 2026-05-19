@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/analytics/screen_tracking.dart';
 import '../../data/models/models.dart';
 import '../../core/widgets/pii_mask.dart';
 
@@ -16,7 +17,11 @@ class ProfileEditScreen extends StatefulWidget {
   State<ProfileEditScreen> createState() => _ProfileEditScreenState();
 }
 
-class _ProfileEditScreenState extends State<ProfileEditScreen> {
+class _ProfileEditScreenState extends State<ProfileEditScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'profile_edit';
+
   late TextEditingController _aboutMeController;
   late TextEditingController _experiencesController;
   late TextEditingController _skillsController;

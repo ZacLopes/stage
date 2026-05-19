@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import '../../core/analytics/screen_tracking.dart';
 import '../../core/constants/stage_colors.dart';
 import '../../services/analytics_service.dart';
 import 'user_viewmodel.dart';
@@ -14,7 +15,11 @@ class ProfileSetupScreen extends StatefulWidget {
   State<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
 }
 
-class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
+class _ProfileSetupScreenState extends State<ProfileSetupScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'onboarding_profile_setup';
+
   final PageController _pageController = PageController();
   int _currentStep = 0;
   
@@ -49,7 +54,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   @override
   void initState() {
     super.initState();
-    Analytics.shared.onboardingStepReached(step: 3);
+    Analytics.shared.onboardingStepReached(step: 3, stepId: 'profile_setup');
     // Prefill name — mas trata "User" (sentinela legacy do bug antigo do Apple
     // sign-in) como vazio. User antigo via Apple tem name="User" no DB e
     // pré-preencher esse campo confunde — força o user a editar à mão.

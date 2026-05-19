@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../../../core/analytics/screen_tracking.dart';
 import '../jobs_viewmodel.dart';
 import '../models/user_preferences.dart';
 
@@ -19,7 +20,11 @@ class JobPreferencesScreen extends StatefulWidget {
   State<JobPreferencesScreen> createState() => _JobPreferencesScreenState();
 }
 
-class _JobPreferencesScreenState extends State<JobPreferencesScreen> {
+class _JobPreferencesScreenState extends State<JobPreferencesScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'jobs_preferences';
+
   // ── Local edit state (commit on save) ──────────────────────────────
   Set<String> _selectedAreas = {};
   Set<String> _selectedLocations = {};

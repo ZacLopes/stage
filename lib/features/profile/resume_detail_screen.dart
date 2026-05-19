@@ -5,9 +5,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/analytics/screen_tracking.dart';
 import '../../data/models/models.dart';
 import '../../services/analytics_service.dart';
 import '../auth/user_viewmodel.dart';
+import '../jobs/pending_adapted_cv_tracker.dart';
 import '../resume/pdf_service.dart';
 import '../resume/resume_edit_screen.dart';
 import '../resume/resume_viewmodel.dart';
@@ -35,7 +37,11 @@ class ResumeDetailScreen extends StatefulWidget {
   State<ResumeDetailScreen> createState() => _ResumeDetailScreenState();
 }
 
-class _ResumeDetailScreenState extends State<ResumeDetailScreen> {
+class _ResumeDetailScreenState extends State<ResumeDetailScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'resume_detail';
+
   bool _isGeneratingPdf = false;
   Uint8List? _viewOnlyPdfBytes;
   bool _isLoadingPdf = false;
@@ -80,6 +86,9 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen> {
       final vm = context.read<ResumeViewModel>();
       await PdfService.generateResume(user, resume, vm.selectedTemplateId);
       Analytics.shared.cvExported(templateId: vm.selectedTemplateId);
+      // Ciclo completo de export — limpa o banner pendente (F2.5).
+      // ignore: unawaited_futures
+      PendingAdaptedCvTracker.shared.clear();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

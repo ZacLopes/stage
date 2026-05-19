@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/analytics/screen_tracking.dart';
 import '../../core/constants/stage_colors.dart';
 import 'user_viewmodel.dart';
 
@@ -15,7 +16,11 @@ class NameInputScreen extends StatefulWidget {
   State<NameInputScreen> createState() => _NameInputScreenState();
 }
 
-class _NameInputScreenState extends State<NameInputScreen> {
+class _NameInputScreenState extends State<NameInputScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'onboarding_name';
+
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   final _formKey = GlobalKey<FormState>();

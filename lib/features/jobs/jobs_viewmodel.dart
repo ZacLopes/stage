@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/ai_service.dart';
+import '../../services/analytics_service.dart';
 import 'data/job_repository.dart';
 import 'data/swipe_repository.dart';
 import 'data/preferences_repository.dart';
@@ -112,6 +113,43 @@ class JobsViewModel extends ChangeNotifier {
 
   int get totalAvailable => _totalAvailable;
   int get totalAfterFilters => _totalAfterFilters;
+
+  // ── Invalidação de match cache em mudança de preferências ──────────
+  /// Contador monotônico bumpado em `savePreferences`/`clearPreferences`.
+  /// JobsSwipeScreen compara com `_lastPrefsVersion` no build pra detectar
+  /// mudança e limpar o `_matchCache` em memória — sem isso, scores
+  /// computados com prefs antigas continuariam aparecendo nos cards
+  /// (cache de servidor invalida via profile_hash, mas o de memória não).
+  int _prefsVersion = 0;
+  int get prefsVersion => _prefsVersion;
+
+  // ── Pending adapt sheet (cross-tab handoff do banner do Home) ───────
+  /// JobId que o banner do Home pediu pra abrir o sheet de adaptação.
+  /// JobsSwipeScreen observa, abre a sheet (fetchando o job se preciso) e
+  /// chama [consumePendingAdaptSheet] pra limpar.
+  ///
+  /// Sem isso, tocar "Abrir" no banner só navega pra aba Vagas e o user
+  /// precisa caçar a vaga manualmente — quebra a promessa do banner.
+  String? _pendingAdaptSheetJobId;
+  String? get pendingAdaptSheetJobId => _pendingAdaptSheetJobId;
+
+  void requestOpenAdaptSheet(String jobId) {
+    if (_pendingAdaptSheetJobId == jobId) return;
+    _pendingAdaptSheetJobId = jobId;
+    notifyListeners();
+  }
+
+  void consumePendingAdaptSheet() {
+    if (_pendingAdaptSheetJobId == null) return;
+    _pendingAdaptSheetJobId = null;
+    // Sem notifyListeners — quem consome já está reagindo a notify anterior;
+    // notificar de novo causaria rebuild redundante.
+  }
+
+  /// Busca um Job direto do repo (não usa cache do _jobs). Necessário pra
+  /// quando o banner do Home pede pra abrir a sheet de uma vaga que já foi
+  /// swiped (saiu do feed).
+  Future<Job?> fetchJobById(String id) => _jobRepository.getJobById(id);
 
   /// Verdadeiro quando há vagas no banco mas os filtros do user excluíram
   /// todas. UI usa pra mostrar "afrouxe os filtros" em vez de "explorou tudo".
@@ -381,6 +419,18 @@ class JobsViewModel extends ChangeNotifier {
       // Remove da lista local de curtidas (caso fosse um like desfeito)
       _likedJobs.removeWhere((l) => l.job.id == undoneJobId);
       notifyListeners();
+
+      // Analytics: feature de undo existe na UI mas estava invisível na
+      // telemetria. Sem isso não dá pra decidir manter/remover o feature.
+      // match_score/match_source não estão acessíveis aqui (o cache fica
+      // no widget de swipe) — passar null é aceitável, o sinal mais importante
+      // é a contagem do action='undo'.
+      // ignore: unawaited_futures
+      Analytics.shared.jobSwiped(
+        jobId: undoneJobId,
+        action: 'undo',
+        matchScore: null,
+      );
     } catch (e) {
       print('Error undoing swipe: $e');
       // Mantém estado consistente mesmo em erro
@@ -417,6 +467,10 @@ class JobsViewModel extends ChangeNotifier {
     try {
       await _preferencesRepository.savePreferences(userId!, prefs);
       _preferences = prefs;
+      // Bumpa o version pra que JobsSwipeScreen invalide o _matchCache em
+      // memória — sem isso, scores antigos (calculados com prefs velhas)
+      // continuariam aparecendo nos cards.
+      _prefsVersion++;
       // Reload jobs with new filters
       await reloadJobs();
     } catch (e) {

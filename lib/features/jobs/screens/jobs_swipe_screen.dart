@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/analytics/screen_tracking.dart';
 import '../../../core/constants/stage_app_links.dart';
 import '../../../services/ai_service.dart';
 import '../../../services/analytics_service.dart';
@@ -15,6 +16,7 @@ import '../../home/home_viewmodel.dart';
 import '../../tutorial/tutorial_keys.dart';
 import '../jobs_viewmodel.dart';
 import '../models/job.dart';
+import '../pending_adapted_cv_tracker.dart';
 import '../utils/match_score.dart';
 import '../widgets/first_save_celebration.dart';
 import '../widgets/job_card.dart';
@@ -31,7 +33,13 @@ class JobsSwipeScreen extends StatefulWidget {
 }
 
 class _JobsSwipeScreenState extends State<JobsSwipeScreen>
-    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+    with
+        TickerProviderStateMixin,
+        AutomaticKeepAliveClientMixin,
+        ScreenTrackingMixin {
+  @override
+  String get screenName => 'jobs_swipe';
+
   // Mantém o State vivo quando o user troca de aba e volta — sem isso o
   // PageView descarta páginas que ficam a 2+ índices da atual, o que
   // reinicia o CardSwiper, perde a posição do card e dispara um re-fetch
@@ -64,6 +72,25 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   static const int _bufferAhead = 5;                // janela à frente
   static const int _initialPrefetch = 10;           // 1ª onda
   static const int _maxConcurrent = 4;              // limite OpenAI paralelo
+
+  /// F3.1: variante do experimento `ai_match_v1` (PostHog feature flag).
+  /// Valores possíveis:
+  ///   'ai_match_v1' (default)  → chama OpenAI via analyze-match (caro, like rate 16%)
+  ///   'deterministic_v1'       → usa MatchScoreCalculator client-side (free, like rate 24% na análise)
+  /// Lido 1x no didChangeDependencies e cacheado por sessão pra evitar
+  /// race condition de troca de variante durante o swipe.
+  String? _matchVariant;
+
+  /// Lock pra evitar disparar `showModalBottomSheet` duas vezes pelo mesmo
+  /// pending — o build pode rodar várias vezes enquanto a sheet abre.
+  bool _openingPendingSheet = false;
+
+  /// Snapshot do `prefsVersion` do JobsViewModel — usado pra detectar quando
+  /// o user salva preferências novas ENQUANTO o feed está aberto. Quando muda,
+  /// invalidamos o `_matchCache` em memória (scores antigos com prefs velhas).
+  /// Null inicial significa "nunca observei ainda" — primeira leitura não
+  /// dispara invalidação.
+  int? _lastPrefsVersion;
 
   /// Snapshot do `hasResume` no UserViewModel — usado pra detectar quando o
   /// user importa o CV / completa a trilha ENQUANTO o feed está aberto.
@@ -100,6 +127,16 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         if (mounted) {
           Analytics.shared.jobFeedOpened(jobsCount: vm.jobs.length);
         }
+        // F3.1: lê variante do experimento de match. Default = 'ai_match_v1'
+        // (mantém comportamento atual). Se PostHog devolver 'deterministic_v1',
+        // pulamos a chamada IA e usamos MatchScoreCalculator client-side —
+        // ~5x mais barato e (segundo análise pre-fix) ~50% melhor like rate.
+        final variant = await Analytics.shared.getFlag('ai_match_v1');
+        if (mounted) {
+          setState(() {
+            _matchVariant = variant ?? 'ai_match_v1';
+          });
+        }
       });
     }
   }
@@ -134,6 +171,48 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       backgroundColor: Colors.transparent,
       builder: (context) => JobDetailsSheet(job: job, match: match),
     );
+  }
+
+  /// Abre a sheet de adaptação pra um jobId vindo do banner do Home.
+  /// Tenta achar o job no feed em cache; se não estiver (já foi swiped
+  /// pra fora), busca direto do repo. Em caso de falha de fetch,
+  /// só navega — o banner fica visível pra próxima tentativa.
+  Future<void> _openPendingAdaptSheet(String jobId, JobsViewModel vm) async {
+    try {
+      Job? job;
+      for (final j in vm.jobs) {
+        if (j.id == jobId) {
+          job = j;
+          break;
+        }
+      }
+      job ??= await vm.fetchJobById(jobId);
+
+      if (!mounted) return;
+      if (job == null) {
+        // Job foi removido do banco — limpa o banner pra parar de prometer
+        // o que não existe.
+        // ignore: unawaited_futures
+        PendingAdaptedCvTracker.shared.clear();
+        return;
+      }
+
+      final match = _matchCache[jobId];
+      await showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => ResumeAdaptationSheet(
+          job: job!,
+          matchScoreFromCard: match?.score,
+        ),
+      );
+    } finally {
+      // Libera o lock após o sheet fechar — se o user tentar abrir de novo
+      // (banner reapareceu, raro), funciona.
+      _openingPendingSheet = false;
+    }
   }
 
   /// Compartilha a vaga atual via share sheet do iOS/Android (apps de
@@ -274,7 +353,13 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         matchSource = 'unknown';
         matchScore = null;
       } else {
-        matchSource = 'ai';
+        // F3.1: tag a variante do experimento como match_source pra que o
+        // dashboard PostHog compare like rate IA vs determinístico de forma
+        // limpa (sem misturar com 'fallback_deterministic', que significa
+        // "IA falhou e mostramos o número antigo").
+        matchSource = _matchVariant == 'deterministic_v1'
+            ? 'deterministic_v1'
+            : 'ai';
         matchScore = cached.score;
       }
       Analytics.shared.jobSwiped(
@@ -372,12 +457,32 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     return const MatchResult.pending();
   }
 
-  /// Dispara IA pro job (fire-and-forget). Respeita _maxConcurrent.
+  /// Dispara match pro job (fire-and-forget). Respeita _maxConcurrent.
+  /// F3.1: se _matchVariant == 'deterministic_v1', usa cálculo client-side
+  /// (gratuito, ~5x mais rápido) em vez de chamar a Edge Function de IA.
   Future<void> _kickOffMatch(Job job) async {
     if (_matchCache.containsKey(job.id) || _matchInflight.contains(job.id)) {
       return;
     }
-    // Concurrency limit: se cheio, agenda re-try em 250ms
+
+    // Caminho determinístico: síncrono, sem rate limit, sem custo de IA.
+    if (_matchVariant == 'deterministic_v1') {
+      final vm = context.read<JobsViewModel>();
+      final userVm = context.read<UserViewModel>();
+      final result = MatchScoreCalculator.calculate(
+        job: job,
+        prefs: vm.preferences,
+        gamificationData: userVm.user?.gamificationData,
+      );
+      if (!mounted) return;
+      setState(() {
+        _matchCache[job.id] = result;
+      });
+      return;
+    }
+
+    // Caminho IA (default): chama Edge Function analyze-match (gpt-4o-mini).
+    // Concurrency limit: se cheio, agenda re-try em 250ms.
     if (_matchInflight.length >= _maxConcurrent) {
       Future.delayed(const Duration(milliseconds: 250), () {
         if (mounted) _kickOffMatch(job);
@@ -452,10 +557,36 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     }
     _lastHasResume = currentHasResume;
 
+    // Detecta mudança em preferências (user salvou filtros novos). O server
+    // já invalida via profile_hash, mas o cache de memória aqui ficava com
+    // scores velhos. `_lastPrefsVersion == null` no primeiro frame evita
+    // disparar invalidação no boot.
+    final currentPrefsVersion = vm.prefsVersion;
+    if (_lastPrefsVersion != null &&
+        _lastPrefsVersion != currentPrefsVersion) {
+      _matchCache.clear();
+      _matchInflight.clear();
+      _hydrated = false;
+    }
+    _lastPrefsVersion = currentPrefsVersion;
+
     // Hidrata cache + dispara IA quando vm.jobs chega pela primeira vez.
     if (!_hydrated && !vm.isLoading && vm.jobs.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _hydrateAndPrefetch(vm.jobs);
+      });
+    }
+
+    // Handoff do banner do Home: se algum widget pediu pra abrir a sheet
+    // de adaptação de um job específico, abre aqui (após chegar na aba).
+    final pendingJobId = vm.pendingAdaptSheetJobId;
+    if (pendingJobId != null && !_openingPendingSheet) {
+      _openingPendingSheet = true;
+      // Consumir AGORA (síncrono) pra evitar que o próximo build dispare
+      // de novo enquanto a sheet abre.
+      vm.consumePendingAdaptSheet();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _openPendingAdaptSheet(pendingJobId, vm);
       });
     }
 

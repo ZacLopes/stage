@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/analytics/screen_tracking.dart';
 import '../../../core/constants/stage_colors.dart';
 import '../../../services/analytics_service.dart';
 import '../../../services/facebook_events_service.dart';
@@ -21,7 +22,11 @@ class LikedJobsScreen extends StatefulWidget {
   State<LikedJobsScreen> createState() => _LikedJobsScreenState();
 }
 
-class _LikedJobsScreenState extends State<LikedJobsScreen> {
+class _LikedJobsScreenState extends State<LikedJobsScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'jobs_liked';
+
   /// Mostra banner explicativo de "como aplicar" na primeira visita pós-
   /// celebração de "primeira vaga salva". Persiste o estado em
   /// SharedPreferences (`first_save_banner_dismissed_<userId>`).

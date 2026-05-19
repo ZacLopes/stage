@@ -1,5 +1,6 @@
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
+import { trackAIGeneration } from '../_shared/posthog.ts'
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -148,6 +149,18 @@ serve(async (req) => {
         }
 
         const openaiData = await openaiResponse.json()
+
+        // PostHog LLM Analytics — fire-and-forget pra não atrasar a resposta.
+        trackAIGeneration({
+            userId: user.id,
+            generationType: 'bullet_generation',
+            model: 'gpt-4o',
+            inputTokens: openaiData.usage?.prompt_tokens ?? 0,
+            outputTokens: openaiData.usage?.completion_tokens ?? 0,
+            latencyMs,
+            isError: false,
+        }).catch(() => {})
+
         let result
         try {
             result = JSON.parse(openaiData.choices[0].message.content)

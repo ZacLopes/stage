@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { trackAIGeneration } from '../_shared/posthog.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -45,6 +46,15 @@ serve(async (req) => {
       .gte('created_at', today.toISOString())
 
     if (count && count >= 20) { // Limite: 20 gerações de perfil por dia
+      trackAIGeneration({
+        userId: user.id,
+        generationType: 'profile_generation',
+        model: 'gpt-4o',
+        inputTokens: 0,
+        outputTokens: 0,
+        latencyMs: 0,
+        rateLimited: true,
+      }).catch(() => {})
       return new Response(
         JSON.stringify({ error: 'Rate limit exceeded. Maximum 20 profile generations per day.' }),
         { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -65,6 +75,7 @@ serve(async (req) => {
     const prompt = buildPrompt(answersWithQuestions)
 
     // Chamar OpenAI (chave fica APENAS no servidor)
+    const aiStart = Date.now()
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -98,10 +109,27 @@ Responda APENAS com um JSON válido no seguinte formato:
     })
 
     if (!openaiResponse.ok) {
+      trackAIGeneration({
+        userId: user.id,
+        generationType: 'profile_generation',
+        model: 'gpt-4o',
+        inputTokens: 0,
+        outputTokens: 0,
+        latencyMs: Date.now() - aiStart,
+        isError: true,
+      }).catch(() => {})
       throw new Error(`OpenAI API error: ${openaiResponse.statusText}`)
     }
 
     const openaiData = await openaiResponse.json()
+    trackAIGeneration({
+      userId: user.id,
+      generationType: 'profile_generation',
+      model: 'gpt-4o',
+      inputTokens: openaiData.usage?.prompt_tokens ?? 0,
+      outputTokens: openaiData.usage?.completion_tokens ?? 0,
+      latencyMs: Date.now() - aiStart,
+    }).catch(() => {})
     const responseText = openaiData.choices[0].message.content
 
     // Extrair JSON da resposta

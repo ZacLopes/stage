@@ -1,5 +1,6 @@
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
+import { trackAIGeneration } from '../_shared/posthog.ts'
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -59,6 +60,7 @@ serve(async (req) => {
         const systemPrompt = buildInterviewerPrompt(experienceType, targetAngle)
         const userPrompt = buildDeepeningPrompt(rawResponses, currentBullets)
 
+        const aiStart = Date.now()
         const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -78,10 +80,27 @@ serve(async (req) => {
         })
 
         if (!openaiResponse.ok) {
+            trackAIGeneration({
+                userId: user.id,
+                generationType: 'deepen_experience',
+                model: 'gpt-4o',
+                inputTokens: 0,
+                outputTokens: 0,
+                latencyMs: Date.now() - aiStart,
+                isError: true,
+            }).catch(() => {})
             throw new Error(`OpenAI API error: ${openaiResponse.statusText}`)
         }
 
         const openaiData = await openaiResponse.json()
+        trackAIGeneration({
+            userId: user.id,
+            generationType: 'deepen_experience',
+            model: 'gpt-4o',
+            inputTokens: openaiData.usage?.prompt_tokens ?? 0,
+            outputTokens: openaiData.usage?.completion_tokens ?? 0,
+            latencyMs: Date.now() - aiStart,
+        }).catch(() => {})
         const result = JSON.parse(openaiData.choices[0].message.content)
 
         return new Response(

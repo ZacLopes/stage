@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/analytics/screen_tracking.dart';
 import '../auth/user_viewmodel.dart';
 import '../../data/models/models.dart';
 import '../../data/supabase_repository.dart' show normalizeName;
@@ -11,7 +12,11 @@ class EditAccountScreen extends StatefulWidget {
   State<EditAccountScreen> createState() => _EditAccountScreenState();
 }
 
-class _EditAccountScreenState extends State<EditAccountScreen> {
+class _EditAccountScreenState extends State<EditAccountScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'settings_account_edit';
+
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameController;
   late TextEditingController _emailController;

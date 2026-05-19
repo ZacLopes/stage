@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/analytics/screen_tracking.dart';
 import '../../data/models/models.dart';
 import '../../data/supabase_repository.dart';
 import '../auth/user_viewmodel.dart';
@@ -33,7 +34,11 @@ class ResumeEditScreen extends StatefulWidget {
   State<ResumeEditScreen> createState() => _ResumeEditScreenState();
 }
 
-class _ResumeEditScreenState extends State<ResumeEditScreen> {
+class _ResumeEditScreenState extends State<ResumeEditScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'resume_edit';
+
   final _repo = SupabaseRepository();
 
   // Free-text controllers (legacy ResumeContent fields kept for compat)

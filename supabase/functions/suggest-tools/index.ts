@@ -1,5 +1,6 @@
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
+import { trackAIGeneration } from '../_shared/posthog.ts'
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -118,6 +119,7 @@ Seja específico e prático: prefira nomes exatos (ex: "Power BI", "Figma", "Pyt
 
 Responda APENAS com JSON: {"tools": ["Ferramenta1", "Ferramenta2", ...]}`
 
+        const aiStart = Date.now()
         const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -134,10 +136,27 @@ Responda APENAS com JSON: {"tools": ["Ferramenta1", "Ferramenta2", ...]}`
         })
 
         if (!openaiResponse.ok) {
+            trackAIGeneration({
+                userId: user.id,
+                generationType: 'suggest_tools',
+                model: 'gpt-4o-mini',
+                inputTokens: 0,
+                outputTokens: 0,
+                latencyMs: Date.now() - aiStart,
+                isError: true,
+            }).catch(() => {})
             throw new Error(`OpenAI API error: ${openaiResponse.statusText}`)
         }
 
         const openaiData = await openaiResponse.json()
+        trackAIGeneration({
+            userId: user.id,
+            generationType: 'suggest_tools',
+            model: 'gpt-4o-mini',
+            inputTokens: openaiData.usage?.prompt_tokens ?? 0,
+            outputTokens: openaiData.usage?.completion_tokens ?? 0,
+            latencyMs: Date.now() - aiStart,
+        }).catch(() => {})
         const raw = openaiData.choices[0].message.content ?? '{}'
 
         let tools: string[] = []

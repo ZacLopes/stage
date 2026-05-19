@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/analytics/screen_tracking.dart';
 import '../../data/supabase_repository.dart';
 import '../../services/ai_service.dart';
 import 'gamification_viewmodel.dart';
@@ -15,7 +16,11 @@ class SummaryGenerationScreen extends StatefulWidget {
   State<SummaryGenerationScreen> createState() => _SummaryGenerationScreenState();
 }
 
-class _SummaryGenerationScreenState extends State<SummaryGenerationScreen> {
+class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'summary_generation';
+
   final _aiService = AIService();
   final _repo = SupabaseRepository();
 

@@ -23,6 +23,7 @@
 
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
+import { trackAIGeneration } from '../_shared/posthog.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -896,17 +897,40 @@ function buildInputResume(profile: any): InputResume | null {
   }
 }
 
+/// Normaliza string pra cache hash: lowercase + trim + collapse whitespace.
+/// Por quê: pré-fix, cache_hit_rate era ~15% (5 hits de 33 adaptações totais
+/// na janela analisada). Pequenas variações ("React.js" vs "react.js",
+/// dois espaços vs um, espaço no fim) faziam usuários equivalentes
+/// gerarem hashes diferentes e pagarem IA repetidamente.
+function _normH(s: string | undefined | null): string {
+  if (!s) return ''
+  return s
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
 function pickInputForHash(input: InputResume): string {
   return JSON.stringify({
-    n: input.fullName,
-    e: input.email,
-    sk: input.skills,
-    sm: input.summary,
-    ex: input.experiences.map((e) => ({ r: e.role, c: e.company, p: e.period, d: e.description })),
-    ed: input.education.map((e) => ({ d: e.degree, i: e.institution, p: e.period })),
-    ac: input.achievements,
+    n: _normH(input.fullName),
+    e: _normH(input.email),
+    // Skills sorted+normalized — order não importa pra cache key.
+    sk: [...input.skills].map(_normH).filter((s) => s.length > 0).sort(),
+    sm: _normH(input.summary),
+    ex: input.experiences.map((e) => ({
+      r: _normH(e.role),
+      c: _normH(e.company),
+      p: _normH(e.period),
+      d: _normH(e.description),
+    })),
+    ed: input.education.map((e) => ({
+      d: _normH(e.degree),
+      i: _normH(e.institution),
+      p: _normH(e.period),
+    })),
+    ac: [...input.achievements].map(_normH).filter((s) => s.length > 0).sort(),
     cvLen: input.importedCvText?.length ?? 0,
-    cvHead: (input.importedCvText ?? '').slice(0, 200),
+    cvHead: _normH((input.importedCvText ?? '').slice(0, 200)),
   })
 }
 
@@ -1220,9 +1244,13 @@ const JSON_SCHEMA = {
 async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<{
   content: string
   totalTokens: number
+  inputTokens: number
+  outputTokens: number
+  latencyMs: number
 }> {
   const ctrl = new AbortController()
   const timeout = setTimeout(() => ctrl.abort(), OPENAI_TIMEOUT_MS)
+  const start = Date.now()
 
   try {
     const resp = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -1254,6 +1282,9 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<{
     return {
       content: data.choices[0].message.content,
       totalTokens: data.usage?.total_tokens ?? 0,
+      inputTokens: data.usage?.prompt_tokens ?? 0,
+      outputTokens: data.usage?.completion_tokens ?? 0,
+      latencyMs: Date.now() - start,
     }
   } finally {
     clearTimeout(timeout)
@@ -1933,6 +1964,10 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  // F2.6: timer global da function. Comparado ao $ai_latency (só OpenAI)
+  // permite isolar onde mora o tail: parsing/cache/validation vs IA pura.
+  // Pré-fix p95 = 221s — sem breakdown, era impossível atribuir.
+  const fnStart = Date.now()
   try {
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -2111,6 +2146,16 @@ serve(async (req) => {
         cachedRow.source_hash === sourceHash &&
         cachedRow.prompt_version === PROMPT_VERSION
       ) {
+        // Cache hit — emite com cached=true pra alimentar cache hit rate.
+        trackAIGeneration({
+          userId: user.id,
+          generationType: 'cv_adaptation',
+          model: cachedRow.model_used ?? MODEL,
+          inputTokens: 0,
+          outputTokens: 0,
+          latencyMs: 0,
+          cached: true,
+        }).catch(() => {})
         return jsonResponse({
           changes: cachedRow.changes,
           resume_data: cachedRow.resume_data,
@@ -2123,26 +2168,79 @@ serve(async (req) => {
       }
     }
 
-    // 6. Call OpenAI
-    const userPrompt = buildUserPrompt(input, job, extraSkillsClean)
-    console.log(`[adapt-resume] calling OpenAI (prompt ${userPrompt.length} chars)`)
-    const ai = await callOpenAI(SYSTEM_PROMPT, userPrompt)
-    console.log(`[adapt-resume] OpenAI responded (${ai.totalTokens} tokens)`)
+    // 6. Call OpenAI (com 1 retry se validateAdaptation falhar)
+    //
+    // Pré-fix: ~19 usuários únicos hit `adaptation_rejected` em 7 dias por
+    // a IA propor inflation > 1.3x ou tocar campos imutáveis. O fallback
+    // era jogar o erro pro user — agora retentamos UMA vez alimentando
+    // o erro de validação de volta como feedback ("você violou X: ajuste e
+    // tente de novo"). Se a 2ª resposta também falhar, retornamos o erro
+    // original como antes.
+    const userPromptInitial = buildUserPrompt(input, job, extraSkillsClean)
+    console.log(`[adapt-resume] calling OpenAI (prompt ${userPromptInitial.length} chars)`)
 
-    let parsed: any
-    try {
-      parsed = JSON.parse(ai.content)
-    } catch (_e) {
-      console.error('Failed to JSON.parse AI output:', ai.content.slice(0, 500))
-      return jsonResponse({ error: 'ai_response_invalid', detail: 'JSON parse failed' }, 502)
+    let parsed: any = null
+    let lastValidationError: ValidationError | null = null
+    let attempts = 0
+    let userPrompt = userPromptInitial
+    // tokensUsedTotal acumula entre tentativas — usado pelo rate-limit log
+    // (`ai_generation_logs`) na linha ~2289. Sem isso, retries consumiriam IA
+    // sem contar contra o limite diário.
+    let tokensUsedTotal = 0
+
+    while (attempts < 2 && parsed === null) {
+      attempts++
+      const ai = await callOpenAI(SYSTEM_PROMPT, userPrompt)
+      tokensUsedTotal += ai.totalTokens
+      console.log(`[adapt-resume] OpenAI responded attempt=${attempts} tokens=${ai.totalTokens}`)
+
+      trackAIGeneration({
+        userId: user.id,
+        generationType: 'cv_adaptation',
+        model: MODEL,
+        inputTokens: ai.inputTokens,
+        outputTokens: ai.outputTokens,
+        latencyMs: ai.latencyMs,
+        cached: false,
+        extra: {
+          prompt_chars: userPrompt.length,
+          attempt: attempts,
+          // function_ms_so_far inclui parse/cache/validation feitos antes
+          // da chamada. Diferença com ai.latencyMs (= só fetch OpenAI) dá
+          // o overhead da função — alvo de tuning se ficar significativo.
+          function_ms_so_far: Date.now() - fnStart,
+        },
+      }).catch(() => {})
+
+      let candidate: any
+      try {
+        candidate = JSON.parse(ai.content)
+      } catch (_e) {
+        console.error('Failed to JSON.parse AI output:', ai.content.slice(0, 500))
+        return jsonResponse({ error: 'ai_response_invalid', detail: 'JSON parse failed' }, 502)
+      }
+
+      try {
+        validateAdaptation(input, candidate, job)
+        parsed = candidate
+      } catch (e) {
+        lastValidationError = e as ValidationError
+        console.warn(`[adapt-resume] validation failed attempt=${attempts} for user=${user.id} job=${jobId}: ${lastValidationError.message}`)
+        if (attempts < 2) {
+          // Anexa o erro como feedback ao prompt e retenta. Geralmente o
+          // segundo passe corrige porque o modelo agora SABE o que precisa
+          // respeitar (ex.: "use bullets do CV em vez de inventar").
+          userPrompt = userPromptInitial +
+            `\n\n[REJEITADO NA TENTATIVA ${attempts}] A resposta anterior violou: ` +
+            `${lastValidationError.field} → ${lastValidationError.message}. ` +
+            `Refaça mantendo TODA a integridade dos dados originais.`
+        }
+      }
     }
 
-    // 7. VALIDAÇÃO ANTI-INVENÇÃO
-    try {
-      validateAdaptation(input, parsed, job)
-    } catch (e) {
-      const ve = e as ValidationError
-      console.warn(`adaptation rejected for user=${user.id} job=${jobId}: ${ve.message}`)
+    if (parsed === null) {
+      const ve = lastValidationError!
+      console.warn(`adaptation rejected (after retry) for user=${user.id} job=${jobId}: ${ve.message}`)
       return jsonResponse(
         {
           error: 'adaptation_rejected',
@@ -2193,7 +2291,7 @@ serve(async (req) => {
     await supabaseClient.from('ai_generation_logs').insert({
       user_id: user.id,
       generation_type: 'resume_adaptation',
-      tokens_used: ai.totalTokens,
+      tokens_used: tokensUsedTotal,
     })
 
     // 10. Merge extra_skills no gamification_data.confirmed_skills (global do

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../core/analytics/screen_tracking.dart';
 import 'profile_viewmodel.dart';
 import '../auth/user_viewmodel.dart';
 import '../home/home_viewmodel.dart';
@@ -16,7 +17,11 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
+class _ProfileScreenState extends State<ProfileScreen>
+    with ScreenTrackingMixin {
+  @override
+  String get screenName => 'profile';
+
   @override
   Widget build(BuildContext context) {
     final userVM = context.watch<UserViewModel>();
