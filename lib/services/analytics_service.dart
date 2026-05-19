@@ -210,6 +210,15 @@ class AnalyticsService {
   Future<void> cvTemplateChanged({required String templateId}) =>
       track('cv_template_changed', props: {'template_id': templateId});
 
+  /// Disparado quando o bottom-sheet de seleção de template abre. Combinado
+  /// com `cv_template_changed`, dá pra medir taxa de troca de template e
+  /// validar se o preview visual reduz tentativa-e-erro (hipótese da feature
+  /// de thumbnails, baseada em feedback de usuário em 2026-05).
+  Future<void> cvTemplateSelectorOpened({required String currentTemplateId}) =>
+      track('cv_template_selector_opened', props: {
+        'current_template_id': currentTemplateId,
+      });
+
   // ── Trilha (gamificação) ────────────────────────────────────────────
   Future<void> trackPhaseStarted({required String phaseId}) =>
       track('phase_started', props: {'phase_id': phaseId});

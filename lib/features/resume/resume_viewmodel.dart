@@ -226,28 +226,16 @@ class ResumeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  String _selectedTemplateType = 'standard'; // 'standard' or 'area'
-  String _detectedArea = 'Geral'; // Default
-
   ResumeData? get resumeData => _resumeData;
   ResumeContent? get resumeContent => _resumeContent;
   bool get isLoading => _isLoading;
   bool get isGeneratingResume => _isGeneratingResume;
   bool get isSaving => _isSaving;
-  String get selectedTemplateType => _selectedTemplateType;
-  String get detectedArea => _detectedArea;
 
-  bool get isResumeEmpty => _resumeContent == null || 
-      (_resumeContent!.summary.isEmpty && 
-       _resumeContent!.experiences.isEmpty && 
+  bool get isResumeEmpty => _resumeContent == null ||
+      (_resumeContent!.summary.isEmpty &&
+       _resumeContent!.experiences.isEmpty &&
        _resumeContent!.education.isEmpty);
-
-  void setTemplateType(String type) {
-    if (_selectedTemplateType != type) {
-      _selectedTemplateType = type;
-      notifyListeners();
-    }
-  }
 
   List<String> getResumeWarnings() {
     final warnings = <String>[];
@@ -286,9 +274,6 @@ class ResumeViewModel extends ChangeNotifier {
 
     return warnings;
   }
-
-  int _lastGeneratedPageCount = 1;
-  int get lastGeneratedPageCount => _lastGeneratedPageCount;
 
   // ============================================================
   // Single-page enforcement (Harvard MCS recommendation for students)
@@ -421,47 +406,6 @@ class ResumeViewModel extends ChangeNotifier {
       out.add('Considere remover a experiência menos relevante para a vaga-alvo.');
     }
     return out;
-  }
-
-  Future<void> updatePageCountHeuristic(UserProfile? user) async {
-    if (_resumeData == null) return;
-    try {
-      final bytes = await PdfService.generateResumeBytes(user, _resumeData!, _selectedTemplateId);
-      // We don't have an easy way to count pages from bytes without parsing, 
-      // but we can modify PdfService to return page count.
-    } catch (e) {
-      print('Error updating page count: $e');
-    }
-  }
-
-  void _detectUserArea(Map<String, String> answersMap) {
-    _detectedArea = 'Geral';
-    for (var entry in answersMap.entries) {
-      final a = entry.value.toLowerCase();
-      if (a.contains('marketing') || a.contains('criação')) {
-        _detectedArea = 'Marketing & Criação';
-        break;
-      } else if (a.contains('vendas') || a.contains('comercial')) {
-        _detectedArea = 'Vendas & Comercial';
-        break;
-      } else if (a.contains('financeiro') || a.contains('adm')) {
-        _detectedArea = 'Financeiro & Adm';
-        break;
-      } else if (a.contains('tecnologia') || a.contains('dados') || a.contains('programar')) {
-        _detectedArea = 'Tecnologia & Dados';
-        break;
-      } else if (a.contains('pessoas') || a.contains('rh')) {
-        _detectedArea = 'Pessoas & RH';
-        break;
-      } else if (a.contains('operações') || a.contains('logística')) {
-        _detectedArea = 'Operações & Logística';
-        break;
-      } else if (a.contains('jurídico') || a.contains('compliance')) {
-        _detectedArea = 'Jurídico & Compliance';
-        break;
-      }
-    }
-    notifyListeners();
   }
 
   Future<void> saveManualEdit(ResumeContent newContent) async {
@@ -851,15 +795,6 @@ class ResumeViewModel extends ChangeNotifier {
       }
 
       _resumeContent = await _localStorage.getResumeContent(userId, language: _language);
-      
-      try {
-        final answers = await _repository.getUserAnswersWithQuestions();
-        if (answers.isNotEmpty) {
-           _detectUserArea(answers);
-        }
-      } catch (e) {
-        print('Error detecting area on load: $e');
-      }
 
       if (_resumeContent != null && !isResumeEmpty) {
         await _applyFrontendOverrides(userId);
@@ -969,11 +904,8 @@ class ResumeViewModel extends ChangeNotifier {
         return;
       }
 
-      _detectUserArea(answers);
-
       _resumeContent = await _aiService.generateResumeContent(
         answers,
-        areaContext: _selectedTemplateType == 'area' ? _detectedArea : null,
         language: _language,
       );
 

@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/analytics/screen_tracking.dart';
 import '../auth/user_viewmodel.dart';
 import '../auth/onboarding_screen.dart';
 import 'edit_account_screen.dart';
+import '../resume/widgets/template_thumbnail_generator_screen.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../../core/utils/app_notifications.dart';
 import '../../services/analytics_service.dart';
@@ -190,6 +192,38 @@ class _SettingsScreenState extends State<SettingsScreen>
               ],
             ),
           ),
+
+          // Dev tools — só em debug mode. Em release fica fora da árvore.
+          if (kDebugMode) ...[
+            const SizedBox(height: 32),
+            const _SectionHeader(title: '[DEV] Ferramentas'),
+            const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: _SettingsTile(
+                icon: Icons.image_outlined,
+                title: 'Gerar thumbnails dos templates',
+                subtitle: 'Regera os PNGs de preview no Documents/',
+                iconColor: Colors.purple,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const TemplateThumbnailGeneratorScreen()),
+                  );
+                },
+              ),
+            ),
+          ],
 
           const SizedBox(height: 32),
 

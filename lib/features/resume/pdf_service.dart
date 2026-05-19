@@ -39,6 +39,10 @@ class PdfService {
   ///   - `one_page_compact`  Estudante early-career, 1 página garantida
   ///
   /// IDs desconhecidos caem em `harvard_ats` (mais seguro).
+  ///
+  /// REGENERATE: ao alterar o HTML/CSS de qualquer template abaixo, regere
+  /// os PNGs de preview em `assets/images/templates/` via
+  /// Settings → "[DEV] Gerar thumbnails dos templates".
   static Future<Uint8List> generateResumeBytes(
     UserProfile? user,
     ResumeData resume,

@@ -1,52 +1,86 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+
+import '../../../services/analytics_service.dart';
 import '../resume_viewmodel.dart';
 
-class ResumeTemplateSelector extends StatelessWidget {
+class ResumeTemplateSelector extends StatefulWidget {
   const ResumeTemplateSelector({super.key});
+
+  @override
+  State<ResumeTemplateSelector> createState() => _ResumeTemplateSelectorState();
+}
+
+class _ResumeTemplateSelectorState extends State<ResumeTemplateSelector> {
+  // Metadata estática dos 4 templates. Pra adicionar/remover template:
+  //  1. Edita esta lista
+  //  2. Atualiza o switch em `PdfService.generateResumeBytes`
+  //  3. Roda Settings → "[DEV] Gerar thumbnails dos templates" e copia o PNG
+  //     novo pra `assets/images/templates/`
+  static const List<_TemplateMeta> _templates = [
+    _TemplateMeta(
+      id: 'harvard_ats',
+      name: 'Harvard ATS Brasil',
+      thumbnail: 'assets/images/templates/harvard_ats.png',
+      description:
+          'Modelo limpo, tradicional e altamente compatível com plataformas de candidatura. Ideal para vagas corporativas e estágio.',
+      ats: 'Alta',
+      style: 'Clássico, profissional, minimalista',
+      color: Colors.black,
+    ),
+    _TemplateMeta(
+      id: 'jakes_resume',
+      name: "Jake's Resume",
+      thumbnail: 'assets/images/templates/jakes_resume.png',
+      description:
+          'Padrão de tech e engenharia inspirado no clássico LaTeX. Aprovado em Big Techs, FAANG e startups.',
+      ats: 'Alta',
+      style: 'Serif clássico, denso e elegante',
+      color: Color(0xFF1F2937),
+    ),
+    _TemplateMeta(
+      id: 'forte_foundation',
+      name: 'Forte Foundation',
+      thumbnail: 'assets/images/templates/forte_foundation.png',
+      description:
+          'Padrão internacional para banking, consultoria e MBA. Datas alinhadas à direita, GPA prominente.',
+      ats: 'Alta',
+      style: 'Times serif, conservador',
+      color: Color(0xFF0B2A4A),
+    ),
+    _TemplateMeta(
+      id: 'one_page_compact',
+      name: 'One-Page Compact',
+      thumbnail: 'assets/images/templates/one_page_compact.png',
+      description:
+          'Garantido em 1 página, sans-serif moderno. Otimizado para estudantes com 1-3 experiências.',
+      ats: 'Alta',
+      style: 'Sans-serif moderno, compacto',
+      color: Color(0xFF0F172A),
+    ),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Captura o currentTemplateId no frame seguinte pra ler do Provider
+    // sem cair em "didChangeDependencies before initState" issues.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final viewModel = context.read<ResumeViewModel>();
+      Analytics.shared.cvTemplateSelectorOpened(
+        currentTemplateId: viewModel.selectedTemplateId,
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final viewModel = context.watch<ResumeViewModel>();
-    
-    final templates = [
-      {
-        'id': 'harvard_ats',
-        'name': 'Harvard ATS Brasil',
-        'description': 'Modelo limpo, tradicional e altamente compatível com plataformas de candidatura. Ideal para processos seletivos, vagas corporativas, tecnologia, estágio, consultoria, financeiro, administrativo e áreas profissionais em geral.',
-        'ats': 'Alta',
-        'style': 'Clássico, profissional e minimalista',
-        'color': Colors.black,
-      },
-      {
-        'id': 'jakes_resume',
-        'name': 'Jake\'s Resume',
-        'description': 'Padrão de tech e engenharia inspirado no clássico LaTeX. Layout em coluna única, fonte serifada, headers com underline. Aprovado em Big Techs, FAANG, fintechs e startups de alto crescimento.',
-        'ats': 'Alta',
-        'style': 'Serif clássico, denso e elegante',
-        'color': const Color(0xFF1F2937),
-      },
-      {
-        'id': 'forte_foundation',
-        'name': 'Forte Foundation',
-        'description': 'Padrão internacional para banking, consultoria e MBA admissions. Datas alinhadas à direita, GPA prominente, formato conservador. Ideal para Itaú BBA, BTG, Stone, McKinsey, BCG, Big Four.',
-        'ats': 'Alta',
-        'style': 'Times serif, conservador',
-        'color': const Color(0xFF0B2A4A),
-      },
-      {
-        'id': 'one_page_compact',
-        'name': 'One-Page Compact',
-        'description': 'Garantido em 1 página, sans-serif moderno. Otimizado para estudantes com 1-3 experiências. Visual leve, perfeito para programas trainee, estágios e primeiro emprego.',
-        'ats': 'Alta',
-        'style': 'Sans-serif moderno, compacto',
-        'color': const Color(0xFF0F172A),
-      },
-    ];
 
     return Container(
-      height: 420,
+      height: 560,
       padding: const EdgeInsets.symmetric(vertical: 24),
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -83,101 +117,23 @@ class ResumeTemplateSelector extends StatelessWidget {
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               scrollDirection: Axis.horizontal,
-              itemCount: templates.length,
-              separatorBuilder: (context, index) => const SizedBox(width: 16),
+              itemCount: _templates.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 16),
               itemBuilder: (context, index) {
-                final template = templates[index];
-                final isSelected = viewModel.selectedTemplateId == template['id'];
-                
-                return GestureDetector(
+                final template = _templates[index];
+                final isSelected = viewModel.selectedTemplateId == template.id;
+                return _TemplateCard(
+                  template: template,
+                  isSelected: isSelected,
                   onTap: () {
-                    viewModel.setSelectedTemplateId(template['id'] as String);
+                    viewModel.setSelectedTemplateId(template.id);
+                    Analytics.shared.cvTemplateChanged(templateId: template.id);
                   },
-                  child: Container(
-                    width: 280,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: isSelected ? (template['color'] as Color).withOpacity(0.05) : Colors.white,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(
-                        color: isSelected ? (template['color'] as Color) : Colors.grey[200]!,
-                        width: isSelected ? 2 : 1,
-                      ),
-                      boxShadow: isSelected ? [
-                        BoxShadow(
-                          color: (template['color'] as Color).withOpacity(0.1),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        )
-                      ] : null,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 12,
-                              height: 12,
-                              decoration: BoxDecoration(
-                                color: template['color'] as Color,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                template['name'] as String,
-                                style: GoogleFonts.outfit(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF111827),
-                                ),
-                              ),
-                            ),
-                            if (isSelected)
-                              const Icon(Icons.check_circle, color: Colors.green, size: 20),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          template['description'] as String,
-                          style: GoogleFonts.inter(
-                            fontSize: 13,
-                            color: Colors.grey[600],
-                            height: 1.4,
-                          ),
-                          maxLines: 4,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const Spacer(),
-                        _buildMetaRow('Compatibilidade ATS:', template['ats'] as String, isSelected),
-                        const SizedBox(height: 4),
-                        _buildMetaRow('Estilo:', template['style'] as String, isSelected),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: () {
-                              viewModel.setSelectedTemplateId(template['id'] as String);
-                              Navigator.pop(context);
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: isSelected ? (template['color'] as Color) : Colors.grey[100],
-                              foregroundColor: isSelected ? Colors.white : Colors.black87,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                            child: Text(
-                              isSelected ? 'Selecionado' : 'Usar este Modelo',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  onUseTap: () {
+                    viewModel.setSelectedTemplateId(template.id);
+                    Analytics.shared.cvTemplateChanged(templateId: template.id);
+                    Navigator.pop(context);
+                  },
                 );
               },
             ),
@@ -186,31 +142,156 @@ class ResumeTemplateSelector extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _buildMetaRow(String label, String value, bool isSelected) {
-    return Row(
-      children: [
-        Text(
-          label,
-          style: GoogleFonts.inter(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: Colors.grey[500],
+class _TemplateCard extends StatelessWidget {
+  final _TemplateMeta template;
+  final bool isSelected;
+  final VoidCallback onTap;
+  final VoidCallback onUseTap;
+
+  const _TemplateCard({
+    required this.template,
+    required this.isSelected,
+    required this.onTap,
+    required this.onUseTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 300,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isSelected ? template.color.withOpacity(0.05) : Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isSelected ? template.color : Colors.grey[200]!,
+            width: isSelected ? 2 : 1,
           ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: template.color.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
         ),
-        const SizedBox(width: 4),
-        Expanded(
-          child: Text(
-            value,
-            style: GoogleFonts.inter(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: const Color(0xFF1F2937),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Thumbnail (A4 ratio 1:1.414)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: AspectRatio(
+                aspectRatio: 1 / 1.414,
+                child: Image.asset(
+                  template.thumbnail,
+                  fit: BoxFit.cover,
+                  cacheWidth: 600, // ~2x retina pra cards de ~268px
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Colors.grey[100],
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.image_outlined,
+                                size: 32, color: Colors.grey[400]),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Preview indisponível',
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
             ),
-            overflow: TextOverflow.ellipsis,
-          ),
+            const SizedBox(height: 12),
+            // Nome + check
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    template.name,
+                    style: GoogleFonts.outfit(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF111827),
+                    ),
+                  ),
+                ),
+                if (isSelected)
+                  const Icon(Icons.check_circle,
+                      color: Colors.green, size: 20),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              template.description,
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: Colors.grey[600],
+                height: 1.4,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: onUseTap,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor:
+                      isSelected ? template.color : Colors.grey[100],
+                  foregroundColor:
+                      isSelected ? Colors.white : Colors.black87,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                ),
+                child: Text(
+                  isSelected ? 'Selecionado' : 'Usar este Modelo',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
+}
+
+class _TemplateMeta {
+  final String id;
+  final String name;
+  final String thumbnail;
+  final String description;
+  final String ats;
+  final String style;
+  final Color color;
+
+  const _TemplateMeta({
+    required this.id,
+    required this.name,
+    required this.thumbnail,
+    required this.description,
+    required this.ats,
+    required this.style,
+    required this.color,
+  });
 }

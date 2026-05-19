@@ -56,11 +56,12 @@ To navigate to a specific tab from deep in the navigation stack (e.g., after com
 ## Key Design Decisions
 
 - **Phase filtering:** Obsolete phases (`t1_p4`, "Revisão", "O Cronômetro da Jornada", "O que você fez") were cleaned from the database via `20260430_cleanup_obsolete_phases_questions.sql`. No runtime filters needed.
-- **Resume export is level-gated:** PDF always available; DOCX unlocks at Level 5; Web export unlocks at Level 15.
+- **Resume export:** Only PDF is implemented (rendered locally via `Printing.convertHtml` in `PdfService.generateResumeBytes`). DOCX and Web export were planned but never built — don't reference them in UI or docs.
 - **XP formula:** `50 + (number_of_questions × 10)` per phase. 15 XP levels total (0–2501+ XP).
 - **Secret world:** Track 5 unlocks at Level 10 and triggers a special completion popup (dark premium background + gold confetti).
 - **Phase completion widget** (`gamification/widgets/phase_completion_widget.dart`) has 3 modes: phase done, track done, and resume ready (track 5).
-- **`resume_templates.dart` and `pdf_service.dart`** are large generated files (~60KB and ~57KB). Edit with care — each template is a separate function.
+- **`pdf_service.dart`** (~57KB, single file) hosts the 4 resume templates (`harvard_ats`, `jakes_resume`, `forte_foundation`, `one_page_compact`), each as a separate `_buildXxxHtml(...)` function. HTML → PDF via `Printing.convertHtml`. Edit with care.
+- **Template thumbnails**: `ResumeTemplateSelector` shows a static PNG preview per template from `assets/images/templates/`. After changing any template HTML, regenerate the PNGs via Settings → "[DEV] Gerar thumbnails dos templates" (only visible in debug mode). See `lib/features/resume/widgets/template_thumbnail_generator_screen.dart` for the tool.
 
 ## Theme & Localization
 
