@@ -89,4 +89,88 @@ class NotificationsService {
       return false;
     }
   }
+
+  /// True quando OneSignal tem subscription ativa (push token registrado +
+  /// opted-in). Diferente de [hasPermission] (que reflete só o estado iOS).
+  /// Pode ser true mesmo sem token registrado ainda — OneSignal considera
+  /// "opt-in" intent, não confirma entrega.
+  ///
+  /// Use pra decidir se mostra "Reativar notificações" na UI.
+  bool get isOptedIn {
+    if (!_initialized) return false;
+    try {
+      return OneSignal.User.pushSubscription.optedIn ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Status detalhado pra UI mostrar a mensagem certa:
+  ///   - 'subscribed'     → push funcionando, tudo ok
+  ///   - 'denied'         → user negou no iOS (precisa abrir Settings.app)
+  ///   - 'never_prompted' → user nunca foi perguntado (precisa do prompt)
+  ///   - 'unknown'        → SDK não inicializado ou erro
+  Future<String> pushStatus() async {
+    if (!_initialized) return 'unknown';
+    try {
+      final permission = OneSignal.Notifications.permission;
+      final optedIn = OneSignal.User.pushSubscription.optedIn ?? false;
+      if (permission && optedIn) return 'subscribed';
+      if (!permission) {
+        // iOS nunca foi perguntado OU user negou. Distinguir requer flag
+        // local — se a gente já chamou requestPermission antes, é 'denied';
+        // senão é 'never_prompted'.
+        final prefs = await SharedPreferences.getInstance();
+        final uid = OneSignal.User.pushSubscription.id;
+        final keys = [
+          if (uid != null) 'push_prompt_shown_$uid',
+          'push_prompt_shown_global',
+        ];
+        final everPrompted = keys.any((k) => prefs.getBool(k) == true);
+        return everPrompted ? 'denied' : 'never_prompted';
+      }
+      // permission true mas optedIn false = user fez optOut programaticamente
+      return 'denied';
+    } catch (_) {
+      return 'unknown';
+    }
+  }
+
+  /// Tenta reativar push de qualquer estado:
+  ///   - never_prompted → mostra prompt iOS pela primeira vez
+  ///   - denied         → abre Settings.app na seção do Stage (fallbackToSettings:true)
+  ///   - subscribed     → no-op
+  ///
+  /// Usado pelo botão "Reativar notificações" em Settings. Limpa a flag
+  /// local de "já promptei" pra garantir que o SDK tenta de novo mesmo
+  /// se a gente cravou ela errado antes.
+  Future<bool> reactivatePush({String? userId}) async {
+    if (!_initialized) return false;
+    try {
+      // Limpa TODAS as flags possíveis (current user + legado global) pra
+      // garantir que o próximo call NÃO toma early return.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('push_prompt_shown_global');
+      if (userId != null && userId.isNotEmpty) {
+        await prefs.remove('push_prompt_shown_$userId');
+      }
+      final oneSignalId = OneSignal.User.pushSubscription.id;
+      if (oneSignalId != null) {
+        await prefs.remove('push_prompt_shown_$oneSignalId');
+      }
+
+      // fallbackToSettings:true — se iOS já tem permissão negada, abre
+      // Settings.app na seção do Stage automaticamente pro user reativar.
+      final granted = await OneSignal.Notifications.requestPermission(true);
+
+      // Força optIn no caso de user ter sido optedOut programaticamente.
+      try {
+        OneSignal.User.pushSubscription.optIn();
+      } catch (_) {}
+
+      return granted;
+    } catch (_) {
+      return false;
+    }
+  }
 }

@@ -7,6 +7,7 @@ import 'edit_account_screen.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../../core/utils/app_notifications.dart';
 import '../../services/analytics_service.dart';
+import '../../services/notifications_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -110,6 +111,30 @@ class _SettingsScreenState extends State<SettingsScreen>
 
               ],
             ),
+          ),
+
+          const SizedBox(height: 32),
+
+          // Section: Notifications — diagnóstico + botão pra reativar push.
+          // Vários usuários ficam em "Never Prompted" / "Denied" no OneSignal
+          // (relatório: subscription criada mas push permission nunca foi
+          // pedida ou foi negada). Sem reativação, eles nunca recebem push
+          // — perde retenção. Este item dá o caminho de volta.
+          const _SectionHeader(title: 'Notificações'),
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: const _NotificationsTile(),
           ),
 
           const SizedBox(height: 32),
@@ -775,6 +800,154 @@ class _SettingsTile extends StatelessWidget {
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: Color(0xFF1F2937))),
       subtitle: subtitle != null ? Text(subtitle!, style: TextStyle(color: Colors.grey[500], fontSize: 13)) : null,
       trailing: trailing ?? const Icon(Icons.chevron_right, color: Color(0xFF9CA3AF), size: 20),
+    );
+  }
+}
+
+/// Item de Settings que mostra o status das notificações push e oferece
+/// reativação one-tap. Refresh do status:
+///   - No initState (entrada na tela)
+///   - No didChangeDependencies (volta de outra tela)
+///   - Após tap de reativar (espera 1s pra OneSignal sincronizar)
+///
+/// Mensagens de status alinhadas ao OneSignal:
+///   - subscribed     → "Ativas" + ícone verde
+///   - denied         → "Bloqueadas no iOS · Toque pra reativar"
+///   - never_prompted → "Desligadas · Toque pra ativar"
+///   - unknown        → "Não foi possível verificar"
+class _NotificationsTile extends StatefulWidget {
+  const _NotificationsTile();
+
+  @override
+  State<_NotificationsTile> createState() => _NotificationsTileState();
+}
+
+class _NotificationsTileState extends State<_NotificationsTile> {
+  String _status = 'unknown';
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final s = await NotificationsService.shared.pushStatus();
+    if (!mounted) return;
+    setState(() => _status = s);
+  }
+
+  Future<void> _onTap() async {
+    if (_loading) return;
+    // Se já está subscribed, oferecer um teste rápido em vez de mexer.
+    if (_status == 'subscribed') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Notificações já estão ativas ✓'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _loading = true);
+    Analytics.shared.track('push_reactivate_tapped',
+        props: {'previous_status': _status});
+
+    final userId = context.read<UserViewModel>().user?.id ?? '';
+    final granted = await NotificationsService.shared
+        .reactivatePush(userId: userId.isNotEmpty ? userId : null);
+
+    // Espera o SDK sincronizar antes de re-checar status (iOS roundtrip).
+    await Future.delayed(const Duration(seconds: 1));
+    await _refresh();
+
+    Analytics.shared.track('push_reactivate_completed', props: {
+      'granted': granted,
+      'new_status': _status,
+    });
+
+    if (!mounted) return;
+    setState(() => _loading = false);
+
+    final msg = _status == 'subscribed'
+        ? 'Notificações ativadas ✓'
+        : (granted
+            ? 'Aguarde alguns segundos pra sincronizar'
+            : 'Pra reativar, vá em Ajustes do iPhone → Stage → Notificações');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 4)),
+    );
+  }
+
+  ({IconData icon, Color color, String title, String subtitle}) _viewModel() {
+    switch (_status) {
+      case 'subscribed':
+        return (
+          icon: Icons.notifications_active_rounded,
+          color: const Color(0xFF10B981),
+          title: 'Notificações',
+          subtitle: 'Ativas — você recebe pushes do Stage',
+        );
+      case 'denied':
+        return (
+          icon: Icons.notifications_off_rounded,
+          color: const Color(0xFFEF4444),
+          title: 'Notificações bloqueadas',
+          subtitle: 'Toque pra abrir Ajustes do iPhone e reativar',
+        );
+      case 'never_prompted':
+        return (
+          icon: Icons.notifications_paused_rounded,
+          color: const Color(0xFFF59E0B),
+          title: 'Ativar notificações',
+          subtitle: 'Vagas que combinam com você chegam direto aqui',
+        );
+      default:
+        return (
+          icon: Icons.notifications_none_rounded,
+          color: const Color(0xFF6B7280),
+          title: 'Notificações',
+          subtitle: 'Toque pra verificar',
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final vm = _viewModel();
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      onTap: _onTap,
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: vm.color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(vm.icon, color: vm.color, size: 20),
+      ),
+      title: Text(
+        vm.title,
+        style: const TextStyle(
+          fontWeight: FontWeight.w600,
+          fontSize: 15,
+          color: Color(0xFF1F2937),
+        ),
+      ),
+      subtitle: Text(
+        vm.subtitle,
+        style: TextStyle(color: Colors.grey[500], fontSize: 13),
+      ),
+      trailing: _loading
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.chevron_right,
+              color: Color(0xFF9CA3AF), size: 20),
     );
   }
 }

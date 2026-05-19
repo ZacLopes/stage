@@ -133,22 +133,22 @@ serve(async (req) => {
     windowHoursStart?: number
     windowHoursEnd?: number
     dryRun?: boolean
+    /// Override de teste: ignora a janela D+1 e dispara só pra esses emails.
+    /// Útil pra dev/QA validar a function antes do cron real. Aceita 1+ emails.
+    targetEmails?: string[]
   }
   const windowHoursStart = body.windowHoursStart ?? 22
   const windowHoursEnd = body.windowHoursEnd ?? 26
   const dryRun = body.dryRun === true
-
-  const now = Date.now()
-  const startedAfter = new Date(now - windowHoursEnd * 3600 * 1000).toISOString()
-  const startedBefore = new Date(now - windowHoursStart * 3600 * 1000).toISOString()
+  const targetEmails = Array.isArray(body.targetEmails)
+    ? body.targetEmails.map((e) => String(e).trim().toLowerCase()).filter((e) => e.length > 0)
+    : []
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
 
-  // 1. Lista users criados na janela D+1.
-  // Usa auth.admin.listUsers porque user_profiles.created_at pode não bater
-  // com auth.users.created_at (trigger).
+  // 1. Lista users — modo teste (targetEmails) ou modo prod (janela D+1).
   const { data: usersPage, error: listErr } = await supabase.auth.admin.listUsers({
     page: 1,
     perPage: 1000,
@@ -156,19 +156,41 @@ serve(async (req) => {
   if (listErr) {
     return jsonResponse({ error: 'list_users_failed', detail: listErr.message }, 500)
   }
-  const candidates = (usersPage?.users ?? []).filter((u) => {
-    const created = new Date(u.created_at ?? 0).toISOString()
-    return created >= startedAfter && created < startedBefore
-  })
 
-  if (candidates.length === 0) {
-    return jsonResponse({
-      sent: 0,
-      candidates: 0,
-      windowHoursStart,
-      windowHoursEnd,
-      note: 'no users in window',
+  let candidates
+  if (targetEmails.length > 0) {
+    // Modo teste: matchea por email exato (case-insensitive)
+    candidates = (usersPage?.users ?? []).filter((u) => {
+      const email = (u.email ?? '').toLowerCase()
+      return targetEmails.includes(email)
     })
+    if (candidates.length === 0) {
+      return jsonResponse({
+        sent: 0,
+        candidates: 0,
+        mode: 'targetEmails',
+        targetEmails,
+        note: 'no users matched targetEmails',
+      })
+    }
+  } else {
+    // Modo prod: janela D+1 (22-26h atrás por default)
+    const now = Date.now()
+    const startedAfter = new Date(now - windowHoursEnd * 3600 * 1000).toISOString()
+    const startedBefore = new Date(now - windowHoursStart * 3600 * 1000).toISOString()
+    candidates = (usersPage?.users ?? []).filter((u) => {
+      const created = new Date(u.created_at ?? 0).toISOString()
+      return created >= startedAfter && created < startedBefore
+    })
+    if (candidates.length === 0) {
+      return jsonResponse({
+        sent: 0,
+        candidates: 0,
+        windowHoursStart,
+        windowHoursEnd,
+        note: 'no users in window',
+      })
+    }
   }
 
   const candidateIds = candidates.map((u) => u.id)
@@ -200,6 +222,7 @@ serve(async (req) => {
     intent: string
     status: number | 'dry_run'
     ok: boolean
+    onesignalResponse?: string
   }> = []
 
   for (const u of candidates) {
@@ -224,6 +247,10 @@ serve(async (req) => {
         intent: variant.intent,
         status: r.status,
         ok: r.ok,
+        // F: incluir response do OneSignal — sem isso fica impossível debugar
+        // entrega (200 do OneSignal não garante recipient encontrado; precisa
+        // ver `recipients` no body pra saber se push foi de fato endereçado).
+        onesignalResponse: r.body,
       })
     } catch (e) {
       results.push({
@@ -231,6 +258,7 @@ serve(async (req) => {
         intent: variant.intent,
         status: 500,
         ok: false,
+        onesignalResponse: String(e).slice(0, 300),
       })
       console.error('OneSignal send failed for', u.id, e)
     }
