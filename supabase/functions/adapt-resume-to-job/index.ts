@@ -35,7 +35,12 @@ const MODEL = 'gpt-4o-mini'
 // _findEndOfDescription corta no ". " seguido de Maiúscula. v12 deixava
 // "Gerenciei... Link Finance. Desenvolvimento de Aplicativo Gamificado
 // Desenvolvedor" como descrição do projeto 1.
-const PROMPT_VERSION = 'v13'
+// v14 (F0 da reformulação): invalida cache existente após introdução de
+// eqInstitutional, auto-restore de achievements, e tolerância de location
+// via cvFlat. Sem isso, adaptações cacheadas continuariam falhando com
+// regras antigas. Bump também serve de marcador no PostHog para separar
+// cohorts pré/pós-fix.
+const PROMPT_VERSION = 'v14'
 const RATE_LIMIT_PER_DAY = 30
 // 40s cabe P99 atual (~8s) com folga grande para picos da OpenAI. Antes
 // estava 25s — exatamente na cauda, causando timeouts em pico de carga
@@ -84,6 +89,27 @@ function flatten(s: string | null | undefined): string {
 /** True se duas strings batem após normalização. */
 function eq(a: string | null | undefined, b: string | null | undefined): boolean {
   return normalize(a) === normalize(b)
+}
+
+/**
+ * Comparação tolerante a pontuação alucinada pela IA em nomes próprios
+ * (company, institution, role, degree). O GPT-4o-mini ocasionalmente insere
+ * caracteres extras como `@`, `&`, `-`, `.`, `:`, `/`, `,` em meio a nomes,
+ * frequentemente "vazando" pontuação de outros campos do CV (ex.: o `@` do
+ * email aparece dentro do nome da instituição). Esses caracteres são
+ * removidos antes da comparação — palavras inteiras continuam exigindo
+ * match exato, então a proteção anti-invenção fica intacta.
+ *
+ * Exemplos:
+ *   eqInstitutional("Link @ School of Business", "Link School of Business") → true
+ *   eqInstitutional("Procter & Gamble", "Procter Gamble") → true
+ *   eqInstitutional("Apple Inc.", "Apple Inc") → true
+ *   eqInstitutional("Apple", "Microsoft") → false (proteção preservada)
+ */
+function eqInstitutional(a: string | null | undefined, b: string | null | undefined): boolean {
+  const strip = (s: string | null | undefined): string =>
+    normalize(s).replace(/[@&\-.,:/]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return strip(a) === strip(b)
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1361,12 +1387,18 @@ function validateAdaptation(input: InputResume, parsed: any, job?: JobContext): 
       )
     }
   }
+  // Achievements: auto-restore em vez de rejeitar. Mesmo tratamento de
+  // interests (campo opcional). Pré-fix rejeitava com 422 quando o
+  // pre-parser detectava 1 conquista no raw_text mas a IA não conseguia
+  // identificá-la para reescrever — caso comum quando o pre-parser
+  // tropeça em bullets ambíguos. Auto-restore mantém os achievements do
+  // input no output, o pior caso é uma versão sem reescrita pela IA.
   if (Array.isArray(input.achievements) && input.achievements.length > 0) {
     if (!Array.isArray(r.achievements) || r.achievements.length === 0) {
-      throw new ValidationError(
-        'achievements',
-        `input tinha ${input.achievements.length} conquista(s)/projeto(s) mas output está vazio`,
+      console.warn(
+        `[adapt-resume] achievements dropped: input had ${input.achievements.length}, output empty. Auto-restoring from input.`,
       )
+      r.achievements = input.achievements
     }
   }
   // Interests: mais leniente (alguns CVs nem têm). Só checa se input tinha.
@@ -1444,18 +1476,23 @@ function validateAdaptation(input: InputResume, parsed: any, job?: JobContext): 
   }
 
   // Auto-correct: localização de experiência/educação não pode vir do nada.
-  // Se input.experiences[i].location era undefined/vazia E o output tem
-  // localização preenchida, zera o output. A IA estava inventando ("colocou
-  // Londrina - PR na experiência Stage porque é a cidade do candidato").
+  // Regra original: se input não tem location, zerava o output. Problema:
+  // o pre-parser frequentemente perde a coluna direita do PDF (onde
+  // localizações costumam estar), e o output da IA era apagado mesmo
+  // quando a location realmente existe no raw_text bruto. Agora aceita a
+  // location se: (a) bate com input estruturado OU (b) aparece em algum
+  // lugar do cvFlat. Só limpa quando NENHUMA das duas condições se cumpre
+  // — aí sim é invenção. Companies/instituições são comparadas via
+  // `eqInstitutional` para tolerar pontuação alucinada pela IA.
   if (Array.isArray(r.experiences)) {
     for (const exp of r.experiences) {
       if (exp.location && String(exp.location).trim().length > 0) {
-        // Procura experiência correspondente no input
         const match = (input.experiences ?? []).find(
-          (e) => eq(e.company, exp.company) && eq(e.role, exp.role),
+          (e) => eqInstitutional(e.company, exp.company) && eq(e.role, exp.role),
         )
         const inputLoc = match?.location ? String(match.location).trim() : ''
-        if (!inputLoc) {
+        const locInCv = cvFlat ? cvFlat.includes(flatten(String(exp.location))) : false
+        if (!inputLoc && !locInCv) {
           console.warn(`[adapt-resume] clearing invented experience.location "${exp.location}" for ${exp.role} @ ${exp.company}`)
           exp.location = ''
         }
@@ -1466,10 +1503,11 @@ function validateAdaptation(input: InputResume, parsed: any, job?: JobContext): 
     for (const ed of r.education) {
       if (ed.location && String(ed.location).trim().length > 0) {
         const match = (input.education ?? []).find(
-          (e) => eq(e.institution, ed.institution) && eq(e.degree, ed.degree),
+          (e) => eqInstitutional(e.institution, ed.institution) && eq(e.degree, ed.degree),
         )
         const inputLoc = match?.location ? String(match.location).trim() : ''
-        if (!inputLoc) {
+        const locInCv = cvFlat ? cvFlat.includes(flatten(String(ed.location))) : false
+        if (!inputLoc && !locInCv) {
           console.warn(`[adapt-resume] clearing invented education.location "${ed.location}" for ${ed.degree} @ ${ed.institution}`)
           ed.location = ''
         }
@@ -1695,8 +1733,10 @@ function validateAdaptation(input: InputResume, parsed: any, job?: JobContext): 
       )
     }
     for (const exp of r.experiences) {
+      // company via eqInstitutional (tolera pontuação alucinada);
+      // role via eq estrito (variação de cargo costuma ser intencional).
       const found = input.experiences.find(
-        (orig) => eq(orig.company, exp.company) && eq(orig.role, exp.role),
+        (orig) => eqInstitutional(orig.company, exp.company) && eq(orig.role, exp.role),
       )
       if (!found) {
         throw new ValidationError(
@@ -1796,8 +1836,10 @@ function validateAdaptation(input: InputResume, parsed: any, job?: JobContext): 
       throw new ValidationError('education', 'inventou educação')
     }
     for (const ed of r.education) {
+      // institution via eqInstitutional (tolera pontuação alucinada);
+      // degree via eq estrito (variação de grau costuma ser intencional).
       const found = input.education.find(
-        (orig) => eq(orig.institution, ed.institution) && eq(orig.degree, ed.degree),
+        (orig) => eqInstitutional(orig.institution, ed.institution) && eq(orig.degree, ed.degree),
       )
       if (!found) {
         throw new ValidationError(
