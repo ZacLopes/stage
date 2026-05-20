@@ -290,6 +290,28 @@ class AnalyticsService {
   Future<void> cvAdaptationPdfDownloaded({required String jobId}) =>
       track('cv_adaptation_pdf_downloaded', props: {'job_id': jobId});
 
+  /// Disparado quando o usuário edita um campo do CV adaptado na tela de
+  /// preview (F1 da reformulação). Sinal mais valioso pra entender onde a
+  /// IA está errando segundo a percepção humana — alimenta o dashboard de
+  /// quality_score (F7) e o validador semântico (F6).
+  ///
+  /// [field]: nome do campo editado (`summary`, `skills`, `experience.{i}.description`, ...).
+  /// [editType]: `replace` (substituiu texto), `restore_original` (voltou ao original),
+  ///             `clear` (esvaziou campo).
+  /// [charDiff]: diferença em caracteres entre antes e depois (positiva = adicionou).
+  Future<void> cvAdaptationUserEdited({
+    required String jobId,
+    required String field,
+    required String editType,
+    required int charDiff,
+  }) =>
+      track('cv_adaptation_user_edited', props: {
+        'job_id': jobId,
+        'field': field,
+        'edit_type': editType,
+        'char_diff': charDiff,
+      });
+
   // ── Confirmação de skills antes da adaptação ────────────────────────
   Future<void> skillsConfirmationOpened({
     required String jobId,

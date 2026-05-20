@@ -15,6 +15,12 @@ import '../../resume/widgets/import_cv_button.dart';
 import '../models/adapted_resume.dart';
 import '../models/job.dart';
 import '../pending_adapted_cv_tracker.dart';
+import 'adapted_resume_preview_screen.dart';
+
+/// Feature flag da F1 (preview visual + edição inline). Default ON. Para
+/// rollback rápido: trocar para `false` e rebuild — a sheet volta a usar
+/// o fluxo legacy de "Baixar PDF" direto sem preview.
+const bool kEnableAdaptedResumePreviewV2 = true;
 
 /// Bottom sheet que adapta o currículo do usuário pra uma vaga específica
 /// usando IA. Mostra diff explicável + botão pra baixar PDF.
@@ -253,6 +259,28 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
   }
 
   // ── Actions ────────────────────────────────────────────────────────
+  /// Abre a tela de preview + edição (F1). Esta é a porta de entrada
+  /// padrão pra download — usuário sempre revisa antes. A preview screen
+  /// gera o PDF internamente após o "Aprovar e baixar" e retorna `true`.
+  Future<void> _openPreview() async {
+    final adapted = _adapted;
+    if (adapted == null) return;
+    HapticFeedback.mediumImpact();
+    final downloaded = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => AdaptedResumePreviewScreen(
+          adapted: adapted,
+          job: widget.job,
+        ),
+        fullscreenDialog: true,
+      ),
+    );
+    // Se o user baixou de fato, fecha também o sheet pra encerrar o fluxo.
+    if (downloaded == true && mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
   Future<void> _downloadPdf() async {
     final adapted = _adapted;
     if (adapted == null) return;
@@ -265,7 +293,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
       // 'harvard_ats' (ATS-friendly, seguro pra qualquer recrutador).
       final templateId =
           context.read<ResumeViewModel>().selectedTemplateId;
-      await PdfService.generateResume(user, adapted.resumeData, templateId);
+      await PdfService.generateResume(user, adapted.effectiveResumeData, templateId);
       Analytics.shared.cvAdaptationPdfDownloaded(jobId: widget.job.id);
       // Ciclo completo — apaga o pendente do banner (F2.5).
       // ignore: unawaited_futures
@@ -916,11 +944,20 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
             color: Colors.white.withOpacity(0.92),
             border: const Border(top: BorderSide(color: _border, width: 0.5)),
           ),
+          // F1 da reformulação: botão agora abre tela de preview + edição
+          // por padrão. User sempre revisa antes de baixar. Fallback
+          // legacy (download direto) fica disponível via feature flag.
           child: _buildPrimaryButton(
-            label: _isExporting ? 'Gerando PDF…' : 'Baixar currículo (PDF)',
-            icon: _isExporting ? null : Icons.download_rounded,
-            onTap: _isExporting ? null : _downloadPdf,
-            loading: _isExporting,
+            label: kEnableAdaptedResumePreviewV2
+                ? 'Revisar e baixar'
+                : (_isExporting ? 'Gerando PDF…' : 'Baixar currículo (PDF)'),
+            icon: kEnableAdaptedResumePreviewV2
+                ? Icons.visibility_rounded
+                : (_isExporting ? null : Icons.download_rounded),
+            onTap: kEnableAdaptedResumePreviewV2
+                ? _openPreview
+                : (_isExporting ? null : _downloadPdf),
+            loading: !kEnableAdaptedResumePreviewV2 && _isExporting,
           ),
         ),
       ),

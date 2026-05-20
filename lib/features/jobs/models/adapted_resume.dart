@@ -34,6 +34,12 @@ class AdaptedResume {
   /// Vazio quando user pulou ou não confirmou nenhuma.
   final List<String> extraSkillsUsed;
 
+  /// Versão editada pelo usuário na tela de preview (F1). Null quando o
+  /// usuário não editou nada — `resumeData` é usado direto. Quando não-null,
+  /// é o que vai para o PDF final. `resumeData` original fica preservado
+  /// para mostrar diff e permitir "voltar ao original".
+  final ResumeData? userEditedResumeData;
+
   const AdaptedResume({
     required this.jobId,
     required this.changes,
@@ -43,13 +49,38 @@ class AdaptedResume {
     this.cached = false,
     this.modelUsed,
     this.extraSkillsUsed = const [],
+    this.userEditedResumeData,
   });
+
+  /// Dados efetivos para gerar o PDF — versão editada se existe, senão a
+  /// adaptada pela IA. Use sempre que for renderizar/exportar.
+  ResumeData get effectiveResumeData => userEditedResumeData ?? resumeData;
+
+  /// True se o usuário editou pelo menos um campo na preview.
+  bool get hasUserEdits => userEditedResumeData != null;
 
   /// Quantos pontos de match a adaptação adicionou. Null se não temos os dois
   /// scores. Sempre >= 0 (clamp no server-side).
   int? get matchUpgrade {
     if (matchScoreBefore == null || matchScoreAfter == null) return null;
     return matchScoreAfter! - matchScoreBefore!;
+  }
+
+  AdaptedResume copyWith({
+    ResumeData? userEditedResumeData,
+    bool clearUserEdits = false,
+  }) {
+    return AdaptedResume(
+      jobId: jobId,
+      changes: changes,
+      resumeData: resumeData,
+      matchScoreBefore: matchScoreBefore,
+      matchScoreAfter: matchScoreAfter,
+      cached: cached,
+      modelUsed: modelUsed,
+      extraSkillsUsed: extraSkillsUsed,
+      userEditedResumeData: clearUserEdits ? null : (userEditedResumeData ?? this.userEditedResumeData),
+    );
   }
 
   factory AdaptedResume.fromJson(Map<String, dynamic> json, {required String jobId}) {
