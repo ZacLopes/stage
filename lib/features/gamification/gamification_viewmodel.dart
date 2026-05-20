@@ -14,7 +14,7 @@ class GamificationViewModel extends ChangeNotifier {
   final AIService _aiService = AIService();
   
   Future<Map<String, String>> _getAllAnswers() async {
-    return await _repository.getUserAnswersWithQuestions();
+    return await _repository.getUserAnswersByQuestionId();
   }
 
   // Track Details State

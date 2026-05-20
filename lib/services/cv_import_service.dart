@@ -98,6 +98,7 @@ class CvImportService {
       // só não tem o boost de match/adaptação por keyword overlap)
       var rawTextLen = 0;
       var usable = false;
+      String? extractionError;
       try {
         final rawText = ResumePdfExtractor.extract(byteList);
         rawTextLen = rawText.length;
@@ -114,10 +115,21 @@ class CvImportService {
           await userVM.updateProfile(gamificationData: currentData);
         }
       } catch (e) {
+        extractionError = e.toString().split('\n').first;
         debugPrint('PDF text extraction failed (non-blocking): $e');
       }
 
-      Analytics.shared.cvImportSucceeded(extractedChars: rawTextLen);
+      // Telemetria fiel ao resultado real: succeeded só quando o texto é
+      // utilizável (e portanto persistido em imported_resume.raw_text). Caso
+      // contrário, failed — extrator devolveu pouco/nada e a adaptação cairá
+      // em profile_incomplete. Reportar succeeded aqui mascarava esses casos.
+      if (usable) {
+        Analytics.shared.cvImportSucceeded(extractedChars: rawTextLen);
+      } else {
+        Analytics.shared.cvImportFailed(
+          reason: extractionError ?? 'unusable_text:$rawTextLen',
+        );
+      }
       return CvImportResult(
         success: true,
         title: title,

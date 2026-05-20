@@ -45,6 +45,13 @@ void main() {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
 
+    // Desliga fetch de fontes em runtime. As famílias Outfit e Inter usadas
+    // via `GoogleFonts.outfit()` / `GoogleFonts.inter()` agora resolvem a
+    // partir das variable fonts declaradas em pubspec.yaml (assets/fonts/).
+    // Sem isso, usuários offline ou com DNS bloqueado disparavam
+    // `Failed host lookup: 'fonts.gstatic.com'` (10+ $exceptions em 19-20/mai).
+    GoogleFonts.config.allowRuntimeFetching = false;
+
     FlutterError.onError = (FlutterErrorDetails details) {
       FlutterError.presentError(details);
       Analytics.shared.captureException(

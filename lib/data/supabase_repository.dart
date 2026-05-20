@@ -619,6 +619,66 @@ class SupabaseRepository {
     }
   }
 
+  /// Retorna respostas indexadas por `question_id` (ex: `M1_3_1_Q2`).
+  /// Usado por `processModule1/2/3Answers` em `GamificationLogic`, que
+  /// fazem lookup por ID estático. Inclui dedupe (mais recente vence) e
+  /// orphan-guard de M3_D{2-6}_* quando o D1 correspondente sumiu.
+  ///
+  /// Diferente de `getUserAnswersWithQuestions()` (que indexa pelo enunciado
+  /// da pergunta, formato esperado por prompts de IA).
+  Future<Map<String, String>> getUserAnswersByQuestionId() async {
+    try {
+      final userId = _client.auth.currentUser?.id;
+      if (userId == null) return {};
+
+      final rawResponse = await _client
+          .from('user_answers')
+          .select('question_id, answer, answered_at')
+          .eq('user_id', userId)
+          .order('answered_at', ascending: false);
+
+      // Dedupe por question_id, mais recente vence (mesma regra do
+      // getUserAnswersWithQuestions).
+      final seenQids = <String>{};
+      final response = <Map<String, dynamic>>[];
+      for (final item in rawResponse as List) {
+        final qid = item['question_id'] as String?;
+        if (qid == null) continue;
+        if (seenQids.add(qid)) response.add(Map<String, dynamic>.from(item));
+      }
+
+      // Orphan-guard: M3_D{2-6}_{cat}_{idx} só vive se o D1 correspondente
+      // existe. Caso contrário é resíduo de uma experiência deletada.
+      final aliveExperiences = <String>{};
+      final dRe = RegExp(r'^M3_D1_([a-z]+)_(\d+)$');
+      for (final item in response) {
+        final qid = item['question_id'] as String? ?? '';
+        final m = dRe.firstMatch(qid);
+        if (m != null) aliveExperiences.add('${m.group(1)}_${m.group(2)}');
+      }
+      response.removeWhere((item) {
+        final qid = item['question_id'] as String? ?? '';
+        final m = RegExp(r'^M3_D[2-6]_([a-z]+)_(\d+)$').firstMatch(qid);
+        if (m == null) return false;
+        return !aliveExperiences.contains('${m.group(1)}_${m.group(2)}');
+      });
+
+      final answersMap = <String, String>{};
+      for (final item in response) {
+        final qId = item['question_id'] as String;
+        final rawAnswer = item['answer'];
+        if (rawAnswer == null) continue;
+        answersMap[qId] = rawAnswer is String
+            ? rawAnswer
+            : rawAnswer.toString();
+      }
+      return answersMap;
+    } catch (e) {
+      print('Error fetching user answers by question id: $e');
+      return {};
+    }
+  }
+
   Future<Map<String, String>> getUserAnswersWithQuestions() async {
     try {
       final userId = _client.auth.currentUser?.id;

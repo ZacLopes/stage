@@ -37,7 +37,10 @@ const MODEL = 'gpt-4o-mini'
 // Desenvolvedor" como descrição do projeto 1.
 const PROMPT_VERSION = 'v13'
 const RATE_LIMIT_PER_DAY = 30
-const OPENAI_TIMEOUT_MS = 25000
+// 40s cabe P99 atual (~8s) com folga grande para picos da OpenAI. Antes
+// estava 25s — exatamente na cauda, causando timeouts em pico de carga
+// (19-20/mai bateu max=25s em ~5 chamadas com volume 6x acima do normal).
+const OPENAI_TIMEOUT_MS = 40000
 const MAX_BULLET_INFLATION = 1.3 // adapt não pode > 1.3x bullets do original
 
 // ────────────────────────────────────────────────────────────────────────────
