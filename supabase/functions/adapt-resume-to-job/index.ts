@@ -93,23 +93,68 @@ function eq(a: string | null | undefined, b: string | null | undefined): boolean
 
 /**
  * Comparação tolerante a pontuação alucinada pela IA em nomes próprios
- * (company, institution, role, degree). O GPT-4o-mini ocasionalmente insere
- * caracteres extras como `@`, `&`, `-`, `.`, `:`, `/`, `,` em meio a nomes,
- * frequentemente "vazando" pontuação de outros campos do CV (ex.: o `@` do
- * email aparece dentro do nome da instituição). Esses caracteres são
- * removidos antes da comparação — palavras inteiras continuam exigindo
- * match exato, então a proteção anti-invenção fica intacta.
+ * (company, institution, role, degree). Em F6 ganhou fallback de
+ * similarity (Jaro-Winkler ≥ 0.88) pra cobrir typos de 1-2 chars que a
+ * IA introduz por engano ("Universadade" vs "Universidade").
+ *
+ * Versão idêntica à de `_shared/cv_text.ts:eqInstitutional` — duplicada
+ * aqui porque alterar o caminho do import dentro do adapt-resume-to-job
+ * (que já é ~2400 linhas) é alto risco. Mantém sincronizado manualmente.
  *
  * Exemplos:
  *   eqInstitutional("Link @ School of Business", "Link School of Business") → true
  *   eqInstitutional("Procter & Gamble", "Procter Gamble") → true
- *   eqInstitutional("Apple Inc.", "Apple Inc") → true
+ *   eqInstitutional("Universadade do Brasil", "Universidade do Brasil") → true (typo)
  *   eqInstitutional("Apple", "Microsoft") → false (proteção preservada)
  */
 function eqInstitutional(a: string | null | undefined, b: string | null | undefined): boolean {
   const strip = (s: string | null | undefined): string =>
     normalize(s).replace(/[@&\-.,:/]+/g, ' ').replace(/\s+/g, ' ').trim()
-  return strip(a) === strip(b)
+  const sa = strip(a)
+  const sb = strip(b)
+  if (sa === sb) return true
+  if (sa.length < 4 || sb.length < 4) return false
+  return jaroWinklerSimilarity(sa, sb) >= 0.88
+}
+
+/** Jaro-Winkler similarity (0-1). Veja _shared/cv_text.ts:jaroWinklerSimilarity. */
+function jaroWinklerSimilarity(s1: string, s2: string): number {
+  if (s1 === s2) return 1.0
+  if (s1.length === 0 || s2.length === 0) return 0.0
+  const matchWindow = Math.max(0, Math.floor(Math.max(s1.length, s2.length) / 2) - 1)
+  const s1Matches: boolean[] = new Array(s1.length).fill(false)
+  const s2Matches: boolean[] = new Array(s2.length).fill(false)
+  let matches = 0
+  for (let i = 0; i < s1.length; i++) {
+    const start = Math.max(0, i - matchWindow)
+    const end = Math.min(i + matchWindow + 1, s2.length)
+    for (let j = start; j < end; j++) {
+      if (s2Matches[j] || s1[i] !== s2[j]) continue
+      s1Matches[i] = true
+      s2Matches[j] = true
+      matches++
+      break
+    }
+  }
+  if (matches === 0) return 0.0
+  let k = 0
+  let transpositions = 0
+  for (let i = 0; i < s1.length; i++) {
+    if (!s1Matches[i]) continue
+    while (!s2Matches[k]) k++
+    if (s1[i] !== s2[k]) transpositions++
+    k++
+  }
+  transpositions = Math.floor(transpositions / 2)
+  const jaro = (matches / s1.length + matches / s2.length +
+                (matches - transpositions) / matches) / 3
+  let prefix = 0
+  const maxPrefix = Math.min(4, s1.length, s2.length)
+  for (let i = 0; i < maxPrefix; i++) {
+    if (s1[i] === s2[i]) prefix++
+    else break
+  }
+  return jaro + prefix * 0.1 * (1 - jaro)
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1762,6 +1807,15 @@ function validateAdaptation(input: InputResume, parsed: any, job?: JobContext): 
           `experiência inventada: "${exp.role}" @ "${exp.company}"`,
         )
       }
+      // F6: auto-correct silencioso de nome canônico. eqInstitutional pode
+      // passar com diferenças sutis ("Link @ School" → "Link School"); o
+      // currículo final deve usar o nome exato do input do candidato, não
+      // a versão alucinada da IA. Trocar aqui evita que diferenças voltem
+      // depois em comparação contra o raw_text.
+      if (found.company !== exp.company) {
+        console.warn(`[adapt-resume] auto-correct company: "${exp.company}" → "${found.company}"`)
+        exp.company = found.company
+      }
       // Período: deve ser exatamente igual (datas não podem mudar).
       if (found.period && !eq(found.period, exp.period)) {
         throw new ValidationError(
@@ -1864,6 +1918,11 @@ function validateAdaptation(input: InputResume, parsed: any, job?: JobContext): 
           'education',
           `educação inventada: "${ed.degree}" @ "${ed.institution}"`,
         )
+      }
+      // F6: auto-correct silencioso pra nome canônico da instituição.
+      if (found.institution !== ed.institution) {
+        console.warn(`[adapt-resume] auto-correct institution: "${ed.institution}" → "${found.institution}"`)
+        ed.institution = found.institution
       }
     }
   } else if (cvFlat) {

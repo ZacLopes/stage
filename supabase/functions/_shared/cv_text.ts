@@ -40,11 +40,16 @@ export function eq(a: string | null | undefined, b: string | null | undefined): 
  * removidos antes da comparação — palavras inteiras continuam exigindo
  * match exato, então a proteção anti-invenção fica intacta.
  *
+ * Em F6: se match estrito falha, tenta similarity (Jaro-Winkler >= 0.88)
+ * como fallback. Pega typos de 1-2 chars que a IA introduz por engano
+ * ("Universadade" vs "Universidade"). Threshold alto (0.88) garante que
+ * nomes diferentes não casam ("Apple" vs "Microsoft" = ~0.0).
+ *
  * Exemplos:
  *   eqInstitutional("Link @ School of Business", "Link School of Business") → true
  *   eqInstitutional("Procter & Gamble", "Procter Gamble") → true
- *   eqInstitutional("Apple Inc.", "Apple Inc") → true
- *   eqInstitutional("Apple", "Microsoft") → false (proteção preservada)
+ *   eqInstitutional("Universadade do Brasil", "Universidade do Brasil") → true (typo, similarity ~0.93)
+ *   eqInstitutional("Apple", "Microsoft") → false
  */
 export function eqInstitutional(
   a: string | null | undefined,
@@ -52,7 +57,66 @@ export function eqInstitutional(
 ): boolean {
   const strip = (s: string | null | undefined): string =>
     normalize(s).replace(/[@&\-.,:/]+/g, ' ').replace(/\s+/g, ' ').trim()
-  return strip(a) === strip(b)
+  const sa = strip(a)
+  const sb = strip(b)
+  if (sa === sb) return true
+  // Fallback fuzzy: típico de typos da IA. Threshold 0.88 pega 1-2 char
+  // diff em palavras de 8+ chars sem aceitar nomes completamente
+  // diferentes (rejeita 0.4-0.6 que seriam "parecidos mas distintos").
+  if (sa.length < 4 || sb.length < 4) return false
+  return jaroWinklerSimilarity(sa, sb) >= 0.88
+}
+
+/**
+ * Jaro-Winkler similarity (0-1). Versão inline pra evitar dependência
+ * externa. Implementação clássica + bônus de prefixo até 4 chars.
+ * Otimizada para strings curtas (nomes próprios, ≤100 chars).
+ */
+export function jaroWinklerSimilarity(s1: string, s2: string): number {
+  if (s1 === s2) return 1.0
+  if (s1.length === 0 || s2.length === 0) return 0.0
+
+  const matchWindow = Math.max(0, Math.floor(Math.max(s1.length, s2.length) / 2) - 1)
+  const s1Matches: boolean[] = new Array(s1.length).fill(false)
+  const s2Matches: boolean[] = new Array(s2.length).fill(false)
+
+  let matches = 0
+  for (let i = 0; i < s1.length; i++) {
+    const start = Math.max(0, i - matchWindow)
+    const end = Math.min(i + matchWindow + 1, s2.length)
+    for (let j = start; j < end; j++) {
+      if (s2Matches[j]) continue
+      if (s1[i] !== s2[j]) continue
+      s1Matches[i] = true
+      s2Matches[j] = true
+      matches++
+      break
+    }
+  }
+
+  if (matches === 0) return 0.0
+
+  let k = 0
+  let transpositions = 0
+  for (let i = 0; i < s1.length; i++) {
+    if (!s1Matches[i]) continue
+    while (!s2Matches[k]) k++
+    if (s1[i] !== s2[k]) transpositions++
+    k++
+  }
+  transpositions = Math.floor(transpositions / 2)
+
+  const jaro = (matches / s1.length + matches / s2.length +
+                (matches - transpositions) / matches) / 3
+
+  // Winkler boost: prefixo comum até 4 chars, scaling factor 0.1.
+  let prefix = 0
+  const maxPrefix = Math.min(4, s1.length, s2.length)
+  for (let i = 0; i < maxPrefix; i++) {
+    if (s1[i] === s2[i]) prefix++
+    else break
+  }
+  return jaro + prefix * 0.1 * (1 - jaro)
 }
 
 export const STOP_WORDS = new Set<string>([
