@@ -204,6 +204,23 @@ class AnalyticsService {
   Future<void> cvImportFailed({required String reason}) =>
       track('cv_import_failed', props: {'reason': reason});
 
+  /// Disparado após `parse-cv` (F2) estruturar o raw_text via IA. Sinal
+  /// principal pra medir se o parser estruturado está cobrindo bem os
+  /// CVs importados — `fields_filled` próximo de 11 (max) indica extração
+  /// completa; baixo indica que o pre-parser legacy ainda é necessário.
+  Future<void> cvImportParsed({
+    required int fieldsFilled,
+    required bool cached,
+    required bool hasExperiences,
+    required bool hasEducation,
+  }) =>
+      track('cv_import_parsed', props: {
+        'fields_filled': fieldsFilled,
+        'cached': cached,
+        'has_experiences': hasExperiences,
+        'has_education': hasEducation,
+      });
+
   Future<void> cvExported({required String templateId}) =>
       track('cv_exported', props: {'template_id': templateId});
 

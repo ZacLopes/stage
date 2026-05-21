@@ -796,14 +796,32 @@ function buildInputResume(profile: any): InputResume | null {
   const parsed = imported?.parsed ?? {}
   const rawCvText: string = typeof imported.raw_text === 'string' ? imported.raw_text : ''
 
-  // PRE-PARSER do raw_text: usado quando parsed/whoIAm estão ausentes.
-  // Roda heurísticas regex pra extrair seções (header, summary, experience,
-  // education, skills, etc) direto do PDF bruto. Resultado vira fallback
-  // pra todos os campos abaixo. Sem isso, a IA tinha que parsear o PDF
-  // word-per-line, o que ela não faz de forma confiável.
-  const pre: PreParsedCv = rawCvText.length > 100 ? preParseRawCv(rawCvText) : {
-    experiences: [], education: [], skills: [], achievements: [], interests: [],
-  }
+  // F2 da reformulação: prefere `parsed` (estruturado via parse-cv edge
+  // function com GPT-4o-mini) sobre o pre-parser regex legacy. Quando o
+  // parsed tem dados suficientes (>0 experiences OU >0 education OU
+  // >=3 skills), PULA `preParseRawCv` completamente — evita rodar 255
+  // linhas de regex frágeis sobre o raw_text e ganhar resultados
+  // contaminados pelo pre-parser quando o parser estruturado já trouxe
+  // dados limpos. Logamos `input_source` pra cohort comparison em
+  // PostHog ($ai_generation extras.input_source).
+  const parsedHasExperiences = Array.isArray(parsed.experiences) && parsed.experiences.length > 0
+  const parsedHasEducation = Array.isArray(parsed.education) && parsed.education.length > 0
+  const parsedHasSkills = Array.isArray(parsed.skills) && parsed.skills.length >= 3
+  const useParsedAsPrimary = parsedHasExperiences || parsedHasEducation || parsedHasSkills
+
+  const pre: PreParsedCv = useParsedAsPrimary
+    ? { experiences: [], education: [], skills: [], achievements: [], interests: [] }
+    : (rawCvText.length > 100 ? preParseRawCv(rawCvText) : {
+        experiences: [], education: [], skills: [], achievements: [], interests: [],
+      })
+
+  const inputSource = useParsedAsPrimary
+    ? 'parsed_v2'
+    : (rawCvText.length > 100 ? 'pre_parser_legacy' : 'profile_only')
+  console.log(`[adapt-resume] input_source=${inputSource} ` +
+    `parsedExp=${(Array.isArray(parsed.experiences) ? parsed.experiences.length : 0)} ` +
+    `parsedEdu=${(Array.isArray(parsed.education) ? parsed.education.length : 0)} ` +
+    `parsedSkills=${(Array.isArray(parsed.skills) ? parsed.skills.length : 0)}`)
 
   // Nome: preferência pelo MAIS COMPLETO entre pre-parsed e profile.name.
   // Apple SignIn frequentemente dá só "primeiro último" sem nome do meio,

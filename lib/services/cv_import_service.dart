@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../features/auth/user_viewmodel.dart';
 import '../features/profile/profile_viewmodel.dart';
@@ -125,6 +126,14 @@ class CvImportService {
       // em profile_incomplete. Reportar succeeded aqui mascarava esses casos.
       if (usable) {
         Analytics.shared.cvImportSucceeded(extractedChars: rawTextLen);
+        // F2 da reformulação: dispara parse-cv em background para popular
+        // gamification_data.imported_resume.parsed com JSON estruturado
+        // gerado por IA. Toda adaptação futura vai operar sobre dados
+        // estruturados (não regex sobre raw text). Fire-and-forget — se
+        // parse-cv falhar, adapt-resume-to-job ainda funciona via raw_text
+        // como fallback. Não bloqueia a UX do import.
+        // ignore: unawaited_futures
+        CvImportService._triggerParseCvInBackground();
       } else {
         Analytics.shared.cvImportFailed(
           reason: extractionError ?? 'unusable_text:$rawTextLen',
@@ -140,6 +149,42 @@ class CvImportService {
     } catch (e) {
       Analytics.shared.cvImportFailed(reason: e.toString().split('\n').first);
       return CvImportResult.error('Falha inesperada: $e');
+    }
+  }
+
+  /// Dispara a Edge Function `parse-cv` para estruturar o raw_text recém
+  /// persistido em JSON e gravar em `imported_resume.parsed`. Fire-and-forget:
+  /// se falhar, o pipeline de adaptação ainda funciona via raw_text + pre-parser
+  /// legacy. Não retorna nada — telemetria via PostHog event
+  /// `cv_import_parsed` emitido aqui (sucesso) ou silêncio (falha).
+  ///
+  /// Roda em background — não bloqueia a UX do import. Tempo típico: 4-8s.
+  /// Custo OpenAI: ~$0.0005 por chamada.
+  static Future<void> _triggerParseCvInBackground() async {
+    try {
+      final response = await Supabase.instance.client.functions.invoke(
+        'parse-cv',
+        body: const {},
+      );
+      final data = response.data;
+      if (data is! Map) return;
+      final fieldsFilled = (data['fields_filled'] as num?)?.toInt() ?? 0;
+      final cached = data['cached'] == true;
+      final parsed = data['parsed'];
+      final hasExperiences = parsed is Map &&
+          parsed['experiences'] is List &&
+          (parsed['experiences'] as List).isNotEmpty;
+      final hasEducation = parsed is Map &&
+          parsed['education'] is List &&
+          (parsed['education'] as List).isNotEmpty;
+      Analytics.shared.cvImportParsed(
+        fieldsFilled: fieldsFilled,
+        cached: cached,
+        hasExperiences: hasExperiences,
+        hasEducation: hasEducation,
+      );
+    } catch (e) {
+      debugPrint('parse-cv background call failed (non-blocking): $e');
     }
   }
 }
