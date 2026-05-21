@@ -161,7 +161,15 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(22, 14, 22, 12),
-                child: Column(
+                // Em telas pequenas / títulos em 2 linhas / chips em wrap
+                // de 2 linhas, o bloco superior excede a altura do Expanded
+                // e causa RenderFlex overflow. SingleChildScrollView com
+                // NeverScrollableScrollPhysics permite clipar silenciosamente
+                // sem mostrar exception (e sem introduzir scroll real, o
+                // que seria estranho num swipe card).
+                child: SingleChildScrollView(
+                  physics: const NeverScrollableScrollPhysics(),
+                  child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Bloco fixo no topo: title + meta + chips + section header
@@ -341,6 +349,7 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                       ),
                     ),
                   ],
+                ),
                 ),
               ),
             ),
