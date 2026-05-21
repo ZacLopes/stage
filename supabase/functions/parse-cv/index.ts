@@ -259,17 +259,35 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization')! } } },
-    )
-
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
-    if (authError || !user) return jsonResponse({ error: 'Unauthorized' }, 401)
-
     const body = await req.json().catch(() => ({}))
     const force: boolean = body?.force === true
+
+    // Detecta auth via service-role (caminho do backfill F4) vs JWT de
+    // usuário (caminho do app). Service-role aceita user_id no body —
+    // útil para scripts administrativos como backfill_parsed_cvs.ts.
+    // O caminho JWT continua funcionando normalmente para o app.
+    const authHeader = req.headers.get('Authorization') ?? ''
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    const isServiceRole = serviceRoleKey.length > 0 &&
+        authHeader === `Bearer ${serviceRoleKey}`
+
+    let userId: string
+    if (isServiceRole) {
+      const bodyUserId = typeof body?.user_id === 'string' ? body.user_id.trim() : ''
+      if (bodyUserId.length === 0) {
+        return jsonResponse({ error: 'user_id required for service-role calls' }, 400)
+      }
+      userId = bodyUserId
+    } else {
+      const supabaseClient = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+        { global: { headers: { Authorization: authHeader } } },
+      )
+      const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
+      if (authError || !user) return jsonResponse({ error: 'Unauthorized' }, 401)
+      userId = userId
+    }
 
     // Lê raw_text do banco — sempre fresco. Não aceita raw_text via input
     // pra evitar abuso (user mandando texto arbitrário pra "limpar" via IA).
@@ -280,7 +298,7 @@ serve(async (req) => {
     const profileR = await supabaseAdmin
       .from('user_profiles')
       .select('gamification_data')
-      .eq('id', user.id)
+      .eq('id', userId)
       .maybeSingle()
 
     if (profileR.error || !profileR.data) {
@@ -302,7 +320,7 @@ serve(async (req) => {
     const existingParsed = imported?.parsed
     if (existingParsed && typeof existingParsed === 'object' && !force) {
       const fieldsFilled = countFilledFields(existingParsed)
-      console.log(`[parse-cv] cache hit user=${user.id} fieldsFilled=${fieldsFilled}`)
+      console.log(`[parse-cv] cache hit user=${userId} fieldsFilled=${fieldsFilled}`)
       return jsonResponse({
         parsed: existingParsed,
         cached: true,
@@ -312,12 +330,12 @@ serve(async (req) => {
     }
 
     // Cache miss — chamar IA.
-    console.log(`[parse-cv] calling OpenAI user=${user.id} rawTextLen=${rawText.length}`)
+    console.log(`[parse-cv] calling OpenAI user=${userId} rawTextLen=${rawText.length}`)
     const ai = await callOpenAI(rawText)
     console.log(`[parse-cv] OpenAI responded tokens=${ai.totalTokens} latency=${ai.latencyMs}ms`)
 
     trackAIGeneration({
-      userId: user.id,
+      userId: userId,
       generationType: 'cv_parsing',
       model: MODEL,
       inputTokens: ai.inputTokens,
@@ -330,13 +348,13 @@ serve(async (req) => {
     try {
       rawParsed = JSON.parse(ai.content)
     } catch (_e) {
-      console.error(`[parse-cv] JSON parse failed for user=${user.id}: ${ai.content.slice(0, 300)}`)
+      console.error(`[parse-cv] JSON parse failed for user=${userId}: ${ai.content.slice(0, 300)}`)
       return jsonResponse({ error: 'ai_response_invalid' }, 502)
     }
 
     const { parsed, fieldsFilled, warnings } = validateAgainstRawText(rawParsed, rawText)
     if (warnings.length > 0) {
-      console.warn(`[parse-cv] validation warnings for user=${user.id}: ${warnings.join('; ')}`)
+      console.warn(`[parse-cv] validation warnings for user=${userId}: ${warnings.join('; ')}`)
     }
 
     // Persiste em imported_resume.parsed (NÃO mexe em raw_text nem outros campos).
@@ -346,20 +364,23 @@ serve(async (req) => {
       parsed_at: new Date().toISOString(),
       parser_version: PARSER_VERSION,
       parser_model: MODEL,
+      // F4: marca quando o parsing veio do backfill via service-role —
+      // distingue cohort no PostHog e permite filtrar via SQL.
+      ...(isServiceRole ? { parsed_backfilled_at: new Date().toISOString() } : {}),
     }
     const updatedGd = { ...gd, imported_resume: updatedImported }
 
     const updateR = await supabaseAdmin
       .from('user_profiles')
       .update({ gamification_data: updatedGd })
-      .eq('id', user.id)
+      .eq('id', userId)
 
     if (updateR.error) {
-      console.error(`[parse-cv] persist failed user=${user.id}: ${updateR.error.message}`)
+      console.error(`[parse-cv] persist failed user=${userId}: ${updateR.error.message}`)
       return jsonResponse({ error: 'persist_failed', detail: updateR.error.message }, 500)
     }
 
-    console.log(`[parse-cv] SUCCESS user=${user.id} fieldsFilled=${fieldsFilled}`)
+    console.log(`[parse-cv] SUCCESS user=${userId} fieldsFilled=${fieldsFilled}`)
     return jsonResponse({
       parsed: parsed.resume,
       cached: false,
