@@ -419,15 +419,27 @@ class _ResumeListEditorState extends State<ResumeListEditor> {
   }
 
   void _commit() {
+    // Guard: estado idle (-1) não tem item nem add em curso. Esse caller
+    // chega quando o TextField perde foco sem o user ter aberto edição
+    // de fato (ex: tap fora). Sem o guard, removeAt(-1) crashava com
+    // RangeError.
+    if (_editingIndex == -1) return;
     final newText = _controller.text.trim();
     final next = List<String>.from(widget.value);
     if (_editingIndex == null) {
       if (newText.isNotEmpty) next.add(newText);
     } else {
+      final idx = _editingIndex!;
+      if (idx < 0 || idx >= next.length) {
+        // Index inválido (estado inconsistente) — só sai do modo edição
+        // sem mutar a lista. Defensivo.
+        setState(() => _editingIndex = -1);
+        return;
+      }
       if (newText.isEmpty) {
-        next.removeAt(_editingIndex!);
+        next.removeAt(idx);
       } else {
-        next[_editingIndex!] = newText;
+        next[idx] = newText;
       }
     }
     setState(() => _editingIndex = -1);

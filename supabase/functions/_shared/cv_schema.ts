@@ -54,6 +54,13 @@ export const RESUME_SCHEMA_PROPERTIES = {
   },
   achievements: { type: 'array', items: { type: 'string' } },
   interests: { type: 'array', items: { type: 'string' } },
+  /// Certificações / cursos extracurriculares. Cada item é uma string
+  /// auto-contida (ex: "Modelagem Financeira - Wall Street Prep - 2025").
+  /// Renderizado no template como seção dedicada "Certificações" dentro
+  /// das habilidades. Mantido separado de `achievements` porque conquistas
+  /// são valoradas pelo recrutador de forma diferente (premiações,
+  /// projetos pessoais).
+  certifications: { type: 'array', items: { type: 'string' } },
 } as const
 
 export const RESUME_REQUIRED_FIELDS = [
@@ -69,6 +76,7 @@ export const RESUME_REQUIRED_FIELDS = [
   'education',
   'achievements',
   'interests',
+  'certifications',
 ] as const
 
 /**

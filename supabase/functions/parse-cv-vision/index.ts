@@ -62,7 +62,8 @@ REGRAS INVIOLÁVEIS:
 4. Para experiência: extraia TODAS as posições visíveis. Bullets preserve um por linha.
 5. Para educação: extraia TODAS as formações. GPA/honras/coursework vão em "details".
 6. Skills: extraia da seção "Habilidades"/"Skills"/"Competências". Só nomes/tools, não frases longas.
-7. Language: detecte "pt" (português) ou "en" (inglês). Default "pt".
+7. Certifications: extraia cursos+certificações de seções "CERTIFICAÇÕES", "CURSOS", "CURSOS E CERTIFICAÇÕES", "CERTIFICATIONS", "COURSES". Cada item é uma string auto-contida formatada como "Nome - Instituição - Ano" (omita partes ausentes). NÃO repita o que já está em achievements.
+8. Language: detecte "pt" (português) ou "en" (inglês). Default "pt".
 
 OUTPUT: { resume: {...} } seguindo o schema. Strict — nada além dos campos do schema.`
 

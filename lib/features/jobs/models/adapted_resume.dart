@@ -1,3 +1,4 @@
+import '../../../data/models/models.dart' show ResumeCourse;
 import '../../resume/resume_viewmodel.dart' show ResumeData, ExperienceItem, EducationItem;
 
 /// Resultado da adaptação de currículo pra uma vaga específica.
@@ -149,6 +150,15 @@ class AdaptedResume {
       );
     }).toList();
 
+    // Certificações: a IA retorna como `certifications: string[]` —
+    // mapeamos cada item pra ResumeCourse(title=string completa). O
+    // template Harvard já renderiza resume.courses como seção
+    // "Certificações" dentro de habilidades. F+ futura: parsear "Nome -
+    // Instituição - Ano" em 3 campos.
+    final certifications = stringList(json['certifications'])
+        .map((s) => ResumeCourse(title: s, institution: '', period: ''))
+        .toList();
+
     return ResumeData(
       fullName: json['fullName']?.toString() ?? '',
       email: json['email']?.toString() ?? '',
@@ -162,6 +172,7 @@ class AdaptedResume {
       education: education,
       achievements: stringList(json['achievements']),
       interests: stringList(json['interests']),
+      courses: certifications,
     );
   }
 }

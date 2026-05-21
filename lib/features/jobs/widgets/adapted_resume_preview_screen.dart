@@ -4,7 +4,7 @@ import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/stage_colors.dart';
-import '../../../data/models/models.dart' show SavedResumeSource;
+import '../../../data/models/models.dart' show ResumeCourse, SavedResumeSource;
 import '../../../services/analytics_service.dart';
 import '../../auth/user_viewmodel.dart';
 import '../../profile/profile_viewmodel.dart';
@@ -127,6 +127,21 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
     return av.length - bv.length;
   }
 
+  /// Dialog de confirmação animado pós-save. Mostra check verde com
+  /// bounce, título "CV salvo na biblioteca", subtítulo orientando
+  /// onde achar, e 2 CTAs: "Ver na biblioteca" (não implementa
+  /// navegação cross-tab daqui — apenas fecha; user vai na aba Perfil)
+  /// e "Fechar".
+  Future<void> _showSavedConfirmation() async {
+    HapticFeedback.lightImpact();
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.55),
+      builder: (ctx) => _SavedConfirmationDialog(jobTitle: widget.job.title),
+    );
+  }
+
   /// Sanitiza nome de vaga/empresa pra título da biblioteca. Remove
   /// caracteres problemáticos pra filename e trunca pra não estourar UI.
   String _sanitizeForTitle(String s) {
@@ -179,6 +194,12 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
       Analytics.shared.cvAdaptationPdfDownloaded(jobId: widget.job.id);
       // ignore: unawaited_futures
       PendingAdaptedCvTracker.shared.clear();
+      if (!mounted) return;
+
+      // F8: confirmação animada antes do pop. Dá feedback explícito
+      // que o CV ficou salvo permanente na biblioteca (sinal que
+      // substitui o antigo banner persistente).
+      await _showSavedConfirmation();
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
@@ -294,7 +315,8 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
         !_listEq(a.achievements, c.achievements) ||
         !_listEq(a.interests, c.interests) ||
         !_experienceListEq(a.experiences, c.experiences) ||
-        !_educationListEq(a.education, c.education);
+        !_educationListEq(a.education, c.education) ||
+        !_coursesEq(a.courses, c.courses);
   }
 
   bool _listEq(List<String> a, List<String> b) {
@@ -313,6 +335,14 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
           a[i].period != b[i].period ||
           a[i].description != b[i].description ||
           a[i].location != b[i].location) return false;
+    }
+    return true;
+  }
+
+  bool _coursesEq(List<ResumeCourse> a, List<ResumeCourse> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].title != b[i].title) return false;
     }
     return true;
   }
@@ -505,6 +535,34 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                         field: 'achievements',
                         editType: 'restore_original',
                         mutate: (d) => d.copyWith(achievements: _aiAdapted.achievements),
+                      )
+                  : null,
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (data.courses.isNotEmpty || !readOnly) ...[
+            ResumeListEditor(
+              value: data.courses.map((c) => c.title).toList(),
+              original: _aiAdapted.courses.map((c) => c.title).toList(),
+              label: 'CERTIFICAÇÕES',
+              addHint: 'Ex: Modelagem Financeira - Wall Street Prep - 2025',
+              onChanged: (v) => _update(
+                field: 'certifications',
+                mutate: (d) => d.copyWith(
+                  courses: v
+                      .map((s) => ResumeCourse(
+                            title: s,
+                            institution: '',
+                            period: '',
+                          ))
+                      .toList(),
+                ),
+              ),
+              onRestoreOriginal: !_coursesEq(_aiAdapted.courses, data.courses)
+                  ? () => _update(
+                        field: 'certifications',
+                        editType: 'restore_original',
+                        mutate: (d) => d.copyWith(courses: _aiAdapted.courses),
                       )
                   : null,
             ),
@@ -1082,3 +1140,185 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
 }
 
 enum _ViewMode { adapted, original }
+
+/// Dialog animado de confirmação pós-save. Sequência:
+///   1. Scale-in do card (300ms easeOutBack — bounce sutil).
+///   2. Check verde aparece com elastic-out (450ms) + haptic.
+///   3. Textos fade-in.
+///   4. CTAs aparecem por último.
+/// Auto-close em 4s caso o usuário não interaja.
+class _SavedConfirmationDialog extends StatefulWidget {
+  final String jobTitle;
+  const _SavedConfirmationDialog({required this.jobTitle});
+
+  @override
+  State<_SavedConfirmationDialog> createState() =>
+      _SavedConfirmationDialogState();
+}
+
+class _SavedConfirmationDialogState extends State<_SavedConfirmationDialog>
+    with TickerProviderStateMixin {
+  late final AnimationController _cardCtrl;
+  late final AnimationController _checkCtrl;
+  late final AnimationController _textCtrl;
+  late final Animation<double> _cardScale;
+  late final Animation<double> _checkScale;
+  late final Animation<double> _textOpacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _cardCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+    );
+    _checkCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 480),
+    );
+    _textCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 380),
+    );
+    _cardScale = CurvedAnimation(parent: _cardCtrl, curve: Curves.easeOutBack);
+    _checkScale = CurvedAnimation(parent: _checkCtrl, curve: Curves.elasticOut);
+    _textOpacity = CurvedAnimation(parent: _textCtrl, curve: Curves.easeOut);
+
+    _runSequence();
+  }
+
+  Future<void> _runSequence() async {
+    _cardCtrl.forward();
+    await Future<void>.delayed(const Duration(milliseconds: 180));
+    HapticFeedback.mediumImpact();
+    _checkCtrl.forward();
+    await Future<void>.delayed(const Duration(milliseconds: 240));
+    _textCtrl.forward();
+    // Auto-close em 4s se user não interagir.
+    await Future<void>.delayed(const Duration(milliseconds: 4000));
+    if (mounted) Navigator.of(context).maybePop();
+  }
+
+  @override
+  void dispose() {
+    _cardCtrl.dispose();
+    _checkCtrl.dispose();
+    _textCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_cardCtrl, _checkCtrl, _textCtrl]),
+        builder: (context, _) {
+          return Transform.scale(
+            scale: 0.85 + 0.15 * _cardScale.value,
+            child: Opacity(
+              opacity: _cardCtrl.value.clamp(0.0, 1.0),
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 32),
+                padding: const EdgeInsets.fromLTRB(24, 32, 24, 20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.12),
+                      blurRadius: 32,
+                      offset: const Offset(0, 16),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Transform.scale(
+                      scale: _checkScale.value,
+                      child: Container(
+                        width: 72,
+                        height: 72,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF10B981), // emerald (mesmo do brand adapted)
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Color(0x4010B981),
+                              blurRadius: 24,
+                              spreadRadius: 4,
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.check_rounded,
+                          color: Colors.white,
+                          size: 42,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Opacity(
+                      opacity: _textOpacity.value,
+                      child: Column(
+                        children: [
+                          const Text(
+                            'CV salvo na biblioteca!',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xFF111827),
+                              letterSpacing: -0.4,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Sua versão adaptada para ${widget.jobTitle.length > 38 ? '${widget.jobTitle.substring(0, 35)}…' : widget.jobTitle} ficou em Perfil → Biblioteca.',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF6B7280),
+                              height: 1.45,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Opacity(
+                      opacity: _textOpacity.value,
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: StageColors.brandCyan,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            'Entendi',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}

@@ -203,6 +203,11 @@ interface InputResume {
   education: InputEducation[]
   achievements: string[]
   interests: string[]
+  /// Certificações como strings auto-contidas (ex: "Modelagem Financeira -
+  /// Wall Street Prep - 2025"). Preservadas como input.imutável pelo
+  /// validador (igual achievements). Renderizadas no template Harvard
+  /// como seção "Certificações" via resume.courses.
+  certifications: string[]
   // Pool de palavras-chave do user (skills + CV importado tokenizado).
   // Usado pra validar que skills sugeridas pelo modelo NÃO foram inventadas.
   keywordPool: Set<string>
@@ -954,6 +959,13 @@ function buildInputResume(profile: any): InputResume | null {
         : [])
   const interests: string[] = interestsFromParsed.length > 0 ? interestsFromParsed : pre.interests
 
+  // Certifications: cursos+certificações como strings auto-contidas. Vem só
+  // do parser (parse-cv ou parse-cv-vision). Pre-parser regex não extrai
+  // (escopo limitado). Se a IA não trouxer, o output adapted fica sem cert.
+  const certifications: string[] = Array.isArray(parsed.certifications)
+    ? parsed.certifications.map((c: any) => String(c).trim()).filter(Boolean).slice(0, 10)
+    : []
+
   // Sanity: pra adaptar com qualidade, precisa ter NOME + alguma fonte de
   // conteúdo (experiência estruturada, skills, resumo, ou CV importado com
   // texto razoável). Só nome do auth não basta — a IA inventaria experiência
@@ -984,6 +996,10 @@ function buildInputResume(profile: any): InputResume | null {
     tokenize(imported.raw_text.slice(0, 6000)).forEach((t) => keywordPool.add(t))
   }
 
+  // Adiciona tokens das certifications ao keywordPool (validações
+  // anti-invenção precisam reconhecer ferramentas/orgs mencionadas em certs).
+  for (const c of certifications) tokenize(c).forEach((t) => keywordPool.add(t))
+
   return {
     fullName,
     email,
@@ -997,6 +1013,7 @@ function buildInputResume(profile: any): InputResume | null {
     education,
     achievements,
     interests,
+    certifications,
     keywordPool,
     importedCvText: typeof imported.raw_text === 'string' ? imported.raw_text : undefined,
   }
@@ -1058,7 +1075,7 @@ REGRAS INVIOLÁVEIS:
 10. ÁREA DE FORMAÇÃO E STACK TECNOLÓGICO: NUNCA invente área de formação, curso ou stack tecnológico do candidato. Se o CV diz "Administração", o candidato NÃO é "Engenharia da Computação". Se o CV não menciona "Windows" ou "Java", você NÃO PODE incluir essas tecnologias em lugar nenhum (nem no resumo, nem nos bullets, nem nas skills). O resumo profissional DEVE refletir a área REAL do candidato — adaptar o "fit" com a vaga significa destacar como a área dele pode ser útil pra vaga, NÃO transformar ele em outra pessoa.
 11. RESUMO PROFISSIONAL — cada substantivo concreto (área de estudo, tecnologia, ferramenta, indústria, idioma) que aparecer NO RESUMO precisa estar PRESENTE textualmente no CV original. Se o CV não fala em "Testes de Software", NÃO pode escrever "experiência em Testes de Software" no resumo. Pode escrever apenas "interesse em [área da vaga]" se quiser puxar pro fit — mas nunca afirmar experiência/conhecimento que não existe.
 12. PRESERVE TODAS AS EXPERIÊNCIAS DO CV. Nunca remova, oculte ou substitua experiências. Se o CV traz "CEO @ Stage, Dez 2025-Atual" com bullets sobre app gamificado, a versão adaptada DEVE manter exatamente "CEO @ Stage, Dez 2025-Atual" como uma das experiências (com role, company E period preenchidos) — você pode REFORMULAR os bullets pra puxar fit com a vaga, mas o FATO (cargo, empresa, período, projeto descrito) tem que vir do CV. NUNCA crie uma experiência fake alinhada com a vaga pra "encaixar melhor". Se o CV tem 1 experiência só, retorne 1 experiência. Se tem 3, retorne 3 — com os mesmos cargos/empresas/períodos/datas.
-13. PRESERVE TODAS AS SEÇÕES DO CV. Se o CV tem PROJETOS, FORMAÇÃO, CERTIFICAÇÕES, IDIOMAS, INTERESSES — todas devem aparecer no output. Achievements/Conquistas podem agregar projetos+certificações. Interests no output deve vir dos INTERESSES do CV. Educação deve vir da seção FORMAÇÃO. NÃO DROPE seções por achar que "não são relevantes pra vaga" — isso é decisão do recrutador, não sua.
+13. PRESERVE TODAS AS SEÇÕES DO CV. Se o CV tem PROJETOS, FORMAÇÃO, CERTIFICAÇÕES, IDIOMAS, INTERESSES — todas devem aparecer no output. Certifications (campo dedicado) devem vir das seções CURSOS / CERTIFICAÇÕES do CV — cada item formatado como "Nome - Instituição - Ano". Achievements são pra conquistas e projetos pessoais (separado de certificações). Interests no output deve vir dos INTERESSES do CV. Educação deve vir da seção FORMAÇÃO. NÃO DROPE seções por achar que "não são relevantes pra vaga" — isso é decisão do recrutador, não sua.
 14. PRESERVE DADOS DE CONTATO. Se o CV tem telefone, LinkedIn, localização — copie EXATAMENTE no output. Telefone, LinkedIn e localização do CV PRECISAM aparecer no output (phone, linkedin, location). NUNCA retorne esses campos vazios se o CV os contém.
 15. BULLETS DE EXPERIÊNCIA: cada palavra concreta (substantivo, nome próprio, tecnologia, métrica) do bullet adaptado tem que vir de palavras presentes no CV (não da vaga). A vaga é só pra DESTACAR o que já existe — não pra INVENTAR métricas, projetos, tecnologias ou números. Se o CV diz "Desenvolvi app gamificado", você pode escrever "Desenvolveu app gamificado que ajudou candidatos a se prepararem pra entrevistas" SE o CV mencionar isso. NUNCA escreva "Apoiou análise de sell in/out" se o CV não mencionar sell in/out.
 
@@ -1218,6 +1235,12 @@ function buildUserPrompt(input: InputResume, job: JobContext, extraSkills: strin
       input.achievements.forEach((a) => lines.push(`- ${a}`))
     }
 
+    if (input.certifications.length > 0) {
+      lines.push('')
+      lines.push('### Certificações (IMUTÁVEL — preserve TODAS, formato "Nome - Instituição - Ano")')
+      input.certifications.forEach((c) => lines.push(`- ${c}`))
+    }
+
     if (input.interests.length > 0) {
       lines.push('')
       lines.push(`### Interesses: ${input.interests.join(', ')}`)
@@ -1293,7 +1316,8 @@ const JSON_SCHEMA = {
         additionalProperties: false,
         required: [
           'fullName', 'email', 'phone', 'linkedin', 'location', 'language',
-          'summary', 'skills', 'experiences', 'education', 'achievements', 'interests',
+          'summary', 'skills', 'experiences', 'education', 'achievements',
+          'interests', 'certifications',
         ],
         properties: {
           fullName: { type: 'string' },
@@ -1336,6 +1360,12 @@ const JSON_SCHEMA = {
           },
           achievements: { type: 'array', items: { type: 'string' } },
           interests: { type: 'array', items: { type: 'string' } },
+          // Certificações como strings auto-contidas
+          // ("Modelagem Financeira - Wall Street Prep - 2025"). Renderizadas
+          // pelo template Harvard como seção "Certificações" dentro de
+          // habilidades. Item separado de achievements porque recrutadores
+          // valoram diferente.
+          certifications: { type: 'array', items: { type: 'string' } },
         },
       },
     },
@@ -1631,6 +1661,17 @@ function validateAdaptation(input: InputResume, parsed: any, job?: JobContext): 
         `[adapt-resume] achievements dropped: input had ${input.achievements.length}, output empty. Auto-restoring from input.`,
       )
       r.achievements = input.achievements
+    }
+  }
+  // Certifications: mesmo tratamento de achievements (auto-restore).
+  // Garante que certificações do CV original sempre aparecem no output —
+  // recrutadores valoram muito (especialmente Wall Street Prep, AWS, etc).
+  if (Array.isArray(input.certifications) && input.certifications.length > 0) {
+    if (!Array.isArray(r.certifications) || r.certifications.length === 0) {
+      console.warn(
+        `[adapt-resume] certifications dropped: input had ${input.certifications.length}, output empty. Auto-restoring from input.`,
+      )
+      r.certifications = input.certifications
     }
   }
   // Interests: mais leniente (alguns CVs nem têm). Só checa se input tinha.

@@ -61,7 +61,8 @@ REGRAS INVIOLÁVEIS:
 8. Para skills: extraia palavras-chave da seção "Habilidades" / "Skills" / "Competências". NÃO inclua frases longas, só nomes de skills/tools.
 9. Achievements: prêmios, distinções, projetos pessoais marcantes. Não duplique com bullets de experience.
 10. Interests: hobbies, esportes, leituras — só se o CV tiver seção explícita.
-11. Language: detecte se o CV está em "pt" (português) ou "en" (inglês). Default "pt".
+11. Certifications: cursos extras + certificações profissionais (ex: "Modelagem Financeira - Wall Street Prep - 2025", "AWS Cloud Practitioner - 2024"). Formate cada item como string auto-contida: "Nome do curso/cert - Instituição - Ano" (omita partes que faltarem). Inclui qualquer seção do CV intitulada "CERTIFICAÇÕES", "CURSOS", "CURSOS E CERTIFICAÇÕES", "CERTIFICATIONS", "COURSES". NÃO repita aqui o que já está em achievements.
+12. Language: detecte se o CV está em "pt" (português) ou "en" (inglês). Default "pt".
 12. Para campos imutáveis (fullName, email, phone, linkedin, location), pegue do header do CV. Se incertos, deixe vazio em vez de chutar.
 
 FORMATO DE BULLETS: cada bullet/responsabilidade deve ser uma linha do campo "description". Se o CV usa "•" ou "-", remova esses marcadores — só o texto da ação.
