@@ -273,7 +273,14 @@ class CvImportService {
         hasEducation: hasEducation,
       );
     } catch (e) {
-      debugPrint('parse-cv background call failed (non-blocking): $e');
+      // 404 profile_not_found pode acontecer logo após signup (race com
+      // criação on-demand do user_profile). É esperado e benigno — o
+      // parse-cv-vision em paralelo cobre o caso. Silenciar no caminho
+      // esperado pra não poluir logs.
+      final msg = e.toString();
+      if (!msg.contains('profile_not_found')) {
+        debugPrint('parse-cv background call failed (non-blocking): $e');
+      }
     }
   }
 }

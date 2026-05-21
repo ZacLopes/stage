@@ -32,10 +32,16 @@ class AdaptedResumePreviewScreen extends StatefulWidget {
   /// Vaga alvo da adaptação. Usado no header e na telemetria.
   final Job job;
 
+  /// CV "original" do usuário antes de qualquer adaptação, usado no toggle
+  /// "Original | Adaptado". Vem do `imported_resume.parsed` do user. Se
+  /// null, o toggle cai no fallback (mostra adapted como original).
+  final ResumeData? originalResumeData;
+
   const AdaptedResumePreviewScreen({
     super.key,
     required this.adapted,
     required this.job,
+    this.originalResumeData,
   });
 
   @override
@@ -55,12 +61,15 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
     super.initState();
     _aiAdapted = widget.adapted.resumeData;
     _current = widget.adapted.effectiveResumeData;
-    // `original` aqui é o CV-base do usuário (pré-adaptação). No fluxo atual
-    // não recebemos ele direto; reconstruímos a partir do ResumeViewModel
-    // que já tem o ResumeData do user. Caller pode injetar via Provider.
-    // Por enquanto usamos o adapted como fallback se não houver original
-    // disponível (graceful degradation — preview ainda funciona).
-    _original = context.read<ResumeViewModel>().resumeData ?? _aiAdapted;
+    // Ordem de preferência pro CV "original" no toggle:
+    //   1. Injetado pelo caller (imported_resume.parsed do user).
+    //   2. ResumeData do ResumeViewModel (caso o user tenha criado CV
+    //      via editor/trilha em vez de importar PDF).
+    //   3. Fallback pro próprio adapted (toggle perde a função mas a
+    //      tela continua usável).
+    _original = widget.originalResumeData ??
+        context.read<ResumeViewModel>().resumeData ??
+        _aiAdapted;
   }
 
   /// Substitui o `_current` por um clone com uma mudança específica.

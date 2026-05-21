@@ -262,20 +262,40 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
   /// Abre a tela de preview + edição (F1). Esta é a porta de entrada
   /// padrão pra download — usuário sempre revisa antes. A preview screen
   /// gera o PDF internamente após o "Aprovar e baixar" e retorna `true`.
+  ///
+  /// Monta o `originalResumeData` a partir de
+  /// `imported_resume.parsed` (F2/F3) do user — necessário pro toggle
+  /// "Original | Adaptado" funcionar quando o user importou CV em vez de
+  /// criar via editor/trilha (ResumeViewModel ficaria null).
   Future<void> _openPreview() async {
     final adapted = _adapted;
     if (adapted == null) return;
     HapticFeedback.mediumImpact();
+
+    ResumeData? originalFromParsed;
+    final user = context.read<UserViewModel>().user;
+    final imported = user?.gamificationData['imported_resume'];
+    final parsed = imported is Map ? imported['parsed'] : null;
+    if (parsed is Map) {
+      try {
+        originalFromParsed = AdaptedResume.parseResumeData(
+          Map<String, dynamic>.from(parsed),
+        );
+      } catch (e) {
+        debugPrint('preview: failed to parse original from imported_resume.parsed: $e');
+      }
+    }
+
     final downloaded = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => AdaptedResumePreviewScreen(
           adapted: adapted,
           job: widget.job,
+          originalResumeData: originalFromParsed,
         ),
         fullscreenDialog: true,
       ),
     );
-    // Se o user baixou de fato, fecha também o sheet pra encerrar o fluxo.
     if (downloaded == true && mounted) {
       Navigator.of(context).pop();
     }

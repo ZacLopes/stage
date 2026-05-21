@@ -113,6 +113,12 @@ class AdaptedResume {
     );
   }
 
+  /// Constrói um `ResumeData` a partir do JSON estruturado do servidor.
+  /// Exposto público pra também montar o "original" na tela de preview a
+  /// partir de `gamification_data.imported_resume.parsed`.
+  static ResumeData parseResumeData(Map<String, dynamic> json) =>
+      _parseResumeData(json);
+
   static ResumeData _parseResumeData(Map<String, dynamic> json) {
     List<String> stringList(dynamic v) {
       if (v is! List) return const [];
