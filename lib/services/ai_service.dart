@@ -133,12 +133,12 @@ class AIService {
               if (extraSkills.isNotEmpty) 'extra_skills': extraSkills,
             },
           )
-          .timeout(const Duration(seconds: 90));
+          .timeout(const Duration(seconds: 120));
 
-      // 90s: cobre 2 chamadas OpenAI (40s cada do OPENAI_TIMEOUT_MS) +
-      // overhead da Edge Function. Antes era 30s — cortava o servidor antes
-      // dele terminar, causando timeout do lado cliente mesmo com sucesso
-      // no servidor.
+      // 120s: cobre step A (mini, até 50s) + step B (4o, até 50s) +
+      // overhead da Edge Function (~10s). F5 adicionou o step B —
+      // antes era 90s suficiente, agora a janela total cresceu pra
+      // acomodar pipeline em 2 etapas.
       // Status 200 path. Em status != 200 o invoke lança FunctionException
       // (capturado abaixo) — não dá pra confiar em response.status aqui.
       final data = response.data;

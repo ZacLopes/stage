@@ -30,7 +30,19 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const MODEL = 'gpt-4o-mini'
+// F5 da reformulação: pipeline em 2 etapas.
+//   Step A (MODEL_DRAFT): rascunho estrutural completo. Cobre TODOS os
+//                          campos do JSON_SCHEMA. Custo baixo, latência ~5s.
+//   Step B (MODEL_REFINE): refina APENAS summary + bullets de experiences.
+//                           Resto do step A passa direto. Custo ~10× maior
+//                           mas só em 2 campos de texto. Latência +5s.
+//
+// Step B é controlado por ENABLE_REFINEMENT (env var). Default true. Pra
+// rollback rápido: env REFINEMENT_ENABLED=false → cai pro pipeline antigo
+// (single-shot mini). Latência total alvo: p50 ~10s, p95 ~25s.
+const MODEL_DRAFT = 'gpt-4o-mini'
+const MODEL_REFINE = 'gpt-4o'
+const MODEL = MODEL_DRAFT // alias mantido para backward compat com logs/posthog
 // v13: descrição de projeto não inclui mais o título+role do próximo —
 // _findEndOfDescription corta no ". " seguido de Maiúscula. v12 deixava
 // "Gerenciei... Link Finance. Desenvolvimento de Aplicativo Gamificado
@@ -42,10 +54,11 @@ const MODEL = 'gpt-4o-mini'
 // cohorts pré/pós-fix.
 const PROMPT_VERSION = 'v14'
 const RATE_LIMIT_PER_DAY = 30
-// 40s cabe P99 atual (~8s) com folga grande para picos da OpenAI. Antes
-// estava 25s — exatamente na cauda, causando timeouts em pico de carga
-// (19-20/mai bateu max=25s em ~5 chamadas com volume 6x acima do normal).
-const OPENAI_TIMEOUT_MS = 40000
+// 50s cabe step A (mini, p95 ~8s) + step B (4o, p95 ~12s) + folga. Antes
+// era 40s (F0); F5 adiciona o step B (~5-10s extras). Cliente Flutter
+// timeout subiu pra 120s pra cobrir o overhead total do pipeline em 2
+// etapas com retries. Sem isso, step B abortava no meio.
+const OPENAI_TIMEOUT_MS = 50000
 const MAX_BULLET_INFLATION = 1.3 // adapt não pode > 1.3x bullets do original
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1333,13 +1346,27 @@ const JSON_SCHEMA = {
 // OpenAI call
 // ────────────────────────────────────────────────────────────────────────────
 
-async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<{
+async function callOpenAI(
+  systemPrompt: string,
+  userPrompt: string,
+  opts?: {
+    model?: string
+    maxTokens?: number
+    temperature?: number
+    schema?: unknown
+  },
+): Promise<{
   content: string
   totalTokens: number
   inputTokens: number
   outputTokens: number
   latencyMs: number
 }> {
+  const model = opts?.model ?? MODEL
+  const maxTokens = opts?.maxTokens ?? 3500
+  const temperature = opts?.temperature ?? 0.1
+  const schema = opts?.schema ?? JSON_SCHEMA
+
   const ctrl = new AbortController()
   const timeout = setTimeout(() => ctrl.abort(), OPENAI_TIMEOUT_MS)
   const start = Date.now()
@@ -1353,16 +1380,14 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<{
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: MODEL,
+        model,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        // Temperature baixa (0.1) pra reduzir inferência criativa. Adaptação
-        // de currículo é trabalho de fidelidade, não de geração livre.
-        temperature: 0.1,
-        max_tokens: 3500,
-        response_format: { type: 'json_schema', json_schema: JSON_SCHEMA },
+        temperature,
+        max_tokens: maxTokens,
+        response_format: { type: 'json_schema', json_schema: schema },
       }),
     })
 
@@ -1380,6 +1405,150 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<{
     }
   } finally {
     clearTimeout(timeout)
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// F5 da reformulação: step B — refinamento de summary + bullets via 4o
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Schema mínimo do step B: só os campos que serão reescritos. Todos os
+ * outros (skills, experiences metadata, education, achievements, etc.)
+ * passam direto do step A.
+ */
+const REFINE_JSON_SCHEMA = {
+  name: 'refined_resume',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['summary', 'experience_descriptions'],
+    properties: {
+      summary: { type: 'string' },
+      experience_descriptions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['index', 'description'],
+          properties: {
+            index: { type: 'integer' },
+            description: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+} as const
+
+const REFINE_SYSTEM_PROMPT = `Você é um editor sênior de currículos para vagas brasileiras. Recebe um currículo já adaptado por um modelo menor (rascunho) e refina APENAS dois campos: o "resumo profissional" (summary) e as descrições/bullets de cada experiência.
+
+REGRAS INVIOLÁVEIS:
+1. NÃO invente nada. Toda afirmação no summary ou bullets deve estar respaldada pelo CV original do candidato fornecido.
+2. NÃO altere fatos: empresas, cargos, datas, instituições, números, métricas. Use exatamente o que está no rascunho.
+3. Mantenha o MESMO número de bullets do rascunho em cada experiência. Não adicione, não remova.
+4. Cada bullet deve começar com verbo de ação no passado (português) ou presente quando ongoing. Específico, mensurável quando possível.
+5. Summary: 3-4 frases. Foco em fit com a vaga. Não repete bullets — sintetiza posicionamento.
+6. Português natural, sem clichês ("dinâmico", "proativo", "team player").
+7. Cada experiência tem um "index" no array original. Mantenha o index igual ao do rascunho.
+
+OUTPUT: {summary, experience_descriptions: [{index, description}]}. NÃO inclua nenhum outro campo.`
+
+/**
+ * Constrói prompt do step B. Inclui:
+ *  - vaga (contexto pra alinhar tom + palavras-chave)
+ *  - CV bruto do candidato (referência anti-invenção)
+ *  - rascunho do step A (summary + bullets pra refinar)
+ */
+function buildRefinePrompt(input: InputResume, job: JobContext, draft: any): string {
+  const expBlock = (Array.isArray(draft.experiences) ? draft.experiences : [])
+    .map((e: any, i: number) =>
+      `[${i}] ${e.role ?? ''} @ ${e.company ?? ''} (${e.period ?? ''})\n${e.description ?? ''}`)
+    .join('\n\n')
+
+  const reqs = Array.isArray(job.requirements) ? job.requirements.join(' | ') : ''
+  const rawCv = (input.importedCvText ?? '').slice(0, 4000)
+
+  return `VAGA ALVO:
+${job.title} @ ${job.company} (${job.area})
+Requisitos: ${reqs}
+Descrição: ${(job.description ?? '').slice(0, 800)}
+
+CV ORIGINAL DO CANDIDATO (referência anti-invenção):
+${rawCv}
+
+RASCUNHO A REFINAR:
+
+Summary atual:
+"${draft.summary ?? ''}"
+
+Experiências (numeradas):
+${expBlock}
+
+TAREFA: produza summary refinado (3-4 frases, foco em fit com a vaga) e descrições refinadas para CADA experiência. Mantenha o mesmo número de bullets de cada experiência. Não invente.`
+}
+
+/**
+ * Step B: chama gpt-4o pra refinar summary + bullets do rascunho do step A.
+ * Retorna o draft refinado OU null se falhou (caller usa o draft original).
+ */
+async function refineWithBigModel(
+  input: InputResume,
+  job: JobContext,
+  draft: any,
+  userId: string,
+  fnStart: number,
+): Promise<{ refined: any; tokensUsed: number; latencyMs: number } | null> {
+  try {
+    const userPrompt = buildRefinePrompt(input, job, draft)
+    console.log(`[adapt-resume] step B calling ${MODEL_REFINE} (prompt ${userPrompt.length} chars)`)
+
+    const ai = await callOpenAI(REFINE_SYSTEM_PROMPT, userPrompt, {
+      model: MODEL_REFINE,
+      maxTokens: 2000,
+      temperature: 0.2,
+      schema: REFINE_JSON_SCHEMA,
+    })
+
+    trackAIGeneration({
+      userId,
+      generationType: 'cv_adaptation_refine',
+      model: MODEL_REFINE,
+      inputTokens: ai.inputTokens,
+      outputTokens: ai.outputTokens,
+      latencyMs: ai.latencyMs,
+      cached: false,
+      extra: {
+        prompt_chars: userPrompt.length,
+        function_ms_so_far: Date.now() - fnStart,
+        step: 'B',
+      },
+    }).catch(() => {})
+
+    const parsed = JSON.parse(ai.content)
+    if (typeof parsed?.summary !== 'string' || !Array.isArray(parsed?.experience_descriptions)) {
+      console.warn('[adapt-resume] step B output shape inválido — usando step A direto')
+      return null
+    }
+
+    // Aplica refinamentos no draft: substitui summary e descriptions.
+    const refined = { ...draft }
+    refined.summary = parsed.summary
+    refined.experiences = Array.isArray(draft.experiences)
+      ? draft.experiences.map((e: any, i: number) => {
+          const match = parsed.experience_descriptions.find((d: any) => d.index === i)
+          if (match && typeof match.description === 'string' && match.description.length > 10) {
+            return { ...e, description: match.description }
+          }
+          return e
+        })
+      : draft.experiences
+
+    return { refined, tokensUsed: ai.totalTokens, latencyMs: ai.latencyMs }
+  } catch (e) {
+    console.warn(`[adapt-resume] step B failed (non-fatal): ${(e as Error).message}`)
+    return null
   }
 }
 
@@ -2476,6 +2645,34 @@ serve(async (req) => {
       )
     }
 
+    // F5 da reformulação: step B — refinar summary + bullets com modelo
+    // maior (gpt-4o). Step A (mini) já cuida da estrutura; step B só
+    // melhora qualidade de escrita. Custo extra ~$0.01/adaptação. Falha
+    // do step B é não-fatal — usa output do step A direto.
+    // Controlado por env REFINEMENT_ENABLED=false pra rollback rápido.
+    const refinementEnabled = (Deno.env.get('REFINEMENT_ENABLED') ?? 'true').toLowerCase() !== 'false'
+    let stepUsed: 'mini_only' | 'mini+4o' = 'mini_only'
+    let refineLatencyMs = 0
+    if (refinementEnabled) {
+      const refineResult = await refineWithBigModel(input, job, parsed.resume, user.id, fnStart)
+      if (refineResult) {
+        // Re-validar o refinamento (anti-invenção continua valendo).
+        try {
+          const candidate = { ...parsed, resume: refineResult.refined }
+          validateAdaptation(input, candidate, job)
+          parsed = candidate
+          tokensUsedTotal += refineResult.tokensUsed
+          refineLatencyMs = refineResult.latencyMs
+          stepUsed = 'mini+4o'
+          console.log(`[adapt-resume] step B applied (${refineResult.latencyMs}ms, tokens=${refineResult.tokensUsed})`)
+        } catch (e) {
+          console.warn(`[adapt-resume] step B output failed validation — usando step A: ${(e as Error).message}`)
+        }
+      }
+    } else {
+      console.log('[adapt-resume] REFINEMENT_ENABLED=false — pulando step B')
+    }
+
     // 8. Match score upgrade
     // Pegamos o score REAL do analyze-match (cache em match_analyses) pra
     // usar como "before" — assim o sheet começa do mesmo número que o card
@@ -2489,7 +2686,7 @@ serve(async (req) => {
       .maybeSingle()
     const realMatchScore = (matchAnalysisR.data?.score as number | undefined)
     const matchUpgrade = computeMatchUpgrade(input, parsed.resume, job, realMatchScore)
-    console.log(`[adapt-resume] match upgrade: before=${matchUpgrade.before} after=${matchUpgrade.after} (real cached: ${realMatchScore ?? 'none'})`)
+    console.log(`[adapt-resume] match upgrade: before=${matchUpgrade.before} after=${matchUpgrade.after} (real cached: ${realMatchScore ?? 'none'}) step_used=${stepUsed}`)
 
     // F7 da reformulação: score objetivo 0-100 da qualidade da adaptação.
     // attempts - 1 = retries (1ª tentativa não conta como retry).
@@ -2514,6 +2711,10 @@ serve(async (req) => {
         validator_retries: validatorRetries,
         model_used: MODEL,
         prompt_version: PROMPT_VERSION,
+        // F5: distingue cohort no PostHog. step_used = 'mini_only' são
+        // adaptações antes do refinamento ou quando step B falhou.
+        step_used: stepUsed,
+        refine_latency_ms: refineLatencyMs,
         input_experiences: input.experiences?.length ?? 0,
         input_education: input.education?.length ?? 0,
         adapted_experiences: Array.isArray(parsed.resume?.experiences) ? parsed.resume.experiences.length : 0,
