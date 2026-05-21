@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../data/models/models.dart' show SavedResumeSource;
 import '../features/auth/user_viewmodel.dart';
 import '../features/profile/profile_viewmodel.dart';
 import 'analytics_service.dart';
@@ -91,7 +92,11 @@ class CvImportService {
 
       String? savedId;
       try {
-        final saved = await profileVM.saveResume(title, byteList);
+        final saved = await profileVM.saveResume(
+          title,
+          byteList,
+          source: SavedResumeSource.imported,
+        );
         savedId = saved.id;
       } catch (e) {
         return CvImportResult.error('Erro ao salvar o currículo: $e');

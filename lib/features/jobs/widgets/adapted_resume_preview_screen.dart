@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/stage_colors.dart';
+import '../../../data/models/models.dart' show SavedResumeSource;
 import '../../../services/analytics_service.dart';
 import '../../auth/user_viewmodel.dart';
+import '../../profile/profile_viewmodel.dart';
 import '../../resume/pdf_service.dart';
 import '../../resume/resume_viewmodel.dart';
 import '../models/adapted_resume.dart';
@@ -124,13 +127,54 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
     return av.length - bv.length;
   }
 
+  /// Sanitiza nome de vaga/empresa pra título da biblioteca. Remove
+  /// caracteres problemáticos pra filename e trunca pra não estourar UI.
+  String _sanitizeForTitle(String s) {
+    final cleaned = s
+        .replaceAll(RegExp(r'[/\\:*?"<>|]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return cleaned.length > 60 ? '${cleaned.substring(0, 57)}…' : cleaned;
+  }
+
   Future<void> _approveAndDownload() async {
     HapticFeedback.mediumImpact();
     setState(() => _isExporting = true);
     try {
       final user = context.read<UserViewModel>().user;
       final templateId = context.read<ResumeViewModel>().selectedTemplateId;
-      await PdfService.generateResume(user, _current, templateId);
+      final profileVM = context.read<ProfileViewModel>();
+
+      // F8: gera bytes uma vez, salva na biblioteca COM nome da vaga, e
+      // depois compartilha. O save substitui o antigo banner persistente
+      // ("Seu CV pra X tá pronto") — agora o CV adaptado fica permanente
+      // na biblioteca, com source='adapted' pra UI colorir distintamente.
+      final bytes = await PdfService.generateResumeBytes(user, _current, templateId);
+
+      final jobTitle = _sanitizeForTitle(widget.job.title);
+      final company = _sanitizeForTitle(widget.job.companyName);
+      final libraryTitle = company.isEmpty
+          ? 'CV adaptado - $jobTitle'
+          : 'CV adaptado - $jobTitle - $company';
+
+      try {
+        await profileVM.saveResume(
+          libraryTitle,
+          bytes,
+          source: SavedResumeSource.adapted,
+        );
+      } catch (e) {
+        debugPrint('Falha ao salvar adaptado na biblioteca (não-fatal): $e');
+      }
+
+      // Compartilha o PDF via share sheet nativo. Mesmo se o save falhar,
+      // o usuário ainda recebe o arquivo.
+      final safeName = (user?.name ?? 'profissional').replaceAll(' ', '_');
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: 'curriculo_${safeName}_${widget.job.id.substring(0, 6)}.pdf',
+      );
+
       // ignore: unawaited_futures
       Analytics.shared.cvAdaptationPdfDownloaded(jobId: widget.job.id);
       // ignore: unawaited_futures

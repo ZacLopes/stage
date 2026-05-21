@@ -888,7 +888,11 @@ class SupabaseRepository {
     }
   }
 
-  Future<SavedResume> saveResume(String title, List<int> pdfBytes) async {
+  Future<SavedResume> saveResume(
+    String title,
+    List<int> pdfBytes, {
+    SavedResumeSource source = SavedResumeSource.manual,
+  }) async {
     try {
       final userId = _client.auth.currentUser?.id;
       if (userId == null) throw Exception('User not authenticated');
@@ -911,6 +915,7 @@ class SupabaseRepository {
             'user_id': userId,
             'title': title,
             'file_path': storagePath,
+            'source': source.dbValue,
           })
           .select()
           .single();

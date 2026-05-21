@@ -101,9 +101,13 @@ class ProfileViewModel extends ChangeNotifier {
     }
   }
 
-  Future<SavedResume> saveResume(String title, List<int> pdfBytes) async {
+  Future<SavedResume> saveResume(
+    String title,
+    List<int> pdfBytes, {
+    SavedResumeSource source = SavedResumeSource.manual,
+  }) async {
     try {
-      final saved = await _repository.saveResume(title, pdfBytes);
+      final saved = await _repository.saveResume(title, pdfBytes, source: source);
       await loadSavedResumes(); // Refresh list
       return saved;
     } catch (e) {

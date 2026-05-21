@@ -18,7 +18,6 @@ import '../../services/analytics_service.dart';
 import '../../services/facebook_events_service.dart';
 import '../../services/notifications_service.dart';
 import 'home_viewmodel.dart';
-import 'widgets/pending_adapted_cv_banner.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -293,18 +292,12 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
       body: SafeArea(
         child: Column(
           children: [
-            // F2.5: banner persistente quando o user adaptou CV e ainda
-            // não exportou. Renderiza vazio (SizedBox) se não há pendente.
-            // Tap navega pra aba Vagas — adaptação cached re-aparece sem
-            // custo de IA. Stale > 3 dias é auto-limpo pelo tracker.
-            PendingAdaptedCvBanner(
-              onOpen: (p) {
-                // Pede pro JobsSwipeScreen abrir a sheet de adaptação do
-                // job — JobsSwipeScreen escuta esse pending no build.
-                context.read<JobsViewModel>().requestOpenAdaptSheet(p.jobId);
-                _navigateToPage(HomeTabs.jobs);
-              },
-            ),
+            // F8 da reformulação: banner persistente removido. O CV adaptado
+            // agora é salvo automaticamente na biblioteca com o nome da vaga
+            // (source='adapted') quando o user tap "Aprovar e baixar" na
+            // preview screen. Não há mais o problema de "perdi minha adaptação"
+            // — ela fica permanente. O PendingAdaptedCvTracker continua vivo
+            // mas sem UI visual no home.
             Expanded(
               child: PageView(
                 controller: _pageController,

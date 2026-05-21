@@ -17,10 +17,84 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
+/// Ordenação da biblioteca de currículos (F8 da reformulação).
+enum _ResumeSort {
+  newest('Mais recente', Icons.schedule_rounded),
+  oldest('Mais antigo', Icons.history_rounded),
+  byType('Por tipo', Icons.category_rounded),
+  alphabetical('Nome (A-Z)', Icons.sort_by_alpha_rounded);
+
+  final String label;
+  final IconData icon;
+  const _ResumeSort(this.label, this.icon);
+}
+
+/// Metadata visual por origem do CV. Usado em chips de legenda e badges
+/// nos cards. Cores escolhidas pra harmonizar com brand cyan/indigo do app
+/// e dar diferenciação clara entre os 3 tipos.
+class _SourceMeta {
+  final String label;
+  final Color color;
+  final IconData icon;
+  const _SourceMeta(this.label, this.color, this.icon);
+}
+
+const Map<SavedResumeSource, _SourceMeta> _kSourceMeta = {
+  SavedResumeSource.manual: _SourceMeta(
+    'Editado',
+    Color(0xFF6366F1), // indigo
+    Icons.edit_rounded,
+  ),
+  SavedResumeSource.imported: _SourceMeta(
+    'Importado',
+    Color(0xFF0EA5E9), // sky blue
+    Icons.cloud_upload_rounded,
+  ),
+  SavedResumeSource.adapted: _SourceMeta(
+    'Adaptado (IA)',
+    Color(0xFF10B981), // emerald (mesmo verde do brand)
+    Icons.auto_awesome_rounded,
+  ),
+};
+
 class _ProfileScreenState extends State<ProfileScreen>
     with ScreenTrackingMixin {
   @override
   String get screenName => 'profile';
+
+  _ResumeSort _sort = _ResumeSort.newest;
+
+  /// Aplica a ordenação selecionada à lista bruta do view model.
+  /// Retorna uma cópia ordenada — não muta o estado do view model.
+  List<SavedResume> _sortedResumes(List<SavedResume> input) {
+    final list = List<SavedResume>.from(input);
+    switch (_sort) {
+      case _ResumeSort.newest:
+        list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        break;
+      case _ResumeSort.oldest:
+        list.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+        break;
+      case _ResumeSort.byType:
+        // Agrupa por source (adaptados primeiro = mais valiosos), dentro
+        // de cada grupo ordena por data desc.
+        const order = {
+          SavedResumeSource.adapted: 0,
+          SavedResumeSource.imported: 1,
+          SavedResumeSource.manual: 2,
+        };
+        list.sort((a, b) {
+          final byType = (order[a.source] ?? 99).compareTo(order[b.source] ?? 99);
+          if (byType != 0) return byType;
+          return b.createdAt.compareTo(a.createdAt);
+        });
+        break;
+      case _ResumeSort.alphabetical:
+        list.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        break;
+    }
+    return list;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -64,16 +138,28 @@ class _ProfileScreenState extends State<ProfileScreen>
                         _buildUserIdentity(context, user),
                         const SizedBox(height: 32),
                         
-                        Text(
-                          'Sua Biblioteca',
-                          style: GoogleFonts.outfit(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: const Color(0xFF1F2937),
-                          ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Sua Biblioteca',
+                                style: GoogleFonts.outfit(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: const Color(0xFF1F2937),
+                                ),
+                              ),
+                            ),
+                            if (viewModel.savedResumes.isNotEmpty)
+                              _buildSortButton(),
+                          ],
                         ),
-                        const SizedBox(height: 16),
-                        
+                        const SizedBox(height: 12),
+                        if (viewModel.savedResumes.isNotEmpty) ...[
+                          _buildSourceLegend(viewModel),
+                          const SizedBox(height: 16),
+                        ],
+
                         if (viewModel.savedResumes.isEmpty)
                           _buildEmptyState()
                         else
@@ -231,6 +317,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _buildResumeList(ProfileViewModel viewModel, String? highlightId) {
+    final sorted = _sortedResumes(viewModel.savedResumes);
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -240,9 +327,9 @@ class _ProfileScreenState extends State<ProfileScreen>
         crossAxisSpacing: 16,
         mainAxisSpacing: 16,
       ),
-      itemCount: viewModel.savedResumes.length,
+      itemCount: sorted.length,
       itemBuilder: (context, index) {
-        final resume = viewModel.savedResumes[index];
+        final resume = sorted[index];
         return _ResumeCard(
           key: ValueKey(resume.id),
           resume: resume,
@@ -251,6 +338,151 @@ class _ProfileScreenState extends State<ProfileScreen>
           onDelete: () => _showDeleteConfirmation(context, viewModel, resume),
         );
       },
+    );
+  }
+
+  /// Botão de ordenação. Tap → bottom sheet com as 4 opções de _ResumeSort.
+  Widget _buildSortButton() {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: _openSortSheet,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_sort.icon, size: 14, color: const Color(0xFF4B5563)),
+              const SizedBox(width: 6),
+              Text(
+                _sort.label,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF1F2937),
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.unfold_more_rounded, size: 14, color: Color(0xFF94A3B8)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openSortSheet() async {
+    final picked = await showModalBottomSheet<_ResumeSort>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 8, bottom: 8),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE5E7EB),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Ordenar por',
+                    style: GoogleFonts.outfit(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF111827),
+                    ),
+                  ),
+                ),
+              ),
+              for (final opt in _ResumeSort.values)
+                ListTile(
+                  leading: Icon(opt.icon,
+                      color: opt == _sort ? const Color(0xFF6366F1) : const Color(0xFF6B7280)),
+                  title: Text(
+                    opt.label,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: opt == _sort ? FontWeight.w800 : FontWeight.w500,
+                      color: opt == _sort ? const Color(0xFF111827) : const Color(0xFF374151),
+                    ),
+                  ),
+                  trailing: opt == _sort
+                      ? const Icon(Icons.check_rounded, color: Color(0xFF6366F1))
+                      : null,
+                  onTap: () => Navigator.of(context).pop(opt),
+                ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
+    );
+    if (picked != null && picked != _sort) {
+      setState(() => _sort = picked);
+    }
+  }
+
+  /// Legenda visual dos 3 tipos de currículo. Mostra só os tipos
+  /// presentes na biblioteca pra evitar poluir.
+  Widget _buildSourceLegend(ProfileViewModel viewModel) {
+    final present = viewModel.savedResumes.map((r) => r.source).toSet();
+    final entries = SavedResumeSource.values
+        .where((s) => present.contains(s))
+        .toList();
+    if (entries.length < 2) {
+      // Só 1 tipo presente — não vale a pena mostrar legenda.
+      return const SizedBox.shrink();
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      children: [
+        for (final s in entries)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: _kSourceMeta[s]!.color.withOpacity(0.10),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _kSourceMeta[s]!.color.withOpacity(0.3),
+                width: 0.5,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(_kSourceMeta[s]!.icon, size: 11, color: _kSourceMeta[s]!.color),
+                const SizedBox(width: 5),
+                Text(
+                  _kSourceMeta[s]!.label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: _kSourceMeta[s]!.color,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 
@@ -452,6 +684,7 @@ class _ResumeCardState extends State<_ResumeCard>
   @override
   Widget build(BuildContext context) {
     final dateStr = '${widget.resume.createdAt.day.toString().padLeft(2, '0')}/${widget.resume.createdAt.month.toString().padLeft(2, '0')}';
+    final sourceMeta = _kSourceMeta[widget.resume.source]!;
 
     return AnimatedBuilder(
       animation: _controller,
@@ -464,6 +697,9 @@ class _ResumeCardState extends State<_ResumeCard>
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
+                // F8: borda colorida discreta na cor do source — sinal
+                // visual ambiente sem competir com o conteúdo do card.
+                border: Border.all(color: sourceMeta.color.withOpacity(0.35), width: 1),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.04),
@@ -522,6 +758,45 @@ class _ResumeCardState extends State<_ResumeCard>
                       ),
                     ),
                     
+                    // F8: badge da origem (manual/imported/adapted) no
+                    // canto superior esquerdo do preview. Sinal direto
+                    // pro usuário identificar de relance se o CV foi
+                    // adaptado por IA, importado de PDF, ou editado.
+                    Positioned(
+                      top: 4,
+                      left: 4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: sourceMeta.color,
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: [
+                            BoxShadow(
+                              color: sourceMeta.color.withOpacity(0.25),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(sourceMeta.icon, size: 10, color: Colors.white),
+                            const SizedBox(width: 4),
+                            Text(
+                              sourceMeta.label,
+                              style: const TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
                     // Quick Action Link
                     Positioned(
                       top: 4,

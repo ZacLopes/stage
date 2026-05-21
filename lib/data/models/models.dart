@@ -761,17 +761,37 @@ class ResumeContent {
   }
 }
 
+/// Origem de um SavedResume na biblioteca. Adicionado em F8 da reformulação
+/// pra UI poder distinguir visualmente (cor/legenda) entre os 3 fluxos.
+enum SavedResumeSource {
+  manual,    // editor manual / trilha (default histórico)
+  imported,  // PDF importado via cv_import_service
+  adapted;   // gerado pela adaptação por IA pra uma vaga específica
+
+  String get dbValue => name;
+
+  static SavedResumeSource fromDb(String? value) {
+    if (value == null) return SavedResumeSource.manual;
+    return SavedResumeSource.values.firstWhere(
+      (s) => s.dbValue == value,
+      orElse: () => SavedResumeSource.manual,
+    );
+  }
+}
+
 class SavedResume {
   final String id;
   final String title;
   final String filePath;
   final DateTime createdAt;
+  final SavedResumeSource source;
 
   SavedResume({
     required this.id,
     required this.title,
     required this.filePath,
     required this.createdAt,
+    this.source = SavedResumeSource.manual,
   });
 
   Map<String, dynamic> toMap() {
@@ -780,6 +800,7 @@ class SavedResume {
       'title': title,
       'file_path': filePath,
       'created_at': createdAt.toIso8601String(),
+      'source': source.dbValue,
     };
   }
 
@@ -789,6 +810,7 @@ class SavedResume {
       title: map['title'],
       filePath: map['file_path'],
       createdAt: DateTime.parse(map['created_at']),
+      source: SavedResumeSource.fromDb(map['source'] as String?),
     );
   }
 }
