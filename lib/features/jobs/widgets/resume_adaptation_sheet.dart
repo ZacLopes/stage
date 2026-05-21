@@ -693,6 +693,12 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
   Widget _buildScoreUpgradeCard(AdaptedResume adapted) {
     final upgrade = adapted.matchUpgrade;
     final hasUpgrade = upgrade != null && upgrade > 0;
+    // 3 estados visuais:
+    //   hasUpgrade=true                 → "Match melhorou" + animação NN→NN
+    //   hasUpgrade=false, after != null → "Match alinhado" + só o número
+    //   ambos null/0                    → "Adaptado" + texto neutro
+    final hasScore = adapted.matchScoreAfter != null && adapted.matchScoreAfter! > 0;
+    final scoreOnly = hasScore && !hasUpgrade;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
@@ -725,13 +731,17 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      hasUpgrade ? Icons.trending_up_rounded : Icons.check_rounded,
+                      hasUpgrade
+                          ? Icons.trending_up_rounded
+                          : (scoreOnly ? Icons.verified_rounded : Icons.check_rounded),
                       size: 13,
                       color: Colors.white,
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      hasUpgrade ? 'Match melhorou' : 'Adaptado',
+                      hasUpgrade
+                          ? 'Match melhorou'
+                          : (scoreOnly ? 'Match alinhado' : 'Adaptado'),
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 11,
@@ -807,6 +817,43 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
                 );
               },
             )
+          else if (scoreOnly)
+            // Match já estava alto antes da adaptação — mostra só o número
+            // atual sem animação de "before → after" (não houve mudança).
+            // Sinal pro usuário: "seu CV já estava bem alinhado, a adaptação
+            // só refinou o texto."
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                ShaderMask(
+                  shaderCallback: (b) => const LinearGradient(
+                    colors: [Color(0xFFA7F3D0), Color(0xFF6EE7B7)],
+                  ).createShader(b),
+                  child: Text(
+                    '${adapted.matchScoreAfter}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 48,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -1.4,
+                      height: 1,
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8, left: 2),
+                  child: Text(
+                    '/100',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.55),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            )
           else
             Center(
               child: Text(
@@ -822,7 +869,9 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
           Text(
             hasUpgrade
                 ? 'Match score com base nos requisitos da vaga'
-                : 'Pronto pra baixar e enviar',
+                : (scoreOnly
+                    ? 'Seu CV já está alinhado com a vaga'
+                    : 'Pronto pra baixar e enviar'),
             style: TextStyle(
               color: Colors.white.withOpacity(0.55),
               fontSize: 11,
