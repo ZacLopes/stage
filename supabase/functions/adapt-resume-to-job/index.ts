@@ -23,7 +23,7 @@
 
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
-import { trackAIGeneration } from '../_shared/posthog.ts'
+import { captureEvent, trackAIGeneration } from '../_shared/posthog.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1968,6 +1968,109 @@ function validateAdaptation(input: InputResume, parsed: any, job?: JobContext): 
  * Se não há `beforeScore` (sem cache de match_analyses ainda), retorna o
  * mesmo valor pros dois — UI não mostra upgrade nesse caso.
  */
+/**
+ * F7 da reformulação: score objetivo (0-100) de qualidade da adaptação.
+ * Soma de 5 fatores ponderados — não depende de feedback humano explícito
+ * (raro), mas dá um sinal aproximado pra dashboard/alertas e A/B test
+ * entre modelos.
+ *
+ * Fatores:
+ *  - 30 pts: campos críticos preservados (name/email/phone/linkedin/
+ *            location/#experiences/#education). Sinal de integridade.
+ *  - 20 pts: zero retries do validador (1 = 10, 2 = 0). Sinal de "IA
+ *            acertou de primeira".
+ *  - 20 pts: Jaccard de bigrams entre summary adaptado e CV original.
+ *            Sinal de "summary não inventou nada".
+ *  - 15 pts: requisitos da vaga agora cobertos no CV. Sinal de fit.
+ *  - 15 pts: placeholder fixo (default 15). Em F7+ vai virar inverso do
+ *            histórico de cv_adaptation_user_edited do user, quando
+ *            tivermos dataset.
+ *
+ * Retorna 0-100 (inteiro).
+ */
+function computeQualityScore(args: {
+  input: InputResume
+  adapted: any
+  job: JobContext
+  validatorRetries: number
+}): number {
+  const { input, adapted, job, validatorRetries } = args
+
+  // (1) Preservação de campos críticos — 30 pts
+  let preserved = 0
+  const criticalChecks: Array<[string, boolean]> = [
+    ['fullName', !!(adapted?.fullName && String(adapted.fullName).trim() === String(input.fullName ?? '').trim())],
+    ['email', !!(input.email ? eqInstitutional(adapted?.email, input.email) : true)],
+    ['phone', !!(input.phone ? eqInstitutional(adapted?.phone, input.phone) : true)],
+    ['linkedin', !!(input.linkedin ? eqInstitutional(adapted?.linkedin, input.linkedin) : true)],
+    ['location', !!(input.location ? eqInstitutional(adapted?.location, input.location) : true)],
+    ['experiences_count', Array.isArray(adapted?.experiences) &&
+        adapted.experiences.length === (input.experiences?.length ?? 0)],
+    ['education_count', Array.isArray(adapted?.education) &&
+        adapted.education.length === (input.education?.length ?? 0)],
+  ]
+  for (const [, ok] of criticalChecks) if (ok) preserved++
+  const preservedPts = Math.round((preserved / criticalChecks.length) * 30)
+
+  // (2) Validator retries — 20 pts (0 retries = 20, 1 = 10, 2 = 0)
+  const retriesPts = validatorRetries === 0 ? 20 : (validatorRetries === 1 ? 10 : 0)
+
+  // (3) Jaccard de bigrams summary — 20 pts
+  let summaryPts = 20
+  if (typeof adapted?.summary === 'string' && adapted.summary.length > 30) {
+    const cvText = String(input.summary ?? '') + ' ' +
+                   String(input.importedCvText ?? '').slice(0, 4000)
+    const adaptedBigrams = toBigrams(adapted.summary)
+    const cvBigrams = toBigrams(cvText)
+    if (adaptedBigrams.size > 0 && cvBigrams.size > 0) {
+      let intersect = 0
+      for (const b of adaptedBigrams) if (cvBigrams.has(b)) intersect++
+      const union = adaptedBigrams.size + cvBigrams.size - intersect
+      const jaccard = union > 0 ? intersect / union : 0
+      // Mapeia 0..0.4 → 0..20 (Jaccard maior que 0.4 é raro mesmo com
+      // summary fiel; clamp evita penalizar reformulação válida).
+      summaryPts = Math.min(20, Math.round((jaccard / 0.4) * 20))
+    }
+  }
+
+  // (4) Requisitos da vaga cobertos — 15 pts
+  let jobFitPts = 15
+  if (Array.isArray(job.requirements) && job.requirements.length > 0) {
+    const adaptedText = [
+      adapted?.summary ?? '',
+      (adapted?.skills ?? []).join(' '),
+      ...(adapted?.experiences ?? []).map((e: any) => `${e.role ?? ''} ${e.description ?? ''}`),
+    ].join(' ').toLowerCase()
+    let covered = 0
+    for (const req of job.requirements) {
+      const reqTokens = tokenize(String(req)).filter((t) => t.length >= 4)
+      if (reqTokens.length === 0) continue
+      const matches = reqTokens.filter((t) => adaptedText.includes(t)).length
+      if (matches / reqTokens.length >= 0.5) covered++
+    }
+    jobFitPts = Math.round((covered / job.requirements.length) * 15)
+  }
+
+  // (5) Placeholder fixo — 15 pts. Em iteração futura: inverso de
+  //     cv_adaptation_user_edited histórico do user.
+  const userTrustPts = 15
+
+  const total = preservedPts + retriesPts + summaryPts + jobFitPts + userTrustPts
+  return Math.max(0, Math.min(100, total))
+}
+
+/** Converte texto em set de bigrams pra Jaccard similarity. */
+function toBigrams(text: string): Set<string> {
+  const flat = flatten(text)
+  const out = new Set<string>()
+  if (flat.length < 2) return out
+  for (let i = 0; i < flat.length - 1; i++) {
+    const bg = flat.substring(i, i + 2)
+    if (/\S\S/.test(bg)) out.add(bg)
+  }
+  return out
+}
+
 function computeMatchUpgrade(
   input: InputResume,
   adapted: any,
@@ -2329,6 +2432,50 @@ serve(async (req) => {
     const matchUpgrade = computeMatchUpgrade(input, parsed.resume, job, realMatchScore)
     console.log(`[adapt-resume] match upgrade: before=${matchUpgrade.before} after=${matchUpgrade.after} (real cached: ${realMatchScore ?? 'none'})`)
 
+    // F7 da reformulação: score objetivo 0-100 da qualidade da adaptação.
+    // attempts - 1 = retries (1ª tentativa não conta como retry).
+    const validatorRetries = Math.max(0, attempts - 1)
+    const qualityScore = computeQualityScore({
+      input,
+      adapted: parsed.resume,
+      job,
+      validatorRetries,
+    })
+    console.log(`[adapt-resume] quality_score=${qualityScore} validatorRetries=${validatorRetries}`)
+
+    // Emite o quality_score como evento PostHog dedicado pra dashboard.
+    // Separado de $ai_generation porque o quality_score é calculado APÓS
+    // todas as chamadas de LLM (incluindo retries) terminarem.
+    captureEvent({
+      event: 'cv_adaptation_quality_score',
+      distinctId: user.id,
+      properties: {
+        job_id: jobId,
+        quality_score: qualityScore,
+        validator_retries: validatorRetries,
+        model_used: MODEL,
+        prompt_version: PROMPT_VERSION,
+        input_experiences: input.experiences?.length ?? 0,
+        input_education: input.education?.length ?? 0,
+        adapted_experiences: Array.isArray(parsed.resume?.experiences) ? parsed.resume.experiences.length : 0,
+        adapted_education: Array.isArray(parsed.resume?.education) ? parsed.resume.education.length : 0,
+      },
+    }).catch(() => {})
+
+    // Também emite cv_adaptation_validator_retry quando houve retry —
+    // sinal mais granular pra debugging de prompts que estão falhando.
+    if (validatorRetries > 0) {
+      captureEvent({
+        event: 'cv_adaptation_validator_retry',
+        distinctId: user.id,
+        properties: {
+          job_id: jobId,
+          retries: validatorRetries,
+          model_used: MODEL,
+        },
+      }).catch(() => {})
+    }
+
     // 9. Persiste cache (service role bypassa RLS)
     const upsertR = await supabaseAdmin.from('adapted_resumes').upsert(
       {
@@ -2342,6 +2489,10 @@ serve(async (req) => {
         prompt_version: PROMPT_VERSION,
         model_used: MODEL,
         computed_at: new Date().toISOString(),
+        // F7: coluna adicionada via migration 20260521000001. RODAR ESSA
+        // MIGRATION ANTES DO DEPLOY desta edge function, senão upsert
+        // falha por coluna desconhecida.
+        quality_score: qualityScore,
       },
       { onConflict: 'user_id,job_id' },
     )
