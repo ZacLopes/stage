@@ -1,8 +1,11 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -126,14 +129,18 @@ class CvImportService {
       // em profile_incomplete. Reportar succeeded aqui mascarava esses casos.
       if (usable) {
         Analytics.shared.cvImportSucceeded(extractedChars: rawTextLen);
-        // F2 da reformulação: dispara parse-cv em background para popular
-        // gamification_data.imported_resume.parsed com JSON estruturado
-        // gerado por IA. Toda adaptação futura vai operar sobre dados
-        // estruturados (não regex sobre raw text). Fire-and-forget — se
-        // parse-cv falhar, adapt-resume-to-job ainda funciona via raw_text
-        // como fallback. Não bloqueia a UX do import.
+        // F2 da reformulação: dispara parse-cv (text-only) em background.
+        // F3 da reformulação: também dispara parse-cv-vision com PDF
+        // rasterizado em PNG (1-3 páginas, 150 DPI). Vision tem precedência
+        // sobre text-only — quando ela termina, sobrescreve imported_resume.parsed.
+        // Ambas fire-and-forget. Se vision falhar (rasterização não suportada
+        // no device, PDF protegido, OpenAI timeout), text-only ainda popula
+        // o parsed. Se text-only falhar, raw_text + pre-parser legacy
+        // continua como último fallback.
         // ignore: unawaited_futures
         CvImportService._triggerParseCvInBackground();
+        // ignore: unawaited_futures
+        CvImportService._triggerParseCvVisionInBackground(byteList);
       } else {
         Analytics.shared.cvImportFailed(
           reason: extractionError ?? 'unusable_text:$rawTextLen',
@@ -149,6 +156,88 @@ class CvImportService {
     } catch (e) {
       Analytics.shared.cvImportFailed(reason: e.toString().split('\n').first);
       return CvImportResult.error('Falha inesperada: $e');
+    }
+  }
+
+  /// F3 da reformulação: rasteriza o PDF em PNG (até 3 páginas, 150 DPI)
+  /// e dispara `parse-cv-vision` em background. Vision lê layout (colunas,
+  /// tabelas) muito melhor que o text extractor do Syncfusion + parse-cv
+  /// text-only — caso real do Zac (3 experiências num CV em coluna que o
+  /// Syncfusion embaralhou) deve ser resolvido aqui.
+  ///
+  /// Fire-and-forget. Se rasterização falhar (PDF protegido, device sem
+  /// suporte) ou Vision API der erro, parse-cv text-only ainda popula
+  /// o parsed normalmente.
+  ///
+  /// Tempo típico: 8-15s (rasterização ~2-4s + Vision ~6-10s).
+  /// Custo: ~$0.005-0.01 por chamada (gpt-4o + imagens detail=high).
+  static Future<void> _triggerParseCvVisionInBackground(Uint8List pdfBytes) async {
+    try {
+      // Rasteriza até 3 primeiras páginas em 150 DPI. CVs raramente têm
+      // mais de 2 páginas — corte conservador pra reduzir custo OpenAI
+      // (cada imagem detail=high = ~765 tokens).
+      final pages = <String>[];
+      var i = 0;
+      await for (final page in Printing.raster(pdfBytes, dpi: 150, pages: [0, 1, 2])) {
+        if (i >= 3) break;
+        final pngBytes = await page.toPng();
+        final b64 = base64Encode(pngBytes);
+        // ~1MB por imagem (limite da Edge Function) cobre 150 DPI A4.
+        if (b64.length > 1_500_000) {
+          debugPrint('parse-cv-vision: page $i too large (${b64.length} bytes), skipping');
+          continue;
+        }
+        pages.add(b64);
+        i++;
+      }
+      if (pages.isEmpty) {
+        debugPrint('parse-cv-vision: no pages rasterized (non-blocking)');
+        return;
+      }
+
+      // raw_text_fallback ajuda o validador anti-invenção do edge function
+      // a checar nomes próprios. Lê do user atual.
+      final user = Supabase.instance.client.auth.currentUser;
+      String? rawText;
+      if (user != null) {
+        final profileResp = await Supabase.instance.client
+            .from('user_profiles')
+            .select('gamification_data')
+            .eq('id', user.id)
+            .maybeSingle();
+        final gd = profileResp?['gamification_data'] as Map<String, dynamic>?;
+        final imported = gd?['imported_resume'] as Map<String, dynamic>?;
+        rawText = imported?['raw_text'] as String?;
+      }
+
+      final response = await Supabase.instance.client.functions.invoke(
+        'parse-cv-vision',
+        body: {
+          'images_base64': pages,
+          if (rawText != null) 'raw_text_fallback': rawText,
+        },
+      );
+      final data = response.data;
+      if (data is! Map) return;
+      final fieldsFilled = (data['fields_filled'] as num?)?.toInt() ?? 0;
+      final cached = data['cached'] == true;
+      final parsed = data['parsed'];
+      final hasExperiences = parsed is Map &&
+          parsed['experiences'] is List &&
+          (parsed['experiences'] as List).isNotEmpty;
+      final hasEducation = parsed is Map &&
+          parsed['education'] is List &&
+          (parsed['education'] as List).isNotEmpty;
+      // Emite o mesmo evento de cv_import_parsed pra unificar dashboards —
+      // dá pra distinguir por property `source` no evento (vision vs text).
+      Analytics.shared.cvImportParsed(
+        fieldsFilled: fieldsFilled,
+        cached: cached,
+        hasExperiences: hasExperiences,
+        hasEducation: hasEducation,
+      );
+    } catch (e) {
+      debugPrint('parse-cv-vision background call failed (non-blocking): $e');
     }
   }
 
