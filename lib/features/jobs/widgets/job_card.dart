@@ -161,14 +161,12 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(22, 14, 22, 12),
-                // Em telas pequenas / títulos em 2 linhas / chips em wrap
-                // de 2 linhas, o bloco superior excede a altura do Expanded
-                // e causa RenderFlex overflow. SingleChildScrollView com
-                // NeverScrollableScrollPhysics permite clipar silenciosamente
-                // sem mostrar exception (e sem introduzir scroll real, o
-                // que seria estranho num swipe card).
-                child: SingleChildScrollView(
-                  physics: const NeverScrollableScrollPhysics(),
+                // SingleChildScrollView aqui quebra o CardSwiper porque ele
+                // aplica RenderTransform em cima dos cards e precisa de
+                // altura determinística. ClipRect mantém o layout original
+                // e só clipa o conteúdo que ultrapassa, sem introduzir
+                // scrollview nem afetar transforms ancestrais.
+                child: ClipRect(
                   child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
