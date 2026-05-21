@@ -377,7 +377,14 @@ class ResumeListEditor extends StatefulWidget {
 
 class _ResumeListEditorState extends State<ResumeListEditor> {
   bool _diffExpanded = false;
-  int? _editingIndex; // null = adicionando novo, -1 = nada editando
+  // Convenção:
+  //   -1  = idle (nada editando — estado inicial)
+  //   null = adicionando novo item (mostra TextField com autofocus)
+  //   >= 0 = editando item existente nessa posição
+  // Estado inicial DEVE ser -1, NÃO null. Antes o default do Dart era null,
+  // que casava com "adicionando novo" e abria o teclado automaticamente ao
+  // entrar na preview screen.
+  int? _editingIndex = -1;
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
 
