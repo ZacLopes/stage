@@ -5,6 +5,8 @@ import '../../data/models/models.dart';
 import '../../data/supabase_repository.dart';
 import '../../services/ai_service.dart';
 import '../../services/analytics_service.dart';
+import '../profile/data/repositories/profile_repository_supabase.dart';
+import 'services/trail_to_profile_bridge.dart';
 import 'gamification_logic.dart';
 
 enum PhaseStatus { locked, available, completed }
@@ -12,6 +14,9 @@ enum PhaseStatus { locked, available, completed }
 class GamificationViewModel extends ChangeNotifier {
   final SupabaseRepository _repository;
   final AIService _aiService = AIService();
+  // Bridge profile-first (Semana 2): roteia respostas das 5 trilhas pras
+  // 18 tabelas profile_*. Dual-write — não substitui user_answers/raw_responses.
+  final TrailToProfileBridge _profileBridge = TrailToProfileBridge(ProfileRepositorySupabase());
   
   Future<Map<String, String>> _getAllAnswers() async {
     return await _repository.getUserAnswersByQuestionId();
@@ -315,6 +320,11 @@ class GamificationViewModel extends ChangeNotifier {
             answerType: answerType,
             questionOrder: _currentQuestionIndex,
           );
+
+          // Profile-first (Semana 2): roteia pro schema relacional via bridge.
+          // Fire-and-forget — falha aqui NÃO derruba trilha legacy.
+          // ignore: unawaited_futures
+          _profileBridge.route(phaseId: rawPhaseId, answer: answer);
         }
       }
     } catch (e) {

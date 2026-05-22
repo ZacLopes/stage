@@ -221,6 +221,21 @@ class AnalyticsService {
         'has_education': hasEducation,
       });
 
+  /// Disparado quando uma das chamadas em background (parse-cv ou
+  /// parse-cv-vision) falha. Telemetria pra debugar por que vision quase
+  /// nunca rodava em produção: distingue stage (rasterize / invoke /
+  /// response) e source (text / vision) pra triagem rápida no PostHog.
+  Future<void> cvParserFailed({
+    required String source,
+    required String stage,
+    required String reason,
+  }) =>
+      track('cv_parser_failed', props: {
+        'source': source,
+        'stage': stage,
+        'reason': reason,
+      });
+
   Future<void> cvExported({required String templateId}) =>
       track('cv_exported', props: {'template_id': templateId});
 

@@ -46,6 +46,7 @@ import {
   safeJson,
   stripHtml,
 } from "../_shared/jobs.ts";
+import { captureEvent } from "../_shared/posthog.ts";
 
 interface BrazilJob {
   id: string;
@@ -350,6 +351,46 @@ serve(async (req: Request) => {
   const stale = await markStaleJobsInactive(supabase, "brz_%", 48);
 
   const durationMs = Date.now() - startedAt;
+
+  // Apify Brazil scraper PPE: $0.02/vaga. items.length captura o que Apify
+  // cobrou (mesmo descartado é processado). Métrica essencial pro budget.
+  const costUsd = items.length * 0.02;
+  const totalSkipped =
+    skippedNotEntryLevel +
+    skippedTitleBlacklist +
+    skippedCompanyBlacklist +
+    skippedTalentPool +
+    skippedDuplicate +
+    skippedGupy +
+    skippedNoId;
+
+  // `inserted` conta upserts. Pra vagas REALMENTE novas (INSERT real), faz
+  // query de delta filtrando por source brz_* + created_at >= startedAt.
+  const { count: trulyNew } = await supabase
+    .from("jobs")
+    .select("id", { count: "exact", head: true })
+    .like("source", "brz_%")
+    .gte("created_at", new Date(startedAt).toISOString());
+
+  await captureEvent({
+    event: 'job_sync_completed',
+    distinctId: 'cron:sync-jobs-brazil',
+    properties: {
+      cron: 'sync-jobs-brazil',
+      source: 'brazil_scraper',
+      fetched: items.length,
+      new_jobs: trulyNew ?? 0,       // INSERT reais (cresce o feed)
+      upserted_jobs: inserted,        // INSERT + UPDATE (saúde do scraper)
+      skipped: totalSkipped,
+      deactivated_jobs: stale,
+      errors_count: errors,
+      duration_ms: durationMs,
+      cost_usd: costUsd,
+      per_source: perSource, // ex: { brz_infojobs: 12, brz_vagascom: 8 }
+      status: errors > 0 ? (inserted > 0 ? 'partial' : 'failed') : 'success',
+    },
+  }).catch(() => {});
+
   return jsonResponse({
     ok: true,
     fetched: items.length,

@@ -76,6 +76,10 @@ async function sb(path: string, init?: RequestInit): Promise<Response> {
     headers: {
       'apikey': SERVICE_ROLE_KEY,
       'Authorization': `Bearer ${SERVICE_ROLE_KEY}`,
+      // Fallback header — alguns paths do Supabase gateway reescrevem
+      // Authorization. Header custom passa adiante intacto e o parse-cv
+      // aceita tanto Authorization quanto este.
+      'X-Service-Role-Key': SERVICE_ROLE_KEY,
       'Content-Type': 'application/json',
       ...(init?.headers ?? {}),
     },

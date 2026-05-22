@@ -7,6 +7,8 @@ import '../auth/user_viewmodel.dart';
 import '../home/home_viewmodel.dart';
 import '../settings/settings_screen.dart';
 import 'resume_detail_screen.dart';
+import 'presentation/profile_editor_screen.dart';
+import '../tutorial/tutorial_keys.dart';
 import '../../data/models/models.dart';
 import '../../core/widgets/pii_mask.dart';
 
@@ -210,6 +212,27 @@ class _ProfileScreenState extends State<ProfileScreen>
                   ),
                 ),
               ],
+            ),
+          ),
+          const SizedBox(width: 4),
+          // Botão Editar Perfil — abre o editor estruturado profile-first.
+          // Semana 2: spotlight tutorial aponta aqui na primeira abertura pós-update.
+          IconButton(
+            key: TutorialKeys.editProfileButton,
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ProfileEditorScreen()),
+              );
+            },
+            tooltip: 'Editar Perfil',
+            icon: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF00C27A).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.edit_outlined, color: Color(0xFF00C27A), size: 20),
             ),
           ),
           const SizedBox(width: 4),

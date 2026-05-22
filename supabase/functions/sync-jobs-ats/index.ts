@@ -27,6 +27,7 @@ import {
   markStaleJobsInactive,
   safeJson,
 } from "../_shared/jobs.ts";
+import { captureEvent } from "../_shared/posthog.ts";
 import type { SourceAdapter, SourceRow, SyncStats } from "./sources/types.ts";
 import * as greenhouse from "./sources/greenhouse.ts";
 import * as lever from "./sources/lever.ts";
@@ -115,6 +116,50 @@ serve(async (req: Request) => {
   for (const name of sourceNamesSynced) {
     markedStale[name] = await markStaleJobsInactive(supabase, name, 48);
   }
+
+  // Emite 1 evento POR ATS (greenhouse, lever, ...) pra o dashboard fazer
+  // breakdown por fonte. Agrega o summary `ats:company_slug` por ats.
+  const perAts: Record<string, { inserted: number; errors: number; companies: number }> = {};
+  for (const [key, stats] of Object.entries(summary)) {
+    const ats = key.split(":")[0];
+    if (!perAts[ats]) perAts[ats] = { inserted: 0, errors: 0, companies: 0 };
+    perAts[ats].inserted += stats.inserted;
+    perAts[ats].errors += stats.errors;
+    perAts[ats].companies += 1;
+  }
+  const totalDurationMs = Date.now() - startedAt;
+  const startedAtIso = new Date(startedAt).toISOString();
+  await Promise.all(
+    Object.entries(perAts).map(async ([ats, stats]) => {
+      // Conta vagas REALMENTE novas (INSERT real). `stats.inserted` conta
+      // upserts (insert + update de last_seen_at). Query de delta por
+      // created_at separa um do outro.
+      const { count: trulyNew } = await supabase
+        .from("jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("source", ats)
+        .gte("created_at", startedAtIso);
+
+      return captureEvent({
+        event: 'job_sync_completed',
+        distinctId: 'cron:sync-jobs-ats',
+        properties: {
+          cron: 'sync-jobs-ats',
+          source: `ats_${ats}`,
+          new_jobs: trulyNew ?? 0,         // INSERT reais
+          upserted_jobs: stats.inserted,    // INSERT + UPDATE (saúde do scraper)
+          deactivated_jobs: markedStale[ats] ?? 0,
+          errors_count: stats.errors,
+          companies_synced: stats.companies,
+          duration_ms: totalDurationMs,
+          cost_usd: 0, // ATS público — sem custo
+          status: stats.errors > 0
+            ? (stats.inserted > 0 ? 'partial' : 'failed')
+            : 'success',
+        },
+      }).catch(() => {});
+    }),
+  );
 
   return jsonResponse({
     ok: true,

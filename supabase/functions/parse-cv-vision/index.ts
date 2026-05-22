@@ -27,6 +27,7 @@ import { createClient } from 'supabase'
 import { trackAIGeneration } from '../_shared/posthog.ts'
 import { PARSE_CV_JSON_SCHEMA } from '../_shared/cv_schema.ts'
 import { flatten } from '../_shared/cv_text.ts'
+import { detectNonCvContent, nonCvMessage } from '../_shared/cv_content_validator.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -226,10 +227,63 @@ serve(async (req) => {
       }
     }
 
-    // Auth: aceita service-role (backfill futuro) ou JWT de usuário.
+    // Anti-non-CV: se vier raw_text_fallback (caminho normal do Flutter),
+    // valida que não é extrato bancário / doc gov.br / holerite antes de
+    // queimar tokens de Vision. Se fallback não vier (chamada direta sem
+    // texto), pula a validação — Vision pode ler imagem que o text
+    // extractor não conseguiu.
+    if (rawTextFallback.length >= 200) {
+      const nonCv = detectNonCvContent(rawTextFallback)
+      if (nonCv.isNonCv) {
+        console.warn(
+          `[parse-cv-vision] non-CV content detected ` +
+          `category=${nonCv.category} reasons=${nonCv.reasons.join(',')}`,
+        )
+        return jsonResponse({
+          error: 'non_cv_content',
+          category: nonCv.category,
+          message: nonCvMessage(nonCv.category!),
+          reasons: nonCv.reasons,
+        }, 422)
+      }
+    }
+
+    // Auth: aceita service-role (legacy JWT eyJ... OU modern sb_secret_)
+    // ou JWT de usuário. Veja parse-cv/index.ts pra detalhes da estratégia
+    // de aceitar ambos formatos de service_role key.
     const authHeader = req.headers.get('Authorization') ?? ''
+    const customServiceKeyHeader = req.headers.get('X-Service-Role-Key') ?? ''
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    const isServiceRole = serviceRoleKey.length > 0 && authHeader === `Bearer ${serviceRoleKey}`
+
+    const authMatches = serviceRoleKey.length > 0 &&
+        authHeader === `Bearer ${serviceRoleKey}`
+    const customMatches = serviceRoleKey.length > 0 &&
+        customServiceKeyHeader === serviceRoleKey
+
+    let jwtIsServiceRole = false
+    if (authHeader.startsWith('Bearer ey')) {
+      try {
+        const token = authHeader.slice('Bearer '.length)
+        const payloadB64 = token.split('.')[1] ?? ''
+        const normalized = payloadB64.replace(/-/g, '+').replace(/_/g, '/')
+        const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4)
+        const payload = JSON.parse(atob(padded)) as {
+          ref?: string
+          role?: string
+          exp?: number
+        }
+        const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
+        const expectedRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] ?? ''
+        const nowSec = Math.floor(Date.now() / 1000)
+        jwtIsServiceRole = payload.role === 'service_role' &&
+            (payload.ref === expectedRef || expectedRef.length === 0) &&
+            (payload.exp == null || payload.exp > nowSec)
+      } catch (_e) {
+        jwtIsServiceRole = false
+      }
+    }
+
+    const isServiceRole = authMatches || customMatches || jwtIsServiceRole
 
     let userId: string
     if (isServiceRole) {
@@ -317,6 +371,7 @@ serve(async (req) => {
       parser_version: PARSER_VERSION,
       parser_model: MODEL,
       parser_source: 'vision',
+      parsed_warnings: warnings,
     }
     const updatedGd = { ...gd, imported_resume: updatedImported }
 

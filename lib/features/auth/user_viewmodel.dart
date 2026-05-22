@@ -9,6 +9,7 @@ import '../../data/local_storage_repository.dart';
 import '../../data/database_helper.dart';
 import '../../services/analytics_service.dart';
 import '../../services/facebook_events_service.dart';
+import '../../services/cv_content_validator.dart';
 import '../../services/notifications_service.dart';
 import '../../services/pdf_text_extractor.dart';
 
@@ -298,10 +299,20 @@ class UserViewModel extends ChangeNotifier {
         return;
       }
 
+      // Anti-non-CV: usuários antigos podem ter salvado extrato/doc gov.br
+      // como "currículo" antes da validação existir. Não reprocessa esses
+      // pra raw_text — deixa o registro vazio e o user reenvia CV correto.
+      final detection = CvContentValidator.detect(rawText);
+      if (detection.isNonCv) {
+        print('Reprocess CV: detected non-CV content (${detection.category!.name}). Skipping.');
+        return;
+      }
+
       final updated = Map<String, dynamic>.from(user.gamificationData);
       updated['imported_resume'] = {
         'raw_text': rawText,
-        'imported_at': DateTime.now().toIso8601String(),
+        // .toUtc() obrigatório — created_at é UTC, sem isso fica off-by-3h em Brasília.
+        'imported_at': DateTime.now().toUtc().toIso8601String(),
         'reprocessed_from_storage': true,
       };
       await _repository.updateUserProfile(user.copyWith(gamificationData: updated));

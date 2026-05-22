@@ -54,7 +54,10 @@ serve(async (req) => {
         }
 
         // Parse request
-        const { experience_phase_id, campaign_id, clarification_answer } = await req.json()
+        // target_experience_id (opcional, Semana 2): se vier, escreve bullets gerados
+        // tambem em profile_bullets vinculados a profile_experiences. Backward compatible
+        // — sem o parametro mantem comportamento legacy (so bullet_versions).
+        const { experience_phase_id, campaign_id, clarification_answer, target_experience_id } = await req.json()
 
         if (!experience_phase_id || !campaign_id) {
             return new Response(
@@ -205,6 +208,25 @@ serve(async (req) => {
             ...b,
             version_id: versionIds[b.angle] ?? null,
         }))
+
+        // Forward-compat (Semana 2): se target_experience_id veio, escreve as
+        // 3 variantes geradas também em profile_bullets. UI do BulletReviewScreen
+        // depois marca a aprovada via update. Fire-and-forget — falha aqui NÃO
+        // derruba a resposta com bullet_versions.
+        if (target_experience_id) {
+            const profileBulletInserts = result.bullets.map((b: { angle: string; content: string; confidence: number }, idx: number) => ({
+                experience_id: target_experience_id,
+                text: b.content,
+                angle: b.angle, // já é 'leadership'/'technical'/'impact'
+                strength_score: Math.round((b.confidence ?? 0.8) * 100),
+                order_index: idx,
+            }))
+            try {
+                await supabaseClient.from('profile_bullets').insert(profileBulletInserts)
+            } catch (e) {
+                console.error('[generate-bullets] profile_bullets insert failed:', e)
+            }
+        }
 
         // 8. Log generation
         await supabaseClient.from('bullet_generation_logs').insert({

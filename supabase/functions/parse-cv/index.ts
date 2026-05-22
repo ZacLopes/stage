@@ -26,6 +26,7 @@ import { createClient } from 'supabase'
 import { trackAIGeneration } from '../_shared/posthog.ts'
 import { PARSE_CV_JSON_SCHEMA } from '../_shared/cv_schema.ts'
 import { flatten, normalize } from '../_shared/cv_text.ts'
+import { detectNonCvContent, nonCvMessage } from '../_shared/cv_content_validator.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -34,7 +35,9 @@ const corsHeaders = {
 
 const MODEL = 'gpt-4o-mini'
 const PARSER_VERSION = 'v1'
-const OPENAI_TIMEOUT_MS = 25000
+// 40s cobre p99 de CVs grandes (~6KB observado em bea.fsansone que estava
+// timeoutando em 25s). CV típico processa em 4-8s; CVs longos chegam a 18-25s.
+const OPENAI_TIMEOUT_MS = 40000
 const MIN_RAW_TEXT_LEN = 200 // abaixo disso é OCR ruim — não tenta
 
 function jsonResponse(body: unknown, status = 200) {
@@ -151,6 +154,12 @@ function validateAgainstRawText(parsed: any, rawText: string): {
   warnings: string[]
 } {
   const cvFlat = flatten(rawText)
+  // Fallback pra PDFs extraídos caractere-por-linha (Syncfusion às vezes
+  // devolve "B\nE\nA\nT\nR\nI\nZ" — caso real do bea.fsansone). Comparar
+  // sem whitespace recupera esses CVs sem perder a proteção anti-invenção
+  // (sequências de 4+ caracteres alfanuméricos seguidos continuam sendo
+  // confiáveis indicador de que a string apareceu mesmo no CV).
+  const cvNoSpace = cvFlat.replace(/\s+/g, '')
   const warnings: string[] = []
   const r = parsed?.resume ?? {}
   let fieldsFilled = 0
@@ -161,7 +170,11 @@ function validateAgainstRawText(parsed: any, rawText: string): {
     if (flat.length === 0) return false
     // Strings curtas (1-2 chars) sempre passam — emoji, separadores, etc.
     if (flat.length <= 2) return true
-    return cvFlat.includes(flat)
+    if (cvFlat.includes(flat)) return true
+    // Fallback: tenta sem whitespace pra cobrir extração caractere-por-linha.
+    const flatNoSpace = flat.replace(/\s+/g, '')
+    if (flatNoSpace.length >= 4 && cvNoSpace.includes(flatNoSpace)) return true
+    return false
   }
 
   // Campos string simples — drop se não aparece no CV.
@@ -263,14 +276,68 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}))
     const force: boolean = body?.force === true
 
-    // Detecta auth via service-role (caminho do backfill F4) vs JWT de
-    // usuário (caminho do app). Service-role aceita user_id no body —
-    // útil para scripts administrativos como backfill_parsed_cvs.ts.
-    // O caminho JWT continua funcionando normalmente para o app.
+    // Detecta auth via service-role vs JWT de usuário.
+    //
+    // O Supabase tem 2 formatos de service_role key coexistindo:
+    //   - Legacy JWT (eyJ... ~210 chars): o que aparece no dashboard
+    //     Settings → API → service_role.
+    //   - Modern API key (sb_secret_... ~41 chars): o que vive na env
+    //     `SUPABASE_SERVICE_ROLE_KEY` da edge function.
+    // Ambas representam a mesma identidade admin. Comparar string a string
+    // só funciona pra `sb_secret_`; o JWT legacy precisa decodificar e
+    // verificar o claim `role`.
+    //
+    // Estratégia: aceita o caller como service-role se QUALQUER:
+    //   (a) Authorization Bearer == env SUPABASE_SERVICE_ROLE_KEY exato
+    //   (b) X-Service-Role-Key header == env exato (fallback p/ gateway
+    //       que reescreve Authorization)
+    //   (c) Authorization Bearer é um JWT supabase com role=service_role
+    //       e ref=projectId (legacy JWT path).
     const authHeader = req.headers.get('Authorization') ?? ''
+    const customServiceKeyHeader = req.headers.get('X-Service-Role-Key') ?? ''
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    const isServiceRole = serviceRoleKey.length > 0 &&
+    const authMatches = serviceRoleKey.length > 0 &&
         authHeader === `Bearer ${serviceRoleKey}`
+    const customMatches = serviceRoleKey.length > 0 &&
+        customServiceKeyHeader === serviceRoleKey
+
+    // Decodifica o JWT do Authorization (sem validar assinatura — o gateway
+    // do Supabase já validou pra chegar aqui via --no-verify-jwt=false; mesmo
+    // sem isso, validar role+ref+exp já bloqueia ataques óbvios).
+    let jwtIsServiceRole = false
+    if (authHeader.startsWith('Bearer ey')) {
+      try {
+        const token = authHeader.slice('Bearer '.length)
+        const payloadB64 = token.split('.')[1] ?? ''
+        // Base64url → base64
+        const normalized = payloadB64.replace(/-/g, '+').replace(/_/g, '/')
+        const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4)
+        const payloadJson = atob(padded)
+        const payload = JSON.parse(payloadJson) as {
+          iss?: string
+          ref?: string
+          role?: string
+          exp?: number
+        }
+        const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
+        const expectedRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] ?? ''
+        const nowSec = Math.floor(Date.now() / 1000)
+        jwtIsServiceRole = payload.role === 'service_role' &&
+            (payload.ref === expectedRef || expectedRef.length === 0) &&
+            (payload.exp == null || payload.exp > nowSec)
+      } catch (_e) {
+        jwtIsServiceRole = false
+      }
+    }
+
+    const isServiceRole = authMatches || customMatches || jwtIsServiceRole
+
+    console.log(
+      `[parse-cv] auth-check: ` +
+      `envKeyLen=${serviceRoleKey.length} authMatch=${authMatches} ` +
+      `customMatch=${customMatches} jwtServiceRole=${jwtIsServiceRole} ` +
+      `final=${isServiceRole}`,
+    )
 
     let userId: string
     if (isServiceRole) {
@@ -287,7 +354,7 @@ serve(async (req) => {
       )
       const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
       if (authError || !user) return jsonResponse({ error: 'Unauthorized' }, 401)
-      userId = userId
+      userId = user.id
     }
 
     // Lê raw_text do banco — sempre fresco. Não aceita raw_text via input
@@ -314,6 +381,25 @@ serve(async (req) => {
       return jsonResponse({
         error: 'raw_text_too_short',
         detail: `raw_text tem ${rawText.length} chars (mínimo ${MIN_RAW_TEXT_LEN})`,
+      }, 422)
+    }
+
+    // Anti-non-CV: bloqueia upload de extrato bancário, doc gov.br, holerite.
+    // Segunda camada (cliente Flutter valida antes); aqui protege contra
+    // bypass via service-role / cliente antigo. Não persiste parsed nesses
+    // casos — raw_text continua no banco até cleanup manual ou usuário
+    // reenviar CV correto (vai sobrescrever).
+    const nonCv = detectNonCvContent(rawText)
+    if (nonCv.isNonCv) {
+      console.warn(
+        `[parse-cv] non-CV content detected user=${userId} ` +
+        `category=${nonCv.category} reasons=${nonCv.reasons.join(',')}`,
+      )
+      return jsonResponse({
+        error: 'non_cv_content',
+        category: nonCv.category,
+        message: nonCvMessage(nonCv.category!),
+        reasons: nonCv.reasons,
       }, 422)
     }
 
@@ -365,6 +451,7 @@ serve(async (req) => {
       parsed_at: new Date().toISOString(),
       parser_version: PARSER_VERSION,
       parser_model: MODEL,
+      parsed_warnings: warnings,
       // F4: marca quando o parsing veio do backfill via service-role —
       // distingue cohort no PostHog e permite filtrar via SQL.
       ...(isServiceRole ? { parsed_backfilled_at: new Date().toISOString() } : {}),

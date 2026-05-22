@@ -19,6 +19,11 @@ import 'features/home/home_screen.dart';
 import 'features/home/home_viewmodel.dart';
 import 'features/gamification/gamification_viewmodel.dart';
 import 'features/profile/profile_viewmodel.dart';
+import 'features/profile/data/repositories/profile_repository_supabase.dart';
+import 'features/profile/domain/repositories/profile_repository.dart';
+import 'features/profile/application/profile_editor_view_model.dart';
+import 'features/profile/application/preferences_view_model.dart';
+import 'features/profile/application/extraction_status_view_model.dart';
 import 'features/resume/resume_viewmodel.dart';
 import 'features/jobs/jobs_viewmodel.dart';
 import 'features/jobs/data/job_repository.dart';
@@ -165,6 +170,8 @@ Future<void> _bootstrap() async {
     print('Startup checks complete.');
 
   final localStorageRepository = LocalStorageRepository();
+  // Profile-first (Semana 2): repository compartilhado entre os 3 ViewModels novos.
+  final ProfileRepository profileRepository = ProfileRepositorySupabase();
 
   runApp(
     MultiProvider(
@@ -177,6 +184,16 @@ Future<void> _bootstrap() async {
         ),
         ChangeNotifierProvider<ProfileViewModel>(
           create: (_) => ProfileViewModel(repository, aiService, localStorageRepository),
+        ),
+        // Profile-first editor (estrutura relacional Semana 1)
+        ChangeNotifierProvider<ProfileEditorViewModel>(
+          create: (_) => ProfileEditorViewModel(profileRepository),
+        ),
+        ChangeNotifierProvider<PreferencesViewModel>(
+          create: (_) => PreferencesViewModel(profileRepository),
+        ),
+        ChangeNotifierProvider<ExtractionStatusViewModel>(
+          create: (_) => ExtractionStatusViewModel(),
         ),
         ChangeNotifierProvider<HomeViewModel>(
           create: (_) => HomeViewModel(repository),

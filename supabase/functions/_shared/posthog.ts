@@ -142,3 +142,45 @@ export async function trackAIGeneration(
     console.error('[PostHog] trackAIGeneration failed:', e);
   }
 }
+
+interface CaptureEventParams {
+  /// Evento (snake_case). Ex.: 'job_sync_completed', 'notifications_digest_sent'.
+  event: string;
+
+  /// Distinct ID. Pra eventos de cron sem user, usar 'cron' ou o nome da
+  /// função ('sync-jobs-apify') — não fica anônimo no PostHog.
+  distinctId: string;
+
+  /// Properties arbitrárias. Vão direto pro PostHog — não incluir dado sensível.
+  properties?: Record<string, unknown>;
+}
+
+/// Captura genérico pra eventos que não seguem o formato $ai_generation.
+/// Usado por crons (job_sync_completed, notifications_digest_sent) e qualquer
+/// outro evento de Edge Function que não seja chamada de LLM.
+///
+/// Fire-and-forget. Sem POSTHOG_API_KEY vira no-op. Falhas só logam.
+export async function captureEvent(params: CaptureEventParams): Promise<void> {
+  if (!POSTHOG_API_KEY) return;
+
+  const body = {
+    api_key: POSTHOG_API_KEY,
+    event: params.event,
+    distinct_id: params.distinctId,
+    timestamp: new Date().toISOString(),
+    properties: {
+      source: 'edge_function',
+      ...(params.properties ?? {}),
+    },
+  };
+
+  try {
+    await fetch(`${POSTHOG_HOST}/capture/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    console.error('[PostHog] captureEvent failed:', e);
+  }
+}

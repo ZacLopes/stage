@@ -29,6 +29,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { captureEvent } from '../_shared/posthog.ts'
 
 const CRON_SECRET = Deno.env.get('CRON_SECRET') ?? ''
 const ONESIGNAL_APP_ID = Deno.env.get('ONESIGNAL_APP_ID') ?? ''
@@ -265,6 +266,30 @@ serve(async (req) => {
   }
 
   const sent = results.filter((r) => r.ok && r.status !== 'dry_run').length
+  const failed = results.filter((r) => !r.ok && r.status !== 'dry_run').length
+
+  // Breakdown por variante — útil pra dashboard saber qual mensagem domina.
+  const variantBreakdown: Record<string, number> = {}
+  for (const r of results) {
+    variantBreakdown[r.intent] = (variantBreakdown[r.intent] ?? 0) + 1
+  }
+
+  await captureEvent({
+    event: 'notifications_digest_sent',
+    distinctId: 'cron:notifications-daily-digest',
+    properties: {
+      cron: 'notifications-daily-digest',
+      candidates: candidates.length,
+      pushes_sent: sent,
+      pushes_failed: failed,
+      dry_run: dryRun,
+      window_hours_start: windowHoursStart,
+      window_hours_end: windowHoursEnd,
+      variant_breakdown: variantBreakdown,
+      status: failed > 0 ? (sent > 0 ? 'partial' : 'failed') : 'success',
+    },
+  }).catch(() => {})
+
   return jsonResponse({
     candidates: candidates.length,
     sent,

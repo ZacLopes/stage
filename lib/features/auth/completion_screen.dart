@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:provider/provider.dart';
 import '../../core/analytics/screen_tracking.dart';
 import '../../core/constants/stage_colors.dart';
@@ -7,6 +8,7 @@ import '../../services/analytics_service.dart';
 import '../../services/cv_import_service.dart';
 import '../home/home_viewmodel.dart';
 import '../auth/user_viewmodel.dart';
+import '../onboarding/presentation/two_doors_screen.dart';
 
 /// Pós-cadastro: usuário escolhe entre subir um CV pronto (vai pra biblioteca,
 /// sem análise) ou construir o CV pela trilha. Em ambos os caminhos a campaign
@@ -35,6 +37,38 @@ class _CompletionScreenState extends State<CompletionScreen>
   void initState() {
     super.initState();
     Analytics.shared.onboardingStepReached(step: 4, stepId: 'cv_upload_choice');
+
+    // Profile-first (Semana 2): se feature flag `new_onboarding_enabled` está
+    // on, redireciona pra TwoDoorsScreen (novo fluxo). Senão mantém CompletionScreen.
+    // Check é async — feito em postFrame pra não bloquear o initial frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Garante identify ANTES de consultar flag (race condition em cold start)
+      await Analytics.shared.identifyIfLoggedIn();
+      // Força reload pra pegar valor mais recente do server (SDK tem cache local)
+      try {
+        await Posthog().reloadFeatureFlags();
+      } catch (e) {
+        debugPrint('[CompletionScreen] reloadFeatureFlags failed: $e');
+      }
+      final flag = await Analytics.shared.getFlag('new_onboarding_enabled');
+      debugPrint('[CompletionScreen] new_onboarding_enabled = $flag');
+      if (!mounted) return;
+      if (flag == 'true') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => TwoDoorsScreen(
+              onChooseTrail: () {
+                // Caminho B (trilha): mesmo comportamento legacy — cria campaign skipped
+                // e navega pra aba Currículo. AuthGate detecta hasCampaign e re-renderiza HomeScreen.
+                _startTrackPath();
+              },
+            ),
+          ),
+        );
+      }
+    });
+
     _appearController = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1200));
 

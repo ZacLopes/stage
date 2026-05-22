@@ -2675,12 +2675,28 @@ serve(async (req) => {
 
     if (parsed === null) {
       const ve = lastValidationError!
-      console.warn(`adaptation rejected (after retry) for user=${user.id} job=${jobId}: ${ve.message}`)
+      // Log enriquecido pra debugar adaptation_rejected — antes só tinha
+      // field + message. Adiciona o estado canônico do input (cardinalidades
+      // dos arrays + flag de structured vs cv-only) que pré-determina qual
+      // ramo do validator falhou.
+      console.warn(
+        `adaptation rejected (after retry) for user=${user.id} job=${jobId}: ` +
+        `field=${ve.field} message=${ve.message} ` +
+        `input_source=${input.experiences.length > 0 || input.education.length > 0 ? 'structured' : 'cv-only'} ` +
+        `inputExp=${input.experiences.length} inputEdu=${input.education.length} ` +
+        `inputSkills=${input.skills.length} inputFullName="${input.fullName}" ` +
+        `inputCvLen=${input.importedCvText?.length ?? 0}`,
+      )
       return jsonResponse(
         {
           error: 'adaptation_rejected',
           detail: 'A adaptação não passou na verificação de integridade. Tente novamente.',
           field: ve.field,
+          // Em debug-friendly: inclui a mensagem completa do ValidationError
+          // no payload do erro pra UI poder mostrar (e PostHog capturar).
+          // Mensagem é interna do validador (ex: "período de Stage mudou: ...")
+          // — útil pro suporte sem expor dados sensíveis.
+          field_detail: ve.message,
         },
         422,
       )

@@ -36,6 +36,7 @@ import {
   safeJson,
   stripHtml,
 } from "../_shared/jobs.ts";
+import { captureEvent } from "../_shared/posthog.ts";
 
 interface GupyJob {
   id: number;
@@ -324,6 +325,37 @@ serve(async (req: Request) => {
   const stale = await markStaleJobsInactive(supabase, SOURCE_NAME, 48);
 
   const durationMs = Date.now() - startedAt;
+
+  // Apify Gupy FREE: $0.00299/job. Estimativa pra dashboard de custo.
+  const costUsd = items.length * 0.00299;
+
+  // `inserted` acima conta upserts (insert OU update). Pra distinguir vagas
+  // REALMENTE novas vs já existentes apenas com last_seen_at atualizado, faz
+  // uma query de delta filtrando por created_at >= startedAt. 1 round-trip.
+  const { count: trulyNew } = await supabase
+    .from("jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("source", SOURCE_NAME)
+    .gte("created_at", new Date(startedAt).toISOString());
+
+  await captureEvent({
+    event: 'job_sync_completed',
+    distinctId: 'cron:sync-jobs-apify',
+    properties: {
+      cron: 'sync-jobs-apify',
+      source: 'apify_gupy',
+      fetched: items.length,
+      new_jobs: trulyNew ?? 0,        // INSERT reais (cresce o feed)
+      upserted_jobs: inserted,         // INSERT + UPDATE (saúde do scraper)
+      skipped,
+      deactivated_jobs: stale,
+      errors_count: errors,
+      duration_ms: durationMs,
+      cost_usd: costUsd,
+      status: errors > 0 ? (inserted > 0 ? 'partial' : 'failed') : 'success',
+    },
+  }).catch(() => {});
+
   return jsonResponse({
     ok: true,
     fetched: items.length,
