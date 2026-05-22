@@ -8,6 +8,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../../core/utils/brazil_phone_formatter.dart';
 import '../../domain/entities/entities.dart';
 
 class PersonalInfoForm extends StatefulWidget {
@@ -15,11 +16,17 @@ class PersonalInfoForm extends StatefulWidget {
   final void Function(PersonalInfo draft) onChanged;
   final bool requireCriticalFields; // true no onboarding
 
+  /// Mostra o campo "Cargo / posição atual" (headline). Default true.
+  /// Desligado no onboarding pq a maioria dos usuários é estudante/estagiário
+  /// e o campo gera ruído. A aba Perfil mantém pra quem quer preencher.
+  final bool showHeadline;
+
   const PersonalInfoForm({
     super.key,
     required this.initial,
     required this.onChanged,
     this.requireCriticalFields = false,
+    this.showHeadline = true,
   });
 
   @override
@@ -42,7 +49,13 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
     _firstName = TextEditingController(text: i?.firstName ?? '');
     _lastName = TextEditingController(text: i?.lastName ?? '');
     _email = TextEditingController(text: i?.email ?? '');
-    _phoneNumber = TextEditingController(text: i?.phoneNumber ?? '');
+    final initialPhone = i?.phoneNumber ?? '';
+    final initialCountry = i?.phoneCountryCode ?? '+55';
+    _phoneNumber = TextEditingController(
+      text: initialCountry == '+55' && initialPhone.isNotEmpty
+          ? BrazilPhoneFormatter.format(initialPhone)
+          : initialPhone,
+    );
     _headline = TextEditingController(text: i?.headline ?? '');
     _summary = TextEditingController(text: i?.summary ?? '');
     _phoneCountryCode = i?.phoneCountryCode ?? '+55';
@@ -107,24 +120,16 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _firstName,
-                decoration: _decoration('Nome', critical: true, empty: _firstName.text.trim().isEmpty),
-                textCapitalization: TextCapitalization.words,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: TextField(
-                controller: _lastName,
-                decoration: _decoration('Sobrenome', critical: true, empty: _lastName.text.trim().isEmpty),
-                textCapitalization: TextCapitalization.words,
-              ),
-            ),
-          ],
+        TextField(
+          controller: _firstName,
+          decoration: _decoration('Nome', critical: true, empty: _firstName.text.trim().isEmpty),
+          textCapitalization: TextCapitalization.words,
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: _lastName,
+          decoration: _decoration('Sobrenome', critical: true, empty: _lastName.text.trim().isEmpty),
+          textCapitalization: TextCapitalization.words,
         ),
         const SizedBox(height: 14),
         TextField(
@@ -137,19 +142,23 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
         Row(
           children: [
             SizedBox(
-              width: 90,
+              width: 124,
               child: DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _phoneCountryCode,
                 decoration: _decoration('País'),
                 items: const [
-                  DropdownMenuItem(value: '+55', child: Text('🇧🇷 +55')),
-                  DropdownMenuItem(value: '+1', child: Text('🇺🇸 +1')),
-                  DropdownMenuItem(value: '+351', child: Text('🇵🇹 +351')),
-                  DropdownMenuItem(value: '+44', child: Text('🇬🇧 +44')),
+                  DropdownMenuItem(value: '+55', child: Text('🇧🇷 +55', overflow: TextOverflow.ellipsis)),
+                  DropdownMenuItem(value: '+1', child: Text('🇺🇸 +1', overflow: TextOverflow.ellipsis)),
+                  DropdownMenuItem(value: '+351', child: Text('🇵🇹 +351', overflow: TextOverflow.ellipsis)),
+                  DropdownMenuItem(value: '+44', child: Text('🇬🇧 +44', overflow: TextOverflow.ellipsis)),
                 ],
                 onChanged: (v) {
                   if (v == null) return;
-                  setState(() => _phoneCountryCode = v);
+                  setState(() {
+                    _phoneCountryCode = v;
+                    _phoneNumber.clear();
+                  });
                   _emitChange();
                 },
               ),
@@ -160,22 +169,31 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
                 controller: _phoneNumber,
                 decoration: _decoration('Telefone'),
                 keyboardType: TextInputType.phone,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                inputFormatters: _phoneCountryCode == '+55'
+                    ? [BrazilPhoneFormatter()]
+                    : [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(15),
+                      ],
               ),
             ),
           ],
         ),
-        const SizedBox(height: 14),
-        TextField(
-          controller: _headline,
-          decoration: _decoration('Cargo / posição atual'),
-          maxLines: 1,
-        ),
+        if (widget.showHeadline) ...[
+          const SizedBox(height: 14),
+          TextField(
+            controller: _headline,
+            decoration: _decoration('Cargo / posição atual'),
+            maxLines: 1,
+          ),
+        ],
         const SizedBox(height: 14),
         TextField(
           controller: _summary,
           decoration: _decoration('Resumo profissional'),
-          maxLines: 4,
+          minLines: 5,
+          maxLines: null,
+          keyboardType: TextInputType.multiline,
           textCapitalization: TextCapitalization.sentences,
         ),
       ],

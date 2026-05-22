@@ -1,14 +1,37 @@
-// LocationScreen — onde mora (cidade/estado).
-// MVP: input manual. GPS via permission_handler fica como follow-up.
+// LocationScreen — onde o user mora.
+//
+// Tela única que une (1) localização principal de trabalho e (2) onde mora.
+// A primary city é usada pra match de vagas próximas + popula personal_info.
+//
+// 2 modos:
+// - INITIAL: pin grande + 2 CTAs ("Inserir manualmente" | "Usar localização atual")
+// - FORM: input CEP com auto-lookup via ViaCEP + botão GPS no canto pra
+//   re-detectar. Cidade/estado aparecem resolvidos abaixo.
+
+import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:geocoding/geocoding.dart' as geocoding;
+import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../services/analytics_service.dart';
+import '../../../profile/application/preferences_view_model.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
 import '../onboarding_scaffold.dart';
 import 'work_locations_screen.dart';
+
+const _kBorderColor = Color(0xFFE5E7EB);
+const _kLabelColor = Color(0xFF6B7280);
+const _kHintColor = Color(0xFF9CA3AF);
+const _kTextColor = Color(0xFF111827);
+const _kAccent = Color(0xFF00C27A);
+const _kError = Color(0xFFEF4444);
+const _kCardBg = Color(0xFFF9FAFB);
 
 class LocationScreen extends StatefulWidget {
   const LocationScreen({super.key});
@@ -17,72 +40,533 @@ class LocationScreen extends StatefulWidget {
 }
 
 class _LocationScreenState extends State<LocationScreen> {
-  late final TextEditingController _city;
-  late final TextEditingController _state;
+  // Modo: false = empty state (pin + 2 buttons); true = form com CEP
+  bool _formMode = false;
+
+  final _cep = TextEditingController();
+  String? _resolvedCity;
+  String? _resolvedState;
+
+  Timer? _cepDebounce;
+  bool _cepLoading = false;
+  bool _gpsLoading = false;
+  String? _hint;
 
   @override
   void initState() {
     super.initState();
-    final p = context.read<ProfileEditorViewModel>().personal;
-    _city = TextEditingController(text: p?.locationCity ?? '');
-    _state = TextEditingController(text: p?.locationState ?? '');
+    _cep.addListener(_onCepTyped);
+    _hydrateFromPrefs();
+  }
+
+  /// Hidrata só se o user já passou por essa tela antes. O discriminador é
+  /// o CEP: dados de extração do CV NÃO populam locationPostalCode, então
+  /// se ele tá preenchido sabemos que veio daqui mesmo. Cobre os cenários
+  /// "voltou uma tela" e "reabriu o app outro dia".
+  Future<void> _hydrateFromPrefs() async {
+    // Garante que personal_info tá carregado (pode rodar antes do load).
+    final profileVm = context.read<ProfileEditorViewModel>();
+    if (profileVm.personal == null) {
+      await profileVm.load();
+      if (!mounted) return;
+    }
+    final p = profileVm.personal;
+    final cep = p?.locationPostalCode;
+    if (cep == null || cep.isEmpty) return;
+    setState(() {
+      _cep.text = cep;
+      _resolvedCity = p?.locationCity;
+      _resolvedState = p?.locationState;
+      _formMode = true;
+    });
   }
 
   @override
   void dispose() {
-    _city.dispose();
-    _state.dispose();
+    _cep.dispose();
+    _cepDebounce?.cancel();
     super.dispose();
   }
 
-  bool get _canContinue => _city.text.trim().isNotEmpty;
+  // ── CEP lookup ──────────────────────────────────────────────────────
 
-  void _continue() async {
-    AnalyticsService.shared.track('onboarding_preferences_location_completed');
-    final vm = context.read<ProfileEditorViewModel>();
+  void _onCepTyped() {
+    final digits = _cep.text.replaceAll(RegExp(r'\D'), '');
+    _cepDebounce?.cancel();
+    if (digits.length == 8) {
+      _cepDebounce = Timer(const Duration(milliseconds: 350), () => _lookupCep(digits));
+    } else if (_resolvedCity != null || _hint != null) {
+      setState(() {
+        _resolvedCity = null;
+        _resolvedState = null;
+        _hint = null;
+      });
+    }
+  }
+
+  Future<void> _lookupCep(String cep) async {
+    setState(() {
+      _cepLoading = true;
+      _hint = null;
+    });
+    try {
+      final res = await http
+          .get(Uri.parse('https://viacep.com.br/ws/$cep/json/'))
+          .timeout(const Duration(seconds: 5));
+      if (res.statusCode != 200) {
+        setState(() {
+          _hint = 'Não consegui buscar o CEP. Tente de novo.';
+          _cepLoading = false;
+        });
+        return;
+      }
+      final json = jsonDecode(res.body) as Map<String, dynamic>;
+      if (json['erro'] == true) {
+        setState(() {
+          _hint = 'CEP não encontrado';
+          _resolvedCity = null;
+          _resolvedState = null;
+          _cepLoading = false;
+        });
+        return;
+      }
+      setState(() {
+        _resolvedCity = json['localidade'] as String?;
+        _resolvedState = json['uf'] as String?;
+        _cepLoading = false;
+      });
+    } on TimeoutException {
+      setState(() {
+        _hint = 'Tempo esgotado. Verifique sua conexão.';
+        _cepLoading = false;
+      });
+    } catch (_) {
+      setState(() {
+        _hint = 'Erro ao buscar CEP';
+        _cepLoading = false;
+      });
+    }
+  }
+
+  // ── GPS ─────────────────────────────────────────────────────────────
+
+  Future<void> _detectGps() async {
+    setState(() {
+      _formMode = true;
+      _gpsLoading = true;
+      _hint = null;
+    });
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        setState(() {
+          _hint = 'Localização desligada nas Configurações.';
+          _gpsLoading = false;
+        });
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        setState(() {
+          _hint = 'Sem permissão. Digite o CEP manualmente.';
+          _gpsLoading = false;
+        });
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+      );
+      await geocoding.setLocaleIdentifier('pt_BR');
+      final placemarks = await geocoding.placemarkFromCoordinates(pos.latitude, pos.longitude);
+      if (placemarks.isEmpty) {
+        setState(() {
+          _hint = 'Não consegui identificar sua cidade.';
+          _gpsLoading = false;
+        });
+        return;
+      }
+      final p = placemarks.first;
+      final city = (p.subAdministrativeArea?.trim().isNotEmpty == true)
+          ? p.subAdministrativeArea!
+          : (p.locality ?? '');
+      final state = _normalizeStateName(p.administrativeArea ?? '');
+      final postal = (p.postalCode ?? '').replaceAll(RegExp(r'\D'), '');
+
+      // Atualiza CEP no input (formato 12345-678). Listener vai validar +
+      // re-bater no ViaCEP, sobrescrevendo cidade/estado se houver divergência.
+      if (postal.length == 8) {
+        _cep.text = '${postal.substring(0, 5)}-${postal.substring(5)}';
+      }
+      setState(() {
+        _resolvedCity = city;
+        _resolvedState = state;
+        _gpsLoading = false;
+      });
+    } catch (_) {
+      setState(() {
+        _hint = 'Erro ao buscar localização';
+        _gpsLoading = false;
+      });
+    }
+  }
+
+  /// iOS retorna `administrativeArea` em formato variado ("São Paulo", "SP").
+  /// Mapeia pros 2 caracteres oficiais quando reconhece.
+  String _normalizeStateName(String raw) {
+    final s = raw.trim();
+    if (s.length == 2) return s.toUpperCase();
+    const map = {
+      'são paulo': 'SP', 'rio de janeiro': 'RJ', 'minas gerais': 'MG',
+      'paraná': 'PR', 'rio grande do sul': 'RS', 'distrito federal': 'DF',
+      'pernambuco': 'PE', 'bahia': 'BA', 'ceará': 'CE', 'santa catarina': 'SC',
+      'goiás': 'GO', 'amazonas': 'AM', 'espírito santo': 'ES', 'pará': 'PA',
+      'maranhão': 'MA', 'mato grosso': 'MT', 'mato grosso do sul': 'MS',
+      'rio grande do norte': 'RN', 'paraíba': 'PB', 'alagoas': 'AL',
+      'piauí': 'PI', 'sergipe': 'SE', 'rondônia': 'RO', 'tocantins': 'TO',
+      'acre': 'AC', 'amapá': 'AP', 'roraima': 'RR',
+    };
+    return map[s.toLowerCase()] ?? s;
+  }
+
+  // ── Continue ────────────────────────────────────────────────────────
+
+  bool get _canContinue => _resolvedCity != null && _resolvedCity!.isNotEmpty;
+
+  Future<void> _continue() async {
+    if (!_canContinue) return;
     final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
-    final base = vm.personal ?? PersonalInfo(userId: userId);
-    await vm.commitPersonal(base.copyWith(
-      locationCity: _city.text.trim(),
-      locationState: _state.text.trim().isEmpty ? null : _state.text.trim(),
+    final profileVm = context.read<ProfileEditorViewModel>();
+    final prefsVm = context.read<PreferencesViewModel>();
+
+    final base = profileVm.personal ?? PersonalInfo(userId: userId);
+    await profileVm.commitPersonal(base.copyWith(
+      locationCity: _resolvedCity,
+      locationState: _resolvedState,
       locationCountry: 'BR',
+      // CEP é o marcador de "user passou por essa tela" — usado pra
+      // hidratar na próxima visita.
+      locationPostalCode: _cep.text.trim().isEmpty ? null : _cep.text.trim(),
     ));
+
+    await prefsVm.replaceOtherLocations([
+      OtherLocation(
+        id: '', userId: userId,
+        city: _resolvedCity,
+        state: _resolvedState,
+        country: 'BR',
+      ),
+    ]);
+
+    AnalyticsService.shared.track('onboarding_preferences_location_completed',
+        props: {'mode': _gpsLoading ? 'gps' : 'cep'});
     if (!mounted) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkLocationsScreen()));
   }
+
+  // ── Build ───────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return OnboardingScaffold(
       title: 'Onde você mora?',
-      progress: 0.84,
-      onContinue: _canContinue ? _continue : null,
-      child: Column(
-        children: [
-          TextField(
-            controller: _city,
-            textCapitalization: TextCapitalization.words,
-            decoration: const InputDecoration(
-              labelText: 'Cidade *',
-              hintText: 'Ex: São Paulo',
-              filled: true, fillColor: Colors.white,
-              border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
-            ),
-            onChanged: (_) => setState(() {}),
+      subtitle: 'Vamos usar pra te mostrar vagas próximas.',
+      progress: 0.75,
+      onContinue: _formMode && _canContinue ? _continue : null,
+      customFooter: _formMode ? null : _buildInitialFooter(),
+      child: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        behavior: HitTestBehavior.opaque,
+        child: _formMode ? _buildForm() : _buildInitialHero(),
+      ),
+    );
+  }
+
+  Widget _buildInitialHero() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 40),
+      child: Center(
+        child: SizedBox(
+          width: 240, height: 240,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // Onda externa (mais transparente — sensação de pulse/GPS)
+              Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _kAccent.withValues(alpha: 0.06),
+                ),
+              ),
+              // Onda do meio
+              Container(
+                width: 180, height: 180,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _kAccent.withValues(alpha: 0.11),
+                ),
+              ),
+              // Disco central com glow verde
+              Container(
+                width: 130, height: 130,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const RadialGradient(
+                    colors: [Colors.white, Color(0xFFF0FDF4)],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _kAccent.withValues(alpha: 0.22),
+                      blurRadius: 28,
+                    ),
+                  ],
+                ),
+              ),
+              // Pin com sombra avermelhada (impressão de "está apontando aqui")
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Icon(
+                  Icons.location_on,
+                  size: 88,
+                  color: _kError,
+                  shadows: [
+                    Shadow(
+                      color: _kError.withValues(alpha: 0.4),
+                      offset: const Offset(0, 6),
+                      blurRadius: 14,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _state,
-            textCapitalization: TextCapitalization.characters,
-            decoration: const InputDecoration(
-              labelText: 'Estado',
-              hintText: 'Ex: SP',
-              filled: true, fillColor: Colors.white,
-              border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInitialFooter() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            height: 56,
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: () => setState(() => _formMode = true),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _kAccent,
+                side: const BorderSide(color: _kAccent, width: 1.5),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+              ),
+              child: const Text('Inserir manualmente',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 56,
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _detectGps,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _kAccent,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+              ),
+              child: const Text('Usar localização atual',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 20),
+        Center(
+          child: SizedBox(
+            width: 140, height: 140,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _kAccent.withValues(alpha: 0.08),
+                  ),
+                ),
+                Container(
+                  width: 100, height: 100,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: const RadialGradient(
+                      colors: [Colors.white, Color(0xFFF0FDF4)],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _kAccent.withValues(alpha: 0.18),
+                        blurRadius: 18,
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Icon(
+                    Icons.location_on,
+                    size: 56,
+                    color: _kError,
+                    shadows: [
+                      Shadow(
+                        color: _kError.withValues(alpha: 0.35),
+                        offset: const Offset(0, 4),
+                        blurRadius: 10,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Align(
+          alignment: Alignment.centerRight,
+          child: _GpsIconButton(loading: _gpsLoading, onTap: _gpsLoading ? null : _detectGps),
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          'CEP',
+          style: TextStyle(fontSize: 13, color: _kLabelColor, fontWeight: FontWeight.w500),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _cep,
+          keyboardType: TextInputType.number,
+          inputFormatters: [_CepFormatter()],
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: _kTextColor),
+          decoration: InputDecoration(
+            hintText: '12345-678',
+            hintStyle: const TextStyle(color: _kHintColor, fontWeight: FontWeight.w500, fontSize: 15),
+            filled: true,
+            fillColor: _kCardBg,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            suffixIcon: _cepLoading
+                ? const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: SizedBox(
+                      width: 16, height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: _kAccent),
+                    ),
+                  )
+                : (_cep.text.isEmpty
+                    ? null
+                    : GestureDetector(
+                        onTap: () {
+                          _cep.clear();
+                          setState(() {
+                            _resolvedCity = null;
+                            _resolvedState = null;
+                            _hint = null;
+                          });
+                        },
+                        child: const Icon(Icons.cancel, color: _kHintColor, size: 20),
+                      )),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _kBorderColor),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _kBorderColor),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _kAccent, width: 1.5),
+            ),
+          ),
+        ),
+        if (_hint != null) ...[
+          const SizedBox(height: 8),
+          Text(_hint!, style: const TextStyle(fontSize: 12, color: _kError)),
+        ],
+        if (_resolvedCity != null && _resolvedCity!.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Icon(Icons.place_outlined, size: 18, color: _kLabelColor),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  [_resolvedCity, _resolvedState, 'Brasil']
+                      .where((s) => s != null && s.isNotEmpty)
+                      .join(', '),
+                  style: const TextStyle(fontSize: 15, color: _kLabelColor, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _GpsIconButton extends StatelessWidget {
+  final bool loading;
+  final VoidCallback? onTap;
+  const _GpsIconButton({required this.loading, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          width: 44, height: 44,
+          decoration: BoxDecoration(
+            border: Border.all(color: _kBorderColor),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          alignment: Alignment.center,
+          child: loading
+              ? const SizedBox(
+                  width: 16, height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: _kAccent),
+                )
+              : const Icon(Icons.my_location_rounded, color: _kAccent, size: 20),
+        ),
+      ),
+    );
+  }
+}
+
+/// Formata input do CEP como 12345-678. Garante max 8 dígitos.
+class _CepFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    final digits = newValue.text.replaceAll(RegExp(r'\D'), '');
+    final clipped = digits.length > 8 ? digits.substring(0, 8) : digits;
+    final formatted = clipped.length > 5
+        ? '${clipped.substring(0, 5)}-${clipped.substring(5)}'
+        : clipped;
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
     );
   }
 }

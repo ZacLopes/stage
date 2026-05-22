@@ -1,9 +1,16 @@
 // OnboardingScaffold — layout padrão das telas do novo onboarding.
 //
-// Estrutura: AppBar com back + progress bar (opcional), header (título+sub),
-// conteúdo, e botão Continue no rodapé fixo.
+// Estrutura: header com back button circular + progress bar inline,
+// título + subtítulo no body, conteúdo scrollable, botão Continue
+// pill fixo no rodapé.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
+
+const _kBorderColor = Color(0xFFE5E7EB);
+const _kTextColor = Color(0xFF111827);
+const _kMutedText = Color(0xFF6B7280);
+const _kAccent = Color(0xFF00C27A);
 
 class OnboardingScaffold extends StatelessWidget {
   final String? title;
@@ -14,7 +21,11 @@ class OnboardingScaffold extends StatelessWidget {
   final VoidCallback? onContinue; // null desabilita botão
   final bool showBack;
   final Widget? skipButton; // pra "Pular essa parte"
+  final Widget? leading; // override total do leading (ex: botão de sair custom)
   final Color continueColor;
+  /// Se fornecido, substitui o footer padrão (botão Continuar + skipButton).
+  /// Útil quando a tela precisa de dois CTAs ou layout custom no rodapé.
+  final Widget? customFooter;
 
   const OnboardingScaffold({
     super.key,
@@ -26,50 +37,41 @@ class OnboardingScaffold extends StatelessWidget {
     this.onContinue,
     this.showBack = true,
     this.skipButton,
-    this.continueColor = const Color(0xFF00C27A),
+    this.leading,
+    this.continueColor = _kAccent,
+    this.customFooter,
   });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        foregroundColor: Colors.black,
-        automaticallyImplyLeading: showBack,
-        title: progress == null
-            ? null
-            : ClipRRect(
-                borderRadius: BorderRadius.circular(2),
-                child: LinearProgressIndicator(
-                  value: progress!.clamp(0, 1),
-                  backgroundColor: const Color(0xFFE5E7EB),
-                  color: const Color(0xFF00C27A),
-                  minHeight: 4,
-                ),
-              ),
-      ),
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: Column(
           children: [
+            _buildHeader(context),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     if (title != null)
                       Text(
                         title!,
-                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          color: _kTextColor,
+                          height: 1.15,
+                        ),
                       ),
                     if (subtitle != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
                         child: Text(
                           subtitle!,
-                          style: const TextStyle(color: Color(0xFF6B7280), fontSize: 15),
+                          style: const TextStyle(color: _kMutedText, fontSize: 15),
                         ),
                       ),
                     const SizedBox(height: 20),
@@ -78,36 +80,105 @@ class OnboardingScaffold extends StatelessWidget {
                 ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-              child: Column(
-                children: [
-                  if (skipButton != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: skipButton!,
-                    ),
-                  SizedBox(
-                    height: 52,
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: onContinue,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: continueColor,
-                        foregroundColor: Colors.white,
-                        disabledBackgroundColor: const Color(0xFFD1D5DB),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: Text(
-                        continueLabel,
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
-                ],
+            customFooter ?? _buildFooter(context),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+      child: Row(
+        children: [
+          if (leading != null)
+            leading!
+          else if (showBack)
+            _CircleBackButton(onTap: () => Navigator.of(context).maybePop())
+          else
+            const SizedBox(width: 40),
+          if (progress != null) ...[
+            const SizedBox(width: 16),
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: LinearProgressIndicator(
+                  value: progress!.clamp(0, 1),
+                  backgroundColor: _kBorderColor,
+                  color: _kAccent,
+                  minHeight: 6,
+                ),
               ),
             ),
-          ],
+          ] else
+            const Spacer(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFooter(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+      child: Column(
+        children: [
+          if (skipButton != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: skipButton!,
+            ),
+          SizedBox(
+            height: 56,
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: onContinue == null
+                  ? null
+                  : () {
+                      HapticFeedback.lightImpact();
+                      onContinue!();
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: continueColor,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: continueColor.withValues(alpha: 0.4),
+                disabledForegroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+              ),
+              child: Text(
+                continueLabel,
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CircleBackButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _CircleBackButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      shape: const CircleBorder(),
+      elevation: 0,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: _kBorderColor),
+          ),
+          child: const Icon(Icons.arrow_back_rounded, color: _kTextColor, size: 22),
         ),
       ),
     );

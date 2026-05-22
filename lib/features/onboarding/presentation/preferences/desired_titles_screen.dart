@@ -1,14 +1,44 @@
-// DesiredTitlesScreen — cargos desejados com smart suggestions "Do seu currículo".
+// DesiredTitlesScreen — áreas desejadas. Catálogo fixo de 12 áreas alinhado
+// com job_preferences_screen + inferArea() dos edge functions de sync.
+// (legado: nome do arquivo + entidade ainda usam "title", mas a semântica é "área")
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../profile/application/preferences_view_model.dart';
-import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
 import '../onboarding_scaffold.dart';
-import 'countries_screen.dart';
+import 'location_screen.dart';
+
+const _kBorderColor = Color(0xFFE5E7EB);
+const _kLabelColor = Color(0xFF6B7280);
+const _kTextColor = Color(0xFF111827);
+const _kAccent = Color(0xFF00C27A);
+const _kChipBg = Color(0xFFF3F4F6);
+
+class _Area {
+  final String label;
+  final IconData icon;
+  const _Area(this.label, this.icon);
+}
+
+// Lista alinhada com job_preferences_screen._areas e inferArea() das edge
+// functions de sync (sync-jobs-ats, sync-jobs-apify).
+const List<_Area> _areas = [
+  _Area('Tecnologia', Icons.computer_rounded),
+  _Area('Engenharia', Icons.engineering_rounded),
+  _Area('Design', Icons.palette_rounded),
+  _Area('Produto', Icons.widgets_rounded),
+  _Area('Marketing', Icons.campaign_rounded),
+  _Area('Vendas', Icons.trending_up_rounded),
+  _Area('Finanças', Icons.attach_money_rounded),
+  _Area('Recursos Humanos', Icons.groups_rounded),
+  _Area('Operações', Icons.settings_rounded),
+  _Area('Jurídico', Icons.gavel_rounded),
+  _Area('Administrativo', Icons.folder_rounded),
+  _Area('Geral', Icons.work_rounded),
+];
 
 class DesiredTitlesScreen extends StatefulWidget {
   const DesiredTitlesScreen({super.key});
@@ -17,119 +47,135 @@ class DesiredTitlesScreen extends StatefulWidget {
 }
 
 class _DesiredTitlesScreenState extends State<DesiredTitlesScreen> {
-  final TextEditingController _input = TextEditingController();
-  final List<DesiredTitle> _selected = [];
+  final Set<String> _selected = {};
 
   @override
   void initState() {
     super.initState();
-    _selected.addAll(context.read<PreferencesViewModel>().desiredTitles);
+    _hydrateFromExistingPrefs();
   }
 
-  @override
-  void dispose() {
-    _input.dispose();
-    super.dispose();
+  /// Pré-seleciona áreas baseado em desired_titles antigos. Se o user já tinha
+  /// "Analista de Marketing" salvo, infere "Marketing". Substring match
+  /// case-insensitive — perde precisão pra entries que não mapeiam (ex:
+  /// "Software Engineer" não pega "Tecnologia"), mas é melhor que nada.
+  void _hydrateFromExistingPrefs() {
+    final existing = context.read<PreferencesViewModel>().desiredTitles;
+    for (final t in existing) {
+      final lower = t.title.toLowerCase();
+      for (final area in _areas) {
+        if (_selected.contains(area.label)) continue;
+        if (lower.contains(area.label.toLowerCase())) {
+          _selected.add(area.label);
+        }
+      }
+    }
   }
 
-  List<String> get _fromResume {
-    final exps = context.read<ProfileEditorViewModel>().experiences;
-    return exps.take(3).map((e) => e.title).where((t) => t.isNotEmpty).toList();
-  }
-
-  void _add(String title, {DesiredTitleSource source = DesiredTitleSource.userAdded}) {
-    final clean = title.trim();
-    if (clean.isEmpty) return;
-    if (_selected.any((s) => s.title.toLowerCase() == clean.toLowerCase())) return;
-    if (_selected.length >= 10) return;
+  void _toggle(String label) {
     setState(() {
-      _selected.add(DesiredTitle(
-        id: '',
-        userId: Supabase.instance.client.auth.currentUser?.id ?? '',
-        title: clean,
-        source: source,
-        orderIndex: _selected.length,
-      ));
-      _input.clear();
+      if (_selected.contains(label)) {
+        _selected.remove(label);
+      } else {
+        _selected.add(label);
+      }
     });
   }
 
-  void _continue() async {
+  Future<void> _continue() async {
     AnalyticsService.shared.track('onboarding_preferences_desired_titles_completed',
         props: {'count': _selected.length});
-    await context.read<PreferencesViewModel>().replaceDesiredTitles(_selected);
+    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    final entries = _selected
+        .toList()
+        .asMap()
+        .entries
+        .map((e) => DesiredTitle(
+              id: '',
+              userId: userId,
+              title: e.value,
+              source: DesiredTitleSource.userAdded,
+              orderIndex: e.key,
+            ))
+        .toList();
+    await context.read<PreferencesViewModel>().replaceDesiredTitles(entries);
     if (!mounted) return;
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const CountriesScreen()));
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const LocationScreen()));
   }
 
   @override
   Widget build(BuildContext context) {
-    final fromResume = _fromResume.where((t) =>
-        !_selected.any((s) => s.title.toLowerCase() == t.toLowerCase())).toList();
-
     return OnboardingScaffold(
-      title: 'Quais cargos procura?',
-      subtitle: 'Você pode adicionar até 10.',
-      progress: 0.8,
+      title: 'Em quais áreas você quer atuar?',
+      subtitle: 'Toca nas que combinam com você.',
+      progress: 0.69,
       onContinue: _selected.isEmpty ? null : _continue,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: _areas.map((area) {
+          final selected = _selected.contains(area.label);
+          return _AreaChip(
+            label: area.label,
+            icon: area.icon,
+            selected: selected,
+            onTap: () => _toggle(area.label),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+class _AreaChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _AreaChip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = selected ? _kAccent : _kChipBg;
+    final fg = selected ? Colors.white : _kTextColor;
+    final iconColor = selected ? Colors.white : _kLabelColor;
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(24),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: selected ? _kAccent : _kBorderColor,
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                child: TextField(
-                  controller: _input,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(
-                    hintText: 'Ex: Analista de Marketing',
-                    filled: true, fillColor: Colors.white,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
-                  ),
-                  onSubmitted: _add,
+              Icon(icon, color: iconColor, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: fg,
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.add_circle, color: Color(0xFF00C27A), size: 32),
-                onPressed: () => _add(_input.text),
               ),
             ],
           ),
-          if (fromResume.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            const Text('Do seu currículo', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 6, runSpacing: 6,
-              children: fromResume
-                  .map((t) => ActionChip(
-                        label: Text(t),
-                        avatar: const Icon(Icons.add, size: 16, color: Color(0xFF00C27A)),
-                        backgroundColor: const Color(0xFF00C27A).withValues(alpha: 0.08),
-                        side: const BorderSide(color: Color(0xFF00C27A)),
-                        onPressed: () => _add(t, source: DesiredTitleSource.fromResume),
-                      ))
-                  .toList(),
-            ),
-          ],
-          const SizedBox(height: 16),
-          if (_selected.isNotEmpty) ...[
-            const Text('Selecionados', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 6, runSpacing: 6,
-              children: _selected
-                  .map((s) => Chip(
-                        label: Text(s.title),
-                        backgroundColor: Colors.white,
-                        side: const BorderSide(color: Color(0xFFE5E7EB)),
-                        deleteIcon: const Icon(Icons.close, size: 16),
-                        onDeleted: () => setState(() => _selected.remove(s)),
-                      ))
-                  .toList(),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }

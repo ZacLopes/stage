@@ -362,7 +362,7 @@ class ProfileRepositorySupabase implements ProfileRepository {
   Future<List<Project>> getProjects(String userId) async {
     final rows = await _client
         .from('profile_projects')
-        .select()
+        .select('*, profile_project_bullets(*)')
         .eq('user_id', userId)
         .order('order_index');
     return (rows as List).map((r) => Project.fromMap(r as Map<String, dynamic>)).toList();
@@ -375,23 +375,81 @@ class ProfileRepositorySupabase implements ProfileRepository {
         .insert(project.toMap()..remove('id'))
         .select()
         .single();
-    return Project.fromMap(row);
+    final newProject = Project.fromMap(row);
+    if (project.bullets.isNotEmpty) {
+      await _insertProjectBullets(newProject.id, project.bullets);
+    }
+    return (await getProjects(project.userId)).firstWhere((p) => p.id == newProject.id);
   }
 
   @override
   Future<Project> updateProject(Project project) async {
-    final row = await _client
+    await _client
         .from('profile_projects')
         .update(project.toMap()..remove('id'))
-        .eq('id', project.id)
-        .select()
-        .single();
-    return Project.fromMap(row);
+        .eq('id', project.id);
+
+    // Estratégia: delete + re-insert bullets (cascade limpa via FK quando deleta)
+    await _client.from('profile_project_bullets').delete().eq('project_id', project.id);
+    if (project.bullets.isNotEmpty) {
+      await _insertProjectBullets(project.id, project.bullets);
+    }
+    return (await getProjects(project.userId)).firstWhere((p) => p.id == project.id);
+  }
+
+  Future<void> _insertProjectBullets(String projectId, List<ProjectBullet> bullets) async {
+    final rows = bullets.asMap().entries.map((entry) {
+      final b = entry.value;
+      return {
+        'project_id': projectId,
+        'text': b.text,
+        'order_index': entry.key,
+      };
+    }).toList();
+    await _client.from('profile_project_bullets').insert(rows);
   }
 
   @override
   Future<void> deleteProject(String id) async {
     await _client.from('profile_projects').delete().eq('id', id);
+  }
+
+  @override
+  Future<ProjectBullet> addProjectBullet(ProjectBullet bullet) async {
+    final map = bullet.toMap()..remove('id');
+    final row = await _client.from('profile_project_bullets').insert(map).select().single();
+    return ProjectBullet.fromMap(row);
+  }
+
+  @override
+  Future<ProjectBullet> updateProjectBullet(ProjectBullet bullet) async {
+    final row = await _client
+        .from('profile_project_bullets')
+        .update(bullet.toMap()..remove('id'))
+        .eq('id', bullet.id)
+        .select()
+        .single();
+    return ProjectBullet.fromMap(row);
+  }
+
+  @override
+  Future<void> deleteProjectBullet(String bulletId) async {
+    await _client.from('profile_project_bullets').delete().eq('id', bulletId);
+  }
+
+  @override
+  Future<void> reorderProjectBullets(String projectId, List<String> orderedIds) async {
+    final futures = <Future>[];
+    for (var i = 0; i < orderedIds.length; i++) {
+      futures.add(
+        _client
+            .from('profile_project_bullets')
+            .update({'order_index': i})
+            .eq('id', orderedIds[i])
+            .eq('project_id', projectId),
+      );
+    }
+    await Future.wait(futures);
   }
 
   // ──────────────────────────────────────────────────────────────────────

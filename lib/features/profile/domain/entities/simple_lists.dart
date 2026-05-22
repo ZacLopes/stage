@@ -168,29 +168,42 @@ class Project {
   final String id;
   final String userId;
   final String name;
+  /// Função/papel do usuário no projeto (ex: "Fundador", "Líder técnico").
+  final String? role;
+  /// Contexto onde rolou (ex: "Empresa Júnior", "Hackathon", "Pessoal").
+  final String? context;
   final String? website;
+  /// Descrição legada em texto livre. Novos projetos usam [bullets].
   final String? description;
   final DateTime? startDate;
   final DateTime? endDate;
   final bool isCurrent;
   final int orderIndex;
+  /// Bullets de impacto/responsabilidade. Carregado via nested select de
+  /// profile_project_bullets.
+  final List<ProjectBullet> bullets;
 
   const Project({
     required this.id,
     required this.userId,
     required this.name,
+    this.role,
+    this.context,
     this.website,
     this.description,
     this.startDate,
     this.endDate,
     this.isCurrent = false,
     this.orderIndex = 0,
+    this.bullets = const [],
   });
 
   Map<String, dynamic> toMap() => {
         'id': id,
         'user_id': userId,
         'name': name,
+        'role': role,
+        'context': context,
         'website': website,
         'description': description,
         'start_date': startDate != null ? _dateToDb(startDate!) : null,
@@ -199,31 +212,85 @@ class Project {
         'order_index': orderIndex,
       };
 
-  factory Project.fromMap(Map<String, dynamic> m) => Project(
-        id: m['id'] as String,
-        userId: m['user_id'] as String,
-        name: m['name'] as String? ?? '',
-        website: m['website'] as String?,
-        description: m['description'] as String?,
-        startDate: m['start_date'] != null ? DateTime.parse(m['start_date'] as String) : null,
-        endDate: m['end_date'] != null ? DateTime.parse(m['end_date'] as String) : null,
-        isCurrent: m['is_current'] as bool? ?? false,
-        orderIndex: (m['order_index'] as num?)?.toInt() ?? 0,
-      );
+  factory Project.fromMap(Map<String, dynamic> m) {
+    final bulletsRaw = m['profile_project_bullets'] as List?;
+    final bullets = bulletsRaw == null
+        ? const <ProjectBullet>[]
+        : bulletsRaw
+            .map((b) => ProjectBullet.fromMap(b as Map<String, dynamic>))
+            .toList()
+          ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
+    return Project(
+      id: m['id'] as String,
+      userId: m['user_id'] as String,
+      name: m['name'] as String? ?? '',
+      role: m['role'] as String?,
+      context: m['context'] as String?,
+      website: m['website'] as String?,
+      description: m['description'] as String?,
+      startDate: m['start_date'] != null ? DateTime.parse(m['start_date'] as String) : null,
+      endDate: m['end_date'] != null ? DateTime.parse(m['end_date'] as String) : null,
+      isCurrent: m['is_current'] as bool? ?? false,
+      orderIndex: (m['order_index'] as num?)?.toInt() ?? 0,
+      bullets: bullets,
+    );
+  }
 
   Project copyWith({
-    String? id, String? userId, String? name, String? website, String? description,
+    String? id, String? userId, String? name, String? role, String? context,
+    String? website, String? description,
     DateTime? startDate, DateTime? endDate, bool? isCurrent, int? orderIndex,
+    List<ProjectBullet>? bullets,
   }) =>
       Project(
         id: id ?? this.id,
         userId: userId ?? this.userId,
         name: name ?? this.name,
+        role: role ?? this.role,
+        context: context ?? this.context,
         website: website ?? this.website,
         description: description ?? this.description,
         startDate: startDate ?? this.startDate,
         endDate: endDate ?? this.endDate,
         isCurrent: isCurrent ?? this.isCurrent,
+        orderIndex: orderIndex ?? this.orderIndex,
+        bullets: bullets ?? this.bullets,
+      );
+}
+
+@immutable
+class ProjectBullet {
+  final String id;
+  final String projectId;
+  final String text;
+  final int orderIndex;
+
+  const ProjectBullet({
+    required this.id,
+    required this.projectId,
+    required this.text,
+    this.orderIndex = 0,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'project_id': projectId,
+        'text': text,
+        'order_index': orderIndex,
+      };
+
+  factory ProjectBullet.fromMap(Map<String, dynamic> m) => ProjectBullet(
+        id: m['id'] as String,
+        projectId: m['project_id'] as String,
+        text: m['text'] as String? ?? '',
+        orderIndex: (m['order_index'] as num?)?.toInt() ?? 0,
+      );
+
+  ProjectBullet copyWith({String? id, String? projectId, String? text, int? orderIndex}) =>
+      ProjectBullet(
+        id: id ?? this.id,
+        projectId: projectId ?? this.projectId,
+        text: text ?? this.text,
         orderIndex: orderIndex ?? this.orderIndex,
       );
 }

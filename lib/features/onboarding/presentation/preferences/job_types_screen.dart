@@ -6,13 +6,15 @@ import '../../../../services/analytics_service.dart';
 import '../../../profile/application/preferences_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
 import '../onboarding_scaffold.dart';
-import 'experience_level_screen.dart';
+import 'onboarding_complete_screen.dart';
 
-const _options = <(JobType, String)>[
-  (JobType.fullTime, 'CLT / Tempo integral'),
-  (JobType.internship, 'Estágio'),
-  (JobType.contract, 'PJ / Contrato'),
-  (JobType.partTime, 'Meio período'),
+// Audiência entry-level. Ordem: do mais comum (Estágio, alunos ativos) pro
+// menos comum (Temporário). Taxonomia alinhada com job_preferences_screen.
+const _options = <(JobType, String, String, IconData)>[
+  (JobType.internship, 'Estágio', 'Pra quem ainda tá na faculdade', Icons.school_rounded),
+  (JobType.trainee, 'Trainee', 'Programa pós-formação', Icons.rocket_launch_rounded),
+  (JobType.juniorFullTime, 'CLT Júnior', 'Primeira vaga formal', Icons.badge_rounded),
+  (JobType.temporary, 'Temporário', 'Vagas pontuais', Icons.schedule_rounded),
 ];
 
 class JobTypesScreen extends StatefulWidget {
@@ -35,22 +37,37 @@ class _JobTypesScreenState extends State<JobTypesScreen> {
     AnalyticsService.shared.track('onboarding_preferences_job_types_completed');
     await context.read<PreferencesViewModel>().setJobTypes(_selected.toList());
     if (!mounted) return;
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const ExperienceLevelScreen()));
+    // push normal (NÃO pushReplacement) — preserva JobTypes na stack pra
+    // que back-swipe do OnboardingComplete volte 1 tela só. Quando o user
+    // toca "Começar" lá, o popUntil isFirst limpa tudo de qualquer jeito.
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const OnboardingCompleteScreen()),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return OnboardingScaffold(
-      title: 'Tipo de contrato?',
-      progress: 0.9,
-      onContinue: _next,
-      skipButton: TextButton(onPressed: _next, child: const Text('Pular')),
+      title: 'Que tipo de vaga te interessa?',
+      subtitle: 'Pode selecionar mais de um.',
+      progress: 0.94,
+      onContinue: _selected.isEmpty ? null : _next,
+      skipButton: _selected.isNotEmpty
+          ? null
+          : TextButton(
+              onPressed: _next,
+              style: TextButton.styleFrom(foregroundColor: const Color(0xFF6B7280)),
+              child: const Text('Pular etapa'),
+            ),
       child: Column(
         children: _options.map((tuple) {
           final value = tuple.$1;
           final label = tuple.$2;
+          final sub = tuple.$3;
+          final icon = tuple.$4;
           final isSelected = _selected.contains(value);
-          return _selectableTile(label, isSelected, () => setState(() {
+          return _selectableTile(label, sub, icon, isSelected, () => setState(() {
                 if (isSelected) {
                   _selected.remove(value);
                 } else {
@@ -63,7 +80,7 @@ class _JobTypesScreenState extends State<JobTypesScreen> {
   }
 }
 
-Widget _selectableTile(String label, bool isSelected, VoidCallback onTap) {
+Widget _selectableTile(String label, String sub, IconData icon, bool isSelected, VoidCallback onTap) {
   return Padding(
     padding: const EdgeInsets.only(bottom: 10),
     child: InkWell(
@@ -81,19 +98,53 @@ Widget _selectableTile(String label, bool isSelected, VoidCallback onTap) {
         ),
         child: Row(
           children: [
+            Icon(icon, color: isSelected ? const Color(0xFF00C27A) : const Color(0xFF6B7280), size: 22),
+            const SizedBox(width: 14),
             Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                  color: isSelected ? const Color(0xFF00C27A) : Colors.black87,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: isSelected ? const Color(0xFF00C27A) : Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(sub, style: const TextStyle(color: Color(0xFF6B7280), fontSize: 12)),
+                ],
               ),
             ),
-            if (isSelected) const Icon(Icons.check_circle, color: Color(0xFF00C27A)),
+            const SizedBox(width: 12),
+            _Checkbox(selected: isSelected),
           ],
         ),
       ),
     ),
   );
+}
+
+class _Checkbox extends StatelessWidget {
+  final bool selected;
+  const _Checkbox({required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 22, height: 22,
+      decoration: BoxDecoration(
+        color: selected ? const Color(0xFF00C27A) : Colors.white,
+        border: Border.all(
+          color: selected ? const Color(0xFF00C27A) : const Color(0xFFD1D5DB),
+          width: 1.5,
+        ),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: selected
+          ? const Icon(Icons.check_rounded, color: Colors.white, size: 16)
+          : null,
+    );
+  }
 }

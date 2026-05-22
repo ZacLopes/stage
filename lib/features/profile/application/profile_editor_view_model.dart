@@ -33,7 +33,6 @@ class ProfileEditorViewModel extends ChangeNotifier {
   List<Project> _projects = [];
   List<Interest> _interests = [];
   List<Award> _awards = [];
-  List<Coursework> _coursework = [];
 
   bool _isLoading = false;
   SaveStatus _saveStatus = SaveStatus.idle;
@@ -50,7 +49,6 @@ class ProfileEditorViewModel extends ChangeNotifier {
   List<Project> get projects => List.unmodifiable(_projects);
   List<Interest> get interests => List.unmodifiable(_interests);
   List<Award> get awards => List.unmodifiable(_awards);
-  List<Coursework> get coursework => List.unmodifiable(_coursework);
   bool get isLoading => _isLoading;
   SaveStatus get saveStatus => _saveStatus;
   String? get lastError => _lastError;
@@ -102,7 +100,6 @@ class ProfileEditorViewModel extends ChangeNotifier {
         _repo.getProjects(userId),
         _repo.getInterests(userId),
         _repo.getAwards(userId),
-        _repo.getCoursework(userId),
       ]);
 
       _personal = results[0] as PersonalInfo?;
@@ -114,7 +111,6 @@ class ProfileEditorViewModel extends ChangeNotifier {
       _projects = results[6] as List<Project>;
       _interests = results[7] as List<Interest>;
       _awards = results[8] as List<Award>;
-      _coursework = results[9] as List<Coursework>;
     } catch (e) {
       _lastError = 'Erro ao carregar perfil: $e';
       debugPrint('[ProfileEditorViewModel] load error: $e');
@@ -134,7 +130,6 @@ class ProfileEditorViewModel extends ChangeNotifier {
     _projects = [];
     _interests = [];
     _awards = [];
-    _coursework = [];
     _saveStatus = SaveStatus.idle;
     _lastError = null;
     notifyListeners();
@@ -340,25 +335,6 @@ class ProfileEditorViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> replaceCoursework(List<String> names) async {
-    final userId = _personal?.userId ?? Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
-    final original = _coursework;
-    _coursework = names.asMap().entries
-        .map((e) => Coursework(id: 'temp_${e.key}', userId: userId, name: e.value, orderIndex: e.key))
-        .toList();
-    notifyListeners();
-    _setSaving();
-    try {
-      await _repo.replaceCoursework(userId, names);
-      _coursework = await _repo.getCoursework(userId);
-      _setSaved();
-    } catch (e) {
-      _coursework = original;
-      _setError('Erro ao salvar cursos: $e');
-    }
-  }
-
   // ──────────────────────────────────────────────────────────────────────
   // Certifications, Projects, Awards — CRUD individual
   // ──────────────────────────────────────────────────────────────────────
@@ -414,7 +390,8 @@ class ProfileEditorViewModel extends ChangeNotifier {
     notifyListeners();
     _setSaving();
     try {
-      await _repo.updateProject(p);
+      final updated = await _repo.updateProject(p);
+      _projects = _projects.map((x) => x.id == updated.id ? updated : x).toList();
       _setSaved();
     } catch (e) {
       _setError('Erro: $e');

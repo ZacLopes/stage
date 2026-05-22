@@ -41,9 +41,16 @@ class _WorkModeScreenState extends State<WorkModeScreen> {
   Widget build(BuildContext context) {
     return OnboardingScaffold(
       title: 'Como prefere trabalhar?',
-      progress: 0.88,
-      onContinue: _next,
-      skipButton: TextButton(onPressed: _next, child: const Text('Pular')),
+      subtitle: 'Pode selecionar mais de um.',
+      progress: 0.81,
+      onContinue: _selected.isEmpty ? null : _next,
+      skipButton: _selected.isNotEmpty
+          ? null
+          : TextButton(
+              onPressed: _next,
+              style: TextButton.styleFrom(foregroundColor: const Color(0xFF6B7280)),
+              child: const Text('Pular etapa'),
+            ),
       child: Column(
         children: _options.map((tuple) {
           final value = tuple.$1;
@@ -84,7 +91,7 @@ class _WorkModeScreenState extends State<WorkModeScreen> {
                         ),
                       ),
                     ),
-                    if (isSelected) const Icon(Icons.check_circle, color: Color(0xFF00C27A)),
+                    _Checkbox(selected: isSelected),
                   ],
                 ),
               ),
@@ -92,6 +99,31 @@ class _WorkModeScreenState extends State<WorkModeScreen> {
           );
         }).toList(),
       ),
+    );
+  }
+}
+
+/// Checkbox quadrado sempre visível — afordância clara de multi-select
+/// (diferente de check_circle, que parece radio button).
+class _Checkbox extends StatelessWidget {
+  final bool selected;
+  const _Checkbox({required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 22, height: 22,
+      decoration: BoxDecoration(
+        color: selected ? const Color(0xFF00C27A) : Colors.white,
+        border: Border.all(
+          color: selected ? const Color(0xFF00C27A) : const Color(0xFFD1D5DB),
+          width: 1.5,
+        ),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: selected
+          ? const Icon(Icons.check_rounded, color: Colors.white, size: 16)
+          : null,
     );
   }
 }

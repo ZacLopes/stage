@@ -54,7 +54,7 @@ class _FirstNameScreenState extends State<FirstNameScreen> {
   Widget build(BuildContext context) {
     return OnboardingScaffold(
       title: 'Qual seu primeiro nome?',
-      progress: 0.3,
+      progress: 0.19,
       onContinue: _ctrl.text.trim().isEmpty ? null : _continue,
       child: TextField(
         controller: _ctrl,

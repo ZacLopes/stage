@@ -319,12 +319,15 @@ class _DynamicListInputWidgetState extends State<DynamicListInputWidget> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          item,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            color: Color(0xFF1899D6),
-                            fontWeight: FontWeight.w800,
+                        Flexible(
+                          child: Text(
+                            item,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              color: Color(0xFF1899D6),
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),

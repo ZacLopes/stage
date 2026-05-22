@@ -1,6 +1,7 @@
 // GenderScreen — pergunta gênero.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../services/analytics_service.dart';
@@ -47,7 +48,7 @@ class _GenderScreenState extends State<GenderScreen> {
     return OnboardingScaffold(
       title: 'Qual seu gênero?',
       subtitle: 'Será usado nas suas candidaturas quando aplicável.',
-      progress: 0.6,
+      progress: 0.44,
       onContinue: _selected == null ? null : _continue,
       child: Column(
         children: _options.map((tuple) {
@@ -57,7 +58,10 @@ class _GenderScreenState extends State<GenderScreen> {
           return Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: InkWell(
-              onTap: () => setState(() => _selected = value),
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _selected = value);
+              },
               borderRadius: BorderRadius.circular(12),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),

@@ -54,7 +54,7 @@ class _LastNameScreenState extends State<LastNameScreen> {
   Widget build(BuildContext context) {
     return OnboardingScaffold(
       title: 'E seu sobrenome?',
-      progress: 0.35,
+      progress: 0.25,
       onContinue: _ctrl.text.trim().isEmpty ? null : _continue,
       child: TextField(
         controller: _ctrl,

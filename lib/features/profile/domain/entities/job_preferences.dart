@@ -4,7 +4,9 @@
 import 'package:flutter/foundation.dart';
 
 enum WorkMode { remote, hybrid, inPerson }
-enum JobType { fullTime, internship, contract, partTime }
+// Taxonomia alinhada com a feature de Vagas (jobs/screens/job_preferences_screen.dart
+// + jobs/models/job.dart). Audiência do Stage = entry-level brasileiro.
+enum JobType { internship, trainee, juniorFullTime, temporary }
 enum ExperienceLevel { entry, mid, senior }
 enum WorkAuth { citizen, authorized, sponsorshipNeeded }
 enum DesiredTitleSource { userAdded, fromResume }
@@ -263,18 +265,18 @@ WorkMode? _workModeFromDb(String s) {
 
 String _jobTypeToDb(JobType t) {
   switch (t) {
-    case JobType.fullTime: return 'full_time';
-    case JobType.internship: return 'internship';
-    case JobType.contract: return 'contract';
-    case JobType.partTime: return 'part_time';
+    case JobType.internship: return 'estagio';
+    case JobType.trainee: return 'trainee';
+    case JobType.juniorFullTime: return 'clt_junior';
+    case JobType.temporary: return 'temporario';
   }
 }
 JobType? _jobTypeFromDb(String s) {
   switch (s) {
-    case 'full_time': return JobType.fullTime;
-    case 'internship': return JobType.internship;
-    case 'contract': return JobType.contract;
-    case 'part_time': return JobType.partTime;
+    case 'estagio': return JobType.internship;
+    case 'trainee': return JobType.trainee;
+    case 'clt_junior': return JobType.juniorFullTime;
+    case 'temporario': return JobType.temporary;
     default: return null;
   }
 }

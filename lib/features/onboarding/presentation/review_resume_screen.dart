@@ -52,7 +52,7 @@ class _ReviewResumeScreenState extends State<ReviewResumeScreen> {
       return OnboardingScaffold(
         title: 'Seu currículo',
         subtitle: 'Quase pronto…',
-        progress: 0.8,
+        progress: 0.63,
         onContinue: null,
         child: const Padding(
           padding: EdgeInsets.symmetric(vertical: 80),
@@ -75,7 +75,7 @@ class _ReviewResumeScreenState extends State<ReviewResumeScreen> {
       subtitle: widget.fromUpload
           ? 'Confira se ficou tudo certinho — você pode editar qualquer coisa.'
           : 'Confira o que você preencheu.',
-      progress: 0.8,
+      progress: 0.63,
       onContinue: _continue,
       child: const ProfileSectionList(
         showLowConfidenceBadges: true,

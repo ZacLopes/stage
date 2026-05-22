@@ -58,7 +58,7 @@ class _EmailScreenState extends State<EmailScreen> {
   Widget build(BuildContext context) {
     return OnboardingScaffold(
       title: 'Melhor email pra te contatar?',
-      progress: 0.4,
+      progress: 0.31,
       onContinue: _valid ? _continue : null,
       child: TextField(
         controller: _ctrl,

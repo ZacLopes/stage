@@ -67,7 +67,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>O Stage usa a câmera apenas se você escolher tirar uma foto para o seu currículo.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>O Stage não solicita sua localização. Esta descrição existe apenas porque bibliotecas externas referenciam a API de localização do iOS.</string>
+	<string>O Stage usa sua localização apenas quando você toca em "Usar minha localização" para preencher sua cidade. Você sempre pode digitar manualmente.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>O Stage precisa salvar seu currículo em PDF na biblioteca quando você toca em compartilhar.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

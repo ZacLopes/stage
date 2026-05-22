@@ -243,6 +243,17 @@ class CareerGamificationApp extends StatelessWidget {
         ),
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFFF3F4F6),
+        // Transições de tela iOS-style em ambas as plataformas — slide horizontal
+        // com curva nativa. Material padrão tem fade-up que parecia "pesado".
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+          },
+        ),
+        // Ripple mais clean (sparkle do Material 3) em toques de InkWell.
+        splashFactory: InkSparkle.splashFactory,
         textTheme: GoogleFonts.outfitTextTheme(
           Theme.of(context).textTheme,
         ).copyWith(
@@ -326,11 +337,19 @@ class CareerGamificationApp extends StatelessWidget {
       // Flutter. Tutorial overlay continua por cima de tudo.
       builder: (context, child) {
         return PostHogWidget(
-          child: Stack(
-            children: [
-              if (child != null) child,
-              const Positioned.fill(child: TutorialOverlay()),
-            ],
+          // Toque em qualquer lugar fora de um campo dispensa o teclado.
+          // `HitTestBehavior.translucent` permite que widgets abaixo (botões,
+          // listas, gestos) continuem recebendo os toques normalmente — só
+          // o teclado é fechado.
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+            child: Stack(
+              children: [
+                if (child != null) child,
+                const Positioned.fill(child: TutorialOverlay()),
+              ],
+            ),
           ),
         );
       },

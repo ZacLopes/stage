@@ -50,7 +50,7 @@ class _ExtractionInProgressScreenState extends State<ExtractionInProgressScreen>
   @override
   Widget build(BuildContext context) {
     return OnboardingScaffold(
-      progress: 0.2,
+      progress: 0.06,
       showBack: false,
       onContinue: _canContinue ? _continue : null,
       continueLabel: 'Continuar',

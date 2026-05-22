@@ -12,6 +12,7 @@ import type {
   JobsStockBlock,
   MatchBlock,
   ReportWindow,
+  RetentionBlock,
   UsersBlock,
   UsersTotalBlock,
   WeeklyBlock,
@@ -22,6 +23,7 @@ export interface ReportPayload {
   usersTotal: UsersTotalBlock
   users: UsersBlock
   engagement: EngagementBlock
+  retention: RetentionBlock
   jobsInserted: JobsInsertedBlock
   jobsStock: JobsStockBlock
   match: MatchBlock
@@ -110,7 +112,7 @@ function bigNumber(value: number | string, label: string, sub?: string): string 
 }
 
 export function renderEmailHtml(p: ReportPayload): string {
-  const { window: win, usersTotal, users, engagement, jobsInserted, jobsStock, match, cvAdapted, gap, health, weekly } = p
+  const { window: win, usersTotal, users, engagement, retention, jobsInserted, jobsStock, match, cvAdapted, gap, health, weekly } = p
   const title = weekly ? `Stage — Relatório Diário + Semanal (${win.yesterday.label})` : `Stage — Relatório Diário (${win.yesterday.label})`
 
   // === Bloco 1B: Perfil total (all-time) ===
@@ -153,6 +155,30 @@ export function renderEmailHtml(p: ReportPayload): string {
     ${bigNumber(engagement.dau, 'DAU (swipes)')}
     ${bigNumber(engagement.cvAdaptersYesterday, 'adaptaram CV')}
     ${bigNumber(engagement.appliersYesterday, 'aplicaram p/ vaga')}
+  `
+
+  // === Bloco 2.5: Retenção ===
+  const retentionHtml = `
+    <div style="margin-bottom:8px">
+      ${bigNumber(
+        pct(retention.d1RetentionRate),
+        'retenção D1 (novos)',
+        `${retention.d2SignupsReturnedD1}/${retention.d2Signups} cadastrados em ${win.dayBefore.label} voltaram em ${win.yesterday.label}`,
+      )}
+      ${bigNumber(
+        pct(retention.returningDauRate),
+        'DAU recorrente',
+        `${retention.dauReturning} recorrentes · ${retention.dauNewToday} estreantes (de ${retention.dau} ativos)`,
+      )}
+      ${bigNumber(
+        pct(retention.stickiness),
+        'stickiness DAU/MAU',
+        `${retention.dau} / ${retention.mau} ativos últimos 30d`,
+      )}
+    </div>
+    <p style="color:${STYLE.muted};font-size:12px;margin:8px 0 0">
+      Retenção D1: % dos novos cadastrados anteontem que voltaram ontem (1+ swipe). DAU recorrente: % do DAU que já tinha conta antes de ontem. Stickiness: DAU ÷ MAU (únicos com swipe nos últimos 30 dias).
+    </p>
   `
 
   // === Bloco 3: Vagas inseridas ===
@@ -268,6 +294,7 @@ export function renderEmailHtml(p: ReportPayload): string {
     ${section('Perfil dos usuários (total no app)', '🎓', usersTotalHtml)}
     ${section('Usuários novos ontem', '👥', usersHtml)}
     ${section('Engajamento', '⚡', engagementHtml)}
+    ${section('Retenção', '🔁', retentionHtml)}
     ${section('Vagas inseridas', '💼', jobsInsertedHtml)}
     ${section('Estoque atual de vagas', '📦', stockHtml)}
     ${section('Match & engajamento com vagas', '❤️', matchHtml)}

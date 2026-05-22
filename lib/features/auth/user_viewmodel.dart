@@ -551,11 +551,13 @@ class UserViewModel extends ChangeNotifier {
 
     } catch (e) {
       // SignInWithAppleAuthorizationException com code=canceled vem quando
-      // o user clica fora do diálogo iOS. Distinguimos pra separar abandono
-      // (esperado) de falha técnica (não esperada).
+      // o user fecha o diálogo iOS. Tratamos como abandono silencioso —
+      // registramos no analytics mas não propagamos pro UI (sem snackbar).
       final errStr = e.toString().toLowerCase();
+      final bool isCancelled =
+          errStr.contains('canceled') || errStr.contains('cancelled');
       final String code;
-      if (errStr.contains('canceled') || errStr.contains('cancelled')) {
+      if (isCancelled) {
         code = 'cancelled';
       } else if (errStr.contains('apple id token missing')) {
         code = 'token_missing';
@@ -565,7 +567,7 @@ class UserViewModel extends ChangeNotifier {
       // ignore: unawaited_futures
       Analytics.shared.appleSigninFailed(code: code);
       print('Error signing in with Apple natively: $e');
-      rethrow;
+      if (!isCancelled) rethrow;
     } finally {
       if (!_isDisposed) {
         _isLoading = false;

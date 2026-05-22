@@ -62,6 +62,9 @@ dependencies:
   onesignal_flutter: ^5.2.9
   facebook_app_events: ^0.20.0
   app_tracking_transparency: ^2.0.6+1
+  geolocator: ^14.0.0
+  geocoding: ^4.0.0
+  http: ^1.2.0
 
 dev_dependencies:
   flutter_test:
@@ -127,12 +130,21 @@ flutter:
   # usuários offline ou com DNS bloqueado viam exceptions
   # `Failed host lookup: 'fonts.gstatic.com'` e a UI caía em fonte fallback.
   # Variable fonts cobrem todos os pesos (Thin..Black) em 1 arquivo cada.
-  # Declaramos os pesos usados pela app explicitamente para o Flutter
-  # resolver via axis `wght` da variable font.
+  # Declaramos TODOS os pesos da variable font explicitamente para o Flutter
+  # resolver via axis `wght`. Sem declarar pesos finos (100-400), textos com
+  # fontWeight.w300/w400 caíam em fallback de sistema (visual quebrado em
+  # offline mode + textos finos não-renderizando corretamente).
   fonts:
     - family: Outfit
       fonts:
         - asset: assets/fonts/Outfit-VariableFont.ttf
+          weight: 100
+        - asset: assets/fonts/Outfit-VariableFont.ttf
+          weight: 200
+        - asset: assets/fonts/Outfit-VariableFont.ttf
+          weight: 300
+        - asset: assets/fonts/Outfit-VariableFont.ttf
+          weight: 400
         - asset: assets/fonts/Outfit-VariableFont.ttf
           weight: 500
         - asset: assets/fonts/Outfit-VariableFont.ttf
@@ -146,12 +158,23 @@ flutter:
     - family: Inter
       fonts:
         - asset: assets/fonts/Inter-VariableFont.ttf
+          weight: 100
+        - asset: assets/fonts/Inter-VariableFont.ttf
+          weight: 200
+        - asset: assets/fonts/Inter-VariableFont.ttf
+          weight: 300
+        - asset: assets/fonts/Inter-VariableFont.ttf
+          weight: 400
         - asset: assets/fonts/Inter-VariableFont.ttf
           weight: 500
         - asset: assets/fonts/Inter-VariableFont.ttf
           weight: 600
         - asset: assets/fonts/Inter-VariableFont.ttf
           weight: 700
+        - asset: assets/fonts/Inter-VariableFont.ttf
+          weight: 800
+        - asset: assets/fonts/Inter-VariableFont.ttf
+          weight: 900
 
   # Bloco original mantido como referência:
   # fonts:

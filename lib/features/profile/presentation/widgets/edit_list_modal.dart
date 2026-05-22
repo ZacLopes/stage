@@ -1,8 +1,17 @@
 // EditListModal — modal genérico pra editar listas simples (Skills, Interests,
-// Coursework, Awards descritivos). Reusa o DynamicListInputWidget da gamificação.
+// Certifications, Awards, Coursework).
+//
+// Mesmo padrão visual do _ManageTagsSheet (educação): header com X circular,
+// "Adicionar novo" + botão + circular, chips com X pra remover, "Salvar" pill.
 
 import 'package:flutter/material.dart';
-import '../../../gamification/widgets/dynamic_list_input_widget.dart';
+
+const _kBorderColor = Color(0xFFE5E7EB);
+const _kLabelColor = Color(0xFF6B7280);
+const _kHintColor = Color(0xFF9CA3AF);
+const _kTextColor = Color(0xFF111827);
+const _kAccent = Color(0xFF00C27A);
+const _kChipBg = Color(0xFFF3F4F6);
 
 class EditListModal extends StatefulWidget {
   final String title;
@@ -31,11 +40,12 @@ class EditListModal extends StatefulWidget {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (ctx) => EditListModal(
+      builder: (_) => EditListModal(
         title: title,
         inputLabel: inputLabel,
         initialItems: initialItems,
@@ -51,86 +61,264 @@ class EditListModal extends StatefulWidget {
 
 class _EditListModalState extends State<EditListModal> {
   late List<String> _items;
+  final _input = TextEditingController();
+  final _focus = FocusNode();
 
   @override
   void initState() {
     super.initState();
     _items = [...widget.initialItems];
+    _input.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _input.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  String get _sectionLabel {
+    final t = widget.title.trim();
+    final stripped = t.toLowerCase().startsWith('editar ') ? t.substring(7) : t;
+    if (stripped.isEmpty) return stripped;
+    return stripped[0].toUpperCase() + stripped.substring(1);
+  }
+
+  bool get _itemsChanged {
+    if (_items.length != widget.initialItems.length) return true;
+    for (var i = 0; i < _items.length; i++) {
+      if (_items[i] != widget.initialItems[i]) return true;
+    }
+    return false;
+  }
+
+  bool get _hasPending => _input.text.trim().isNotEmpty || _itemsChanged;
+
+  void _add() {
+    final v = _input.text.trim();
+    if (v.isEmpty) return;
+    if (_items.contains(v)) {
+      _input.clear();
+      return;
+    }
+    setState(() => _items.add(v));
+    _input.clear();
+    _focus.requestFocus();
+  }
+
+  void _remove(String item) {
+    setState(() => _items.remove(item));
+  }
+
+  void _save() {
+    final v = _input.text.trim();
+    final finalList = (v.isNotEmpty && !_items.contains(v)) ? [..._items, v] : _items;
+    widget.onSave(finalList);
+    Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
-    final media = MediaQuery.of(context);
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: media.viewInsets.bottom,
-      ),
-      child: Container(
-        constraints: BoxConstraints(maxHeight: media.size.height * 0.85),
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // handle
-            Center(
-              child: Container(
-                width: 36, height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD1D5DB),
-                  borderRadius: BorderRadius.circular(2),
-                ),
+    final canAdd = _input.text.trim().isNotEmpty;
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: SafeArea(
+          top: true,
+          bottom: false,
+          child: Container(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.92),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  _CircleIconButton(
+                    icon: Icons.close_rounded,
+                    onTap: () => Navigator.of(context).pop(),
+                  ),
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        widget.title,
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: _kTextColor),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 40),
+                ],
               ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
+              const SizedBox(height: 24),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: _FieldLabel(text: 'Adicionar novo'),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _input,
+                      focusNode: _focus,
+                      textCapitalization: TextCapitalization.sentences,
+                      onSubmitted: (_) => _add(),
+                      style: const TextStyle(fontSize: 17, color: _kTextColor, fontWeight: FontWeight.w600),
+                      decoration: InputDecoration(
+                        hintText: widget.inputLabel,
+                        hintStyle: const TextStyle(color: _kHintColor, fontWeight: FontWeight.w500),
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                        enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: _kBorderColor)),
+                        focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: _kAccent, width: 1.5)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  GestureDetector(
+                    onTap: canAdd ? _add : null,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: canAdd ? _kAccent : _kChipBg,
+                      ),
+                      child: Icon(
+                        Icons.add_rounded,
+                        color: canAdd ? Colors.white : _kHintColor,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 28),
+              if (_items.isEmpty)
                 Expanded(
-                  child: Text(
-                    widget.title,
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                  child: Center(
+                    child: Text(
+                      'Nada adicionado ainda',
+                      style: TextStyle(color: _kHintColor.withValues(alpha: 0.8), fontSize: 14),
+                    ),
+                  ),
+                )
+              else ...[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _FieldLabel(text: _sectionLabel),
+                ),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _items.map(_chip).toList(),
+                    ),
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
               ],
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: SingleChildScrollView(
-                child: DynamicListInputWidget(
-                  inputLabel: widget.inputLabel,
-                  hintText: widget.inputLabel,
-                  initialValue: _items,
-                  suggestions: widget.suggestions,
-                  onSelect: (list) => setState(() => _items = list),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: _hasPending ? _save : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _kAccent,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: _kAccent.withValues(alpha: 0.4),
+                    disabledForegroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                  ),
+                  child: const Text('Salvar', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
                 ),
               ),
+            ],
+          ),
+        ),
+        ),
+      ),
+    );
+  }
+
+  Widget _chip(String item) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width - 40),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+        decoration: BoxDecoration(
+          color: _kChipBg,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                item,
+                style: const TextStyle(fontSize: 14, color: _kTextColor, fontWeight: FontWeight.w500),
+              ),
             ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 52,
-              child: ElevatedButton(
-                onPressed: () {
-                  widget.onSave(_items);
-                  Navigator.of(context).pop();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF00C27A),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                child: const Text(
-                  'Salvar',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                ),
+            const SizedBox(width: 6),
+            GestureDetector(
+              onTap: () => _remove(item),
+              behavior: HitTestBehavior.opaque,
+              child: const Padding(
+                padding: EdgeInsets.all(2),
+                child: Icon(Icons.close_rounded, size: 16, color: _kLabelColor),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _CircleIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _CircleIconButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      shape: const CircleBorder(),
+      elevation: 0,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: _kBorderColor),
+          ),
+          child: Icon(icon, color: _kTextColor, size: 22),
+        ),
+      ),
+    );
+  }
+}
+
+class _FieldLabel extends StatelessWidget {
+  final String text;
+  const _FieldLabel({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(fontSize: 13, color: _kLabelColor, fontWeight: FontWeight.w500),
     );
   }
 }

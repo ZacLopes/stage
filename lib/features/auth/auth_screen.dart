@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -8,8 +9,8 @@ import '../../core/analytics/screen_tracking.dart';
 import '../../core/constants/stage_colors.dart';
 import '../../core/utils/auth_error_formatter.dart';
 import '../splash/splash_screen.dart' show AuthGate;
+import 'phone_signup_screen.dart';
 import 'user_viewmodel.dart';
-import 'email_signup_screen.dart';
 import '../../core/widgets/pii_mask.dart';
 
 class AuthScreen extends StatefulWidget {
@@ -110,24 +111,16 @@ class _AuthScreenState extends State<AuthScreen>
     );
   }
 
-  void _navigateToEmailSignup() {
+  void _navigateToPhoneSignup() {
+    HapticFeedback.lightImpact();
     Navigator.of(context).push(
       PageRouteBuilder(
-        pageBuilder: (context, anim, secAnim) => const EmailSignupScreen(),
+        pageBuilder: (context, anim, secAnim) => const PhoneSignupScreen(),
         transitionsBuilder: (context, anim, secAnim, child) {
           final slide = Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic));
           return SlideTransition(position: slide, child: child);
         },
       ),
-    );
-  }
-
-  void _showLoginSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => const _LoginBottomSheet(),
     );
   }
 
@@ -178,7 +171,7 @@ class _AuthScreenState extends State<AuthScreen>
                       ),
                       const SizedBox(height: 32),
                       Text(
-                        'Vamos começar!',
+                        'Vamos lá!',
                         style: GoogleFonts.outfit(
                           fontSize: 32,
                           fontWeight: FontWeight.bold,
@@ -188,7 +181,7 @@ class _AuthScreenState extends State<AuthScreen>
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        'Crie sua conta em segundos.',
+                        'Sua jornada começa em segundos.',
                         style: GoogleFonts.inter(
                           fontSize: 16,
                           color: StageColors.subtitleGray,
@@ -283,40 +276,17 @@ class _AuthScreenState extends State<AuthScreen>
                       ),
                       const SizedBox(height: 24),
         
-                      // Email
+                      // Telefone (substitui email — Twilio/OTP ainda não
+                      // configurado, conta usa email sintético internamente).
                       _SocialButton(
-                        icon: Icons.email_outlined,
-                        text: 'Criar conta com e-mail',
+                        icon: Icons.phone_iphone_outlined,
+                        text: 'Continuar com telefone',
                         textColor: StageColors.brandBlue,
                         backgroundColor: Colors.transparent,
                         borderColor: StageColors.brandBlue,
-                        onPressed: _navigateToEmailSignup,
+                        onPressed: _navigateToPhoneSignup,
                       ),
                       
-                      const SizedBox(height: 32),
-        
-                      // Login Link
-                      GestureDetector(
-                        onTap: _showLoginSheet,
-                        child: RichText(
-                          text: TextSpan(
-                            style: GoogleFonts.inter(
-                              color: StageColors.bodyGray,
-                              fontSize: 15,
-                            ),
-                            children: const [
-                              TextSpan(text: 'Já tem uma conta? '),
-                              TextSpan(
-                                text: 'Entrar',
-                                style: TextStyle(
-                                  color: StageColors.brandBlue,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -402,180 +372,3 @@ class _SocialButton extends StatelessWidget {
   }
 }
 
-// ==========================================
-// LOGIN BOTTOM SHEET
-// ==========================================
-class _LoginBottomSheet extends StatefulWidget {
-  const _LoginBottomSheet();
-
-  @override
-  State<_LoginBottomSheet> createState() => _LoginBottomSheetState();
-}
-
-class _LoginBottomSheetState extends State<_LoginBottomSheet> {
-  final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  bool _obscurePassword = true;
-  String? _errorMessage;
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _handleLogin() async {
-    if (!_formKey.currentState!.validate()) return;
-    
-    final vm = context.read<UserViewModel>();
-    try {
-      setState(() => _errorMessage = null);
-      
-      await vm.signIn(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
-      );
-
-      if (mounted && vm.isLoggedIn) {
-        // Mesmo motivo do _onAuthChanged: roteia via AuthGate pra deixar
-        // o Consumer central decidir entre Name/Completion/Home.
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const AuthGate()),
-          (route) => false,
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _errorMessage = AuthErrorFormatter.format(e);
-        });
-        
-        // Also keep the snackbar as a backup/standard feedback
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: StageColors.error,
-            content: Text(_errorMessage!),
-          ),
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isLoading = context.watch<UserViewModel>().isLoading;
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-      ),
-      padding: EdgeInsets.fromLTRB(24, 24, 24, 24 + bottomInset),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Entrar',
-                style: GoogleFonts.outfit(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: StageColors.titleText,
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Form(
-            key: _formKey,
-            child: Column(
-              children: [
-                TextFormField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  textInputAction: TextInputAction.next,
-                  decoration: InputDecoration(
-                    labelText: 'E-mail',
-                    hintText: 'seu@email.com',
-                    prefixIcon: const Icon(Icons.email_outlined),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                  ),
-                  validator: (val) => val != null && val.contains('@') ? null : 'E-mail inválido',
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _passwordController,
-                  obscureText: _obscurePassword,
-                  textInputAction: TextInputAction.done,
-                  decoration: InputDecoration(
-                    labelText: 'Senha',
-                    prefixIcon: const Icon(Icons.lock_outline),
-                    suffixIcon: IconButton(
-                      icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
-                      onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                    ),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                  ),
-                  validator: (val) => val != null && val.isNotEmpty ? null : 'Insira a senha',
-                ),
-              ],
-            ),
-          ),
-          if (_errorMessage != null) ...[
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: StageColors.error.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: StageColors.error.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.error_outline_rounded, color: StageColors.error, size: 20),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      _errorMessage!,
-                      style: GoogleFonts.inter(
-                        color: StageColors.error,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          const SizedBox(height: 32),
-          SizedBox(
-            height: 56,
-            child: ElevatedButton(
-              onPressed: isLoading ? null : _handleLogin,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: StageColors.ctaGreen,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                elevation: 0,
-              ),
-              child: isLoading
-                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
-                  : Text('Entrar', style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}

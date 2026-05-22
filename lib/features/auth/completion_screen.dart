@@ -54,17 +54,10 @@ class _CompletionScreenState extends State<CompletionScreen>
       debugPrint('[CompletionScreen] new_onboarding_enabled = $flag');
       if (!mounted) return;
       if (flag == 'true') {
+        // TwoDoorsScreen agora é standalone — tem fluxo trail próprio.
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (_) => TwoDoorsScreen(
-              onChooseTrail: () {
-                // Caminho B (trilha): mesmo comportamento legacy — cria campaign skipped
-                // e navega pra aba Currículo. AuthGate detecta hasCampaign e re-renderiza HomeScreen.
-                _startTrackPath();
-              },
-            ),
-          ),
+          MaterialPageRoute(builder: (_) => const TwoDoorsScreen()),
         );
       }
     });

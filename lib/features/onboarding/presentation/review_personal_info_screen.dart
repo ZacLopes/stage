@@ -59,11 +59,12 @@ class _ReviewPersonalInfoScreenState extends State<ReviewPersonalInfoScreen> {
     return OnboardingScaffold(
       title: 'Informações pessoais',
       subtitle: 'Confira e ajuste se precisar.',
-      progress: 0.75,
+      progress: 0.56,
       onContinue: _canContinue ? _continue : null,
       child: PersonalInfoForm(
         initial: initial,
         requireCriticalFields: true,
+        showHeadline: false,
         onChanged: (d) => setState(() => _draft = d),
       ),
     );

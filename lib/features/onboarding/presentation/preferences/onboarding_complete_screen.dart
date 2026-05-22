@@ -36,16 +36,45 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
     if (_finishing) return;
     setState(() => _finishing = true);
 
+    final userVm = context.read<UserViewModel>();
+    debugPrint('[OnboardingCompleteScreen] before createCampaign: hasCampaign=${userVm.hasCampaign}');
+
     // Cria campaign skipped — mesma técnica da CompletionScreen legacy.
     // Sem isso, AuthGate não detecta hasCampaign=true e fica em loop.
+    bool campaignOk = false;
     try {
-      await context.read<UserViewModel>().createCampaign(isSkipped: true);
+      await userVm.createCampaign(isSkipped: true);
+      campaignOk = userVm.hasCampaign;
+      debugPrint('[OnboardingCompleteScreen] after createCampaign: hasCampaign=$campaignOk');
     } catch (e) {
-      debugPrint('[OnboardingCompleteScreen] createCampaign failed (non-blocking): $e');
+      debugPrint('[OnboardingCompleteScreen] createCampaign FAILED: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao finalizar: $e'),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
+        );
+        setState(() => _finishing = false);
+      }
+      return;
     }
 
     if (!mounted) return;
     Analytics.shared.onboardingCompleted();
+
+    if (!campaignOk) {
+      // Defensiva: se createCampaign rodou sem exception mas hasCampaign ficou false,
+      // não fecha o stack pra evitar loop. Mostra erro pro user.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Não foi possível finalizar. Tenta novamente.'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+      setState(() => _finishing = false);
+      return;
+    }
 
     if (widget.onFinish != null) {
       widget.onFinish!();

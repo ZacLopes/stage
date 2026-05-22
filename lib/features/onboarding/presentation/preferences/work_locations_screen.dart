@@ -1,6 +1,18 @@
-// WorkLocationsScreen — localizações desejadas + raio, ou "Aberto a qualquer lugar".
+// WorkLocationsScreen — cidades onde o user quer trabalhar.
+//
+// Mostra a cidade que já cadastrou em LocationScreen (primary, vinda de
+// other_locations) e permite adicionar/remover outras via busca.
+//
+// Busca usa API pública do IBGE (lista oficial de municípios brasileiros,
+// ~5.570 entries). Carrega 1x na primeira abertura, cacheia em memória,
+// filtra client-side conforme o user digita — instantâneo, sem chamadas
+// extras à rede.
+
+import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../services/analytics_service.dart';
@@ -9,6 +21,14 @@ import '../../../profile/domain/entities/entities.dart';
 import '../onboarding_scaffold.dart';
 import 'work_mode_screen.dart';
 
+const _kBorderColor = Color(0xFFE5E7EB);
+const _kLabelColor = Color(0xFF6B7280);
+const _kHintColor = Color(0xFF9CA3AF);
+const _kTextColor = Color(0xFF111827);
+const _kAccent = Color(0xFF00C27A);
+const _kError = Color(0xFFEF4444);
+const _kCardBg = Color(0xFFF9FAFB);
+
 class WorkLocationsScreen extends StatefulWidget {
   const WorkLocationsScreen({super.key});
   @override
@@ -16,33 +36,53 @@ class WorkLocationsScreen extends StatefulWidget {
 }
 
 class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
-  bool _openToAnywhere = false;
   final List<OtherLocation> _locations = [];
 
   @override
   void initState() {
     super.initState();
-    final vm = context.read<PreferencesViewModel>();
-    _locations.addAll(vm.otherLocations);
+    _locations.addAll(context.read<PreferencesViewModel>().otherLocations);
   }
 
   Future<void> _addLocation() async {
-    final result = await showModalBottomSheet<OtherLocation>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (_) => const _AddLocationSheet(),
+    final result = await Navigator.of(context).push<_CitySelection>(
+      MaterialPageRoute(builder: (_) => const _CitySearchScreen()),
     );
     if (result != null) {
-      setState(() => _locations.add(result));
+      // Dedupe por nome+uf
+      final exists = _locations.any((l) =>
+          (l.city?.toLowerCase() ?? '') == result.city.toLowerCase() &&
+          (l.state ?? '') == result.uf);
+      if (!exists) {
+        setState(() {
+          _locations.add(OtherLocation(
+            id: '',
+            userId: Supabase.instance.client.auth.currentUser?.id ?? '',
+            city: result.city,
+            state: result.uf,
+            country: 'BR',
+          ));
+        });
+      }
     }
   }
 
-  void _next() async {
-    AnalyticsService.shared.track('onboarding_preferences_work_locations_completed');
-    final vm = context.read<PreferencesViewModel>();
-    await vm.replaceOtherLocations(_openToAnywhere ? [] : _locations);
+  void _removeLocation(OtherLocation loc) {
+    setState(() => _locations.remove(loc));
+  }
+
+  Future<void> _continue() async {
+    await context.read<PreferencesViewModel>().replaceOtherLocations(_locations);
+    AnalyticsService.shared.track('onboarding_preferences_work_locations_completed',
+        props: {'count': _locations.length, 'skipped': false});
+    if (!mounted) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkModeScreen()));
+  }
+
+  Future<void> _skip() async {
+    await context.read<PreferencesViewModel>().replaceOtherLocations([]);
+    AnalyticsService.shared.track('onboarding_preferences_work_locations_completed',
+        props: {'count': 0, 'skipped': true});
     if (!mounted) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkModeScreen()));
   }
@@ -50,144 +90,390 @@ class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
   @override
   Widget build(BuildContext context) {
     return OnboardingScaffold(
-      title: 'Onde quer trabalhar?',
-      progress: 0.86,
-      onContinue: _next,
-      skipButton: TextButton(onPressed: _next, child: const Text('Pular')),
+      title: 'Onde você quer trabalhar?',
+      subtitle: 'Adicione cidades específicas — ou pule se topa qualquer lugar.',
+      progress: 0.78,
+      onContinue: _locations.isEmpty ? null : _continue,
+      skipButton: _locations.isNotEmpty
+          ? null
+          : TextButton(
+              onPressed: _skip,
+              style: TextButton.styleFrom(foregroundColor: _kLabelColor),
+              child: const Text('Pular etapa'),
+            ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SwitchListTile(
-            title: const Text('Aberto a qualquer lugar', style: TextStyle(fontWeight: FontWeight.w600)),
-            value: _openToAnywhere,
-            activeThumbColor: const Color(0xFF00C27A),
-            onChanged: (v) => setState(() => _openToAnywhere = v),
-          ),
-          if (!_openToAnywhere) ...[
-            const SizedBox(height: 8),
-            ..._locations.map((l) => Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF9FAFB),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFFE5E7EB)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.location_on_outlined, color: Color(0xFF6B7280)),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          [l.city, l.state, l.country].where((s) => s != null && s.isNotEmpty).join(', '),
-                          style: const TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                      ),
-                      Text('${l.radiusKm} km', style: const TextStyle(color: Color(0xFF6B7280))),
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 18),
-                        onPressed: () => setState(() => _locations.remove(l)),
-                      ),
-                    ],
-                  ),
-                )),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.add, color: Color(0xFF00C27A)),
-              label: const Text('Adicionar localização', style: TextStyle(color: Color(0xFF00C27A))),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFF00C27A)),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              onPressed: _addLocation,
-            ),
-          ],
+          ..._locations.map((loc) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _LocationCard(
+                  location: loc,
+                  onRemove: () => _removeLocation(loc),
+                ),
+              )),
+          _AddButton(onTap: _addLocation),
         ],
       ),
     );
   }
 }
 
-class _AddLocationSheet extends StatefulWidget {
-  const _AddLocationSheet();
+class _LocationCard extends StatelessWidget {
+  final OtherLocation location;
+  final VoidCallback onRemove;
+
+  const _LocationCard({required this.location, required this.onRemove});
+
   @override
-  State<_AddLocationSheet> createState() => _AddLocationSheetState();
+  Widget build(BuildContext context) {
+    final state = location.state ?? '';
+    final country = location.country == 'BR' ? 'Brasil' : (location.country ?? '');
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+      decoration: BoxDecoration(
+        color: _kCardBg,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  location.city ?? '',
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: _kTextColor),
+                ),
+                if (state.isNotEmpty || country.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    [state, country].where((s) => s.isNotEmpty).join(', '),
+                    style: const TextStyle(fontSize: 14, color: _kLabelColor),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline_rounded, color: _kError, size: 22),
+            onPressed: onRemove,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-class _AddLocationSheetState extends State<_AddLocationSheet> {
-  final _city = TextEditingController();
-  final _state = TextEditingController();
-  int _radius = 50;
+class _AddButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _AddButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: _kAccent.withValues(alpha: 0.06),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _kAccent, width: 1.5),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 28, height: 28,
+                decoration: const BoxDecoration(shape: BoxShape.circle, color: _kAccent),
+                child: const Icon(Icons.add_rounded, color: Colors.white, size: 18),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Adicionar cidade',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: _kAccent),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Search screen
+// ─────────────────────────────────────────────────────────────────────
+
+class _CitySelection {
+  final String city;
+  final String uf;
+  const _CitySelection({required this.city, required this.uf});
+}
+
+class _IbgeCity {
+  final String name;
+  final String uf;
+  const _IbgeCity({required this.name, required this.uf});
+}
+
+/// Cache em memória da lista de municípios IBGE. ~5.570 entries (~250kb),
+/// fetch único por sessão do app.
+List<_IbgeCity>? _ibgeCache;
+
+class _CitySearchScreen extends StatefulWidget {
+  const _CitySearchScreen();
+  @override
+  State<_CitySearchScreen> createState() => _CitySearchScreenState();
+}
+
+class _CitySearchScreenState extends State<_CitySearchScreen> {
+  final _query = TextEditingController();
+  final _focus = FocusNode();
+
+  List<_IbgeCity> _results = [];
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _query.addListener(_onQueryChanged);
+    _ensureCache();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
+  }
 
   @override
   void dispose() {
-    _city.dispose();
-    _state.dispose();
+    _query.dispose();
+    _focus.dispose();
     super.dispose();
+  }
+
+  Future<void> _ensureCache() async {
+    if (_ibgeCache != null) return;
+    setState(() => _loading = true);
+    try {
+      final res = await http
+          .get(Uri.parse('https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome'))
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode != 200) {
+        setState(() {
+          _error = 'Não consegui carregar a lista de cidades';
+          _loading = false;
+        });
+        return;
+      }
+      final list = jsonDecode(res.body) as List;
+      _ibgeCache = list.map((j) {
+        final m = j as Map<String, dynamic>;
+        final uf = (m['microrregiao']?['mesorregiao']?['UF']?['sigla'] as String?) ?? '';
+        return _IbgeCity(name: m['nome'] as String, uf: uf);
+      }).toList();
+      setState(() => _loading = false);
+    } catch (_) {
+      setState(() {
+        _error = 'Erro de conexão. Tente novamente.';
+        _loading = false;
+      });
+    }
+  }
+
+  void _onQueryChanged() {
+    final q = _query.text.trim().toLowerCase();
+    if (q.isEmpty) {
+      setState(() => _results = []);
+      return;
+    }
+    final cache = _ibgeCache;
+    if (cache == null) return;
+    // Normaliza acentos pra match tolerante: "sao paulo" pega "São Paulo"
+    final normalized = _stripAccents(q);
+    final matches = <_IbgeCity>[];
+    for (final c in cache) {
+      final cityNorm = _stripAccents(c.name.toLowerCase());
+      if (cityNorm.startsWith(normalized) || cityNorm.contains(' $normalized')) {
+        matches.add(c);
+        if (matches.length >= 30) break;
+      }
+    }
+    // Se não achou pelo prefixo, tenta contains genérico
+    if (matches.isEmpty) {
+      for (final c in cache) {
+        final cityNorm = _stripAccents(c.name.toLowerCase());
+        if (cityNorm.contains(normalized)) {
+          matches.add(c);
+          if (matches.length >= 30) break;
+        }
+      }
+    }
+    setState(() => _results = matches);
+  }
+
+  String _stripAccents(String input) {
+    const accents = 'áàâãäåéèêëíìîïóòôõöúùûüçÁÀÂÃÄÅÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ';
+    const replacements = 'aaaaaaeeeeiiiiooooouuuucAAAAAAEEEEIIIIOOOOOUUUUC';
+    final buffer = StringBuffer();
+    for (final char in input.split('')) {
+      final i = accents.indexOf(char);
+      buffer.write(i >= 0 ? replacements[i] : char);
+    }
+    return buffer.toString();
+  }
+
+  void _select(_IbgeCity city) {
+    Navigator.pop(context, _CitySelection(city: city.name, uf: city.uf));
   }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 20, right: 20, top: 20,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildSearchHeader(),
+            Expanded(child: _buildBody()),
+          ],
+        ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+    );
+  }
+
+  Widget _buildSearchHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 20, 12),
+      child: Row(
         children: [
-          TextField(
-            controller: _city,
-            decoration: const InputDecoration(labelText: 'Cidade', border: OutlineInputBorder()),
+          IconButton(
+            onPressed: () => Navigator.pop(context),
+            icon: const Icon(Icons.arrow_back_rounded, color: _kTextColor),
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _state,
-            decoration: const InputDecoration(labelText: 'Estado', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              const Text('Raio: '),
-              Expanded(
-                child: Slider(
-                  value: _radius.toDouble(),
-                  min: 5, max: 200, divisions: 39,
-                  label: '$_radius km',
-                  activeColor: const Color(0xFF00C27A),
-                  onChanged: (v) => setState(() => _radius = v.toInt()),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              decoration: BoxDecoration(
+                color: _kCardBg,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: TextField(
+                controller: _query,
+                focusNode: _focus,
+                style: const TextStyle(fontSize: 17, color: _kTextColor),
+                decoration: const InputDecoration(
+                  hintText: 'Digite uma cidade',
+                  hintStyle: TextStyle(color: _kHintColor, fontWeight: FontWeight.w500),
+                  border: InputBorder.none,
+                  isDense: true,
                 ),
               ),
-              Text('$_radius km'),
-            ],
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 48, width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _city.text.isEmpty
-                  ? null
-                  : () {
-                      Navigator.pop(
-                        context,
-                        OtherLocation(
-                          id: '',
-                          userId: Supabase.instance.client.auth.currentUser?.id ?? '',
-                          city: _city.text.trim(),
-                          state: _state.text.trim().isEmpty ? null : _state.text.trim(),
-                          country: 'BR',
-                          radiusKm: _radius,
-                        ),
-                      );
-                    },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF00C27A),
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Adicionar'),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading && _ibgeCache == null) {
+      return const Center(
+        child: CircularProgressIndicator(color: _kAccent, strokeWidth: 2.5),
+      );
+    }
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(40),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.cloud_off_rounded, color: _kHintColor, size: 48),
+              const SizedBox(height: 12),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: _kLabelColor, fontSize: 14),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: () {
+                  setState(() => _error = null);
+                  _ensureCache();
+                },
+                child: const Text('Tentar de novo'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (_query.text.trim().isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(40),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: const [
+              Icon(Icons.search_rounded, color: _kHintColor, size: 56),
+              SizedBox(height: 12),
+              Text(
+                'Comece a digitar pra buscar',
+                style: TextStyle(color: _kLabelColor, fontSize: 15),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (_results.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(40),
+          child: Text(
+            'Nenhuma cidade encontrada',
+            style: TextStyle(color: _kLabelColor.withValues(alpha: 0.9), fontSize: 14),
+          ),
+        ),
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      itemCount: _results.length,
+      separatorBuilder: (_, _) => const Divider(height: 1, color: _kBorderColor),
+      itemBuilder: (_, i) {
+        final c = _results[i];
+        return InkWell(
+          onTap: () => _select(c),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        c.name,
+                        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: _kTextColor),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${c.uf}, Brasil',
+                        style: const TextStyle(fontSize: 14, color: _kLabelColor),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.near_me_outlined, color: _kHintColor, size: 20),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

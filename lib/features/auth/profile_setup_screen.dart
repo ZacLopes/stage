@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:provider/provider.dart';
 import '../../core/analytics/screen_tracking.dart';
 import '../../core/constants/stage_colors.dart';
 import '../../services/analytics_service.dart';
 import 'user_viewmodel.dart';
 import '../../core/widgets/pii_mask.dart';
+import '../onboarding/presentation/two_doors_screen.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
   const ProfileSetupScreen({super.key});
@@ -62,6 +64,27 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
     final rawName = (vm.user?.name ?? '').trim();
     final cleanName = rawName.toLowerCase() == 'user' ? '' : rawName;
     _nameController = TextEditingController(text: cleanName);
+
+    // Profile-first (Semana 2): se feature flag `new_onboarding_enabled` está
+    // on, pula ProfileSetupScreen e vai direto pra TwoDoorsScreen. Nome/telefone/
+    // email serão coletados nas 7 perguntas mascarando latência do novo fluxo.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Analytics.shared.identifyIfLoggedIn();
+      try {
+        await Posthog().reloadFeatureFlags();
+      } catch (e) {
+        debugPrint('[ProfileSetupScreen] reloadFeatureFlags failed: $e');
+      }
+      final flag = await Analytics.shared.getFlag('new_onboarding_enabled');
+      debugPrint('[ProfileSetupScreen] new_onboarding_enabled = $flag');
+      if (!mounted) return;
+      if (flag == 'true') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const TwoDoorsScreen()),
+        );
+      }
+    });
   }
 
   @override

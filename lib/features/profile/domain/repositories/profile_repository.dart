@@ -62,6 +62,10 @@ abstract class ProfileRepository {
   Future<Project> addProject(Project project);
   Future<Project> updateProject(Project project);
   Future<void> deleteProject(String id);
+  Future<ProjectBullet> addProjectBullet(ProjectBullet bullet);
+  Future<ProjectBullet> updateProjectBullet(ProjectBullet bullet);
+  Future<void> deleteProjectBullet(String bulletId);
+  Future<void> reorderProjectBullets(String projectId, List<String> orderedIds);
 
   Future<List<Interest>> getInterests(String userId);
   Future<void> replaceInterests(String userId, List<String> names);

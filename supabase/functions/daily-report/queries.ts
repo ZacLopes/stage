@@ -705,6 +705,106 @@ export async function fetchHealthBlock(
 }
 
 // ============================================================================
+// BLOCO 2.5 — Retenção (D-1)
+// ============================================================================
+//
+// Três métricas de retenção lidas em conjunto:
+//
+// 1. D1 retention dos novos: dos usuários cadastrados em D-2, quantos voltaram
+//    em D-1 (1+ swipe). É o KPI clássico de early-stage.
+// 2. % DAU recorrente: dos ativos de ontem, quantos NÃO se cadastraram ontem
+//    (já tinham conta). Mostra se a base ativa é nova ou fiel.
+// 3. Stickiness (DAU/MAU): % do MAU (últimos 30d) que esteve ativo ontem.
+
+export interface RetentionBlock {
+  /// D1 retention dos cadastros de D-2.
+  d2Signups: number
+  d2SignupsReturnedD1: number
+  d1RetentionRate: number
+
+  /// DAU recorrente vs estreante.
+  dau: number
+  dauNewToday: number
+  dauReturning: number
+  returningDauRate: number
+
+  /// Stickiness DAU/MAU.
+  mau: number
+  stickiness: number
+}
+
+export async function fetchRetentionBlock(
+  sb: SupabaseClient,
+  win: ReportWindow,
+): Promise<RetentionBlock> {
+  // Janela de 30d terminando no fim de ontem.
+  const mauStartIso = new Date(
+    new Date(win.yesterday.endISO).getTime() - 30 * 24 * 3600 * 1000,
+  ).toISOString()
+
+  const [d2SignupsRes, d1SignupsRes, yesterdaySwipesRes, monthSwipesRes] = await Promise.all([
+    sb
+      .from('user_profiles')
+      .select('id')
+      .gte('created_at', win.dayBefore.startISO)
+      .lt('created_at', win.dayBefore.endISO),
+    sb
+      .from('user_profiles')
+      .select('id')
+      .gte('created_at', win.yesterday.startISO)
+      .lt('created_at', win.yesterday.endISO),
+    sb
+      .from('swipe_actions')
+      .select('user_id')
+      .gte('created_at', win.yesterday.startISO)
+      .lt('created_at', win.yesterday.endISO)
+      .limit(50000),
+    sb
+      .from('swipe_actions')
+      .select('user_id')
+      .gte('created_at', mauStartIso)
+      .lt('created_at', win.yesterday.endISO)
+      .limit(200000),
+  ])
+
+  const d2Ids = new Set((d2SignupsRes.data ?? []).map((r) => r.id).filter(Boolean) as string[])
+  const d1NewIds = new Set((d1SignupsRes.data ?? []).map((r) => r.id).filter(Boolean) as string[])
+
+  const dauSet = new Set<string>()
+  for (const s of yesterdaySwipesRes.data ?? []) {
+    if (s.user_id) dauSet.add(s.user_id as string)
+  }
+
+  const mauSet = new Set<string>()
+  for (const s of monthSwipesRes.data ?? []) {
+    if (s.user_id) mauSet.add(s.user_id as string)
+  }
+
+  let d2Returned = 0
+  for (const uid of d2Ids) {
+    if (dauSet.has(uid)) d2Returned++
+  }
+
+  let dauNew = 0
+  for (const uid of dauSet) {
+    if (d1NewIds.has(uid)) dauNew++
+  }
+  const dauReturning = dauSet.size - dauNew
+
+  return {
+    d2Signups: d2Ids.size,
+    d2SignupsReturnedD1: d2Returned,
+    d1RetentionRate: d2Ids.size > 0 ? d2Returned / d2Ids.size : 0,
+    dau: dauSet.size,
+    dauNewToday: dauNew,
+    dauReturning,
+    returningDauRate: dauSet.size > 0 ? dauReturning / dauSet.size : 0,
+    mau: mauSet.size,
+    stickiness: mauSet.size > 0 ? dauSet.size / mauSet.size : 0,
+  }
+}
+
+// ============================================================================
 // BLOCO SEMANAL (domingo) — totais last7
 // ============================================================================
 

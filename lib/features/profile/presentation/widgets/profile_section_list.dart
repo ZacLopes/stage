@@ -3,8 +3,6 @@
 // Usado em ReviewResumeScreen (Container 1, onboarding) com
 // showLowConfidenceBadges=true e em ProfileEditorScreen (Container 2, aba Perfil)
 // com showLowConfidenceBadges=false.
-//
-// Cada seção tem header com ícone+título+contador e ações `+` (add) e `✎` (edit).
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -15,6 +13,13 @@ import 'add_edit_education_modal.dart';
 import 'add_edit_language_modal.dart';
 import 'add_edit_project_modal.dart';
 import 'edit_list_modal.dart';
+
+const _kBorderColor = Color(0xFFE5E7EB);
+const _kCardBg = Color(0xFFF9FAFB);
+const _kChipBg = Color(0xFFF3F4F6);
+const _kTextColor = Color(0xFF111827);
+const _kMutedText = Color(0xFF6B7280);
+const _kAccent = Color(0xFF00C27A);
 
 class ProfileSectionList extends StatefulWidget {
   /// Se true, destaca campos com confidence < 0.7 com borda amarela. Usado no
@@ -45,7 +50,6 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
     'projects': false,
     'interests': false,
     'awards': false,
-    'coursework': false,
   };
   late bool _showOptional;
 
@@ -69,17 +73,16 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
         _sectionCertifications(vm),
         _sectionInterests(vm),
         _sectionProjects(vm),
-        if (_showOptional) ...[
-          _sectionAwards(vm),
-          _sectionCoursework(vm),
-        ] else
+        if (_showOptional)
+          _sectionAwards(vm)
+        else
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: TextButton.icon(
-              icon: const Icon(Icons.add, color: Color(0xFF00C27A)),
+              icon: const Icon(Icons.add_rounded, color: _kAccent),
               label: const Text(
                 'Adicionar outras seções',
-                style: TextStyle(color: Color(0xFF00C27A)),
+                style: TextStyle(color: _kAccent, fontWeight: FontWeight.w600),
               ),
               onPressed: () => setState(() => _showOptional = true),
             ),
@@ -92,28 +95,30 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
   // Seções específicas
   // ──────────────────────────────────────────────────────────────────────
 
-  Widget _sectionExperiences(ProfileEditorViewModel vm) => _sectionCard(
+  Widget _sectionExperiences(ProfileEditorViewModel vm) => _sectionShell(
         key: 'experiences',
-        icon: Icons.work_outline,
         title: 'Experiência profissional',
         count: vm.experiences.length,
         onAdd: () => _showExperienceModal(context, vm),
         children: vm.experiences.map((e) {
           final lowConfidence = widget.showLowConfidenceBadges &&
               (e.confidence != null && e.confidence! < 0.7);
-          return _itemTile(
+          return _ItemCard(
+            avatarText: e.company,
             title: e.title,
-            subtitle: '${e.company} • ${e.formattedPeriod}',
-            bullets: e.bullets.map((b) => b.text).take(3).toList(),
+            subtitle: e.company,
+            period: e.formattedPeriod,
+            location: e.location,
+            bullets: e.bullets.map((b) => b.text).toList(),
             lowConfidence: lowConfidence,
             onTap: () => _showExperienceModal(context, vm, initial: e),
+            onDelete: () => vm.deleteExperience(e.id),
           );
         }).toList(),
       );
 
-  Widget _sectionEducation(ProfileEditorViewModel vm) => _sectionCard(
+  Widget _sectionEducation(ProfileEditorViewModel vm) => _sectionShell(
         key: 'education',
-        icon: Icons.school_outlined,
         title: 'Educação',
         count: vm.education.length,
         onAdd: () => _showEducationModal(context, vm),
@@ -121,38 +126,61 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
           final lowConfidence = widget.showLowConfidenceBadges &&
               (e.confidence != null && e.confidence! < 0.7);
           final degree = e.degree ?? '';
-          final major = e.majors.isNotEmpty ? e.majors.first.name : '';
-          return _itemTile(
+          final firstMajor = e.majors.isNotEmpty ? e.majors.first.name : '';
+          final subtitle = [degree, firstMajor].where((s) => s.isNotEmpty).join(', ');
+          final details = <_DetailLine>[
+            if (e.majors.length > 1)
+              _DetailLine(
+                label: 'Cursos principais',
+                value: e.majors.map((m) => m.name).join(', '),
+              ),
+            if (e.minors.isNotEmpty)
+              _DetailLine(
+                label: 'Cursos secundários',
+                value: e.minors.map((m) => m.name).join(', '),
+              ),
+            if (e.gpa != null)
+              _DetailLine(label: 'GPA', value: e.gpa!.toStringAsFixed(2)),
+            if (e.activities.isNotEmpty)
+              _DetailLine(
+                label: 'Atividades',
+                value: e.activities.map((a) => a.text).join(', '),
+              ),
+          ];
+          return _ItemCard(
+            avatarText: e.institution,
             title: e.institution,
-            subtitle: [degree, major, e.formattedPeriod]
-                .where((s) => s.isNotEmpty)
-                .join(' • '),
+            subtitle: subtitle.isEmpty ? null : subtitle,
+            period: e.formattedPeriod,
+            location: e.location,
+            details: details,
             lowConfidence: lowConfidence,
             onTap: () => _showEducationModal(context, vm, initial: e),
+            onDelete: () => vm.deleteEducation(e.id),
           );
         }).toList(),
       );
 
-  Widget _sectionLanguages(ProfileEditorViewModel vm) => _sectionCard(
+  Widget _sectionLanguages(ProfileEditorViewModel vm) => _sectionShell(
         key: 'languages',
-        icon: Icons.language_outlined,
         title: 'Idiomas',
         count: vm.languages.length,
         onAdd: () => _showLanguageModal(context, vm),
         children: vm.languages
-            .map((l) => _itemTile(
+            .map((l) => _ItemCard(
+                  avatarText: l.name,
                   title: l.name,
                   subtitle: l.proficiencyLabel,
                   onTap: () => _showLanguageModal(context, vm, initial: l),
+                  onDelete: () => vm.deleteLanguage(l.id),
                 ))
             .toList(),
       );
 
   Widget _sectionSkills(ProfileEditorViewModel vm) {
     final names = vm.skills.map((s) => s.name).toList();
-    return _sectionCard(
+    return _sectionShell(
       key: 'skills',
-      icon: Icons.build_outlined,
       title: 'Skills',
       count: names.length,
       onEdit: () => EditListModal.show(
@@ -162,24 +190,19 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
         initialItems: names,
         onSave: vm.replaceSkills,
       ),
-      children: names.isEmpty
-          ? const []
-          : [_chipList(names)],
+      children: names.isEmpty ? const [] : [_ChipList(items: names)],
     );
   }
 
   Widget _sectionCertifications(ProfileEditorViewModel vm) {
-    // Pra simplificar: usa EditListModal com nomes como string única
-    // (formato: "Nome - Issuer - YYYY"). Modal próprio fica como tech debt.
     final asText = vm.certifications.map((c) {
       final parts = <String>[c.name];
       if (c.issuer != null) parts.add(c.issuer!);
       if (c.date != null) parts.add('${c.date!.year}');
       return parts.join(' - ');
     }).toList();
-    return _sectionCard(
+    return _sectionShell(
       key: 'certifications',
-      icon: Icons.workspace_premium_outlined,
       title: 'Certificações',
       count: asText.length,
       onEdit: () => EditListModal.show(
@@ -188,8 +211,6 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
         inputLabel: 'Certificação (formato: Nome - Instituição - Ano)',
         initialItems: asText,
         onSave: (items) async {
-          // Reaproveita pattern simples: deleta tudo, re-adiciona como nome puro
-          // (issuer/date ficam null nesta versão; modal próprio na Semana 3)
           for (final c in vm.certifications) {
             await vm.deleteCertification(c.id);
           }
@@ -201,15 +222,14 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
           }
         },
       ),
-      children: asText.isEmpty ? const [] : [_chipList(asText)],
+      children: asText.isEmpty ? const [] : [_ChipList(items: asText)],
     );
   }
 
   Widget _sectionInterests(ProfileEditorViewModel vm) {
     final names = vm.interests.map((i) => i.name).toList();
-    return _sectionCard(
+    return _sectionShell(
       key: 'interests',
-      icon: Icons.favorite_outline,
       title: 'Interesses',
       count: names.length,
       onEdit: () => EditListModal.show(
@@ -219,33 +239,60 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
         initialItems: names,
         onSave: vm.replaceInterests,
       ),
-      children: names.isEmpty ? const [] : [_chipList(names)],
+      children: names.isEmpty ? const [] : [_ChipList(items: names)],
     );
   }
 
-  Widget _sectionProjects(ProfileEditorViewModel vm) => _sectionCard(
+  Widget _sectionProjects(ProfileEditorViewModel vm) => _sectionShell(
         key: 'projects',
-        icon: Icons.folder_outlined,
         title: 'Projetos',
         count: vm.projects.length,
         onAdd: () => _showProjectModal(context, vm),
-        children: vm.projects
-            .map((p) => _itemTile(
-                  title: p.name,
-                  subtitle: p.description ?? '',
-                  onTap: () => _showProjectModal(context, vm, initial: p),
-                ))
-            .toList(),
+        children: vm.projects.map((p) {
+          // Subtitle: role + context (ex: "Fundador • Empresa Júnior")
+          final parts = <String>[];
+          if (p.role != null && p.role!.isNotEmpty) parts.add(p.role!);
+          if (p.context != null && p.context!.isNotEmpty) parts.add(p.context!);
+          final subtitle = parts.join(' • ');
+          // Bullets: usa os bullets novos; fallback pro description legado
+          final bullets = p.bullets.isNotEmpty
+              ? p.bullets.map((b) => b.text).toList()
+              : (p.description != null && p.description!.isNotEmpty
+                  ? [p.description!]
+                  : <String>[]);
+          // Period only if at least one date is set
+          final hasPeriod = p.startDate != null || p.endDate != null;
+          return _ItemCard(
+            avatarText: p.name,
+            title: p.name,
+            subtitle: subtitle.isEmpty ? null : subtitle,
+            period: hasPeriod ? _formatProjectPeriod(p) : null,
+            bullets: bullets,
+            onTap: () => _showProjectModal(context, vm, initial: p),
+            onDelete: () => vm.deleteProject(p.id),
+          );
+        }).toList(),
       );
+
+  String _formatProjectPeriod(Project p) {
+    const months = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    String fmt(DateTime? d) =>
+        d == null ? '' : '${months[d.month]} ${d.year}';
+    final start = fmt(p.startDate);
+    final end = p.isCurrent ? 'Atual' : fmt(p.endDate);
+    if (start.isEmpty && end.isEmpty) return '';
+    if (start.isEmpty) return end;
+    if (end.isEmpty) return start;
+    return '$start - $end';
+  }
 
   Widget _sectionAwards(ProfileEditorViewModel vm) {
     final names = vm.awards.map((a) {
       if (a.date != null) return '${a.name} (${a.date!.year})';
       return a.name;
     }).toList();
-    return _sectionCard(
+    return _sectionShell(
       key: 'awards',
-      icon: Icons.emoji_events_outlined,
       title: 'Prêmios',
       count: names.length,
       onEdit: () => EditListModal.show(
@@ -263,25 +310,7 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
           }
         },
       ),
-      children: names.isEmpty ? const [] : [_chipList(names)],
-    );
-  }
-
-  Widget _sectionCoursework(ProfileEditorViewModel vm) {
-    final names = vm.coursework.map((c) => c.name).toList();
-    return _sectionCard(
-      key: 'coursework',
-      icon: Icons.menu_book_outlined,
-      title: 'Cursos relevantes',
-      count: names.length,
-      onEdit: () => EditListModal.show(
-        context: context,
-        title: 'Editar cursos',
-        inputLabel: 'Curso',
-        initialItems: names,
-        onSave: vm.replaceCoursework,
-      ),
-      children: names.isEmpty ? const [] : [_chipList(names)],
+      children: names.isEmpty ? const [] : [_ChipList(items: names)],
     );
   }
 
@@ -299,9 +328,6 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
         } else {
           await vm.updateExperience(exp);
         }
-        // Bullets: replace simples — deleta atuais e re-adiciona.
-        // (Aprovamos design defensivo na Semana 1: granular per-modal não vale o esforço extra.)
-        // Aqui fica simplificado.
       },
       onDelete: initial == null ? null : () => vm.deleteExperience(initial.id),
     );
@@ -312,7 +338,6 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
       context: ctx,
       initial: initial,
       onSave: (edu, majors, minors, activities) async {
-        // Constrói education completa incluindo filhas
         final completeEdu = edu.copyWith(
           majors: majors.asMap().entries.map((e) => EducationMajor(
                 id: 'temp_${e.key}', educationId: edu.id, name: e.value, orderIndex: e.key,
@@ -368,9 +393,8 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
   // UI helpers
   // ──────────────────────────────────────────────────────────────────────
 
-  Widget _sectionCard({
+  Widget _sectionShell({
     required String key,
-    required IconData icon,
     required String title,
     required int count,
     VoidCallback? onAdd,
@@ -378,166 +402,405 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
     required List<Widget> children,
   }) {
     final isExpanded = _expanded[key] ?? false;
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 0,
-      color: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: Color(0xFFE5E7EB)),
-      ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => setState(() => _expanded[key] = !isExpanded),
+          _SectionHeader(
+            title: title,
+            count: count,
+            isExpanded: isExpanded,
+            onToggle: () => setState(() => _expanded[key] = !isExpanded),
+            onAdd: onAdd,
+            onEdit: onEdit,
+          ),
+          if (isExpanded && children.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ...children,
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final int count;
+  final bool isExpanded;
+  final VoidCallback onToggle;
+  final VoidCallback? onAdd;
+  final VoidCallback? onEdit;
+
+  const _SectionHeader({
+    required this.title,
+    required this.count,
+    required this.isExpanded,
+    required this.onToggle,
+    this.onAdd,
+    this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: InkWell(
+            onTap: onToggle,
+            borderRadius: BorderRadius.circular(6),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
                 children: [
-                  Icon(icon, color: const Color(0xFF6B7280), size: 22),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: RichText(
-                      text: TextSpan(
-                        style: const TextStyle(color: Colors.black, fontSize: 15, fontWeight: FontWeight.w600),
-                        children: [
-                          TextSpan(text: title),
-                          if (count > 0)
-                            TextSpan(
-                              text: '  ($count)',
-                              style: const TextStyle(
-                                color: Color(0xFF6B7280),
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                        ],
+                  Flexible(
+                    child: Text(
+                      title,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: _kTextColor,
                       ),
                     ),
                   ),
-                  if (onAdd != null)
-                    IconButton(
-                      icon: const Icon(Icons.add, color: Color(0xFF00C27A)),
-                      onPressed: onAdd,
+                  const SizedBox(width: 6),
+                  Text(
+                    '($count)',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: _kMutedText,
                     ),
-                  if (onEdit != null)
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 20, color: Color(0xFF6B7280)),
-                      onPressed: onEdit,
-                    ),
+                  ),
+                  const SizedBox(width: 4),
                   Icon(
-                    isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                    color: const Color(0xFF6B7280),
+                    isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                    color: _kMutedText,
+                    size: 22,
                   ),
                 ],
               ),
             ),
           ),
-          if (isExpanded && children.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-              child: Column(children: children),
-            ),
-        ],
+        ),
+        if (onAdd != null)
+          _SquareIconButton(icon: Icons.add_rounded, onTap: onAdd!)
+        else if (onEdit != null)
+          _SquareIconButton(icon: Icons.edit_outlined, onTap: onEdit!),
+      ],
+    );
+  }
+}
+
+class _SquareIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _SquareIconButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: _kChipBg,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: SizedBox(
+          width: 40,
+          height: 40,
+          child: Icon(icon, color: _kTextColor, size: 22),
+        ),
       ),
     );
   }
+}
 
-  Widget _itemTile({
-    required String title,
-    required String subtitle,
-    List<String> bullets = const [],
-    bool lowConfidence = false,
-    required VoidCallback onTap,
-  }) {
+class _DetailLine {
+  final String label;
+  final String value;
+  const _DetailLine({required this.label, required this.value});
+}
+
+/// Card de item (experiência, educação, etc.). Avatar quadrado com inicial,
+/// texto estruturado em linhas, bullets com "Mostrar mais (N)" e menu "...".
+class _ItemCard extends StatefulWidget {
+  final String avatarText;
+  final String title;
+  final String? subtitle;
+  final String? period;
+  final String? location;
+  final List<String> bullets;
+  final List<_DetailLine> details;
+  final bool lowConfidence;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  const _ItemCard({
+    required this.avatarText,
+    required this.title,
+    required this.onTap,
+    required this.onDelete,
+    this.subtitle,
+    this.period,
+    this.location,
+    this.bullets = const [],
+    this.details = const [],
+    this.lowConfidence = false,
+  });
+
+  @override
+  State<_ItemCard> createState() => _ItemCardState();
+}
+
+class _ItemCardState extends State<_ItemCard> {
+  static const _initialBulletLimit = 1;
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleBullets = _expanded
+        ? widget.bullets
+        : widget.bullets.take(_initialBulletLimit).toList();
+    final hiddenCount = widget.bullets.length - visibleBullets.length;
+    final letter = widget.avatarText.trim().isEmpty
+        ? '?'
+        : widget.avatarText.trim()[0].toUpperCase();
+
     return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF9FAFB),
-        borderRadius: BorderRadius.circular(8),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: lowConfidence ? Colors.amber.shade600 : Colors.transparent,
-          width: lowConfidence ? 1.5 : 0,
+          color: widget.lowConfidence ? Colors.amber.shade600 : _kBorderColor,
+          width: widget.lowConfidence ? 1.5 : 1,
         ),
       ),
       child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    title,
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                  ),
-                ),
-                if (lowConfidence)
+        onTap: widget.onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    width: 44,
+                    height: 44,
                     decoration: BoxDecoration(
-                      color: Colors.amber.shade100,
-                      borderRadius: BorderRadius.circular(4),
+                      color: _kCardBg,
+                      borderRadius: BorderRadius.circular(10),
                     ),
+                    alignment: Alignment.center,
                     child: Text(
-                      'Confirme',
-                      style: TextStyle(
-                        color: Colors.amber.shade900,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
+                      letter,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: _kTextColor,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: _kTextColor,
+                            height: 1.25,
+                          ),
+                        ),
+                        if (widget.subtitle != null && widget.subtitle!.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              widget.subtitle!,
+                              style: const TextStyle(fontSize: 14, color: _kMutedText),
+                            ),
+                          ),
+                        if (widget.period != null && widget.period!.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              widget.period!,
+                              style: const TextStyle(fontSize: 13, color: _kMutedText),
+                            ),
+                          ),
+                        if (widget.location != null && widget.location!.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              widget.location!,
+                              style: const TextStyle(fontSize: 13, color: _kMutedText),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  _ItemMenuButton(onEdit: widget.onTap, onDelete: widget.onDelete),
+                ],
+              ),
+              if (widget.bullets.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                ...visibleBullets.map((b) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(top: 6, right: 8),
+                            child: Icon(Icons.circle, size: 4, color: _kMutedText),
+                          ),
+                          Expanded(
+                            child: Text(
+                              b,
+                              style: const TextStyle(fontSize: 14, color: _kTextColor, height: 1.4),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )),
+                if (hiddenCount > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: GestureDetector(
+                      onTap: () => setState(() => _expanded = true),
+                      behavior: HitTestBehavior.opaque,
+                      child: Text(
+                        'Mostrar mais ($hiddenCount)',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: _kMutedText,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                   ),
               ],
-            ),
-            if (subtitle.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(
-                  subtitle,
-                  style: const TextStyle(color: Color(0xFF6B7280), fontSize: 12),
-                ),
-              ),
-            if (bullets.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: bullets
-                      .map((b) => Padding(
-                            padding: const EdgeInsets.only(bottom: 2),
-                            child: Text(
-                              '• $b',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 12, color: Color(0xFF4B5563)),
+              if (widget.details.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                ...widget.details.map((d) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text.rich(
+                        TextSpan(
+                          style: const TextStyle(fontSize: 14, color: _kTextColor),
+                          children: [
+                            TextSpan(
+                              text: '${d.label}: ',
+                              style: const TextStyle(color: _kMutedText),
                             ),
-                          ))
-                      .toList(),
+                            TextSpan(text: d.value),
+                          ],
+                        ),
+                      ),
+                    )),
+              ],
+              if (widget.lowConfidence) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade100,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    'Confirme',
+                    style: TextStyle(
+                      color: Colors.amber.shade900,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
-              ),
-          ],
+              ],
+            ],
+          ),
         ),
       ),
     );
   }
+}
 
-  Widget _chipList(List<String> items) {
+class _ItemMenuButton extends StatelessWidget {
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const _ItemMenuButton({required this.onEdit, required this.onDelete});
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_horiz_rounded, color: _kMutedText, size: 22),
+      padding: EdgeInsets.zero,
+      tooltip: '',
+      onSelected: (v) {
+        if (v == 'edit') onEdit();
+        if (v == 'delete') onDelete();
+      },
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      itemBuilder: (_) => [
+        const PopupMenuItem(
+          value: 'edit',
+          child: Row(
+            children: [
+              Icon(Icons.edit_outlined, size: 18, color: _kTextColor),
+              SizedBox(width: 10),
+              Text('Editar'),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'delete',
+          child: Row(
+            children: [
+              Icon(Icons.delete_outline_rounded, size: 18, color: Colors.red.shade600),
+              const SizedBox(width: 10),
+              Text('Excluir', style: TextStyle(color: Colors.red.shade600)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChipList extends StatelessWidget {
+  final List<String> items;
+  const _ChipList({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(top: 4),
       child: Wrap(
-        spacing: 6, runSpacing: 6,
-        children: items
-            .map((s) => Chip(
-                  label: Text(s, style: const TextStyle(fontSize: 12)),
-                  backgroundColor: const Color(0xFFF3F4F6),
-                  side: const BorderSide(color: Color(0xFFE5E7EB)),
-                  visualDensity: VisualDensity.compact,
-                ))
-            .toList(),
+        spacing: 8,
+        runSpacing: 8,
+        children: items.map((s) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: _kChipBg,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              s,
+              style: const TextStyle(fontSize: 14, color: _kTextColor, fontWeight: FontWeight.w500),
+            ),
+          );
+        }).toList(),
       ),
     );
   }

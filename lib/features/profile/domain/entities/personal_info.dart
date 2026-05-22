@@ -22,6 +22,7 @@ class PersonalInfo {
   final String? summary;
   final Gender? gender;
   final AgeRange? ageRange;
+  final DateTime? dateOfBirth;
   final String? locationCountry;
   final String? locationState;
   final String? locationCity;
@@ -44,6 +45,7 @@ class PersonalInfo {
     this.summary,
     this.gender,
     this.ageRange,
+    this.dateOfBirth,
     this.locationCountry,
     this.locationState,
     this.locationCity,
@@ -84,6 +86,7 @@ class PersonalInfo {
       'summary': summary,
       'gender': _genderToDb(gender),
       'age_range': _ageRangeToDb(ageRange),
+      'date_of_birth': _dateOnlyToDb(dateOfBirth),
       'location_country': locationCountry,
       'location_state': locationState,
       'location_city': locationCity,
@@ -109,6 +112,7 @@ class PersonalInfo {
       summary: map['summary'] as String?,
       gender: _genderFromDb(map['gender'] as String?),
       ageRange: _ageRangeFromDb(map['age_range'] as String?),
+      dateOfBirth: _dateOnlyFromDb(map['date_of_birth']),
       locationCountry: map['location_country'] as String?,
       locationState: map['location_state'] as String?,
       locationCity: map['location_city'] as String?,
@@ -137,6 +141,7 @@ class PersonalInfo {
     String? summary,
     Gender? gender,
     AgeRange? ageRange,
+    DateTime? dateOfBirth,
     String? locationCountry,
     String? locationState,
     String? locationCity,
@@ -159,6 +164,7 @@ class PersonalInfo {
       summary: summary ?? this.summary,
       gender: gender ?? this.gender,
       ageRange: ageRange ?? this.ageRange,
+      dateOfBirth: dateOfBirth ?? this.dateOfBirth,
       locationCountry: locationCountry ?? this.locationCountry,
       locationState: locationState ?? this.locationState,
       locationCity: locationCity ?? this.locationCity,
@@ -236,4 +242,41 @@ ProfileSource? _profileSourceFromDb(String? s) {
     case 'mixed': return ProfileSource.mixed;
     default: return null;
   }
+}
+
+// Postgres DATE: YYYY-MM-DD. Não inclui timezone — usamos a parte UTC
+// pra evitar drift por fuso (uma data de nascimento é um dia civil, não
+// um instante).
+String? _dateOnlyToDb(DateTime? d) {
+  if (d == null) return null;
+  final y = d.year.toString().padLeft(4, '0');
+  final m = d.month.toString().padLeft(2, '0');
+  final day = d.day.toString().padLeft(2, '0');
+  return '$y-$m-$day';
+}
+
+DateTime? _dateOnlyFromDb(Object? v) {
+  if (v == null) return null;
+  if (v is DateTime) return v;
+  final s = v.toString();
+  return DateTime.tryParse(s);
+}
+
+/// Deriva [AgeRange] a partir da data de nascimento. Usa idade em anos
+/// completos no momento da chamada. Retorna null se [dob] for null ou no futuro.
+AgeRange? ageRangeFromDate(DateTime? dob, {DateTime? now}) {
+  if (dob == null) return null;
+  final ref = now ?? DateTime.now();
+  if (dob.isAfter(ref)) return null;
+  var age = ref.year - dob.year;
+  final hadBirthdayThisYear = (ref.month > dob.month) ||
+      (ref.month == dob.month && ref.day >= dob.day);
+  if (!hadBirthdayThisYear) age -= 1;
+  if (age < 18) return AgeRange.under18;
+  if (age <= 24) return AgeRange.age18_24;
+  if (age <= 34) return AgeRange.age25_34;
+  if (age <= 44) return AgeRange.age35_44;
+  if (age <= 54) return AgeRange.age45_54;
+  if (age <= 64) return AgeRange.age55_64;
+  return AgeRange.age65Plus;
 }

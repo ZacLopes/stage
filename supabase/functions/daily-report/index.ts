@@ -20,7 +20,7 @@
 //   CRON_SECRET                   ← já existe
 //   RESEND_API_KEY                ← NOVO
 //   REPORT_EMAIL_FROM             ← NOVO (ex: "Stage <reports@stage-app.com.br>")
-//   REPORT_EMAIL_TO               ← NOVO (ex: "zackourilopes@outlook.com")
+//   REPORT_EMAIL_TO               ← NOVO — lista separada por vírgula (ex: "a@b.com,c@d.com")
 //   NTFY_TOPIC_REPORT             ← NOVO (pode ser o mesmo do signup)
 //   NTFY_HOST                     ← opcional, default "https://ntfy.sh"
 //   POSTHOG_API_KEY               ← opcional, pra captureEvent de telemetria
@@ -39,6 +39,7 @@ import {
   fetchJobsInsertedBlock,
   fetchJobsStockBlock,
   fetchMatchBlock,
+  fetchRetentionBlock,
   fetchUsersBlock,
   fetchUsersTotalBlock,
   fetchWeeklyBlock,
@@ -73,9 +74,19 @@ function isAuthorized(req: Request): boolean {
   return (req.headers.get('Authorization') ?? '').startsWith('Bearer ')
 }
 
-async function sendEmail(html: string, subject: string, to: string): Promise<{ ok: boolean; status: number; body: string }> {
+function parseRecipients(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+}
+
+async function sendEmail(html: string, subject: string, to: string[]): Promise<{ ok: boolean; status: number; body: string }> {
   if (!RESEND_API_KEY) {
     return { ok: false, status: 0, body: 'RESEND_API_KEY not set' }
+  }
+  if (to.length === 0) {
+    return { ok: false, status: 0, body: 'no recipients' }
   }
   const resp = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -85,7 +96,7 @@ async function sendEmail(html: string, subject: string, to: string): Promise<{ o
     },
     body: JSON.stringify({
       from: REPORT_EMAIL_FROM,
-      to: [to],
+      to,
       subject,
       html,
     }),
@@ -129,7 +140,8 @@ serve(async (req) => {
     targetEmail?: string
   }
   const dryRun = body.dryRun === true
-  const targetEmail = body.targetEmail?.trim() || REPORT_EMAIL_TO
+  const targetRaw = body.targetEmail?.trim() || REPORT_EMAIL_TO
+  const targetEmails = parseRecipients(targetRaw)
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -139,11 +151,12 @@ serve(async (req) => {
   const isWeekly = body.weeklyDigest === true || win.isSunday
 
   // Roda tudo em paralelo — independentes entre si.
-  const [usersTotal, users, engagement, jobsInserted, jobsStock, match, cvAdapted, health, weekly] =
+  const [usersTotal, users, engagement, retention, jobsInserted, jobsStock, match, cvAdapted, health, weekly] =
     await Promise.all([
       fetchUsersTotalBlock(supabase),
       fetchUsersBlock(supabase, win),
       fetchEngagementBlock(supabase, win),
+      fetchRetentionBlock(supabase, win),
       fetchJobsInsertedBlock(supabase, win),
       fetchJobsStockBlock(supabase),
       fetchMatchBlock(supabase, win),
@@ -159,6 +172,7 @@ serve(async (req) => {
     usersTotal,
     users,
     engagement,
+    retention,
     jobsInserted,
     jobsStock,
     match,
@@ -186,6 +200,9 @@ serve(async (req) => {
         applies: match.totalApplies,
         dau: engagement.dau,
         cvAdapted: cvAdapted.total,
+        d1Retention: retention.d1RetentionRate,
+        returningDauRate: retention.returningDauRate,
+        stickiness: retention.stickiness,
       },
       ntfy,
       htmlPreview: html.slice(0, 2000) + '...',
@@ -193,13 +210,13 @@ serve(async (req) => {
     })
   }
 
-  if (!targetEmail) {
-    return jsonResponse({ error: 'no_target_email', detail: 'set REPORT_EMAIL_TO env var or pass targetEmail in body' }, 400)
+  if (targetEmails.length === 0) {
+    return jsonResponse({ error: 'no_target_email', detail: 'set REPORT_EMAIL_TO env var (comma-separated) or pass targetEmail in body' }, 400)
   }
 
   // Envia email e ntfy em paralelo — falha de um não bloqueia o outro.
   const [emailResult, ntfyResult] = await Promise.all([
-    sendEmail(html, subject, targetEmail).catch((e) => ({
+    sendEmail(html, subject, targetEmails).catch((e) => ({
       ok: false,
       status: 500,
       body: String(e).slice(0, 300),
@@ -224,6 +241,9 @@ serve(async (req) => {
       applies: match.totalApplies,
       dau: engagement.dau,
       cv_adapted: cvAdapted.total,
+      d1_retention: retention.d1RetentionRate,
+      returning_dau_rate: retention.returningDauRate,
+      stickiness: retention.stickiness,
       email_status: emailResult.status,
       email_ok: emailResult.ok,
       ntfy_status: ntfyResult.status,
@@ -237,7 +257,7 @@ serve(async (req) => {
     isWeekly,
     window: { yesterday: win.yesterday.label, lastWeek: win.lastWeek.label },
     email: {
-      to: targetEmail,
+      to: targetEmails,
       ok: emailResult.ok,
       status: emailResult.status,
       response: emailResult.body,

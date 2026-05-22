@@ -2,6 +2,7 @@
 // mascarando a latência da extração do CV.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../services/analytics_service.dart';
@@ -16,9 +17,7 @@ const _options = [
   'Indicação de amigo',
   'LinkedIn',
   'ChatGPT',
-  'YouTube',
   'X / Twitter',
-  'Reddit',
   'Outro',
 ];
 
@@ -51,7 +50,7 @@ class _AttributionScreenState extends State<AttributionScreen> {
     return OnboardingScaffold(
       title: 'Como nos conheceu?',
       subtitle: 'Ajuda a gente entender de onde você vem.',
-      progress: 0.25,
+      progress: 0.13,
       onContinue: _selected == null ? null : _continue,
       child: Column(
         children: _options.map((opt) {
@@ -59,7 +58,10 @@ class _AttributionScreenState extends State<AttributionScreen> {
           return Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: InkWell(
-              onTap: () => setState(() => _selected = opt),
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _selected = opt);
+              },
               borderRadius: BorderRadius.circular(12),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
