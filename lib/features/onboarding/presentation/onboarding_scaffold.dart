@@ -10,7 +10,7 @@ import 'package:flutter/services.dart' show HapticFeedback;
 const _kBorderColor = Color(0xFFE5E7EB);
 const _kTextColor = Color(0xFF111827);
 const _kMutedText = Color(0xFF6B7280);
-const _kAccent = Color(0xFF00C27A);
+const _kAccent = Color(0xFF29B6D2);
 
 class OnboardingScaffold extends StatelessWidget {
   final String? title;

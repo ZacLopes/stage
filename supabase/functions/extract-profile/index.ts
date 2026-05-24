@@ -165,8 +165,13 @@ function postProcess(data: any): any {
   if (typeof personal.email === 'string') {
     personal.email = personal.email.trim().toLowerCase()
   }
+  // Tier 3.1 (2026-05-24): preservar formatação ORIGINAL do telefone como
+  // veio do CV (ex: "+55 (11) 98216-4700"). Antes destruíamos com
+  // `.replace(/\D/g, '')` — adapt v2 mostrava número feio no PDF adaptado.
+  // Dígitos puros agora ficam em `phone_number_e164` (trigger DB) pra uso
+  // por OneSignal/sync.
   if (typeof personal.phone_number === 'string') {
-    personal.phone_number = personal.phone_number.replace(/\D/g, '')
+    personal.phone_number = personal.phone_number.trim()
   }
   data.personal = personal
 

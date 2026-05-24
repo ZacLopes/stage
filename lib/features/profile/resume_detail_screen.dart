@@ -10,7 +10,7 @@ import '../../data/models/models.dart';
 import '../../services/analytics_service.dart';
 import '../auth/user_viewmodel.dart';
 import '../jobs/pending_adapted_cv_tracker.dart';
-import '../resume/pdf_service.dart';
+import '../resume/services/resume_renderer.dart';
 import '../resume/resume_edit_screen.dart';
 import '../resume/resume_viewmodel.dart';
 import '../resume/widgets/ai_consent_modal.dart';
@@ -84,7 +84,17 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
     setState(() => _isGeneratingPdf = true);
     try {
       final vm = context.read<ResumeViewModel>();
-      await PdfService.generateResume(user, resume, vm.selectedTemplateId);
+      final rendered = await ResumeRenderer.render(
+        userId: user?.id,
+        user: user,
+        fallbackResume: resume,
+        templateId: vm.selectedTemplateId,
+      );
+      final safeName = user?.name ?? 'profissional';
+      await Printing.sharePdf(
+        bytes: rendered.bytes,
+        filename: 'curriculo_${safeName.replaceAll(' ', '_')}.pdf',
+      );
       Analytics.shared.cvExported(templateId: vm.selectedTemplateId);
       // Ciclo completo de export — limpa o banner pendente (F2.5).
       // ignore: unawaited_futures
@@ -296,14 +306,15 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
       // Regenerate off-frame so build doesn't block.
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         try {
-          final bytes = await PdfService.generateResumeBytes(
-            user,
-            resume,
-            vm.selectedTemplateId,
+          final rendered = await ResumeRenderer.render(
+            userId: user?.id,
+            user: user,
+            fallbackResume: resume,
+            templateId: vm.selectedTemplateId,
           );
           if (!mounted) return;
           setState(() {
-            _previewBytes = bytes;
+            _previewBytes = rendered.bytes;
             _isRegeneratingPreview = false;
           });
         } catch (e) {

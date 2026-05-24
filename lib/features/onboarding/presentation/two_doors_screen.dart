@@ -215,7 +215,7 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isRecommended ? const Color(0xFF00C27A) : const Color(0xFFE5E7EB),
+            color: isRecommended ? const Color(0xFF29B6D2) : const Color(0xFFE5E7EB),
             width: isRecommended ? 1.5 : 1,
           ),
         ),
@@ -227,10 +227,10 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF00C27A).withValues(alpha: 0.1),
+                    color: const Color(0xFF29B6D2).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(icon, color: const Color(0xFF00C27A), size: 26),
+                  child: Icon(icon, color: const Color(0xFF29B6D2), size: 26),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -247,7 +247,7 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF00C27A),
+                            color: const Color(0xFF29B6D2),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(

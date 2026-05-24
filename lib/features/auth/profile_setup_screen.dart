@@ -79,7 +79,13 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
       debugPrint('[ProfileSetupScreen] new_onboarding_enabled = $flag');
       if (!mounted) return;
       if (flag == 'true') {
-        Navigator.pushReplacement(
+        // push (NÃO pushReplacement): preserva ProfileSetup/AuthGate na
+        // base da stack. Alinhado com o fix do completion_screen.dart.
+        // Não é estritamente necessário porque OnboardingComplete agora
+        // faz pushAndRemoveUntil(AuthGate, false) — mas mantemos como
+        // defesa em profundidade pra que popUntil em outras telas no
+        // futuro não dependa de AuthGate ter sido removida.
+        Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const TwoDoorsScreen()),
         );

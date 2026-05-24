@@ -35,6 +35,7 @@ import 'features/tutorial/tutorial_overlay.dart';
 import 'services/ai_service.dart';
 import 'services/analytics_service.dart';
 import 'services/facebook_events_service.dart';
+import 'services/feature_flags_service.dart';
 import 'services/notifications_service.dart';
 import 'features/splash/splash_screen.dart';
 import 'features/version/version_gate.dart';
@@ -123,6 +124,13 @@ Future<void> _bootstrap() async {
     await Analytics.shared.init();
     // Dispara o evento "app aberto" no boot — base pra DAU/MAU.
     await Analytics.shared.appOpened();
+  } catch (_) {}
+
+  // Feature flags (Semana 3): pré-carrega tabela `app_feature_flags` pra
+  // que decisões sincrônicas tipo `isEnabledForUser` no render do PDF não
+  // precisem aguardar fetch. Falha silenciosa — sem cache, tudo cai pro v1.
+  try {
+    await FeatureFlagsService.instance.refresh();
   } catch (_) {}
 
   // Hidrata o tracker de "CV adaptado pendente de export" do SharedPreferences

@@ -7,7 +7,7 @@ import '../../data/supabase_repository.dart';
 import '../../services/ai_service.dart';
 import '../../data/models/models.dart';
 import '../../data/local_storage_repository.dart';
-import 'pdf_service.dart';
+import 'services/resume_renderer.dart';
 
 class ToolWithLevel {
   final String name;
@@ -1921,8 +1921,14 @@ class ResumeViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // 1. Generate PDF bytes
-      final bytes = await PdfService.generateResumeBytes(user, _resumeData!, _selectedTemplateId);
+      // 1. Generate PDF bytes (v1/v2 escolhido pelo ResumeRenderer via flag)
+      final rendered = await ResumeRenderer.render(
+        userId: user?.id,
+        user: user,
+        fallbackResume: _resumeData!,
+        templateId: _selectedTemplateId,
+      );
+      final bytes = rendered.bytes;
 
       // 2. Save to Supabase
       await _repository.saveResume(title, bytes);
@@ -1967,7 +1973,13 @@ class ResumeViewModel extends ChangeNotifier {
       }
       final data = _resumeData ?? ResumeData(fullName: user?.name ?? '', email: user?.email ?? '');
       final title = await resolveUniqueTitle(kTrailResumeBaseTitle);
-      final bytes = await PdfService.generateResumeBytes(user, data, _selectedTemplateId);
+      final rendered = await ResumeRenderer.render(
+        userId: user?.id,
+        user: user,
+        fallbackResume: data,
+        templateId: _selectedTemplateId,
+      );
+      final bytes = rendered.bytes;
       // Importante: passamos pelo ProfileViewModel.saveResume (via callback)
       // pra que `savedResumes` seja atualizada — sem isso a aba Perfil mostra
       // a lista stale até pull-to-refresh.

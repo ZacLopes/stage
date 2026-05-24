@@ -12,7 +12,6 @@ import '../../../../services/analytics_service.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
 import '../onboarding_scaffold.dart';
-import '../all_set_screen.dart';
 import '../review_personal_info_screen.dart';
 
 class AgeRangeScreen extends StatefulWidget {
@@ -120,17 +119,7 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
     if (!mounted) return;
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => AllSetScreen(
-          viaPath: 'upload',
-          onContinue: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ReviewPersonalInfoScreen()),
-            );
-          },
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => const ReviewPersonalInfoScreen()),
     );
   }
 
@@ -183,7 +172,7 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
                 borderSide: BorderSide(
                   color: _error != null
                       ? const Color(0xFFEF4444)
-                      : const Color(0xFF00C27A),
+                      : const Color(0xFF29B6D2),
                   width: 1.5,
                 ),
               ),

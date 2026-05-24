@@ -80,7 +80,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                         radius: 28,
                         backgroundColor: const Color(0xFFEEF2FF),
                         child: Text(
-                          user?.name.substring(0, 1).toUpperCase() ?? 'U',
+                          (user?.name.trim().isNotEmpty ?? false)
+                              ? user!.name.trim()[0].toUpperCase()
+                              : 'U',
                           style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5)),
                         ),
                       ),

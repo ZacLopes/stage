@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/stage_colors.dart';
 import '../../../data/models/models.dart' show ResumeCourse, SavedResumeSource;
 import '../../../services/analytics_service.dart';
 import '../../auth/user_viewmodel.dart';
 import '../../profile/profile_viewmodel.dart';
-import '../../resume/pdf_service.dart';
+import '../../resume/services/resume_renderer.dart';
 import '../../resume/resume_viewmodel.dart';
 import '../models/adapted_resume.dart';
 import '../models/job.dart';
@@ -59,6 +60,14 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
   _ViewMode _mode = _ViewMode.adapted;
   bool _isExporting = false;
 
+  // Tier 2.6: PDF binário do CV importado (do saved_resumes Storage).
+  // Mostrado na aba "Original" pra evitar o bug do Syncfusion ("Ci"
+  // inserido em palavras) — o PDF binário não passa por extração textual.
+  // null enquanto carrega ou se Storage não tem arquivo (fallback ao
+  // render do ResumeData legacy).
+  Uint8List? _originalPdfBytes;
+  bool _originalPdfFetchAttempted = false;
+
   @override
   void initState() {
     super.initState();
@@ -73,6 +82,52 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
     _original = widget.originalResumeData ??
         context.read<ResumeViewModel>().resumeData ??
         _aiAdapted;
+    // Dispara fetch do PDF binário do Storage em background. Se sucesso,
+    // a aba "Original" troca pro PDF real. Se falhar, mantém fallback
+    // (render do _original ResumeData via widgets nativos).
+    _fetchOriginalPdfBytes();
+  }
+
+  Future<void> _fetchOriginalPdfBytes() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) {
+        _originalPdfFetchAttempted = true;
+        return;
+      }
+      // Busca o saved_resume mais recente com source='imported' ou 'manual'.
+      // Mesma query usada por backfill_extract_profile.ts.
+      final rows = await Supabase.instance.client
+          .from('saved_resumes')
+          .select('file_path')
+          .eq('user_id', userId)
+          .inFilter('source', ['imported', 'manual'])
+          .order('created_at', ascending: false)
+          .limit(1);
+      if (rows.isNotEmpty) {
+        final filePath = (rows.first as Map)['file_path'] as String?;
+        if (filePath != null && filePath.isNotEmpty) {
+          final bytes = await Supabase.instance.client.storage
+              .from('resumes')
+              .download(filePath);
+          if (mounted) {
+            setState(() {
+              _originalPdfBytes = bytes;
+              _originalPdfFetchAttempted = true;
+            });
+          }
+          return;
+        }
+      }
+    } catch (e) {
+      // Falha silenciosa: aba "Original" cai pro fallback render do
+      // ResumeData. Log só pra debug.
+      // ignore: avoid_print
+      print('[AdaptedResumePreviewScreen] fetch original PDF failed: $e');
+    }
+    if (mounted) {
+      setState(() => _originalPdfFetchAttempted = true);
+    }
   }
 
   /// Substitui o `_current` por um clone com uma mudança específica.
@@ -164,7 +219,14 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
       // depois compartilha. O save substitui o antigo banner persistente
       // ("Seu CV pra X tá pronto") — agora o CV adaptado fica permanente
       // na biblioteca, com source='adapted' pra UI colorir distintamente.
-      final bytes = await PdfService.generateResumeBytes(user, _current, templateId);
+      // ResumeRenderer respeita feature flag templates_v2 + fallback v1.
+      final rendered = await ResumeRenderer.render(
+        userId: user?.id,
+        user: user,
+        fallbackResume: _current,
+        templateId: templateId,
+      );
+      final bytes = rendered.bytes;
 
       final jobTitle = _sanitizeForTitle(widget.job.title);
       final company = _sanitizeForTitle(widget.job.companyName);
@@ -419,13 +481,64 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
   }
 
   Widget _buildBody() {
+    // Tier 2.6: aba "Original" mostra o PDF binário do user direto do
+    // Storage (saved_resumes). Bypassa o ResumeData legacy + Syncfusion
+    // text extraction (que insere "Ci" em palavras). Resultado: aba
+    // "Original" = exatamente o PDF que o user subiu.
+    if (_mode == _ViewMode.original && _originalPdfBytes != null) {
+      return _buildOriginalPdfView(_originalPdfBytes!);
+    }
+    // Fallback: se ainda fetchando OU sem PDF disponível, renderiza
+    // via ResumeData widgets (comportamento legacy).
     final data = _mode == _ViewMode.original ? _original : _current;
     final readOnly = _mode == _ViewMode.original;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+    return Stack(
       children: [
-        _buildResumeCard(data: data, readOnly: readOnly),
+        ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          children: [
+            _buildResumeCard(data: data, readOnly: readOnly),
+          ],
+        ),
+        if (_mode == _ViewMode.original && !_originalPdfFetchAttempted)
+          const Positioned(
+            top: 12,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: SizedBox(
+                height: 16,
+                width: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Color(0xFF29B6D2),
+                ),
+              ),
+            ),
+          ),
       ],
+    );
+  }
+
+  /// Render do PDF original do Storage via PdfPreview do package `printing`.
+  /// Read-only — sem botões de export/print (a tela já tem o botão
+  /// principal "Baixar PDF" pro adaptado).
+  Widget _buildOriginalPdfView(Uint8List bytes) {
+    return Container(
+      color: const Color(0xFFE5E7EB),
+      child: PdfPreview(
+        build: (_) => bytes,
+        useActions: false,
+        canChangeOrientation: false,
+        canChangePageFormat: false,
+        canDebug: false,
+        loadingWidget: const Center(
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: Color(0xFF29B6D2),
+          ),
+        ),
+      ),
     );
   }
 

@@ -82,7 +82,7 @@ InputDecoration _decoration(String hint) => InputDecoration(
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF00C27A), width: 2),
+        borderSide: const BorderSide(color: Color(0xFF29B6D2), width: 2),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
     );

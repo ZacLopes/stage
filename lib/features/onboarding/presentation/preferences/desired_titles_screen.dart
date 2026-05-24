@@ -14,7 +14,7 @@ import 'location_screen.dart';
 const _kBorderColor = Color(0xFFE5E7EB);
 const _kLabelColor = Color(0xFF6B7280);
 const _kTextColor = Color(0xFF111827);
-const _kAccent = Color(0xFF00C27A);
+const _kAccent = Color(0xFF29B6D2);
 const _kChipBg = Color(0xFFF3F4F6);
 
 class _Area {
@@ -52,24 +52,62 @@ class _DesiredTitlesScreenState extends State<DesiredTitlesScreen> {
   @override
   void initState() {
     super.initState();
-    _hydrateFromExistingPrefs();
+    // Fonte primária: user_preferences.areas (115 users com áreas salvas
+    // pós-Semana 2). Fonte secundária: profile_desired_titles legacy
+    // (substring match). Sem o fetch da fonte primária, a tela abre vazia
+    // pros 115 users que já tinham áreas configuradas.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _hydrateFromExistingPrefs();
+    });
   }
 
-  /// Pré-seleciona áreas baseado em desired_titles antigos. Se o user já tinha
-  /// "Analista de Marketing" salvo, infere "Marketing". Substring match
-  /// case-insensitive — perde precisão pra entries que não mapeiam (ex:
-  /// "Software Engineer" não pega "Tecnologia"), mas é melhor que nada.
-  void _hydrateFromExistingPrefs() {
+  Future<void> _hydrateFromExistingPrefs() async {
+    final selected = <String>{};
+
+    // 1. Fonte primária: user_preferences.areas (array de strings que JÁ
+    //    casam exatamente com os labels de _areas — populadas via fluxo de
+    //    job preferences). Match direto, sem heurística.
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId != null) {
+        final row = await Supabase.instance.client
+            .from('user_preferences')
+            .select('areas')
+            .eq('user_id', userId)
+            .maybeSingle();
+        final rawAreas = row?['areas'];
+        if (rawAreas is List) {
+          final validLabels = _areas.map((a) => a.label).toSet();
+          for (final a in rawAreas) {
+            final label = a?.toString() ?? '';
+            if (validLabels.contains(label)) selected.add(label);
+          }
+        }
+      }
+    } catch (_) {
+      // Falha silenciosa — cai pra fonte secundária. Não bloqueia onboarding.
+    }
+
+    // 2. Fonte secundária: profile_desired_titles legacy. Substring match
+    //    pra entries tipo "Analista de Marketing" → "Marketing". Mantido
+    //    pra cobrir users que tinham desired_titles mas não areas em
+    //    user_preferences (edge case raro pós-Semana 2).
+    if (!mounted) return;
     final existing = context.read<PreferencesViewModel>().desiredTitles;
     for (final t in existing) {
       final lower = t.title.toLowerCase();
       for (final area in _areas) {
-        if (_selected.contains(area.label)) continue;
+        if (selected.contains(area.label)) continue;
         if (lower.contains(area.label.toLowerCase())) {
-          _selected.add(area.label);
+          selected.add(area.label);
         }
       }
     }
+
+    if (!mounted || selected.isEmpty) return;
+    setState(() {
+      _selected.addAll(selected);
+    });
   }
 
   void _toggle(String label) {

@@ -55,7 +55,12 @@ class _CompletionScreenState extends State<CompletionScreen>
       if (!mounted) return;
       if (flag == 'true') {
         // TwoDoorsScreen agora é standalone — tem fluxo trail próprio.
-        Navigator.pushReplacement(
+        // push (NÃO pushReplacement): preserva AuthGate na base da stack.
+        // Crítico pro popUntil isFirst do OnboardingComplete cair no
+        // AuthGate (que vai detectar hasCampaign=true e renderizar
+        // HomeScreen). Se usar pushReplacement, AuthGate sai da stack,
+        // TwoDoors vira first route, popUntil cai em TwoDoors → loop.
+        Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const TwoDoorsScreen()),
         );

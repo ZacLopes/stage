@@ -24,6 +24,10 @@
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
 import { captureEvent, trackAIGeneration } from '../_shared/posthog.ts'
+// V2 (Semana 3 Bloco C): path paralelo que lê do schema relacional.
+// Decisão v1/v2 acontece em handleAdaptV2 via feature flag + presença do
+// perfil. Quando retorna null, fall through pro código v1 abaixo.
+import { handleAdaptV2 } from './v2.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -2521,6 +2525,35 @@ serve(async (req) => {
       `rawTextLen=${typeof _imp?.raw_text === 'string' ? _imp.raw_text.length : 0} ` +
       `hasParsed=${!!_imp?.parsed} ` +
       `hasWhoIAm=${!!_gd?.whoIAm?.derived}`)
+
+    // ───────────────────────────────────────────────────────────────────
+    // V2 PATH (Semana 3 Bloco C). Tenta o path profile-first. Retorna
+    // `null` quando feature flag desligada pra este user OU schema
+    // relacional não tem dado suficiente (`profile_personal` ausente, ou
+    // experiences+education vazios). Nesses casos cai pro código v1
+    // abaixo intocado.
+    // ───────────────────────────────────────────────────────────────────
+    try {
+      const v2Resp = await handleAdaptV2({
+        supabaseAdmin,
+        supabaseClient,
+        userId: user.id,
+        userEmail: user.email ?? '',
+        jobId,
+        job,
+        extraSkillsClean,
+        force,
+        fnStart,
+        callOpenAI,
+      })
+      if (v2Resp) {
+        return jsonResponse(v2Resp.body, v2Resp.status)
+      }
+    } catch (e) {
+      // Erro inesperado dentro do v2 não pode quebrar a edge function.
+      // Loga e cai pro v1 — comportamento conservador de rollout.
+      console.error('[adapt-v2] unexpected error, falling back to v1:', (e as Error).message)
+    }
 
     const input = buildInputResume(profileFallback)
     if (!input) {

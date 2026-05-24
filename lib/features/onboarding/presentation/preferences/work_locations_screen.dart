@@ -25,7 +25,7 @@ const _kBorderColor = Color(0xFFE5E7EB);
 const _kLabelColor = Color(0xFF6B7280);
 const _kHintColor = Color(0xFF9CA3AF);
 const _kTextColor = Color(0xFF111827);
-const _kAccent = Color(0xFF00C27A);
+const _kAccent = Color(0xFF29B6D2);
 const _kError = Color(0xFFEF4444);
 const _kCardBg = Color(0xFFF9FAFB);
 

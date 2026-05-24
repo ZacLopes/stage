@@ -56,7 +56,7 @@ class _ReviewResumeScreenState extends State<ReviewResumeScreen> {
         onContinue: null,
         child: const Padding(
           padding: EdgeInsets.symmetric(vertical: 80),
-          child: Center(child: CircularProgressIndicator(color: Color(0xFF00C27A))),
+          child: Center(child: CircularProgressIndicator(color: Color(0xFF29B6D2))),
         ),
       );
     }

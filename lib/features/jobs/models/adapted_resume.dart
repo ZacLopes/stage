@@ -1,5 +1,6 @@
-import '../../../data/models/models.dart' show ResumeCourse;
-import '../../resume/resume_viewmodel.dart' show ResumeData, ExperienceItem, EducationItem;
+import '../../../data/models/models.dart' show ResumeCourse, ResumeLanguage;
+import '../../resume/resume_viewmodel.dart'
+    show ResumeData, ExperienceItem, EducationItem, ToolWithLevel;
 
 /// Resultado da adaptação de currículo pra uma vaga específica.
 ///
@@ -138,15 +139,46 @@ class AdaptedResume {
       );
     }).toList();
 
+    // Education v2 (Tier 1.5): a IA retorna `gpa`, `majors`, `minors`,
+    // `activities` separados. Mapeamos pros campos do template Harvard:
+    //   - gpa            → edu.gpa
+    //   - majors[]       → edu.details (linha de detalhe sob o degree;
+    //                      ex: "Business Admin Major with Finance Minor")
+    //   - minors[]       → entram no details junto pra formar a linha
+    //   - activities[]   → edu.honors (seção "Honras & Distinção Acadêmica")
+    // Backward compat: se v1 só manda `details: string`, usa direto.
     final educationRaw = (json['education'] as List?) ?? const [];
     final education = educationRaw.map((e) {
       final m = Map<String, dynamic>.from(e as Map);
+      final majors = stringList(m['majors']);
+      final minors = stringList(m['minors']);
+      final activities = stringList(m['activities']);
+      final detailsLegacy = m['details']?.toString() ?? '';
+      // Constrói detail line: "Major X with Minor Y". Se v1 (sem majors[]),
+      // usa o `details` cru do GPT. Idioma vem do resume.language.
+      final lang = (json['language']?.toString() ?? 'pt');
+      final isEn = lang.toLowerCase().startsWith('en');
+      String detailLine = detailsLegacy;
+      if (majors.isNotEmpty) {
+        final majorWord = isEn ? 'Major' : 'Major';
+        final minorWord = isEn ? 'Minor' : 'Minor';
+        detailLine = '${majors.join(', ')} $majorWord';
+        if (minors.isNotEmpty) {
+          detailLine += ' ${isEn ? "with" : "com"} ${minors.join(', ')} $minorWord';
+        }
+      }
       return EducationItem(
         degree: m['degree']?.toString() ?? '',
         institution: m['institution']?.toString() ?? '',
         period: m['period']?.toString() ?? '',
-        details: m['details']?.toString() ?? '',
+        details: detailLine,
         location: m['location']?.toString() ?? '',
+        gpa: m['gpa']?.toString() ?? '',
+        // honors recebe as activities joined — template renderiza como
+        // bullet "Honras & Distinção Acadêmica: ...".
+        honors: activities.join('; '),
+        repRole: '',
+        coursework: '',
       );
     }).toList();
 
@@ -159,17 +191,45 @@ class AdaptedResume {
         .map((s) => ResumeCourse(title: s, institution: '', period: ''))
         .toList();
 
+    // Tools v2 (Tier 1.5): GPT retorna `tools: string[]` — separados de
+    // skills técnicas. Mapeamos pra ToolWithLevel sem level (não há
+    // proficiência associada no schema relacional ainda).
+    final tools = stringList(json['tools'])
+        .map((t) => ToolWithLevel(t, ''))
+        .toList();
+
+    // Languages v2 (Tier 1.5): GPT retorna [{name, proficiency}]. Antes
+    // o template renderizava languages como dado opcional vazio. Agora
+    // populado a partir da seção Languages do CV original.
+    final languagesRaw = (json['languages'] as List?) ?? const [];
+    final languages = languagesRaw
+        .whereType<Map>()
+        .map((e) {
+          final m = Map<String, dynamic>.from(e);
+          return ResumeLanguage(
+            language: m['name']?.toString() ?? '',
+            level: m['proficiency']?.toString() ?? '',
+          );
+        })
+        .where((l) => l.language.isNotEmpty)
+        .toList();
+
     return ResumeData(
       fullName: json['fullName']?.toString() ?? '',
       email: json['email']?.toString() ?? '',
       phone: json['phone']?.toString() ?? '',
       linkedin: json['linkedin']?.toString() ?? '',
       location: json['location']?.toString() ?? '',
+      // streetAddress (Tier 1.5) — preserva rua + bairro completo. Template
+      // Harvard mostra na linha de endereço sob o nome.
+      address: json['streetAddress']?.toString() ?? '',
       language: json['language']?.toString() ?? 'pt',
       summary: json['summary']?.toString() ?? '',
       skills: stringList(json['skills']),
+      tools: tools,
       experiences: experiences,
       education: education,
+      languages: languages,
       achievements: stringList(json['achievements']),
       interests: stringList(json['interests']),
       courses: certifications,

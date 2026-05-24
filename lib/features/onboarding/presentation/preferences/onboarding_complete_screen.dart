@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../auth/user_viewmodel.dart';
+import '../../../splash/splash_screen.dart';
 import '../onboarding_scaffold.dart';
 
 class OnboardingCompleteScreen extends StatefulWidget {
@@ -79,9 +80,16 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
     if (widget.onFinish != null) {
       widget.onFinish!();
     } else {
-      // Default: fecha todo o stack. AuthGate (Consumer<UserViewModel>)
-      // detecta hasCampaign=true e re-renderiza HomeScreen automaticamente.
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      // pushAndRemoveUntil(AuthGate, false): força AuthGate como única rota
+      // na stack, ignorando o histórico. Necessário porque algumas telas do
+      // auth flow usam pushReplacement antes de chegar aqui (ex:
+      // profile_setup_screen → TwoDoors), o que remove AuthGate da stack.
+      // popUntil isFirst nessas situações cai numa tela do onboarding em
+      // vez de AuthGate → loop. Reset explícito resolve.
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
+      );
     }
   }
 
@@ -100,10 +108,10 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
               Container(
                 width: 120, height: 120,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF00C27A).withValues(alpha: 0.12),
+                  color: const Color(0xFF29B6D2).withValues(alpha: 0.12),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.celebration, color: Color(0xFF00C27A), size: 64),
+                child: const Icon(Icons.celebration, color: Color(0xFF29B6D2), size: 64),
               ),
               const SizedBox(height: 28),
               const Text(

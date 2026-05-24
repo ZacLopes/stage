@@ -67,11 +67,11 @@ class _AttributionScreenState extends State<AttributionScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? const Color(0xFF00C27A).withValues(alpha: 0.08)
+                      ? const Color(0xFF29B6D2).withValues(alpha: 0.08)
                       : Colors.white,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: isSelected ? const Color(0xFF00C27A) : const Color(0xFFE5E7EB),
+                    color: isSelected ? const Color(0xFF29B6D2) : const Color(0xFFE5E7EB),
                     width: isSelected ? 1.5 : 1,
                   ),
                 ),
@@ -82,11 +82,11 @@ class _AttributionScreenState extends State<AttributionScreen> {
                         opt,
                         style: TextStyle(
                           fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                          color: isSelected ? const Color(0xFF00C27A) : Colors.black87,
+                          color: isSelected ? const Color(0xFF29B6D2) : Colors.black87,
                         ),
                       ),
                     ),
-                    if (isSelected) const Icon(Icons.check_circle, color: Color(0xFF00C27A)),
+                    if (isSelected) const Icon(Icons.check_circle, color: Color(0xFF29B6D2)),
                   ],
                 ),
               ),

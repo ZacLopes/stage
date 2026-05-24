@@ -67,12 +67,12 @@ class _ExtractionInProgressScreenState extends State<ExtractionInProgressScreen>
                   width: 120,
                   height: 120,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF00C27A).withValues(alpha: 0.1),
+                    color: const Color(0xFF29B6D2).withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
                     Icons.check_circle_outline,
-                    color: Color(0xFF00C27A),
+                    color: Color(0xFF29B6D2),
                     size: 64,
                   ),
                 ),

@@ -59,6 +59,7 @@ export const PROFILE_JSON_SCHEMA = {
           'location_postal_code',
           'location_street_address',
           'linkedin',
+          'website',
         ],
         properties: {
           first_name:              { type: ['string', 'null'] },
@@ -82,6 +83,9 @@ export const PROFILE_JSON_SCHEMA = {
           location_postal_code:    { type: ['string', 'null'] },
           location_street_address: { type: ['string', 'null'] },
           linkedin:                { type: ['string', 'null'] },
+          // Website pessoal/portfólio (Tier 2.3). Coluna profile_personal.website
+          // criada em migration 20260524000000.
+          website:                 { type: ['string', 'null'] },
         },
       },
 
@@ -257,6 +261,8 @@ REGRAS DE EXTRAÇÃO (INVIOLÁVEIS):
 5. first_name e last_name SEMPRE separados. Se o CV traz "João Silva Souza", first_name = "João", last_name = "Silva Souza".
 6. Email: lowercase, trim.
 7. Telefone: separar país (phone_country_code, ex "+55") do número (phone_number, só dígitos ex "11987654321"). Se não houver código de país explícito no CV brasileiro, assuma "+55".
+7b. LinkedIn URL: extraia LITERAL como aparece no CV. Aceita formatos "linkedin.com/in/usuario", "https://linkedin.com/in/usuario", "https://www.linkedin.com/in/usuario", "linkedin.com/in/usuario/" — copie como está, NÃO normalize. Se não houver, null.
+7c. Website pessoal/portfólio: URL do site pessoal do candidato (NÃO LinkedIn, NÃO empresa do candidato). Aceita "github.com/usuario", "usuario.dev", "https://usuario.com", "behance.net/usuario". Copie literal. Se não houver, null.
 8. Idiomas: mapear pra exatamente um dos níveis. "Nativo" → native; "Fluente"/"C2"/"C1" → fluent; "Avançado"/"B2" → advanced; "Intermediário"/"B1" → intermediate; "Básico"/"A1"/"A2" → basic.
 9. Mantenha idioma original do CV (PT ou EN). Não traduza nada.
 10. Skills: extrair só as habilidades explicitamente listadas em "Habilidades"/"Skills"/"Competências". Não inferir de bullets.
@@ -314,9 +320,11 @@ export interface ProfileData {
     phone_country_code?: string | null
     phone_number?: string | null
     linkedin?: string | null
+    website?: string | null
     location_city?: string | null
     location_state?: string | null
     location_country?: string | null
+    location_street_address?: string | null
     summary?: string | null
     headline?: string | null
   }

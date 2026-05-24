@@ -9,7 +9,8 @@ import 'package:provider/provider.dart';
 import '../../../services/ai_service.dart';
 import '../../../services/analytics_service.dart';
 import '../../auth/user_viewmodel.dart';
-import '../../resume/pdf_service.dart';
+import 'package:printing/printing.dart';
+import '../../resume/services/resume_renderer.dart';
 import '../../resume/resume_viewmodel.dart';
 import '../../resume/widgets/import_cv_button.dart';
 import '../models/adapted_resume.dart';
@@ -313,7 +314,17 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
       // 'harvard_ats' (ATS-friendly, seguro pra qualquer recrutador).
       final templateId =
           context.read<ResumeViewModel>().selectedTemplateId;
-      await PdfService.generateResume(user, adapted.effectiveResumeData, templateId);
+      final rendered = await ResumeRenderer.render(
+        userId: user?.id,
+        user: user,
+        fallbackResume: adapted.effectiveResumeData,
+        templateId: templateId,
+      );
+      final safeName = user?.name ?? 'profissional';
+      await Printing.sharePdf(
+        bytes: rendered.bytes,
+        filename: 'curriculo_${safeName.replaceAll(' ', '_')}.pdf',
+      );
       Analytics.shared.cvAdaptationPdfDownloaded(jobId: widget.job.id);
       // Ciclo completo — apaga o pendente do banner (F2.5).
       // ignore: unawaited_futures

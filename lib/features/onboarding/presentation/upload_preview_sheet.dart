@@ -12,8 +12,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
+import '../../../data/models/models.dart' show SavedResumeSource;
 import '../../../services/analytics_service.dart';
 import '../../profile/application/extraction_status_view_model.dart';
+import '../../profile/profile_viewmodel.dart';
 import 'extraction_in_progress_screen.dart';
 
 class UploadPreviewSheet extends StatefulWidget {
@@ -63,13 +65,42 @@ class _UploadPreviewSheetState extends State<UploadPreviewSheet> {
     AnalyticsService.shared.track('onboarding_upload_confirmed', props: {
       'file_size_kb': (widget.pdfBytes.length / 1024).round(),
     });
+
+    // Captura ViewModels ANTES da navegação (context fica inválido após pop).
+    final extractionVM = context.read<ExtractionStatusViewModel>();
+    final profileVM = context.read<ProfileViewModel>();
+
     // Dispara extract-profile em background
-    context.read<ExtractionStatusViewModel>().start(widget.pdfBytes);
+    extractionVM.start(widget.pdfBytes);
+
+    // Salva o PDF na biblioteca em paralelo (Supabase Storage + tabela
+    // saved_resumes). Sem isso, user importa CV no onboarding mas a aba
+    // Perfil mostra biblioteca vazia + a feature de CV adaptado por vaga
+    // não consegue baixar o PDF original pra adaptar.
+    //
+    // Fire-and-forget: falha de upload não bloqueia o fluxo de extração
+    // (user continua pras 7 perguntas). Erro só vai pro debugPrint.
+    _saveResumeInBackground(profileVM);
+
     Navigator.pop(context); // fecha o sheet
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const ExtractionInProgressScreen()),
     );
+  }
+
+  Future<void> _saveResumeInBackground(ProfileViewModel profileVM) async {
+    try {
+      final title = await profileVM.resolveUniqueTitle('Meu Currículo');
+      await profileVM.saveResume(
+        title,
+        widget.pdfBytes,
+        source: SavedResumeSource.imported,
+      );
+      debugPrint('[UploadPreviewSheet] PDF salvo em saved_resumes: $title');
+    } catch (e) {
+      debugPrint('[UploadPreviewSheet] saveResume falhou (não bloqueia): $e');
+    }
   }
 
   @override
@@ -149,7 +180,7 @@ class _UploadPreviewSheetState extends State<UploadPreviewSheet> {
                 child: ElevatedButton(
                   onPressed: _confirming ? null : _confirm,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00C27A),
+                    backgroundColor: const Color(0xFF29B6D2),
                     foregroundColor: Colors.white,
                     disabledBackgroundColor: const Color(0xFFD1D5DB),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -244,7 +275,7 @@ class _PreviewCard extends StatelessWidget {
                         child: const SizedBox(
                           width: 24,
                           height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00C27A)),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF29B6D2)),
                         ),
                       )
                     : Image.memory(

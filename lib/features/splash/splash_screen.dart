@@ -6,9 +6,9 @@ import '../../core/analytics/screen_tracking.dart';
 import '../../core/constants/stage_colors.dart';
 import '../auth/user_viewmodel.dart';
 import '../auth/onboarding_screen.dart';
-import '../auth/profile_setup_screen.dart';
 import '../auth/completion_screen.dart';
 import '../home/home_screen.dart';
+import '../onboarding/presentation/two_doors_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -169,23 +169,37 @@ class AuthGate extends StatelessWidget {
 
         if (viewModel.isLoggedIn) {
           // Roteamento centralizado pós-login. Ordem importa:
-          // 1. needsProfileSetup → ProfileSetupScreen (cobre o caso Apple/Google
+          // 1. hasCampaign=true → HomeScreen (user já finalizou o onboarding,
+          //    novo ou legacy). Tem prioridade porque o novo flow popula
+          //    profile_personal mas NÃO os campos legacy de user_profiles
+          //    (course/semester/university) — sem essa prioridade,
+          //    needsProfileSetup ficaria true pra sempre e AuthGate
+          //    renderizaria ProfileSetupScreen, que pusha TwoDoors → loop.
+          // 2. needsProfileSetup → ProfileSetupScreen (cobre o caso Apple/Google
           //    que pula EmailSignup — coleta nome, idade, telefone, curso,
           //    semestre, universidade). Inclui o caso "Apple sem nome".
-          // 2. !hasCampaign → CompletionScreen (escolher upload CV / trilha).
-          // 3. tudo certo → HomeScreen.
+          //    Pra users do novo flow, esse postFrameCallback que pusha
+          //    TwoDoors é o ponto de entrada do onboarding.
+          // 3. tudo certo (sem campaign mas sem precisar de profile setup) →
+          //    CompletionScreen (escolher upload CV / trilha — legacy flow).
           //
           // Esse Consumer re-roteia automaticamente quando o state muda
-          // (ex: user salva profile → needsProfileSetup vira false → rebuild →
-          // CompletionScreen). Telas filhas NÃO devem fazer push manual —
+          // (ex: user finaliza onboarding → hasCampaign vira true → rebuild →
+          // HomeScreen). Telas filhas NÃO devem fazer push manual —
           // gera GlobalKey duplicada com a HomeScreen que esse Consumer monta.
+          if (viewModel.hasCampaign) {
+            return const HomeScreen();
+          }
           if (viewModel.needsProfileSetup) {
-            return const ProfileSetupScreen();
+            // Pula ProfileSetupScreen (legacy) e vai direto pro novo flow.
+            // Antes: ProfileSetupScreen → postFrameCallback async checava
+            // feature flag → push TwoDoors. Se o flag não retornasse 'true'
+            // (rede lenta, cache PostHog, etc.), o user ficava preso na
+            // tela legacy de 3 passos. Render direto elimina o flash + o
+            // risco de cair no fluxo errado.
+            return const TwoDoorsScreen();
           }
-          if (!viewModel.hasCampaign) {
-            return const CompletionScreen();
-          }
-          return const HomeScreen();
+          return const CompletionScreen();
         } else {
           return const OnboardingScreen();
         }
