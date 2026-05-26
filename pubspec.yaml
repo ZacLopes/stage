@@ -37,7 +37,6 @@ dependencies:
   sqflite: ^2.4.2
   path: ^1.9.1
   provider: ^6.1.5+1
-  google_fonts: ^6.3.2
   flutter_svg: ^2.2.3
   shared_preferences: ^2.5.3
   path_provider: ^2.1.5
@@ -125,55 +124,59 @@ flutter:
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
 
-  # Fontes Outfit (headings) e Inter (body) bundleadas localmente para
-  # eliminar dependência de fonts.gstatic.com em runtime. Antes do bundle,
-  # usuários offline ou com DNS bloqueado viam exceptions
-  # `Failed host lookup: 'fonts.gstatic.com'` e a UI caía em fonte fallback.
-  # Variable fonts cobrem todos os pesos (Thin..Black) em 1 arquivo cada.
-  # Declaramos TODOS os pesos da variable font explicitamente para o Flutter
-  # resolver via axis `wght`. Sem declarar pesos finos (100-400), textos com
-  # fontWeight.w300/w400 caíam em fallback de sistema (visual quebrado em
-  # offline mode + textos finos não-renderizando corretamente).
+  # Fontes Outfit (headings) e Inter (body) bundleadas como arquivos
+  # estáticos por peso. Os .ttf foram gerados a partir das variable fonts
+  # via fontTools (scripts/generate_static_fonts.py) — 9 pesos × 2 famílias.
+  #
+  # Por que estáticos em vez de variable font? O Flutter NÃO acessa o axis
+  # `wght` da variable font automaticamente a partir de `fontWeight:` em
+  # `TextStyle`. Resultado prático: tudo renderiza no peso default
+  # (~Regular), ignorando bold/semibold do código. Arquivos estáticos
+  # eliminam o problema sem precisar de helper/fontVariations no código.
+  #
+  # Bundle size: ~5MB total (Inter ~4.5MB com cobertura latin extended,
+  # Outfit ~500KB). Trade-off aceitável vs offline-first sem regressão
+  # visual.
   fonts:
     - family: Outfit
       fonts:
-        - asset: assets/fonts/Outfit-VariableFont.ttf
+        - asset: assets/fonts/Outfit-Thin.ttf
           weight: 100
-        - asset: assets/fonts/Outfit-VariableFont.ttf
+        - asset: assets/fonts/Outfit-ExtraLight.ttf
           weight: 200
-        - asset: assets/fonts/Outfit-VariableFont.ttf
+        - asset: assets/fonts/Outfit-Light.ttf
           weight: 300
-        - asset: assets/fonts/Outfit-VariableFont.ttf
+        - asset: assets/fonts/Outfit-Regular.ttf
           weight: 400
-        - asset: assets/fonts/Outfit-VariableFont.ttf
+        - asset: assets/fonts/Outfit-Medium.ttf
           weight: 500
-        - asset: assets/fonts/Outfit-VariableFont.ttf
+        - asset: assets/fonts/Outfit-SemiBold.ttf
           weight: 600
-        - asset: assets/fonts/Outfit-VariableFont.ttf
+        - asset: assets/fonts/Outfit-Bold.ttf
           weight: 700
-        - asset: assets/fonts/Outfit-VariableFont.ttf
+        - asset: assets/fonts/Outfit-ExtraBold.ttf
           weight: 800
-        - asset: assets/fonts/Outfit-VariableFont.ttf
+        - asset: assets/fonts/Outfit-Black.ttf
           weight: 900
     - family: Inter
       fonts:
-        - asset: assets/fonts/Inter-VariableFont.ttf
+        - asset: assets/fonts/Inter-Thin.ttf
           weight: 100
-        - asset: assets/fonts/Inter-VariableFont.ttf
+        - asset: assets/fonts/Inter-ExtraLight.ttf
           weight: 200
-        - asset: assets/fonts/Inter-VariableFont.ttf
+        - asset: assets/fonts/Inter-Light.ttf
           weight: 300
-        - asset: assets/fonts/Inter-VariableFont.ttf
+        - asset: assets/fonts/Inter-Regular.ttf
           weight: 400
-        - asset: assets/fonts/Inter-VariableFont.ttf
+        - asset: assets/fonts/Inter-Medium.ttf
           weight: 500
-        - asset: assets/fonts/Inter-VariableFont.ttf
+        - asset: assets/fonts/Inter-SemiBold.ttf
           weight: 600
-        - asset: assets/fonts/Inter-VariableFont.ttf
+        - asset: assets/fonts/Inter-Bold.ttf
           weight: 700
-        - asset: assets/fonts/Inter-VariableFont.ttf
+        - asset: assets/fonts/Inter-ExtraBold.ttf
           weight: 800
-        - asset: assets/fonts/Inter-VariableFont.ttf
+        - asset: assets/fonts/Inter-Black.ttf
           weight: 900
 
   # Bloco original mantido como referência:

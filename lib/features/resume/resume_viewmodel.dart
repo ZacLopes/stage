@@ -131,9 +131,15 @@ class EducationItem {
   final String location;
   // Harvard-style enrichments — all optional
   final String gpa;          // ex: "8.9/10"
-  final String honors;       // ex: "1º colocado em 2 semestres"
+  final String honors;       // legacy single-string — kept pra backward compat
   final String repRole;      // ex: "Representante de turma"
   final String coursework;   // ex: "Finanças Corporativas, Valuation, ..."
+  // Nova representação (Tier 1.2): activities como lista. Cada item é
+  // renderizado como bullet próprio com label semântico ("Honors:", "Class
+  // Representative:", etc). Evita a dup horrível "Honors & Academic
+  // Distinction: Honors and Academic Distinction: Ranked..." quando tudo
+  // era joined com ; no campo honors.
+  final List<String> activities;
 
   EducationItem({
     required this.degree,
@@ -145,6 +151,7 @@ class EducationItem {
     this.honors = '',
     this.repRole = '',
     this.coursework = '',
+    this.activities = const [],
   });
 }
 

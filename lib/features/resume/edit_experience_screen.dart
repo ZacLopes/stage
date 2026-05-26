@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -286,7 +285,7 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
         backgroundColor: Colors.white,
         elevation: 0,
         iconTheme: const IconThemeData(color: Color(0xFF111827)),
-        titleTextStyle: GoogleFonts.inter(
+        titleTextStyle: TextStyle(fontFamily: 'Inter', 
           color: const Color(0xFF111827),
           fontWeight: FontWeight.bold,
           fontSize: 16,
@@ -343,12 +342,12 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
                   children: [
                     Text(
                       'Dados básicos',
-                      style: GoogleFonts.inter(
+                      style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     Text(
                       'Edite organização, cargo, datas e local',
-                      style: GoogleFonts.inter(
+                      style: TextStyle(fontFamily: 'Inter', 
                         fontSize: 12,
                         color: const Color(0xFF6B7280),
                       ),
@@ -412,7 +411,7 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
               Expanded(
                 child: Text(
                   'Bullets aprovados',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),
@@ -480,7 +479,7 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
             padding: const EdgeInsets.only(top: 4),
             child: Text(
               '•',
-              style: GoogleFonts.inter(
+              style: TextStyle(fontFamily: 'Inter', 
                   fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey),
             ),
           ),
@@ -488,7 +487,7 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
           Expanded(
             child: Text(
               b.finalText,
-              style: GoogleFonts.inter(fontSize: 13, height: 1.4),
+              style: TextStyle(fontFamily: 'Inter', fontSize: 13, height: 1.4),
             ),
           ),
           IconButton(

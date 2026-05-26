@@ -1,7 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -112,7 +111,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
           'Remover das salvas?',
-          style: GoogleFonts.outfit(
+          style: TextStyle(fontFamily: 'Outfit', 
             fontSize: 18,
             fontWeight: FontWeight.w700,
             color: StageColors.titleText,
@@ -120,7 +119,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
         ),
         content: Text(
           '"${liked.job.title}" sai daqui e volta a aparecer no feed de vagas.',
-          style: GoogleFonts.inter(
+          style: TextStyle(fontFamily: 'Inter', 
             fontSize: 14,
             color: StageColors.bodyGray,
             height: 1.4,
@@ -131,7 +130,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
             onPressed: () => Navigator.of(ctx).pop(false),
             child: Text(
               'Cancelar',
-              style: GoogleFonts.inter(
+              style: TextStyle(fontFamily: 'Inter', 
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: StageColors.subtitleGray,
@@ -142,7 +141,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
             onPressed: () => Navigator.of(ctx).pop(true),
             child: Text(
               'Remover',
-              style: GoogleFonts.inter(
+              style: TextStyle(fontFamily: 'Inter', 
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
                 color: const Color(0xFFDC2626),
@@ -352,7 +351,7 @@ class _Header extends StatelessWidget {
               children: [
                 Text(
                   'Vagas Salvas',
-                  style: GoogleFonts.outfit(
+                  style: TextStyle(fontFamily: 'Outfit', 
                     fontSize: 26,
                     fontWeight: FontWeight.w700,
                     color: StageColors.titleText,
@@ -363,7 +362,7 @@ class _Header extends StatelessWidget {
                   liked == 0
                       ? 'Acompanhe aqui suas candidaturas'
                       : '$applied aplicada${applied == 1 ? '' : 's'} de $liked salva${liked == 1 ? '' : 's'}',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter', 
                     fontSize: 13,
                     color: StageColors.subtitleGray,
                   ),
@@ -401,7 +400,7 @@ class _StatChip extends StatelessWidget {
         children: [
           Text(
             value,
-            style: GoogleFonts.outfit(
+            style: TextStyle(fontFamily: 'Outfit', 
               fontSize: 18,
               fontWeight: FontWeight.w700,
               color: color,
@@ -409,7 +408,7 @@ class _StatChip extends StatelessWidget {
           ),
           Text(
             label,
-            style: GoogleFonts.inter(
+            style: TextStyle(fontFamily: 'Inter', 
               fontSize: 10,
               color: color,
               fontWeight: FontWeight.w500,
@@ -447,7 +446,7 @@ class _EmptyState extends StatelessWidget {
           Text(
             'Nenhuma vaga salva ainda',
             textAlign: TextAlign.center,
-            style: GoogleFonts.outfit(
+            style: TextStyle(fontFamily: 'Outfit', 
               fontSize: 18,
               fontWeight: FontWeight.w600,
               color: StageColors.titleText,
@@ -457,7 +456,7 @@ class _EmptyState extends StatelessWidget {
           Text(
             'Vá para a aba Vagas e arraste pra direita as que te interessam — elas ficam salvas aqui.',
             textAlign: TextAlign.center,
-            style: GoogleFonts.inter(
+            style: TextStyle(fontFamily: 'Inter', 
               fontSize: 14,
               color: StageColors.subtitleGray,
               height: 1.4,
@@ -548,7 +547,7 @@ class _LikedJobCard extends StatelessWidget {
                           job.title,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.outfit(
+                          style: TextStyle(fontFamily: 'Outfit', 
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
                             color: StageColors.titleText,
@@ -560,7 +559,7 @@ class _LikedJobCard extends StatelessWidget {
                           job.companyName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.inter(
+                          style: TextStyle(fontFamily: 'Inter', 
                             fontSize: 12,
                             color: StageColors.subtitleGray,
                           ),
@@ -670,7 +669,7 @@ class _LogoFallback extends StatelessWidget {
     return Center(
       child: Text(
         initial,
-        style: GoogleFonts.outfit(
+        style: TextStyle(fontFamily: 'Outfit', 
           fontSize: 20,
           fontWeight: FontWeight.w700,
           color: StageColors.brandBlue,
@@ -697,7 +696,7 @@ class _MetaChip extends StatelessWidget {
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.inter(
+            style: TextStyle(fontFamily: 'Inter', 
               fontSize: 11,
               color: StageColors.subtitleGray,
             ),
@@ -769,7 +768,7 @@ class _ActionBtn extends StatelessWidget {
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter', 
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
                     color: fg,
@@ -821,7 +820,7 @@ class _CardMenu extends StatelessWidget {
                 const SizedBox(width: 10),
                 Text(
                   'Remover de salvas',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter', 
                     fontSize: 13.5,
                     fontWeight: FontWeight.w600,
                     color: const Color(0xFFDC2626),
@@ -899,7 +898,7 @@ class _SectionHeader extends StatelessWidget {
           const SizedBox(width: 10),
           Text(
             title,
-            style: GoogleFonts.outfit(
+            style: TextStyle(fontFamily: 'Outfit', 
               fontSize: 15,
               fontWeight: FontWeight.w700,
               color: StageColors.titleText,
@@ -914,7 +913,7 @@ class _SectionHeader extends StatelessWidget {
             ),
             child: Text(
               '$count',
-              style: GoogleFonts.inter(
+              style: TextStyle(fontFamily: 'Inter', 
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
                 color: color,

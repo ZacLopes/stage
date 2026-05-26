@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:posthog_flutter/posthog_flutter.dart';
@@ -50,13 +49,6 @@ void main() {
   // pra crashes (estado pré-fix: 0 exceptions em 7 dias com 1.146 rage clicks).
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
-
-    // Desliga fetch de fontes em runtime. As famílias Outfit e Inter usadas
-    // via `GoogleFonts.outfit()` / `GoogleFonts.inter()` agora resolvem a
-    // partir das variable fonts declaradas em pubspec.yaml (assets/fonts/).
-    // Sem isso, usuários offline ou com DNS bloqueado disparavam
-    // `Failed host lookup: 'fonts.gstatic.com'` (10+ $exceptions em 19-20/mai).
-    GoogleFonts.config.allowRuntimeFetching = false;
 
     FlutterError.onError = (FlutterErrorDetails details) {
       FlutterError.presentError(details);
@@ -262,26 +254,29 @@ class CareerGamificationApp extends StatelessWidget {
         ),
         // Ripple mais clean (sparkle do Material 3) em toques de InkWell.
         splashFactory: InkSparkle.splashFactory,
-        textTheme: GoogleFonts.outfitTextTheme(
-          Theme.of(context).textTheme,
-        ).copyWith(
-          headlineLarge: GoogleFonts.outfit(
+        textTheme: Theme.of(context).textTheme.apply(fontFamily: 'Outfit').copyWith(
+          headlineLarge: const TextStyle(
+            fontFamily: 'Outfit',
             fontWeight: FontWeight.bold,
-            color: const Color(0xFF1F2937),
+            color: Color(0xFF1F2937),
           ),
-          headlineMedium: GoogleFonts.outfit(
+          headlineMedium: const TextStyle(
+            fontFamily: 'Outfit',
             fontWeight: FontWeight.bold,
-            color: const Color(0xFF1F2937),
+            color: Color(0xFF1F2937),
           ),
-          titleLarge: GoogleFonts.outfit(
+          titleLarge: const TextStyle(
+            fontFamily: 'Outfit',
             fontWeight: FontWeight.w600,
-            color: const Color(0xFF1F2937),
+            color: Color(0xFF1F2937),
           ),
-          bodyLarge: GoogleFonts.inter(
-            color: const Color(0xFF374151),
+          bodyLarge: const TextStyle(
+            fontFamily: 'Inter',
+            color: Color(0xFF374151),
           ),
-          bodyMedium: GoogleFonts.inter(
-            color: const Color(0xFF4B5563),
+          bodyMedium: const TextStyle(
+            fontFamily: 'Inter',
+            color: Color(0xFF4B5563),
           ),
         ),
         appBarTheme: const AppBarTheme(
@@ -323,9 +318,10 @@ class CareerGamificationApp extends StatelessWidget {
         snackBarTheme: SnackBarThemeData(
           behavior: SnackBarBehavior.floating,
           backgroundColor: const Color(0xFF1F2937),
-          contentTextStyle: GoogleFonts.inter(
+          contentTextStyle: const TextStyle(
+            fontFamily: 'Inter',
             color: Colors.white,
-            fontSize: 14, 
+            fontSize: 14,
             fontWeight: FontWeight.w500,
           ),
           shape: RoundedRectangleBorder(

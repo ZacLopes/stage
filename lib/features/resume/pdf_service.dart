@@ -1,10 +1,30 @@
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart' as sf;
 
 import '../../data/models/models.dart';
 import 'resume_viewmodel.dart';
+
+/// Tier de renderização do Harvard MCS. Cada tier define um conjunto
+/// específico de CSS (font-size, line-height, margins) e content
+/// adjustments (drop INTERESTS a partir de compact2). Iteramos por
+/// estes tiers até atingir 1 página preenchida com elegância.
+///
+/// Ordem: expanded3 (mais espaçoso) → compact5 (mais apertado).
+enum RenderTier {
+  expanded3, // E3 — 11.5pt, line 1.35, role semibold
+  expanded2, // E2 — 11pt, line 1.3
+  expanded1, // E1 — 10.5pt, line 1.25
+  standard,  // S  — 10pt, line 1.15 (default atual)
+  compact1,  // C1 — 10pt, line 1.1
+  compact2,  // C2 — 10pt, line 1.05, drop INTERESTS
+  compact3,  // C3 — 9.5pt, drop INTERESTS
+  compact4,  // C4 — 9.5pt, line 1.0, drop INTERESTS
+  compact5,  // C5 — 9pt, ultra-tight (último recurso)
+}
 
 class PdfService {
   static Future<void> generateResume(
@@ -48,17 +68,331 @@ class PdfService {
     ResumeData resume,
     String templateId,
   ) async {
-    final html = switch (templateId) {
-      'jakes_resume'     => _buildJakesResumeHtml(user, resume),
-      'forte_foundation' => _buildForteFoundationHtml(user, resume),
-      'one_page_compact' => _buildOnePageHtml(user, resume),
-      _                  => _buildHarvardMcsHtml(user, resume), // default + harvard_ats
-    };
-    return await Printing.convertHtml(
-      html: html,
-      format: PdfPageFormat.a4,
-    );
+    // C3: TODOS os 4 templates agora usam loop adaptativo. Garante 1 página
+    // independente do template escolhido pelo user. Cada template tem seu
+    // próprio `_buildXxxHtml(..., tier: ...)` que aceita RenderTier e
+    // gera CSS dinâmico por tier.
+    return _generateAdaptive(user, resume, templateId);
   }
+
+  /// Loop adaptativo GENÉRICO: renderiza, conta páginas, ajusta tier até atingir
+  /// exatamente 1 página com o tier MAIS ESPAÇOSO possível.
+  ///
+  /// Algoritmo:
+  /// 1. Estima tier inicial baseado em _estimateHarvardMcsLines.
+  /// 2. Renderiza no tier atual + conta páginas via Syncfusion.
+  /// 3. Se cabe (1 página): guarda como melhor candidato e tenta tier mais
+  ///    espaçoso (1 step acima). Se subir não cabe, retorna melhor.
+  /// 4. Se não cabe (>1 página): desce pra tier mais apertado. Se já
+  ///    tínhamos um que cabia, retorna ele (não vai descer mais que
+  ///    necessário). Se nenhum coube ainda, continua descendo.
+  /// 5. C5 é o último recurso — se nem ele caber, retorna 2 páginas com
+  ///    warning (caso patológico raro).
+  ///
+  /// Garantias:
+  /// - NUNCA dropa SUMMARY (regra do Zac)
+  /// - Apenas INTERESTS pode ser dropado (a partir de C2)
+  /// - experiences, education, skills, certs, languages, tools intactos
+  /// - Performance: tipicamente 1-3 renders (~1-3s total)
+  static Future<Uint8List> _generateAdaptive(
+    UserProfile? user,
+    ResumeData resume,
+    String templateId,
+  ) async {
+    // Cobalt Modern tem layout 2-col (sidebar 30%, main 70%). Bullets na
+    // main wrapam mais que nos templates 1-col → estimativa precisa ser
+    // ~30% mais pessimista pro loop começar num tier mais compacto.
+    final estimated = templateId == 'cobalt_modern'
+        ? (_estimateHarvardMcsLines(resume) * 1.3).round()
+        : _estimateHarvardMcsLines(resume);
+    RenderTier tier = _selectInitialTier(estimated);
+
+    Uint8List? lastSinglePage;
+    RenderTier? lastSingleTier;
+    Uint8List? lastRender; // fallback se nada coube
+    final visited = <RenderTier>{};
+
+    // Direction state: começa em null; vira "up" se primeira render couber,
+    // "down" se não. Não inverte direção depois (evita loops).
+    String? direction;
+
+    // Safety: máximo 9 iterações (uma por tier).
+    for (int i = 0; i < 9; i++) {
+      if (visited.contains(tier)) break; // anti-loop
+      visited.add(tier);
+
+      final adjusted = _applyTierContent(resume, tier);
+      final html = _buildHtmlForTemplate(user, adjusted, templateId, tier);
+      final pdf = await Printing.convertHtml(
+        html: html,
+        format: PdfPageFormat.a4,
+      );
+      lastRender = pdf;
+      final pages = _countPdfPages(pdf);
+
+      if (pages == 1) {
+        lastSinglePage = pdf;
+        lastSingleTier = tier;
+        // Já temos algo que cabe. Tenta subir 1 tier (mais espaçoso).
+        // Mas só se direction != 'down' (não inverter pra evitar oscilação).
+        if (direction == 'down') {
+          return pdf; // direção foi descendo; achou o primeiro que cabe — done
+        }
+        direction = 'up';
+        final upTier = _tierAbove(tier);
+        if (upTier == null) return pdf; // E3 já é máximo
+        tier = upTier;
+        continue;
+      } else {
+        // Não cabe.
+        if (direction == 'up' && lastSinglePage != null) {
+          // Subimos demais — volta pro último que cabia.
+          return lastSinglePage;
+        }
+        direction = 'down';
+        final downTier = _tierBelow(tier);
+        if (downTier == null) {
+          // C5 não coube — caso patológico. Log + retorna 2 páginas.
+          debugPrint('[pdf-adaptive] WARN: C5 still overflows for user '
+              '${user?.id ?? "(unknown)"}, template=$templateId, returning 2-page PDF');
+          return pdf;
+        }
+        tier = downTier;
+        continue;
+      }
+    }
+
+    // Safety net (não deve chegar aqui em fluxos normais)
+    if (lastSinglePage != null) {
+      debugPrint('[pdf-adaptive] returning best single-page at $lastSingleTier (template=$templateId)');
+      return lastSinglePage;
+    }
+    return lastRender ?? Uint8List(0);
+  }
+
+  /// Dispatcher: escolhe builder do template + propaga tier.
+  /// Cada `_buildXxxHtml` aceita `RenderTier` opcional (default standard).
+  static String _buildHtmlForTemplate(
+    UserProfile? user,
+    ResumeData resume,
+    String templateId,
+    RenderTier tier,
+  ) {
+    return switch (templateId) {
+      'jakes_resume'     => _buildJakesResumeHtml(user, resume, tier: tier),
+      'forte_foundation' => _buildForteFoundationHtml(user, resume, tier: tier),
+      'one_page_compact' => _buildOnePageHtml(user, resume, tier: tier),
+      'cobalt_modern'    => _buildCobaltModernHtml(user, resume, tier: tier),
+      _                  => _buildHarvardMcsHtml(user, resume, tier: tier),
+    };
+  }
+
+  /// Estima quantas linhas o CV vai ocupar no template Harvard MCS (font 10pt,
+  /// A4, margins 0.35in/0.4in). Heurística — ~95 chars por linha de bullet,
+  /// ~100 chars por linha de summary. Conservador (tende a subestimar levemente
+  /// pra evitar false positives de compact em CVs minimalistas).
+  static int _estimateHarvardMcsLines(ResumeData r) {
+    int lines = 4; // header: name + address + 2 contact lines
+    if (r.summary.isNotEmpty) {
+      lines += 2; // SUMMARY section header + spacing
+      lines += (r.summary.length / 95).ceil();
+    }
+    if (r.experiences.isNotEmpty) {
+      lines += 1; // PROFESSIONAL EXPERIENCE header
+      for (final exp in r.experiences) {
+        lines += 3; // institution+location, role+period, entry spacing
+        final desc = exp.description;
+        if (desc.isNotEmpty) {
+          final bullets = desc.split('\n').where((b) => b.trim().isNotEmpty);
+          for (final b in bullets) {
+            lines += (b.length / 95).ceil().clamp(1, 3);
+          }
+        }
+      }
+    }
+    if (r.education.isNotEmpty) {
+      lines += 1; // EDUCATION header
+      for (final edu in r.education) {
+        lines += 3; // institution+location, degree+period (with inline minor), spacing
+        if (edu.gpa.isNotEmpty) lines += 1;
+        lines += edu.activities.length;
+      }
+    }
+    // SKILLS, CERTIFICATIONS & PROGRAMS section
+    final hasSkillsSection = r.skills.isNotEmpty ||
+        r.languages.isNotEmpty ||
+        r.tools.isNotEmpty ||
+        r.toolsText.isNotEmpty ||
+        r.courses.isNotEmpty;
+    if (hasSkillsSection) {
+      lines += 1; // section header
+      if (r.skills.isNotEmpty) {
+        lines += (r.skills.join(', ').length / 95).ceil();
+      }
+      if (r.languages.isNotEmpty) lines += 1;
+      if (r.tools.isNotEmpty || r.toolsText.isNotEmpty) {
+        final toolsLen = r.toolsText.isNotEmpty
+            ? r.toolsText.length
+            : r.tools.map((t) => t.name).join(', ').length;
+        lines += (toolsLen / 95).ceil();
+      }
+      if (r.courses.isNotEmpty) {
+        lines += 1; // "Certifications & Programs:" header
+        for (final c in r.courses) {
+          lines += (c.title.length / 95).ceil();
+        }
+      }
+    }
+    if (r.interests.isNotEmpty) {
+      lines += 1; // INTERESTS section header
+      lines += (r.interests.join(', ').length / 95).ceil();
+    }
+    return lines;
+  }
+
+  /// Se o CV estoura 1 página, dropa seções decorativas pra trazer pra 1
+  /// página. Estratégia conservadora — só dropa INTERESTS (única seção
+  /// puramente decorativa). NÃO toca em experiences, education, skills,
+  /// certifications, languages, tools — tudo factual fica intacto.
+  ///
+  /// SUMMARY NUNCA é dropado (regra inegociável do Zac).
+  static ResumeData _applyTierContent(ResumeData r, RenderTier tier) {
+    // INTERESTS só sai a partir de compact2.
+    final dropInterests = tier.index >= RenderTier.compact2.index;
+    if (dropInterests && r.interests.isNotEmpty) {
+      return r.copyWith(interests: const []);
+    }
+    return r;
+  }
+
+  /// Conta páginas do PDF gerado via Syncfusion. Usado pelo loop adaptativo
+  /// pra decidir se o tier atual cabe em 1 página ou precisa apertar mais.
+  /// Custo: ~5-20ms por count. Negligível.
+  ///
+  /// IMPORTANTE: usa try/finally pra garantir `dispose()` mesmo quando
+  /// `doc.pages.count` lança. Em loops de até 9 iterações, vazamento de
+  /// PdfDocument acumula rapidamente e pode crashear o app por OOM.
+  static int _countPdfPages(Uint8List bytes) {
+    sf.PdfDocument? doc;
+    try {
+      doc = sf.PdfDocument(inputBytes: bytes);
+      return doc.pages.count;
+    } catch (_) {
+      return 1; // safe default — se falhar, presume cabe
+    } finally {
+      doc?.dispose();
+    }
+  }
+
+  /// Escolhe tier inicial baseado em estimativa de linhas. Otimização
+  /// pra reduzir iterações: começa no tier mais provável de já caber.
+  /// Maioria dos casos: 1-2 renders bastam pra convergir.
+  static RenderTier _selectInitialTier(int estimatedLines) {
+    if (estimatedLines > 60) return RenderTier.compact2;
+    if (estimatedLines > 55) return RenderTier.compact1;
+    if (estimatedLines > 45) return RenderTier.standard;
+    if (estimatedLines > 35) return RenderTier.expanded1;
+    if (estimatedLines > 28) return RenderTier.expanded2;
+    return RenderTier.expanded3;
+  }
+
+  /// CSS de override universal por tier — aplicável a qualquer template.
+  /// Modifica APENAS `body { font-size, line-height }` e `@page { margin }`
+  /// via `!important` no FIM do `<style>`. Preserva a identidade visual de
+  /// cada template (cores, fonts, hierarquia) — só ajusta densidade global.
+  ///
+  /// Os 4 templates têm valores "standard" próprios; esse override aplica
+  /// um delta proporcional baseado no tier.
+  static String _buildTierOverrideCss(RenderTier tier) {
+    // Cada tier define um body font-size absoluto + line-height + margem
+    // de @page. Em vez de "delta", usamos valores absolutos pra controle
+    // total, com `!important` pra sobrepor o CSS do template.
+    final cfg = switch (tier) {
+      RenderTier.expanded3 => ('11.5pt', '1.35', '0.55in 0.55in'),
+      RenderTier.expanded2 => ('11pt',   '1.3',  '0.5in 0.5in'),
+      RenderTier.expanded1 => ('10.5pt', '1.25', '0.45in 0.45in'),
+      RenderTier.standard  => null, // mantém CSS original do template
+      RenderTier.compact1  => ('10pt',   '1.1',  '0.35in 0.35in'),
+      RenderTier.compact2  => ('10pt',   '1.05', '0.3in 0.3in'),
+      RenderTier.compact3  => ('9.5pt',  '1.05', '0.3in 0.3in'),
+      RenderTier.compact4  => ('9.5pt',  '1.0',  '0.25in 0.25in'),
+      RenderTier.compact5  => ('9pt',    '1.0',  '0.2in 0.2in'),
+    };
+    if (cfg == null) return ''; // standard: sem override
+    final (fontSize, lineHeight, pageMargin) = cfg;
+    return '''
+/* Tier override (loop adaptativo) */
+@page { size: A4; margin: $pageMargin !important; }
+body { font-size: $fontSize !important; line-height: $lineHeight !important; }
+''';
+  }
+
+  /// Overrides específicos do Cobalt Modern por tier. O override universal
+  /// (`_buildTierOverrideCss`) só toca `body font-size` + `line-height` +
+  /// `@page margin`. Mas no Cobalt, os fonts internos (.exp-role,
+  /// .main-title etc) e os paddings da sidebar/main precisam encolher
+  /// proporcionalmente em tiers compact pra realmente caber em 1 página.
+  ///
+  /// Aplicado APÓS `_buildTierOverrideCss` no fim do `<style>`, então
+  /// ganha precedência via ordem do CSS (mesma specificity + !important).
+  static String _buildCobaltTierExtraCss(RenderTier tier) {
+    // (sidebarPad, mainPad, expMb, mainSecMb, expRoleSize, expSubSize,
+    //  mainTitleSize, mainListSize, sideListSize, nameSize, headerPad)
+    // Os valores foram ajustados pra Gabriel (perfil large) caber em 1
+    // página já em compact1 ou compact2. Compact tiers ficam realmente
+    // apertados — line-height vem do _buildTierOverrideCss universal.
+    final cfg = switch (tier) {
+      RenderTier.expanded3 => null,
+      RenderTier.expanded2 => null,
+      RenderTier.expanded1 => null,
+      RenderTier.standard  => null,
+      RenderTier.compact1  => ('11pt', '12pt', '6pt', '9pt', '10pt', '8.5pt', '10pt', '9pt', '8.5pt', '18pt', '12pt'),
+      RenderTier.compact2  => ('10pt', '11pt', '5pt', '8pt', '9.5pt', '8pt', '9.5pt', '8.5pt', '8pt', '17pt', '10pt'),
+      RenderTier.compact3  => ('9pt', '10pt', '4pt', '7pt', '9.5pt', '8pt', '9.5pt', '8pt', '8pt', '16pt', '9pt'),
+      RenderTier.compact4  => ('8pt', '9pt', '4pt', '6pt', '9pt', '7.5pt', '9pt', '8pt', '7.5pt', '15pt', '8pt'),
+      RenderTier.compact5  => ('7pt', '8pt', '3pt', '5pt', '8.5pt', '7.5pt', '8.5pt', '7.5pt', '7.5pt', '14pt', '7pt'),
+    };
+    if (cfg == null) return '';
+    final (
+      sidebarPad,
+      mainPad,
+      expMb,
+      mainSecMb,
+      expRoleSize,
+      expSubSize,
+      mainTitleSize,
+      mainListSize,
+      sideListSize,
+      nameSize,
+      headerPad,
+    ) = cfg;
+    return '''
+/* Cobalt Modern tier extras (compact-specific) */
+.header { padding: $headerPad $headerPad $headerPad !important; }
+.name { font-size: $nameSize !important; }
+.sidebar { padding: $sidebarPad $sidebarPad !important; }
+.main { padding: $mainPad $mainPad !important; }
+.exp { margin-bottom: $expMb !important; }
+.main-sec { margin-bottom: $mainSecMb !important; }
+.exp-role { font-size: $expRoleSize !important; }
+.exp-sub { font-size: $expSubSize !important; }
+.main-title { font-size: $mainTitleSize !important; }
+.main-list li { font-size: $mainListSize !important; }
+.side-list li { font-size: $sideListSize !important; }
+.main-text { font-size: $mainListSize !important; }
+.side-sec { margin-bottom: $expMb !important; }
+''';
+  }
+
+  /// Tier acima na hierarquia (mais espaçoso). Retorna null se já é E3.
+  static RenderTier? _tierAbove(RenderTier t) =>
+      t.index > 0 ? RenderTier.values[t.index - 1] : null;
+
+  /// Tier abaixo na hierarquia (mais apertado). Retorna null se já é C5.
+  static RenderTier? _tierBelow(RenderTier t) =>
+      t.index < RenderTier.values.length - 1
+          ? RenderTier.values[t.index + 1]
+          : null;
 
   // --- 7. Harvard MCS Template (HTML → PDF via Printing.convertHtml) ---
   /// Returns the localized label for a given key, based on resume.language.
@@ -144,7 +478,63 @@ class PdfService {
     }
   }
 
-  static String _buildHarvardMcsHtml(UserProfile? user, ResumeData resume) {
+  /// CSS dinâmico por RenderTier. Varia font-size, line-height, margins
+  /// e role weight (semibold em E3 pra emphasis extra). Mantém estrutura
+  /// e identidade visual do Harvard MCS — só ajusta density.
+  ///
+  /// Valores definidos no plan (tabela de tiers). Standard (S) reproduz
+  /// o CSS original — backward-compat se chamado sem tier.
+  static String _buildHarvardCssForTier(RenderTier tier) {
+    // Lookup-table: cada tier mapeia pros 6 valores que variam.
+    // Ordem dos valores: [fontSize, lineHeight, margin, entryMb, secMt, roleWeight]
+    final cfg = switch (tier) {
+      RenderTier.expanded3 => ('11.5pt', '1.35', '0.5in 0.5in', '8pt', '9pt', '600'),
+      RenderTier.expanded2 => ('11pt',   '1.3',  '0.5in 0.5in', '7pt', '8pt', 'normal'),
+      RenderTier.expanded1 => ('10.5pt', '1.25', '0.45in 0.4in', '6pt', '7pt', 'normal'),
+      RenderTier.standard  => ('10pt',   '1.15', '0.35in 0.3in', '4pt', '5pt', 'normal'),
+      RenderTier.compact1  => ('10pt',   '1.1',  '0.3in 0.3in',  '3pt', '4pt', 'normal'),
+      RenderTier.compact2  => ('10pt',   '1.05', '0.3in 0.25in', '2.5pt', '3pt', 'normal'),
+      RenderTier.compact3  => ('9.5pt',  '1.05', '0.25in 0.25in','2pt', '3pt', 'normal'),
+      RenderTier.compact4  => ('9.5pt',  '1.0',  '0.25in 0.25in','2pt', '2pt', 'normal'),
+      RenderTier.compact5  => ('9pt',    '1.0',  '0.2in 0.2in',  '1.5pt', '2pt', 'normal'),
+    };
+    final (fontSize, lineHeight, pageMargin, entryMb, secMt, roleWeight) = cfg;
+
+    return '''
+    @page { size: A4; margin: $pageMargin; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Times New Roman', Times, serif; font-size: $fontSize; color: #000; line-height: $lineHeight; }
+    .header { text-align: center; margin-bottom: 3pt; }
+    .name { font-weight: bold; font-size: 17pt; letter-spacing: 0.5pt; }
+    .address { font-size: 9.5pt; margin-top: 3pt; }
+    .contact { font-size: 9.5pt; margin-top: 1pt; }
+    hr { border: none; border-top: 1px solid #000; margin: 5pt 0 10pt; }
+    .sec { text-align: left; text-transform: uppercase; font-weight: bold; font-size: 10pt; letter-spacing: 0.3pt; margin: $secMt 0 0; padding-bottom: 1pt; border-bottom: 0.5pt solid #000; }
+    .sec + * { margin-top: 2pt; }
+    .row { display: flex; justify-content: space-between; font-size: $fontSize; }
+    .row .r { white-space: nowrap; margin-left: 8pt; }
+    .bold .l, .bold .r { font-weight: bold; }
+    .italic .l { font-style: italic; font-weight: $roleWeight; }
+    .entry { margin-bottom: $entryMb; }
+    .rel { font-size: $fontSize; margin: 1pt 0; }
+    ul { margin: 1pt 0 0 0; padding: 0; list-style: none; }
+    li { font-size: $fontSize; margin-bottom: 0.5pt; padding-left: 0; text-indent: 0; }
+    li::before { content: "• "; }
+    .sk { font-size: $fontSize; margin-bottom: 2pt; }
+    .detail { font-size: 9.5pt; margin-top: 1pt; }
+    .ach-item { margin-bottom: 4pt; }
+    .ach-title { font-size: 11pt; font-weight: bold; }
+    .ach-role { font-size: 10pt; font-style: italic; margin-top: 0.5pt; }
+    .ach-meta { font-size: 10pt; color: #444; margin-top: 0.5pt; }
+    .ach-desc { font-size: 10.5pt; margin-top: 1pt; }
+''';
+  }
+
+  static String _buildHarvardMcsHtml(
+    UserProfile? user,
+    ResumeData resume, {
+    RenderTier tier = RenderTier.standard,
+  }) {
     final lang = resume.language;
     final summaryHtml = resume.summary.trim().isNotEmpty
         ? '<div class="sec">${_l10n('summary', lang)}</div><div class="entry">${_escapeHtml(resume.summary.trim())}</div>'
@@ -249,32 +639,7 @@ class PdfService {
 <head>
   <meta charset="UTF-8">
   <style>
-    @page { size: A4; margin: 0.4in 0.45in; }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Times New Roman', Times, serif; font-size: 11pt; color: #000; line-height: 1.15; }
-    .header { text-align: center; margin-bottom: 3pt; }
-    .name { font-weight: bold; font-size: 17pt; letter-spacing: 0.5pt; }
-    .address { font-size: 9.5pt; margin-top: 3pt; }
-    .contact { font-size: 9.5pt; margin-top: 1pt; }
-    hr { border: none; border-top: 1px solid #000; margin: 5pt 0 10pt; }
-    .sec { text-align: left; text-transform: uppercase; font-weight: bold; font-size: 11pt; letter-spacing: 0.3pt; margin: 5pt 0 0; padding-bottom: 1pt; border-bottom: 0.5pt solid #000; }
-    .sec + * { margin-top: 2pt; }
-    .row { display: flex; justify-content: space-between; font-size: 11pt; }
-    .row .r { white-space: nowrap; margin-left: 8pt; }
-    .bold .l, .bold .r { font-weight: bold; }
-    .italic .l { font-style: italic; }
-    .entry { margin-bottom: 4pt; }
-    .rel { font-size: 11pt; margin: 1pt 0; }
-    ul { margin: 1pt 0 0 0; padding: 0; list-style: none; }
-    li { font-size: 11pt; margin-bottom: 0.5pt; padding-left: 0; text-indent: 0; }
-    li::before { content: "• "; }
-    .sk { font-size: 11pt; margin-bottom: 2pt; }
-    .detail { font-size: 9.5pt; margin-top: 1pt; }
-    .ach-item { margin-bottom: 4pt; }
-    .ach-title { font-size: 11pt; font-weight: bold; }
-    .ach-role { font-size: 10pt; font-style: italic; margin-top: 0.5pt; }
-    .ach-meta { font-size: 10pt; color: #444; margin-top: 0.5pt; }
-    .ach-desc { font-size: 10.5pt; margin-top: 1pt; }
+${_buildHarvardCssForTier(tier)}
   </style>
 </head>
 <body>
@@ -295,9 +660,12 @@ class PdfService {
 
   static String _buildHarvardEducationItemHtml(EducationItem edu, ResumeData resume) {
     final location = edu.location;
-    final detailsHtml = edu.details.isNotEmpty
-        ? '<div class="detail">${_escapeHtml(edu.details)}</div>'
-        : '';
+    // A1: details (ex: "Minor in Finance, Entrepreneurship") agora vai
+    // INLINE na linha do degree em vez de subtitle separado. Economiza
+    // 1 linha quando details é não-vazio. Quando vazio, comportamento igual.
+    final degreeInline = edu.details.isNotEmpty
+        ? '${edu.degree} · ${_escapeHtml(edu.details)}'
+        : edu.degree;
 
     // Harvard enrichments — render as bullets when present
     final lang = resume.language;
@@ -308,7 +676,17 @@ class PdfService {
     if (edu.gpa.isNotEmpty) {
       highlightItems.add('<li><b>${_l10n('edu_gpa', lang)}:</b> ${_escapeHtml(edu.gpa)}</li>');
     }
-    if (edu.honors.isNotEmpty) {
+    // activities (Tier 1.2): cada item vira <li> próprio. Se vier no
+    // formato "Label: content" (vindo do extract-profile preservando o
+    // prefix do CV original), renderiza com label em bold. Senão, sem
+    // label. Substitui o legacy `edu.honors` (single-string com `;`)
+    // que causava label do template duplicado dentro do conteúdo.
+    if (edu.activities.isNotEmpty) {
+      for (final a in edu.activities) {
+        highlightItems.add(_renderActivityLi(a));
+      }
+    } else if (edu.honors.isNotEmpty) {
+      // Fallback legacy: template antigo com honors single-string.
       highlightItems.add('<li><b>${_l10n('edu_honors', lang)}:</b> ${_escapeHtml(edu.honors)}</li>');
     }
     if (edu.repRole.isNotEmpty) {
@@ -321,9 +699,8 @@ class PdfService {
     return '<div class="entry">'
         '<div class="row bold"><span class="l">${edu.institution}</span>'
         '<span class="r">$location</span></div>'
-        '<div class="row italic"><span class="l">${edu.degree}</span>'
+        '<div class="row italic"><span class="l">$degreeInline</span>'
         '<span class="r">${edu.period}</span></div>'
-        '$detailsHtml'
         '$highlightsHtml'
         '</div>';
   }
@@ -432,11 +809,11 @@ class PdfService {
     for (final level in order) {
       final list = byLevel.remove(level);
       if (list != null && list.isNotEmpty) {
-        parts.add('$level $preposition ${_joinList(list)}');
+        parts.add('$level $preposition ${_joinList(list, lang)}');
       }
     }
     byLevel.forEach((level, list) {
-      parts.add('$level $preposition ${_joinList(list)}');
+      parts.add('$level $preposition ${_joinList(list, lang)}');
     });
     return parts.join('; ');
   }
@@ -473,11 +850,12 @@ class PdfService {
 
   /// Joins a list of strings with proper Portuguese conjunctions.
   /// ["A"] → "A"; ["A","B"] → "A e B"; ["A","B","C"] → "A, B e C"
-  static String _joinList(List<String> items) {
+  static String _joinList(List<String> items, [String lang = 'pt']) {
     if (items.isEmpty) return '';
     if (items.length == 1) return items[0];
-    if (items.length == 2) return '${items[0]} e ${items[1]}';
-    return '${items.sublist(0, items.length - 1).join(', ')} e ${items.last}';
+    final conn = lang == 'en' ? 'and' : 'e';
+    if (items.length == 2) return '${items[0]} $conn ${items[1]}';
+    return '${items.sublist(0, items.length - 1).join(', ')} $conn ${items.last}';
   }
 
   static String _escapeHtml(String s) =>
@@ -485,6 +863,31 @@ class PdfService {
        .replaceAll('<', '&lt;')
        .replaceAll('>', '&gt;')
        .replaceAll('"', '&quot;');
+
+  /// Substitui hyphens-minus (`-`) por NON-BREAKING HYPHEN (U+2011 `‑`).
+  /// Visualmente idêntico mas o renderer NÃO quebra a linha ali. Usado em
+  /// URLs do header (LinkedIn principalmente) — usernames como
+  /// `gabriel-hiromiti-matsumoto` antes quebravam em 2 linhas no PDF.
+  static String _noBreakHyphens(String s) => s.replaceAll('-', '‑');
+
+  /// Renderiza um item de `EducationItem.activities` como `<li>`. Se a
+  /// string vier no formato "Label: content" (preservado do CV original
+  /// pelo extract-profile), separa em `<b>Label:</b> content`. Senão
+  /// renderiza solto. Limite de 60 chars no label evita falsos positivos
+  /// (ex: bullet longo que tem ':' no meio).
+  static String _renderActivityLi(String activity) {
+    final trimmed = activity.trim();
+    if (trimmed.isEmpty) return '';
+    final colonIdx = trimmed.indexOf(':');
+    if (colonIdx > 0 && colonIdx < 60) {
+      final label = trimmed.substring(0, colonIdx).trim();
+      final content = trimmed.substring(colonIdx + 1).trim();
+      if (label.isNotEmpty && content.isNotEmpty) {
+        return '<li><b>${_escapeHtml(label)}:</b> ${_escapeHtml(content)}</li>';
+      }
+    }
+    return '<li>${_escapeHtml(trimmed)}</li>';
+  }
 
   /// Renderiza um item de achievement do servidor.
   ///
@@ -547,7 +950,11 @@ class PdfService {
   // após o nome da seção). Cada entrada tem 2 linhas: (a) instituição
   // bold + local à direita, (b) cargo italic + datas à direita italic.
   // Inspirado no template de Jake Gutierrez tão usado em vagas de tech.
-  static String _buildJakesResumeHtml(UserProfile? user, ResumeData resume) {
+  static String _buildJakesResumeHtml(
+    UserProfile? user,
+    ResumeData resume, {
+    RenderTier tier = RenderTier.standard,
+  }) {
     final lang = resume.language;
     final name = (resume.fullName.isNotEmpty ? resume.fullName : (user?.name ?? '')).trim();
 
@@ -555,7 +962,7 @@ class PdfService {
     if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(resume.phone));
     if (resume.email.isNotEmpty) contactParts.add(_escapeHtml(resume.email));
     if (resume.linkedin.isNotEmpty) {
-      contactParts.add(_escapeHtml(resume.linkedin.replaceAll(RegExp(r'^https?://(www\.)?'), '')));
+      contactParts.add(_escapeHtml(_noBreakHyphens(resume.linkedin.replaceAll(RegExp(r'^https?://(www\.)?'), ''))));
     }
     if (resume.location.isNotEmpty) contactParts.add(_escapeHtml(resume.location));
     final contactLine = contactParts.join(' | ');
@@ -708,6 +1115,7 @@ li { font-size: 10.5pt; margin-bottom: 1pt; }
 .ach-role { font-size: 10pt; font-style: italic; margin-top: 1pt; }
 .ach-meta { font-size: 10pt; color: #444; margin-top: 1pt; }
 .ach-desc { font-size: 10.5pt; margin-top: 2pt; }
+${_buildTierOverrideCss(tier)}
 </style>
 </head>
 <body>
@@ -747,7 +1155,11 @@ li { font-size: 10.5pt; margin-bottom: 1pt; }
   // do cabeçalho (estilo emblema). Seções com borda superior + inferior
   // (look "double-line"). Hyphens (–) nos bullets. Education primeiro
   // com GPA prominente. Pensado pra Goldman, McKinsey, BCG, MBA.
-  static String _buildForteFoundationHtml(UserProfile? user, ResumeData resume) {
+  static String _buildForteFoundationHtml(
+    UserProfile? user,
+    ResumeData resume, {
+    RenderTier tier = RenderTier.standard,
+  }) {
     final lang = resume.language;
     final name = (resume.fullName.isNotEmpty ? resume.fullName : (user?.name ?? '')).trim().toUpperCase();
 
@@ -756,7 +1168,7 @@ li { font-size: 10.5pt; margin-bottom: 1pt; }
     if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(resume.phone));
     if (resume.email.isNotEmpty) contactParts.add(_escapeHtml(resume.email));
     if (resume.linkedin.isNotEmpty) {
-      contactParts.add(_escapeHtml(resume.linkedin.replaceAll(RegExp(r'^https?://(www\.)?'), '')));
+      contactParts.add(_escapeHtml(_noBreakHyphens(resume.linkedin.replaceAll(RegExp(r'^https?://(www\.)?'), ''))));
     }
     final contactLine = contactParts.join(' • ');
 
@@ -934,6 +1346,7 @@ ul { margin: 3pt 0 0 0; padding: 0; list-style: none; }
 li { font-size: 10.5pt; margin-bottom: 1pt; padding-left: 12pt; text-indent: -10pt; }
 li::before { content: "– "; font-weight: bold; }
 .add-row { font-size: 10.5pt; margin-bottom: 2pt; }
+${_buildTierOverrideCss(tier)}
 </style>
 </head>
 <body>
@@ -971,7 +1384,11 @@ li::before { content: "– "; font-weight: bold; }
   // sem bordas, só destaque por cor. Cada entrada é uma LINHA SÓ
   // (role · company · period · location inline) — mais compacto que
   // os outros. Bullets com chevron (›). Pensado pra trainees/estágios.
-  static String _buildOnePageHtml(UserProfile? user, ResumeData resume) {
+  static String _buildOnePageHtml(
+    UserProfile? user,
+    ResumeData resume, {
+    RenderTier tier = RenderTier.standard,
+  }) {
     final lang = resume.language;
     final name = (resume.fullName.isNotEmpty ? resume.fullName : (user?.name ?? '')).trim();
 
@@ -979,7 +1396,7 @@ li::before { content: "– "; font-weight: bold; }
     if (resume.email.isNotEmpty) contactParts.add(_escapeHtml(resume.email));
     if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(resume.phone));
     if (resume.linkedin.isNotEmpty) {
-      contactParts.add(_escapeHtml(resume.linkedin.replaceAll(RegExp(r'^https?://(www\.)?'), '')));
+      contactParts.add(_escapeHtml(_noBreakHyphens(resume.linkedin.replaceAll(RegExp(r'^https?://(www\.)?'), ''))));
     }
     if (resume.location.isNotEmpty) contactParts.add(_escapeHtml(resume.location));
     final contactLine = contactParts.join('  ·  ');
@@ -1129,6 +1546,7 @@ li::before { content: "› "; color: #4F46E5; font-weight: bold; }
 .skpills { display: inline; }
 .pill { display: inline-block; background: #EEF2FF; color: #3730A3; padding: 1pt 6pt; border-radius: 8pt; margin: 1pt 2pt 1pt 0; font-size: 9pt; }
 .pill-meta { color: #6366F1; font-size: 8.5pt; }
+${_buildTierOverrideCss(tier)}
 </style>
 </head>
 <body>
@@ -1141,6 +1559,252 @@ li::before { content: "› "; color: #4F46E5; font-weight: bold; }
   $expHtml
   $projHtml
   $skillsHtml
+</body>
+</html>''';
+  }
+
+  // --- Cobalt Modern Template (2-col, sans-serif, cobalt accent) ---
+  //
+  // Diferenciado dos 4 templates clássicos (todos single-col, serif,
+  // preto-e-branco):
+  //   - Layout 2-col via <table> (ATS-friendly; CSS Grid/Flexbox alguns
+  //     parsers ATS antigos quebram).
+  //   - Sans-serif (Inter / system-ui) — modern.
+  //   - Cor de accent #1E40AF (cobalt) em headers, divisores e nome de
+  //     empresa em experiences.
+  //   - Sidebar 35%: contato + skills + languages + tools + certs + interests.
+  //   - Main 65%: summary + experience + education.
+  //   - Header full-width com nome grande + linha cobalt embaixo.
+  //
+  // Compatível com tier override via `${_buildTierOverrideCss(tier)}` antes
+  // do `</style>` — loop adaptativo funciona automaticamente.
+  static String _buildCobaltModernHtml(
+    UserProfile? user,
+    ResumeData resume, {
+    RenderTier tier = RenderTier.standard,
+  }) {
+    final lang = resume.language;
+    final name = (resume.fullName.isNotEmpty
+            ? resume.fullName
+            : (user?.name ?? 'Seu Nome'))
+        .trim();
+    // Headline removida (era "Professional Profile" / "Perfil Profissional").
+    // Header agora tem só o nome + linha cobalt, mais clean e dá mais
+    // espaço vertical pro main content.
+    const headline = '';
+
+    // ──── Sidebar: contato ────
+    // Sem icons/emojis — só os valores em texto limpo, ATS-friendly.
+    final contactItems = <String>[];
+    if (resume.phone.isNotEmpty) {
+      contactItems.add('<div class="ct">${_escapeHtml(resume.phone)}</div>');
+    }
+    if (resume.email.isNotEmpty) {
+      contactItems.add('<div class="ct">${_escapeHtml(resume.email)}</div>');
+    }
+    if (resume.linkedin.isNotEmpty) {
+      final linkedinClean = _noBreakHyphens(resume.linkedin.replaceAll(RegExp(r'^https?://(www\.)?'), ''));
+      contactItems.add('<div class="ct">${_escapeHtml(linkedinClean)}</div>');
+    }
+    final fullLocation = <String>[];
+    if (resume.address.isNotEmpty) fullLocation.add(resume.address);
+    if (resume.location.isNotEmpty) fullLocation.add(resume.location);
+    if (fullLocation.isNotEmpty) {
+      contactItems.add('<div class="ct">${_escapeHtml(fullLocation.join(' – '))}</div>');
+    }
+    final contactHtml = contactItems.isEmpty
+        ? ''
+        : '<div class="side-sec"><div class="side-title">${_l10n('mobile', lang).toUpperCase() == 'MOBILE' ? 'CONTACT' : 'CONTATO'}</div>${contactItems.join('')}</div>';
+
+    // ──── Sidebar: skills ────
+    String sideSec(String title, String content) =>
+        content.isEmpty ? '' : '<div class="side-sec"><div class="side-title">$title</div>$content</div>';
+
+    final skillsHtml = resume.skills.isEmpty
+        ? ''
+        : '<ul class="side-list">${resume.skills.map((s) => '<li>${_escapeHtml(s)}</li>').join('')}</ul>';
+
+    final langsHtml = resume.languages.isEmpty
+        ? ''
+        : '<ul class="side-list">${resume.languages.map((l) {
+            final levelLocalized = _translateLevel(l.level, lang);
+            final lvl = levelLocalized.isEmpty ? '' : ' <span class="side-meta">— $levelLocalized</span>';
+            return '<li>${_escapeHtml(l.language)}$lvl</li>';
+          }).join('')}</ul>';
+
+    String toolsListHtml() {
+      if (resume.toolsText.trim().isNotEmpty) {
+        return '<div class="side-text">${_escapeHtml(resume.toolsText.trim())}</div>';
+      }
+      if (resume.tools.isNotEmpty) {
+        return '<ul class="side-list">${resume.tools.map((t) {
+          final lvl = t.level.trim().isEmpty ? '' : ' <span class="side-meta">— ${_translateLevel(t.level, lang)}</span>';
+          return '<li>${_escapeHtml(t.name)}$lvl</li>';
+        }).join('')}</ul>';
+      }
+      return '';
+    }
+
+    final certsHtml = resume.courses.isEmpty
+        ? ''
+        : '<ul class="side-list">${resume.courses.map((c) {
+            final title = _escapeHtml(c.title);
+            final inst = c.institution.isEmpty ? '' : ' <span class="side-meta">— ${_escapeHtml(c.institution)}</span>';
+            final yr = c.period.isEmpty ? '' : ' <span class="side-meta">(${_escapeHtml(c.period)})</span>';
+            return '<li>$title$inst$yr</li>';
+          }).join('')}</ul>';
+
+    final interestsHtml = resume.interests.isEmpty
+        ? ''
+        : '<div class="side-text">${_escapeHtml(resume.interests.join(', '))}</div>';
+
+    final sidebarHtml = '''
+$contactHtml
+${sideSec(lang == 'en' ? 'SKILLS' : 'HABILIDADES', skillsHtml)}
+${sideSec(lang == 'en' ? 'LANGUAGES' : 'IDIOMAS', langsHtml)}
+${sideSec(lang == 'en' ? 'TOOLS' : 'FERRAMENTAS', toolsListHtml())}
+${sideSec(lang == 'en' ? 'CERTIFICATIONS' : 'CERTIFICAÇÕES', certsHtml)}
+${sideSec(lang == 'en' ? 'INTERESTS' : 'INTERESSES', interestsHtml)}
+''';
+
+    // ──── Main: summary ────
+    final summaryHtml = resume.summary.trim().isEmpty
+        ? ''
+        : '''
+<div class="main-sec">
+  <div class="main-title">${_l10n('summary', lang).toUpperCase()}</div>
+  <div class="main-text">${_escapeHtml(resume.summary.trim())}</div>
+</div>''';
+
+    // ──── Main: experience ────
+    // Layout: role no topo (sozinho, pode quebrar em 2 linhas se longo),
+    // depois company + período + local na MESMA linha de subtitle, depois
+    // bullets. Evita o flex space-between que estourava role longo em N
+    // linhas estreitas quando coluna main fica apertada.
+    final expEntries = resume.experiences.map((e) {
+      final bullets = e.description.trim().isEmpty
+          ? ''
+          : '<ul class="main-list">${e.description.split('\n').where((b) => b.trim().isNotEmpty).map((b) {
+              final clean = b.replaceAll('•', '').trim();
+              return '<li>${_emphasizeMetrics(_escapeHtml(clean))}</li>';
+            }).join('')}</ul>';
+      final subParts = <String>[
+        if (e.company.trim().isNotEmpty) e.company.trim(),
+        if (e.period.trim().isNotEmpty) e.period.trim(),
+        if (e.location.trim().isNotEmpty) e.location.trim(),
+      ];
+      return '''
+<div class="exp">
+  <div class="exp-role">${_escapeHtml(e.role)}</div>
+  <div class="exp-sub">${_escapeHtml(subParts.join(' • '))}</div>
+  $bullets
+</div>''';
+    }).join('');
+    final expHtml = resume.experiences.isEmpty
+        ? ''
+        : '''
+<div class="main-sec">
+  <div class="main-title">${_l10n('experience', lang).toUpperCase()}</div>
+  $expEntries
+</div>''';
+
+    // ──── Main: education ────
+    final eduEntries = resume.education.map((e) {
+      final detailLine = e.details.isEmpty ? '' : '<div class="edu-det">${_escapeHtml(e.details)}</div>';
+      final gpaLine = e.gpa.isEmpty
+          ? ''
+          : '<div class="edu-det"><b>${_l10n('edu_gpa', lang)}:</b> ${_escapeHtml(e.gpa)}</div>';
+      final activitiesHtml = (e.activities.isEmpty && e.honors.isEmpty)
+          ? ''
+          : (e.activities.isNotEmpty
+              ? '<ul class="main-list">${e.activities.map(_renderActivityLi).join('')}</ul>'
+              : '<div class="edu-det"><b>${_l10n('edu_honors', lang)}:</b> ${_escapeHtml(e.honors)}</div>');
+      final subParts = <String>[
+        if (e.institution.trim().isNotEmpty) e.institution.trim(),
+        if (e.period.trim().isNotEmpty) e.period.trim(),
+        if (e.location.trim().isNotEmpty) e.location.trim(),
+      ];
+      return '''
+<div class="exp">
+  <div class="exp-role">${_escapeHtml(e.degree)}</div>
+  <div class="exp-sub">${_escapeHtml(subParts.join(' • '))}</div>
+  $detailLine
+  $gpaLine
+  $activitiesHtml
+</div>''';
+    }).join('');
+    final eduHtml = resume.education.isEmpty
+        ? ''
+        : '''
+<div class="main-sec">
+  <div class="main-title">${_l10n('education', lang).toUpperCase()}</div>
+  $eduEntries
+</div>''';
+
+    return '''<!DOCTYPE html>
+<html lang="${lang == 'en' ? 'en' : 'pt-BR'}">
+<head>
+<meta charset="UTF-8">
+<style>
+@page { size: A4; margin: 0; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', -apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif; font-size: 10pt; color: #1E293B; line-height: 1.35; }
+
+/* Header full-width */
+.header { padding: 16pt 24pt 10pt; border-bottom: 3pt solid #1E40AF; }
+/* Nome em 20pt cabe em 1 linha pra nomes de até ~38 chars. Nomes longos
+   ainda quebram em 2 linhas, mas tomam metade da altura comparado a 24pt. */
+.name { font-size: 20pt; font-weight: 700; color: #0F172A; letter-spacing: -0.4pt; line-height: 1.1; }
+.headline { font-size: 10pt; color: #1E40AF; font-weight: 500; margin-top: 3pt; letter-spacing: 0.3pt; text-transform: uppercase; }
+
+/* 2-col layout via table — ATS-friendly. Sidebar 30% pra dar mais espaço
+   ao main e evitar role wrap excessivo em coluna estreita. */
+.layout { width: 100%; border-collapse: collapse; }
+.sidebar { width: 30%; background: #F8FAFC; padding: 14pt 14pt; vertical-align: top; }
+.main { padding: 14pt 18pt; vertical-align: top; }
+
+/* Sidebar */
+.side-sec { margin-bottom: 10pt; }
+.side-title { font-size: 8.5pt; font-weight: 700; color: #1E40AF; letter-spacing: 1.2pt; margin-bottom: 5pt; padding-bottom: 2pt; border-bottom: 1pt solid #CBD5E1; }
+.side-list { list-style: none; padding: 0; margin: 0; }
+.side-list li { font-size: 9pt; color: #334155; margin-bottom: 2pt; padding-left: 7pt; position: relative; line-height: 1.3; }
+.side-list li::before { content: "•"; color: #1E40AF; position: absolute; left: 0; top: 0; font-weight: 700; }
+.side-text { font-size: 9pt; color: #334155; line-height: 1.4; }
+.side-meta { color: #64748B; font-size: 8pt; }
+.ct { font-size: 8.5pt; color: #334155; margin-bottom: 3pt; line-height: 1.3; word-break: break-word; }
+
+/* Main */
+.main-sec { margin-bottom: 11pt; }
+.main-title { font-size: 10.5pt; font-weight: 700; color: #0F172A; letter-spacing: 0.8pt; padding-bottom: 3pt; border-bottom: 1.5pt solid #1E40AF; margin-bottom: 7pt; }
+.main-text { font-size: 10pt; color: #1E293B; line-height: 1.45; }
+.main-list { list-style: none; padding: 0; margin: 3pt 0 0 0; }
+.main-list li { font-size: 9.5pt; color: #1E293B; margin-bottom: 2pt; padding-left: 11pt; position: relative; line-height: 1.4; }
+.main-list li::before { content: "▸"; color: #1E40AF; position: absolute; left: 0; top: 0; font-weight: 700; }
+
+/* Experience/education entries — role inteira numa linha (pode quebrar
+   se MUITO longa), depois subtitle compacto. Sem flex space-between
+   que cria wrap catastrófico em coluna estreita. page-break-inside:
+   avoid mantém entrada inteira numa página (sem órfãos). */
+.exp { margin-bottom: 8pt; page-break-inside: avoid; }
+.exp-role { font-size: 10.5pt; font-weight: 700; color: #0F172A; line-height: 1.25; }
+.exp-sub { font-size: 9pt; color: #1E40AF; font-weight: 600; margin-top: 1pt; line-height: 1.3; }
+.edu-det { font-size: 9pt; color: #475569; margin-top: 2pt; line-height: 1.35; }
+
+/* Mantém o cabeçalho de seção junto com o primeiro item (sem órfã). */
+.main-title { page-break-after: avoid; }
+${_buildTierOverrideCss(tier)}
+${_buildCobaltTierExtraCss(tier)}
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="name">${_escapeHtml(name.toUpperCase())}</div>
+    ${headline.isEmpty ? '' : '<div class="headline">${_escapeHtml(headline)}</div>'}
+  </div>
+  <table class="layout"><tr>
+    <td class="sidebar">$sidebarHtml</td>
+    <td class="main">$summaryHtml$expHtml$eduHtml</td>
+  </tr></table>
 </body>
 </html>''';
   }
@@ -1167,10 +1831,10 @@ li::before { content: "› "; color: #4F46E5; font-weight: bold; }
     if (resume.phone.isNotEmpty) parts.add('${_l10n('mobile', resume.language)}: ${resume.phone}');
     if (resume.email.isNotEmpty) parts.add(resume.email);
     if (resume.linkedin.isNotEmpty) {
-      parts.add(resume.linkedin
+      parts.add(_noBreakHyphens(resume.linkedin
           .replaceAll('https://', '')
           .replaceAll('http://', '')
-          .replaceAll('www.', ''));
+          .replaceAll('www.', '')));
     }
     return parts.join(' | ');
   }

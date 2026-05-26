@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -431,7 +430,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
       appBar: AppBar(
         title: Text(
           'Editar Currículo',
-          style: GoogleFonts.inter(
+          style: TextStyle(fontFamily: 'Inter', 
             fontWeight: FontWeight.bold,
             color: const Color(0xFF111827),
           ),
@@ -448,7 +447,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
             icon: const Icon(Icons.check_circle, color: Color(0xFF10B981)),
             label: Text(
               'Concluir',
-              style: GoogleFonts.inter(
+              style: TextStyle(fontFamily: 'Inter', 
                 fontWeight: FontWeight.bold,
                 color: const Color(0xFF10B981),
               ),
@@ -527,7 +526,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
           const SizedBox(width: 8),
           Text(
             title.toUpperCase(),
-            style: GoogleFonts.inter(
+            style: TextStyle(fontFamily: 'Inter', 
               fontSize: 11,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.8,
@@ -568,7 +567,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
               children: [
                 Text(
                   'CV em $cvLang',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter', 
                     fontWeight: FontWeight.w600,
                     fontSize: 13,
                     color: const Color(0xFF111827),
@@ -577,7 +576,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                 const SizedBox(height: 2),
                 Text(
                   hint,
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter', 
                     fontSize: 11,
                     color: const Color(0xFF6B7280),
                   ),
@@ -609,7 +608,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
               Expanded(
                 child: Text(
                   'Bem-vindo ao Modo Edição',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter', 
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
                     fontSize: 15,
@@ -656,7 +655,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
         Expanded(
           child: RichText(
             text: TextSpan(
-              style: GoogleFonts.inter(
+              style: TextStyle(fontFamily: 'Inter', 
                 fontSize: 12,
                 color: Colors.white.withOpacity(0.95),
                 height: 1.4,
@@ -708,7 +707,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                     vm.isGeneratingResume
                         ? 'Aplicando mudanças…'
                         : 'Mudanças não aplicadas',
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
                       color: const Color(0xFF111827),
@@ -718,7 +717,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                     vm.isGeneratingResume
                         ? 'Regerando seu currículo com a IA'
                         : 'Toque em Regerar para atualizar o CV.',
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 11,
                       color: const Color(0xFF6B7280),
                     ),
@@ -754,7 +753,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                   : const Icon(Icons.auto_awesome, size: 18),
               label: Text(
                 vm.isGeneratingResume ? 'Regerando' : 'Regerar meu CV',
-                style: GoogleFonts.inter(
+                style: TextStyle(fontFamily: 'Inter', 
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
                 ),
@@ -790,7 +789,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
             (title == null || title.isEmpty)
                 ? 'Nenhuma vaga-alvo definida'
                 : title,
-            style: GoogleFonts.inter(
+            style: TextStyle(fontFamily: 'Inter', 
               fontSize: 14,
               fontWeight: FontWeight.w600,
               color: (title == null || title.isEmpty)
@@ -804,7 +803,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
               desc,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.inter(fontSize: 12, color: Colors.grey[700]),
+              style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.grey[700]),
             ),
           ],
           const SizedBox(height: 12),
@@ -954,7 +953,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
           ),
           Text(
             'Salvar texto persiste o resumo. Refazer com IA gera uma nova versão e abre a tela de aprovação.',
-            style: GoogleFonts.inter(fontSize: 11, color: Colors.grey[600]),
+            style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Colors.grey[600]),
           ),
         ],
       ),
@@ -992,7 +991,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                 children: [
                   Text(
                     'Versões anteriores do resumo',
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
@@ -1041,7 +1040,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                             children: [
                               Text(
                                 'Versão ${v.versionNumber}',
-                                style: GoogleFonts.inter(
+                                style: TextStyle(fontFamily: 'Inter', 
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,
                                   color: const Color(0xFF111827),
@@ -1058,7 +1057,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                                   ),
                                   child: Text(
                                     'EM USO',
-                                    style: GoogleFonts.inter(
+                                    style: TextStyle(fontFamily: 'Inter', 
                                       fontSize: 9,
                                       color: Colors.white,
                                       fontWeight: FontWeight.bold,
@@ -1068,7 +1067,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                               const Spacer(),
                               Text(
                                 _formatTimestamp(v.createdAt),
-                                style: GoogleFonts.inter(
+                                style: TextStyle(fontFamily: 'Inter', 
                                   fontSize: 11,
                                   color: Colors.grey[600],
                                 ),
@@ -1078,7 +1077,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                           const SizedBox(height: 6),
                           Text(
                             preview,
-                            style: GoogleFonts.inter(
+                            style: TextStyle(fontFamily: 'Inter', 
                               fontSize: 12,
                               color: const Color(0xFF374151),
                               height: 1.4,
@@ -1088,7 +1087,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                             const SizedBox(height: 4),
                             Text(
                               'Editado manualmente',
-                              style: GoogleFonts.inter(
+                              style: TextStyle(fontFamily: 'Inter', 
                                 fontSize: 10,
                                 color: Colors.grey[500],
                                 fontStyle: FontStyle.italic,
@@ -2187,7 +2186,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                 ),
                 title: Text(
                   title,
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter', 
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                     color: const Color(0xFF111827),
@@ -2217,7 +2216,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                       Expanded(
                         child: Text(
                           title,
-                          style: GoogleFonts.inter(
+                          style: TextStyle(fontFamily: 'Inter', 
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                             color: const Color(0xFF111827),
@@ -2255,7 +2254,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
         ),
         contentPadding: const EdgeInsets.all(16),
       ),
-      style: GoogleFonts.inter(fontSize: 14, height: 1.5),
+      style: TextStyle(fontFamily: 'Inter', fontSize: 14, height: 1.5),
     );
   }
 
@@ -2290,7 +2289,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
             : null,
         title: Text(
           title,
-          style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14),
+          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 14),
         ),
         subtitle: subtitle.isEmpty
             ? null
@@ -2298,7 +2297,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                 subtitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.inter(fontSize: 12, color: Colors.grey[600]),
+                style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.grey[600]),
               ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
@@ -2355,7 +2354,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
             const SizedBox(width: 8),
             Text(
               label,
-              style: GoogleFonts.inter(
+              style: TextStyle(fontFamily: 'Inter', 
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
                 fontSize: 13,
@@ -2388,7 +2387,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
                 child: Text(
                   'Que tipo de experiência?',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter', 
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                   ),
@@ -2424,8 +2423,8 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
         ),
         child: Icon(icon, color: const Color(0xFF4F46E5), size: 20),
       ),
-      title: Text(label, style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
-      subtitle: Text(hint, style: GoogleFonts.inter(fontSize: 12)),
+      title: Text(label, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+      subtitle: Text(hint, style: TextStyle(fontFamily: 'Inter', fontSize: 12)),
       onTap: () => Navigator.pop(context, cat),
     );
   }
@@ -2464,7 +2463,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
             const SizedBox(width: 8),
             Text(
               label,
-              style: GoogleFonts.inter(
+              style: TextStyle(fontFamily: 'Inter', 
                 color: const Color(0xFF4F46E5),
                 fontWeight: FontWeight.bold,
                 fontSize: 13,
@@ -2481,7 +2480,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
       padding: const EdgeInsets.only(bottom: 4),
       child: RichText(
         text: TextSpan(
-          style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF374151)),
+          style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: const Color(0xFF374151)),
           children: [
             TextSpan(
               text: '$label: ',
@@ -2561,7 +2560,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+        title: Text(title, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.bold)),
         content: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: children),
         ),

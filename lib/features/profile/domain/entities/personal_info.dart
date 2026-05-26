@@ -28,6 +28,8 @@ class PersonalInfo {
   final String? locationCity;
   final String? locationPostalCode;
   final String? locationStreetAddress;
+  final String? linkedinUrl;
+  final String? website;
   final String? attributionSource;
   final ProfileSource? profileSource;
   final int completenessScore;
@@ -51,6 +53,8 @@ class PersonalInfo {
     this.locationCity,
     this.locationPostalCode,
     this.locationStreetAddress,
+    this.linkedinUrl,
+    this.website,
     this.attributionSource,
     this.profileSource,
     this.completenessScore = 0,
@@ -92,6 +96,8 @@ class PersonalInfo {
       'location_city': locationCity,
       'location_postal_code': locationPostalCode,
       'location_street_address': locationStreetAddress,
+      'linkedin_url': linkedinUrl,
+      'website': website,
       'attribution_source': attributionSource,
       'profile_source': _profileSourceToDb(profileSource),
       'completeness_score': completenessScore,
@@ -118,6 +124,8 @@ class PersonalInfo {
       locationCity: map['location_city'] as String?,
       locationPostalCode: map['location_postal_code'] as String?,
       locationStreetAddress: map['location_street_address'] as String?,
+      linkedinUrl: map['linkedin_url'] as String?,
+      website: map['website'] as String?,
       attributionSource: map['attribution_source'] as String?,
       profileSource: _profileSourceFromDb(map['profile_source'] as String?),
       completenessScore: (map['completeness_score'] as num?)?.toInt() ?? 0,
@@ -147,6 +155,8 @@ class PersonalInfo {
     String? locationCity,
     String? locationPostalCode,
     String? locationStreetAddress,
+    String? linkedinUrl,
+    String? website,
     String? attributionSource,
     ProfileSource? profileSource,
     int? completenessScore,
@@ -170,6 +180,8 @@ class PersonalInfo {
       locationCity: locationCity ?? this.locationCity,
       locationPostalCode: locationPostalCode ?? this.locationPostalCode,
       locationStreetAddress: locationStreetAddress ?? this.locationStreetAddress,
+      linkedinUrl: linkedinUrl ?? this.linkedinUrl,
+      website: website ?? this.website,
       attributionSource: attributionSource ?? this.attributionSource,
       profileSource: profileSource ?? this.profileSource,
       completenessScore: completenessScore ?? this.completenessScore,

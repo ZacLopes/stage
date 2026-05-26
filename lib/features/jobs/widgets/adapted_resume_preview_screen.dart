@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/stage_colors.dart';
@@ -53,12 +54,80 @@ class AdaptedResumePreviewScreen extends StatefulWidget {
       _AdaptedResumePreviewScreenState();
 }
 
+/// Metadata dos 4 templates exibidos no seletor inline. Mantém em sync com
+/// `_templates` em `resume_template_selector.dart` e o switch em
+/// `PdfService.generateResumeBytes`.
+const List<_AdaptedTemplateOption> _kAdaptedTemplates = [
+  _AdaptedTemplateOption(
+    id: 'harvard_ats',
+    label: 'Harvard ATS',
+    description: 'Clássico, ideal pra IB/Consulting/Corporate',
+    thumbnail: 'assets/images/templates/harvard_ats.png',
+  ),
+  _AdaptedTemplateOption(
+    id: 'jakes_resume',
+    label: "Jake's Resume",
+    description: 'Tech/dev, FAANG-friendly',
+    thumbnail: 'assets/images/templates/jakes_resume.png',
+  ),
+  _AdaptedTemplateOption(
+    id: 'forte_foundation',
+    label: 'Forte Foundation',
+    description: 'Banking/MBA, conservador',
+    thumbnail: 'assets/images/templates/forte_foundation.png',
+  ),
+  _AdaptedTemplateOption(
+    id: 'one_page_compact',
+    label: 'One-Page Compact',
+    description: 'Estudante early-career, sans-serif moderno',
+    thumbnail: 'assets/images/templates/one_page_compact.png',
+  ),
+  _AdaptedTemplateOption(
+    id: 'cobalt_modern',
+    label: 'Cobalt Modern',
+    description: '2 colunas com sidebar, sans-serif moderno, accent azul cobalt',
+    thumbnail: 'assets/images/templates/cobalt_modern.png',
+  ),
+];
+
+class _AdaptedTemplateOption {
+  final String id;
+  final String label;
+  final String description;
+  final String thumbnail;
+  const _AdaptedTemplateOption({
+    required this.id,
+    required this.label,
+    required this.description,
+    required this.thumbnail,
+  });
+}
+
 class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen> {
   late ResumeData _current;
   late final ResumeData _aiAdapted;
   late final ResumeData _original;
   _ViewMode _mode = _ViewMode.adapted;
   bool _isExporting = false;
+
+  // Quando true, mostra widgets editáveis em vez do PDF preview na aba
+  // "Adaptado". Default false (preview do PDF real) — user clica em "Editar"
+  // pra entrar no modo edição. Quando ele edita, _invalidatePreviewPdfs
+  // garante que o PDF re-renderiza pra refletir a mudança quando volta.
+  bool _editingAdapted = false;
+
+  // Template selecionado PRA ESSA VAGA especificamente. Default = preferência
+  // global do user (`ResumeViewModel.selectedTemplateId`), mas user pode
+  // trocar pra esse job sem afetar a global. Persistido em SharedPreferences
+  // com key `_adapted_template_<jobId>`.
+  late String _selectedTemplateId;
+
+  // Cache de PDFs renderizados por template. Gerado em background no
+  // initState (1 task por template). Quando user troca template no seletor,
+  // mostra o PDF correspondente cacheado aqui. Se ainda não terminou, mostra
+  // spinner até `_previewPdfBytes[templateId]` ficar disponível.
+  final Map<String, Uint8List> _previewPdfBytes = {};
+  final Set<String> _previewPdfLoading = {};
 
   // Tier 2.6: PDF binário do CV importado (do saved_resumes Storage).
   // Mostrado na aba "Original" pra evitar o bug do Syncfusion ("Ci"
@@ -68,11 +137,17 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
   Uint8List? _originalPdfBytes;
   bool _originalPdfFetchAttempted = false;
 
+  static String _templatePrefKey(String jobId) => '_adapted_template_$jobId';
+
   @override
   void initState() {
     super.initState();
     _aiAdapted = widget.adapted.resumeData;
     _current = widget.adapted.effectiveResumeData;
+    // Default template: preferência global; sobrescrita por escolha
+    // específica deste job (carregada em _loadSelectedTemplate).
+    _selectedTemplateId = context.read<ResumeViewModel>().selectedTemplateId;
+    _loadSelectedTemplate();
     // Ordem de preferência pro CV "original" no toggle:
     //   1. Injetado pelo caller (imported_resume.parsed do user).
     //   2. ResumeData do ResumeViewModel (caso o user tenha criado CV
@@ -86,6 +161,114 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
     // a aba "Original" troca pro PDF real. Se falhar, mantém fallback
     // (render do _original ResumeData via widgets nativos).
     _fetchOriginalPdfBytes();
+
+    // Pre-render dos 5 templates em background. Quando user troca template
+    // no seletor inline, mostra o PDF cacheado aqui — preview real do que
+    // vai sair no "Baixar PDF". Prioriza o template selecionado primeiro
+    // pra ele aparecer rápido; outros vão ficando prontos enquanto user
+    // interage com a tela.
+    _startPdfPreviewGeneration();
+  }
+
+  /// Dispara render dos 5 templates em sequência (não paralelo — render é
+  /// pesado, paralelo pode travar UI). Prioriza o template SELECIONADO
+  /// primeiro pra latência percebida ser baixa. Cada PDF é cacheado em
+  /// `_previewPdfBytes`. Re-render quando user edita `_current`.
+  Future<void> _startPdfPreviewGeneration() async {
+    // Ordem: selected primeiro, depois os outros.
+    final order = <String>[
+      _selectedTemplateId,
+      ..._kAdaptedTemplates
+          .map((t) => t.id)
+          .where((id) => id != _selectedTemplateId),
+    ];
+    for (final templateId in order) {
+      if (!mounted) return;
+      await _generatePdfForTemplate(templateId);
+    }
+  }
+
+  /// Render de UM template específico. Idempotente: se já existe no cache
+  /// E `_current` não mudou, retorna sem fazer nada. Em caso de erro,
+  /// fallback silencioso — aba mostra widgets nativos (legacy path).
+  Future<void> _generatePdfForTemplate(String templateId) async {
+    if (_previewPdfBytes.containsKey(templateId)) return;
+    if (_previewPdfLoading.contains(templateId)) return;
+    if (!mounted) return;
+    setState(() => _previewPdfLoading.add(templateId));
+    try {
+      final user = context.read<UserViewModel>().user;
+      final rendered = await ResumeRenderer.render(
+        userId: user?.id,
+        user: user,
+        fallbackResume: _current,
+        templateId: templateId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _previewPdfBytes[templateId] = rendered.bytes;
+        _previewPdfLoading.remove(templateId);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      // ignore: avoid_print
+      print('[AdaptedResumePreviewScreen] preview render failed for $templateId: $e');
+      setState(() => _previewPdfLoading.remove(templateId));
+    }
+  }
+
+  /// Invalida cache de previews quando `_current` muda (user editou um
+  /// campo no resume_block_editor). Re-dispara generation pra refletir
+  /// edits no PDF preview. setState garante que o UI rebuilde mostrando
+  /// loading state imediatamente (em vez de continuar mostrando PDF stale).
+  void _invalidatePreviewPdfs() {
+    if (!mounted) return;
+    setState(() {
+      _previewPdfBytes.clear();
+      _previewPdfLoading.clear();
+    });
+    // ignore: unawaited_futures
+    _startPdfPreviewGeneration();
+  }
+
+  /// Carrega template específico desse job de SharedPreferences. Se nada
+  /// salvo, mantém o default (`_selectedTemplateId` já setado em initState
+  /// pra preferência global). Async — não bloqueia render inicial.
+  Future<void> _loadSelectedTemplate() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(_templatePrefKey(widget.job.id));
+      if (saved == null || saved.isEmpty) return;
+      // Valida que é um dos templates conhecidos (case o user tenha CV
+      // antigo com template removido).
+      final valid = _kAdaptedTemplates.any((t) => t.id == saved);
+      if (!valid) return;
+      if (!mounted) return;
+      setState(() => _selectedTemplateId = saved);
+    } catch (_) {
+      // Falha silenciosa — mantém default global.
+    }
+  }
+
+  /// User trocou template no seletor inline. Persiste pra esse job, mostra
+  /// o PDF cacheado do template novo (se já gerado), e dispara render dele
+  /// se ainda não estiver no cache.
+  Future<void> _changeTemplate(String newTemplateId) async {
+    if (newTemplateId == _selectedTemplateId) return;
+    HapticFeedback.selectionClick();
+    setState(() => _selectedTemplateId = newTemplateId);
+    // ignore: unawaited_futures
+    Analytics.shared.cvTemplateChanged(templateId: newTemplateId);
+    // Se ainda não tem o PDF do template novo no cache, gera agora
+    // (prioritário porque user acabou de pedir).
+    // ignore: unawaited_futures
+    _generatePdfForTemplate(newTemplateId);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_templatePrefKey(widget.job.id), newTemplateId);
+    } catch (_) {
+      // Falha silenciosa — escolha vale só pra sessão atual.
+    }
   }
 
   Future<void> _fetchOriginalPdfBytes() async {
@@ -141,6 +324,9 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
     final after = mutate(_current);
     if (identical(before, after)) return;
     setState(() => _current = after);
+    // PDF previews cacheados estão stale agora — invalida e re-dispara
+    // geração pra refletir o edit. Async, não bloqueia o feedback de edit.
+    _invalidatePreviewPdfs();
     // Telemetria assíncrona — não bloqueia UI.
     // ignore: unawaited_futures
     Analytics.shared.cvAdaptationUserEdited(
@@ -212,7 +398,9 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
     setState(() => _isExporting = true);
     try {
       final user = context.read<UserViewModel>().user;
-      final templateId = context.read<ResumeViewModel>().selectedTemplateId;
+      // Usa o template selecionado PRA ESSA VAGA. Default vem do preferred
+      // global do user, mas pode ter sido trocado no seletor inline.
+      final templateId = _selectedTemplateId;
       final profileVM = context.read<ProfileViewModel>();
 
       // F8: gera bytes uma vez, salva na biblioteca COM nome da vaga, e
@@ -234,14 +422,31 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
           ? 'CV adaptado - $jobTitle'
           : 'CV adaptado - $jobTitle - $company';
 
+      // C5: save na biblioteca — antes era catch silencioso, agora
+      // rastreamos falha e avisamos o user. Save é não-fatal pro download
+      // (PDF é compartilhado mesmo se save falhar), mas user precisa saber
+      // que biblioteca não persistiu — senão volta esperando o CV lá.
+      //
+      // Persiste o `resume_data` estruturado + `template_id` pra habilitar
+      // troca de template depois (biblioteca → detail screen → seletor).
+      // Migration 20260526 adicionou essas colunas.
+      bool savedToLibrary = false;
       try {
         await profileVM.saveResume(
           libraryTitle,
           bytes,
           source: SavedResumeSource.adapted,
+          resumeData: AdaptedResume.serializeResumeData(_current),
+          templateId: templateId,
         );
-      } catch (e) {
-        debugPrint('Falha ao salvar adaptado na biblioteca (não-fatal): $e');
+        savedToLibrary = true;
+      } catch (e, stack) {
+        debugPrint('[adapted_preview] saveResume failed: $e\n$stack');
+        // ignore: unawaited_futures
+        Analytics.shared.cvLibrarySaveFailed(
+          jobId: widget.job.id,
+          error: e.toString(),
+        );
       }
 
       // Compartilha o PDF via share sheet nativo. Mesmo se o save falhar,
@@ -257,6 +462,26 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
       // ignore: unawaited_futures
       PendingAdaptedCvTracker.shared.clear();
       if (!mounted) return;
+
+      // Se save falhou, mostra toast informativo. User recebeu o PDF mas
+      // não terá o CV na biblioteca — precisa saber pra não esperar achar
+      // depois.
+      if (!savedToLibrary) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'PDF gerado, mas não consegui salvar na biblioteca. '
+              'Tente exportar de novo do Perfil se quiser persistir.',
+            ),
+            backgroundColor: Colors.orange.shade700,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+        // ignore: unawaited_futures
+        Navigator.of(context).pop(true);
+        return;
+      }
 
       // F8: confirmação animada antes do pop. Dá feedback explícito
       // que o CV ficou salvo permanente na biblioteca (sinal que
@@ -359,6 +584,25 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                 foregroundColor: StageColors.brandCyan,
               ),
             ),
+          // Toggle Editar/Visualizar — só visível na aba "Adaptado". Em
+          // "Original" não faz sentido (PDF do user é imutável aqui).
+          if (_mode == _ViewMode.adapted)
+            IconButton(
+              tooltip: _editingAdapted ? 'Voltar ao preview' : 'Editar campos',
+              onPressed: () {
+                HapticFeedback.selectionClick();
+                setState(() => _editingAdapted = !_editingAdapted);
+              },
+              icon: Icon(
+                _editingAdapted
+                    ? Icons.visibility_rounded
+                    : Icons.edit_rounded,
+                size: 20,
+                color: _editingAdapted
+                    ? StageColors.brandCyan
+                    : const Color(0xFF6B7280),
+              ),
+            ),
         ],
       ),
     );
@@ -425,19 +669,226 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      child: Row(
+        children: [
+          // Toggle Adaptado/Original — ocupa o espaço disponível
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              padding: const EdgeInsets.all(3),
+              child: Row(
+                children: [
+                  _buildToggleButton(_ViewMode.adapted, 'Adaptado'),
+                  _buildToggleButton(_ViewMode.original, 'Original'),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Botão de selecionar template — abre bottom sheet com 4 opções.
+          // Só faz sentido na aba "Adaptado" (Original usa PDF binário do
+          // Storage, não re-renderiza). Mas mantemos sempre visível pra
+          // não causar layout shift quando trocar de aba.
+          _buildTemplateButton(),
+        ],
+      ),
+    );
+  }
+
+  /// Botão compacto que abre o bottom sheet de seleção de template.
+  Widget _buildTemplateButton() {
+    final selected = _kAdaptedTemplates.firstWhere(
+      (t) => t.id == _selectedTemplateId,
+      orElse: () => _kAdaptedTemplates.first,
+    );
+    return GestureDetector(
+      onTap: _openTemplatePicker,
       child: Container(
+        height: 36,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: const Color(0xFFF3F4F6),
           borderRadius: BorderRadius.circular(10),
         ),
-        padding: const EdgeInsets.all(3),
         child: Row(
           children: [
-            _buildToggleButton(_ViewMode.adapted, 'Adaptado'),
-            _buildToggleButton(_ViewMode.original, 'Original'),
+            const Icon(
+              Icons.dashboard_customize_rounded,
+              size: 16,
+              color: Color(0xFF374151),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              selected.label,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF111827),
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(
+              Icons.expand_more_rounded,
+              size: 16,
+              color: Color(0xFF6B7280),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  /// Bottom sheet com os 4 templates + thumbnails. User clica em um,
+  /// sheet fecha, e o preview re-renderiza com o novo template.
+  void _openTemplatePicker() {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Drag handle
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    'Escolher modelo',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    'O modelo afeta só o visual — o conteúdo adaptado fica o mesmo.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF6B7280),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ..._kAdaptedTemplates.map((t) {
+                  final isSelected = t.id == _selectedTemplateId;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () {
+                        Navigator.of(sheetCtx).pop();
+                        _changeTemplate(t.id);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? StageColors.brandCyan.withOpacity(0.06)
+                              : const Color(0xFFF9FAFB),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isSelected
+                                ? StageColors.brandCyan
+                                : const Color(0xFFE5E7EB),
+                            width: isSelected ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: Image.asset(
+                                t.thumbnail,
+                                width: 56,
+                                height: 72,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Container(
+                                  width: 56,
+                                  height: 72,
+                                  color: const Color(0xFFE5E7EB),
+                                  child: const Icon(
+                                    Icons.description_outlined,
+                                    color: Color(0xFF9CA3AF),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          t.label,
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w700,
+                                            color: isSelected
+                                                ? StageColors.brandCyan
+                                                : const Color(0xFF111827),
+                                          ),
+                                        ),
+                                      ),
+                                      if (isSelected)
+                                        Icon(
+                                          Icons.check_circle_rounded,
+                                          size: 18,
+                                          color: StageColors.brandCyan,
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    t.description,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF6B7280),
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -488,8 +939,29 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
     if (_mode == _ViewMode.original && _originalPdfBytes != null) {
       return _buildOriginalPdfView(_originalPdfBytes!);
     }
-    // Fallback: se ainda fetchando OU sem PDF disponível, renderiza
-    // via ResumeData widgets (comportamento legacy).
+
+    // Aba "Adaptado": prioriza mostrar o PDF real renderizado (do cache
+    // `_previewPdfBytes`). Assim a troca de template é visualmente óbvia
+    // — o user vê EXATAMENTE o que vai sair no "Baixar PDF". Edição
+    // continua acessível via toggle "Editar" no header.
+    if (_mode == _ViewMode.adapted && !_editingAdapted) {
+      final bytes = _previewPdfBytes[_selectedTemplateId];
+      if (bytes != null) {
+        return _buildAdaptedPdfView(bytes);
+      }
+      // Sem PDF ainda — em geração ou inicial. Mostra spinner com label
+      // do template que está sendo gerado pra dar contexto.
+      if (_previewPdfLoading.contains(_selectedTemplateId) ||
+          _previewPdfBytes.isEmpty) {
+        return _buildAdaptedPdfLoading();
+      }
+      // Edge case: cache sem essa key e não está loading. Cai pro
+      // editable view (legacy fallback) e re-dispara render em background.
+      // ignore: unawaited_futures
+      _generatePdfForTemplate(_selectedTemplateId);
+    }
+
+    // Modo edição ou fallback: renderiza widgets editáveis nativos.
     final data = _mode == _ViewMode.original ? _original : _current;
     final readOnly = _mode == _ViewMode.original;
     return Stack(
@@ -517,6 +989,76 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
             ),
           ),
       ],
+    );
+  }
+
+  /// Render do PDF adaptado pelo template selecionado via `PdfPreview`.
+  /// Read-only — pra editar, user clica em "Editar" no header (toggle
+  /// `_editingAdapted = true`).
+  Widget _buildAdaptedPdfView(Uint8List bytes) {
+    return Container(
+      color: const Color(0xFFE5E7EB),
+      child: PdfPreview(
+        // Key força recriação do widget quando trocamos template/bytes —
+        // sem isso, PdfPreview pode cachear o PDF anterior internamente.
+        key: ValueKey('adapted_pdf_${_selectedTemplateId}_${bytes.length}'),
+        build: (_) => bytes,
+        useActions: false,
+        canChangeOrientation: false,
+        canChangePageFormat: false,
+        canDebug: false,
+        loadingWidget: const Center(
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: Color(0xFF29B6D2),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Loading state enquanto o PDF do template selecionado está sendo
+  /// gerado em background. Mostra spinner + nome do template pra dar
+  /// contexto ao user.
+  Widget _buildAdaptedPdfLoading() {
+    final selected = _kAdaptedTemplates.firstWhere(
+      (t) => t.id == _selectedTemplateId,
+      orElse: () => _kAdaptedTemplates.first,
+    );
+    return Container(
+      color: const Color(0xFFE5E7EB),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              height: 36,
+              width: 36,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                color: Color(0xFF29B6D2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Gerando preview de "${selected.label}"...',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF374151),
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Render real do PDF — leva 1-2s',
+              style: TextStyle(
+                fontSize: 11,
+                color: Color(0xFF6B7280),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

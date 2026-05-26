@@ -322,6 +322,19 @@ class AnalyticsService {
   Future<void> cvAdaptationPdfDownloaded({required String jobId}) =>
       track('cv_adaptation_pdf_downloaded', props: {'job_id': jobId});
 
+  /// Disparado quando falha o `saveResume` na biblioteca após "Aprovar e baixar"
+  /// no CV adaptado. Save é não-fatal (user ainda recebe o PDF via share),
+  /// mas user precisa saber — antes era catch silencioso e usuário voltava
+  /// procurando o CV na biblioteca, não achava e reportava como bug.
+  Future<void> cvLibrarySaveFailed({
+    required String jobId,
+    required String error,
+  }) =>
+      track('cv_library_save_failed', props: {
+        'job_id': jobId,
+        'error': error.length > 200 ? error.substring(0, 200) : error,
+      });
+
   /// Disparado quando o usuário edita um campo do CV adaptado na tela de
   /// preview (F1 da reformulação). Sinal mais valioso pra entender onde a
   /// IA está errando segundo a percepção humana — alimenta o dashboard de

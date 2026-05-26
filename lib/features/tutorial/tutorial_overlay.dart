@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import 'tutorial_controller.dart';
@@ -364,7 +363,7 @@ class _TooltipCard extends StatelessWidget {
                   ),
                   child: Text(
                     '${controller.currentIndex + 1}/${controller.totalSteps}',
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 10.5,
                       color: Colors.white,
                       fontWeight: FontWeight.w800,
@@ -382,7 +381,7 @@ class _TooltipCard extends StatelessWidget {
                   ),
                   child: Text(
                     'Pular tutorial',
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 12,
                       color: Colors.white.withOpacity(0.7),
                       fontWeight: FontWeight.w600,
@@ -395,7 +394,7 @@ class _TooltipCard extends StatelessWidget {
             // Title
             Text(
               step.title,
-              style: GoogleFonts.outfit(
+              style: TextStyle(fontFamily: 'Outfit', 
                 fontSize: 18,
                 fontWeight: FontWeight.w900,
                 color: Colors.white,
@@ -407,7 +406,7 @@ class _TooltipCard extends StatelessWidget {
             // Description
             Text(
               step.description,
-              style: GoogleFonts.inter(
+              style: TextStyle(fontFamily: 'Inter', 
                 fontSize: 13,
                 color: Colors.white.withOpacity(0.85),
                 height: 1.4,
@@ -454,7 +453,7 @@ class _TooltipCard extends StatelessWidget {
                     children: [
                       Text(
                         isLast ? 'Bora começar' : 'Próximo',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter', 
                           fontWeight: FontWeight.w800,
                           fontSize: 13.5,
                         ),

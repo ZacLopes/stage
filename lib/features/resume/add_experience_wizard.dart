@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -377,7 +376,7 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         iconTheme: const IconThemeData(color: Color(0xFF111827)),
-        titleTextStyle: GoogleFonts.inter(
+        titleTextStyle: TextStyle(fontFamily: 'Inter', 
           color: const Color(0xFF111827),
           fontWeight: FontWeight.bold,
           fontSize: 16,
@@ -541,7 +540,7 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
                 Expanded(
                   child: Text(
                     'Quando você concluir, a IA vai gerar 3 bullets diferentes pra você escolher o que mais te representa.',
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 12,
                       color: const Color(0xFF312E81),
                       height: 1.4,
@@ -562,7 +561,7 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
       children: [
         Text(
           'Passo ${_step + 1} de 6',
-          style: GoogleFonts.inter(
+          style: TextStyle(fontFamily: 'Inter', 
             fontSize: 11,
             fontWeight: FontWeight.bold,
             color: const Color(0xFF6B7280),
@@ -572,7 +571,7 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
         const SizedBox(height: 6),
         Text(
           title,
-          style: GoogleFonts.inter(
+          style: TextStyle(fontFamily: 'Inter', 
             fontSize: 20,
             fontWeight: FontWeight.bold,
             color: const Color(0xFF111827),
@@ -583,7 +582,7 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
           const SizedBox(height: 6),
           Text(
             subtitle,
-            style: GoogleFonts.inter(
+            style: TextStyle(fontFamily: 'Inter', 
               fontSize: 13,
               color: const Color(0xFF6B7280),
               height: 1.4,

@@ -2,6 +2,85 @@ import '../../../data/models/models.dart' show ResumeCourse, ResumeLanguage;
 import '../../resume/resume_viewmodel.dart'
     show ResumeData, ExperienceItem, EducationItem, ToolWithLevel;
 
+// ────────────────────────────────────────────────────────────────────────────
+// Helpers de detecção de redundância em education.activities
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Quando uma activity é "Relevant Coursework: <majors+minors>", ela repete
+// no PDF a mesma informação já presente no `detailLine` do EducationItem
+// (renderizado como subtítulo acima das activities). Filtramos antes do
+// EducationItem ser construído pra evitar a dup visível.
+
+const _redundancyStopWords = {
+  'with', 'and', 'of', 'the', 'a', 'an', 'in', 'on', 'for',
+  'com', 'e', 'de', 'do', 'da', 'dos', 'das', 'em', 'para',
+  'major', 'minor', 'majors', 'minors',
+};
+
+const _courseworkLabelsNormalized = {
+  'relevant coursework',
+  'coursework',
+  'relevant courses',
+  'disciplinas',
+  'disciplinas relevantes',
+};
+
+/// Lowercase + remove diacritics. Char-by-char mapping (mesmo padrão de
+/// `_stripAccents` em work_locations_screen.dart:316).
+String _stripDiacriticsLower(String s) {
+  const map = {
+    'á': 'a', 'à': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a',
+    'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
+    'í': 'i', 'ì': 'i', 'î': 'i', 'ï': 'i',
+    'ó': 'o', 'ò': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o',
+    'ú': 'u', 'ù': 'u', 'û': 'u', 'ü': 'u',
+    'ç': 'c', 'ñ': 'n',
+  };
+  final lower = s.toLowerCase();
+  final buf = StringBuffer();
+  for (final ch in lower.split('')) {
+    buf.write(map[ch] ?? ch);
+  }
+  return buf.toString();
+}
+
+Set<String> _tokenizeForRedundancy(String s) {
+  final normalized = _stripDiacriticsLower(s);
+  return normalized
+      .split(RegExp(r'[\s,.;:!?()\[\]{}<>"/\\\-•|&]+'))
+      .where((w) => w.length >= 3 && !_redundancyStopWords.contains(w))
+      .toSet();
+}
+
+/// Retorna true se essa activity for `Relevant Coursework: [majors+minors]`
+/// — ou seja, repete informação já presente no detailLine. Drop pra evitar
+/// dup visível no PDF (Harvard MCS renderiza activity como bullet, e
+/// detailLine renderiza acima como subtítulo).
+bool _isRedundantCourseworkActivity(
+  String activity,
+  List<String> majors,
+  List<String> minors,
+) {
+  final colonIdx = activity.indexOf(':');
+  if (colonIdx <= 0 || colonIdx >= 60) return false;
+  final label = _stripDiacriticsLower(activity.substring(0, colonIdx).trim());
+  if (!_courseworkLabelsNormalized.contains(label)) return false;
+
+  final content = activity.substring(colonIdx + 1).trim();
+  if (content.isEmpty) return false;
+
+  final contentTokens = _tokenizeForRedundancy(content);
+  if (contentTokens.isEmpty) return false;
+
+  final majorMinorTokens =
+      _tokenizeForRedundancy([...majors, ...minors].join(' '));
+  if (majorMinorTokens.isEmpty) return false;
+
+  final intersection = contentTokens.intersection(majorMinorTokens);
+  final overlap = intersection.length / contentTokens.length;
+  return overlap >= 0.7;
+}
+
 /// Resultado da adaptação de currículo pra uma vaga específica.
 ///
 /// Vem da edge function `adapt-resume-to-job`. Toda informação aqui já passou
@@ -121,6 +200,52 @@ class AdaptedResume {
   static ResumeData parseResumeData(Map<String, dynamic> json) =>
       _parseResumeData(json);
 
+  /// Serializa um `ResumeData` no MESMO formato JSON que `parseResumeData`
+  /// espera (roundtrip preservado). Usado pra persistir o `resume_data` em
+  /// `saved_resumes` — permite re-render com template diferente depois.
+  ///
+  /// Nota: education sai como `details` legacy (não restaura majors/minors
+  /// separados — a IA constrói detail line a partir deles, e nosso
+  /// `EducationItem` só guarda o detail final). Activities preservadas.
+  /// Tools sai como lista de nomes (sem `level` — schema atual não persiste).
+  static Map<String, dynamic> serializeResumeData(ResumeData r) {
+    return <String, dynamic>{
+      'fullName': r.fullName,
+      'email': r.email,
+      'phone': r.phone,
+      'linkedin': r.linkedin,
+      'location': r.location,
+      'streetAddress': r.address,
+      'language': r.language,
+      'summary': r.summary,
+      'skills': r.skills,
+      'tools': r.tools.map((t) => t.name).where((s) => s.isNotEmpty).toList(),
+      'experiences': r.experiences.map((e) => {
+            'role': e.role,
+            'company': e.company,
+            'period': e.period,
+            'description': e.description,
+            'location': e.location,
+          }).toList(),
+      'education': r.education.map((e) => {
+            'degree': e.degree,
+            'institution': e.institution,
+            'period': e.period,
+            'details': e.details,
+            'location': e.location,
+            'gpa': e.gpa,
+            'activities': e.activities,
+          }).toList(),
+      'languages': r.languages.map((l) => {
+            'name': l.language,
+            'proficiency': l.level,
+          }).toList(),
+      'achievements': r.achievements,
+      'interests': r.interests,
+      'certifications': r.courses.map((c) => c.title).toList(),
+    };
+  }
+
   static ResumeData _parseResumeData(Map<String, dynamic> json) {
     List<String> stringList(dynamic v) {
       if (v is! List) return const [];
@@ -152,21 +277,79 @@ class AdaptedResume {
       final m = Map<String, dynamic>.from(e as Map);
       final majors = stringList(m['majors']);
       final minors = stringList(m['minors']);
-      final activities = stringList(m['activities']);
+      // Filtra activities redundantes — "Relevant Coursework: Business
+      // Administration Major with Finance & Entrepreneurship Minor" repete
+      // a mesma info do detailLine (renderizado acima como subtítulo).
+      // Drop pra evitar dup visível no PDF e economizar 1-2 linhas.
+      // Heurística: token overlap >= 70% entre content (pós ":") e
+      // (majors + minors). Activities legítimas (Honors, Class Rep,
+      // cursos diferentes do major) passam intactas.
+      final rawActivities = stringList(m['activities']);
+      final activities = rawActivities
+          .where((a) => !_isRedundantCourseworkActivity(a, majors, minors))
+          .toList();
       final detailsLegacy = m['details']?.toString() ?? '';
+      final degree = m['degree']?.toString() ?? '';
       // Constrói detail line: "Major X with Minor Y". Se v1 (sem majors[]),
       // usa o `details` cru do GPT. Idioma vem do resume.language.
       final lang = (json['language']?.toString() ?? 'pt');
       final isEn = lang.toLowerCase().startsWith('en');
       String detailLine = detailsLegacy;
       if (majors.isNotEmpty) {
+        // A1: se o major já aparece no degree ("Bachelor's degree in
+        // Business Administration" + major "Business Administration"),
+        // não repete — renderiza só o minor. Evita "Bachelor's in BA"
+        // + "BA Major with Finance Minor" (repetindo "BA" 2x).
+        final degreeTokens = _tokenizeForRedundancy(degree);
+        final majorsTokens = _tokenizeForRedundancy(majors.join(' '));
+        final majorRedundantWithDegree = majorsTokens.isNotEmpty &&
+            majorsTokens.every((t) => degreeTokens.contains(t));
+
         final majorWord = isEn ? 'Major' : 'Major';
         final minorWord = isEn ? 'Minor' : 'Minor';
-        detailLine = '${majors.join(', ')} $majorWord';
-        if (minors.isNotEmpty) {
-          detailLine += ' ${isEn ? "with" : "com"} ${minors.join(', ')} $minorWord';
+
+        if (majorRedundantWithDegree && minors.isNotEmpty) {
+          // Só minor: "Minor in Finance" / "Minors in Finance, Entrepreneurship".
+          // Em PT, mantém singular ("Minor em") — termo é estrangeirismo
+          // e não tem flexão de plural natural.
+          final minorLabel = isEn
+              ? (minors.length > 1 ? 'Minors in' : 'Minor in')
+              : 'Minor em';
+          detailLine = '$minorLabel ${minors.join(', ')}';
+        } else if (majorRedundantWithDegree) {
+          // Major redundante + sem minors → sem detail line
+          detailLine = '';
+        } else {
+          // Format original: "Major X with Minor Y"
+          detailLine = '${majors.join(', ')} $majorWord';
+          if (minors.isNotEmpty) {
+            detailLine += ' ${isEn ? "with" : "com"} ${minors.join(', ')} $minorWord';
+          }
         }
       }
+      // Honors fallback pra templates não-Harvard (Jakes, Forte, OnePage)
+      // que ainda renderizam `honors` single-string. Faz strip do prefix
+      // "Honors and Academic Distinction:" se presente — evita dup com
+      // label que esses templates colocam ao redor do campo. Pro Harvard
+      // MCS o campo `activities` (lista) tem prioridade.
+      const honorsPrefixes = [
+        'honors and academic distinction:',
+        'honors & academic distinction:',
+        'honras e distinção acadêmica:',
+        'honras & distinção acadêmica:',
+      ];
+      String stripHonorsPrefix(String s) {
+        final lower = s.toLowerCase();
+        for (final p in honorsPrefixes) {
+          if (lower.startsWith(p)) return s.substring(p.length).trim();
+        }
+        return s;
+      }
+      final honorsLine = activities
+          .map(stripHonorsPrefix)
+          .where((s) => s.isNotEmpty)
+          .join('; ');
+
       return EducationItem(
         degree: m['degree']?.toString() ?? '',
         institution: m['institution']?.toString() ?? '',
@@ -174,9 +357,12 @@ class AdaptedResume {
         details: detailLine,
         location: m['location']?.toString() ?? '',
         gpa: m['gpa']?.toString() ?? '',
-        // honors recebe as activities joined — template renderiza como
-        // bullet "Honras & Distinção Acadêmica: ...".
-        honors: activities.join('; '),
+        // activities (Tier 1.2): preserva lista — Harvard MCS renderiza
+        // cada item como <li> com label semântico (Honors:, Class Rep:).
+        activities: activities,
+        // honors mantido (com strip do prefix dup) pra templates que
+        // renderizam honors single-string com label próprio.
+        honors: honorsLine,
         repRole: '',
         coursework: '',
       );

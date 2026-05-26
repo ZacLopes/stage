@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../../core/analytics/screen_tracking.dart';
 import '../../core/constants/stage_colors.dart';
 import '../../services/analytics_service.dart';
@@ -128,7 +127,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                       children: [
                         Text(
                           _currentPage == 2 ? 'Começar' : 'Próximo',
-                          style: GoogleFonts.outfit(
+                          style: TextStyle(fontFamily: 'Outfit', 
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                           ),
@@ -303,7 +302,7 @@ class _BaseSlideState extends State<_BaseSlide>
                   child: Text(
                     widget.headline,
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.outfit(
+                    style: TextStyle(fontFamily: 'Outfit', 
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
                       color: StageColors.titleText,
@@ -324,7 +323,7 @@ class _BaseSlideState extends State<_BaseSlide>
                   child: Text(
                     widget.subtitle,
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 16,
                       color: StageColors.bodyGray,
                       height: 1.5,
@@ -816,7 +815,7 @@ class _CompaniesMockupState extends State<_CompaniesMockup>
                     children: [
                       Text(
                         'CARREIRAS EM',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
                           color: Colors.grey[500],
@@ -826,7 +825,7 @@ class _CompaniesMockupState extends State<_CompaniesMockup>
                       const SizedBox(height: 2),
                       Text(
                         'Todos os Setores',
-                        style: GoogleFonts.outfit(
+                        style: TextStyle(fontFamily: 'Outfit', 
                           fontSize: 18,
                           fontWeight: FontWeight.w900,
                           color: const Color(0xFF1D1B20),
@@ -904,7 +903,7 @@ class _CompaniesMockupState extends State<_CompaniesMockup>
           const SizedBox(width: 12),
           Text(
             item['label'],
-            style: GoogleFonts.inter(
+            style: TextStyle(fontFamily: 'Inter', 
               fontWeight: FontWeight.w600,
               fontSize: 14,
               color: const Color(0xFF333333),

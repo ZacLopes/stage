@@ -11,8 +11,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../all_set_screen.dart';
 import '../onboarding_scaffold.dart';
-import '../review_personal_info_screen.dart';
 
 class AgeRangeScreen extends StatefulWidget {
   const AgeRangeScreen({super.key});
@@ -119,7 +119,7 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
     if (!mounted) return;
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const ReviewPersonalInfoScreen()),
+      MaterialPageRoute(builder: (_) => const AllSetScreen()),
     );
   }
 

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:provider/provider.dart';
 import '../../core/analytics/screen_tracking.dart';
@@ -350,7 +349,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
           spacing: 8,
           runSpacing: 4,
           children: _uniSuggestions.map((u) => ActionChip(
-            label: Text(u, style: GoogleFonts.inter(fontSize: 12)),
+            label: Text(u, style: TextStyle(fontFamily: 'Inter', fontSize: 12)),
             backgroundColor: StageColors.chipUnselectedBg,
             side: BorderSide.none,
             padding: EdgeInsets.zero,
@@ -372,7 +371,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
           spacing: 8,
           runSpacing: 4,
           children: _courseSuggestions.map((c) => ActionChip(
-            label: Text(c, style: GoogleFonts.inter(fontSize: 12)),
+            label: Text(c, style: TextStyle(fontFamily: 'Inter', fontSize: 12)),
             backgroundColor: StageColors.chipUnselectedBg,
             side: BorderSide.none,
             padding: EdgeInsets.zero,
@@ -404,7 +403,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
       headline: 'O que você\nbusca?',
       subtitle: 'Selecione tudo que te interessa.',
       children: [
-        Text('Tipo de Vaga', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+        Text('Tipo de Vaga', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16)),
         const SizedBox(height: 12),
         Wrap(
           spacing: 8,
@@ -421,7 +420,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
               selectedColor: StageColors.brandCyan.withOpacity(0.15),
               backgroundColor: StageColors.chipUnselectedBg,
               side: isSelected ? const BorderSide(color: StageColors.brandCyan) : BorderSide(color: Colors.grey[300]!),
-              labelStyle: GoogleFonts.inter(
+              labelStyle: TextStyle(fontFamily: 'Inter', 
                 color: isSelected ? StageColors.brandBlue : StageColors.chipUnselectedText,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
               ),
@@ -434,9 +433,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Áreas de Interesse', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text('Áreas de Interesse', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16)),
             Text('${_selectedAreas.length}/5 selecionados', 
-              style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: StageColors.brandBlue, fontSize: 13),
+              style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: StageColors.brandBlue, fontSize: 13),
             ),
           ],
         ),
@@ -461,7 +460,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
                 selectedColor: StageColors.brandCyan.withOpacity(0.15),
                 backgroundColor: StageColors.chipUnselectedBg,
                 side: isSelected ? const BorderSide(color: StageColors.brandCyan) : BorderSide.none,
-                labelStyle: GoogleFonts.inter(
+                labelStyle: TextStyle(fontFamily: 'Inter', 
                   color: isSelected ? StageColors.brandBlue : StageColors.chipUnselectedText,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                 ),
@@ -472,7 +471,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
         ),
         const SizedBox(height: 24),
 
-        Text('Modelo de Trabalho', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+        Text('Modelo de Trabalho', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16)),
         const SizedBox(height: 12),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -490,7 +489,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
                   selectedColor: StageColors.brandCyan.withOpacity(0.15),
                   backgroundColor: StageColors.chipUnselectedBg,
                   side: isSelected ? const BorderSide(color: StageColors.brandCyan) : BorderSide(color: Colors.grey[300]!),
-                  labelStyle: GoogleFonts.inter(
+                  labelStyle: TextStyle(fontFamily: 'Inter', 
                     color: isSelected ? StageColors.brandBlue : StageColors.chipUnselectedText,
                     fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                   ),
@@ -552,7 +551,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
             ),
             
             // Step indication
-            Text('Passo ${_currentStep + 1} de 3', style: GoogleFonts.inter(color: StageColors.subtitleGray, fontWeight: FontWeight.bold)),
+            Text('Passo ${_currentStep + 1} de 3', style: TextStyle(fontFamily: 'Inter', color: StageColors.subtitleGray, fontWeight: FontWeight.bold)),
 
             // View Content
             Expanded(
@@ -583,7 +582,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
                   ),
                   child: Text(
                     'Continuar',
-                    style: GoogleFonts.outfit(
+                    style: TextStyle(fontFamily: 'Outfit', 
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                       color: _isCurrentStepValid ? Colors.white : Colors.grey[500],
@@ -607,7 +606,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
       fillColor: Colors.white,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: StageColors.brandCyan, width: 2)),
-      labelStyle: GoogleFonts.inter(color: StageColors.subtitleGray),
+      labelStyle: TextStyle(fontFamily: 'Inter', color: StageColors.subtitleGray),
     );
   }
 }
@@ -630,9 +629,9 @@ class _StepContentLayout extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(headline, style: GoogleFonts.outfit(fontSize: 32, fontWeight: FontWeight.bold, color: StageColors.titleText, height: 1.2)),
+          Text(headline, style: TextStyle(fontFamily: 'Outfit', fontSize: 32, fontWeight: FontWeight.bold, color: StageColors.titleText, height: 1.2)),
           const SizedBox(height: 8),
-          Text(subtitle, style: GoogleFonts.inter(fontSize: 16, color: StageColors.subtitleGray)),
+          Text(subtitle, style: TextStyle(fontFamily: 'Inter', fontSize: 16, color: StageColors.subtitleGray)),
           const SizedBox(height: 32),
           ...children,
         ],
@@ -753,7 +752,7 @@ class _SemesterField extends StatelessWidget {
               color: StageColors.hintGray,
             ),
           ),
-          style: GoogleFonts.inter(
+          style: TextStyle(fontFamily: 'Inter', 
             color: StageColors.darkText,
             fontSize: 16,
           ),
@@ -795,7 +794,7 @@ class _SemesterPickerSheet extends StatelessWidget {
                 children: [
                   Text(
                     'Semestre',
-                    style: GoogleFonts.outfit(
+                    style: TextStyle(fontFamily: 'Outfit', 
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
                       color: StageColors.titleText,
@@ -830,7 +829,7 @@ class _SemesterPickerSheet extends StatelessWidget {
                         children: [
                           Text(
                             _SemesterField._labelFor(n),
-                            style: GoogleFonts.inter(
+                            style: TextStyle(fontFamily: 'Inter', 
                               fontSize: 15,
                               fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
                               color: isSelected

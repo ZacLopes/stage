@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/stage_colors.dart';
 import '../../services/version_service.dart';
@@ -101,7 +100,7 @@ class _ForceUpdateScreen extends StatelessWidget {
                   Text(
                     'Atualização necessária',
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.outfit(
+                    style: TextStyle(fontFamily: 'Outfit', 
                       fontSize: 26,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
@@ -113,7 +112,7 @@ class _ForceUpdateScreen extends StatelessWidget {
                         ? config.updateMessage!
                         : 'Uma nova versão do Stage está disponível com melhorias e correções importantes. Atualize para continuar.',
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 15,
                       height: 1.5,
                       color: Colors.white.withOpacity(0.9),
@@ -122,7 +121,7 @@ class _ForceUpdateScreen extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(
                     'Sua versão: $currentVersion · Mínima: ${config.minSupportedVersion}',
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 12,
                       color: Colors.white.withOpacity(0.65),
                     ),
@@ -143,7 +142,7 @@ class _ForceUpdateScreen extends StatelessWidget {
                       ),
                       child: Text(
                         'Atualizar agora',
-                        style: GoogleFonts.outfit(
+                        style: TextStyle(fontFamily: 'Outfit', 
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
                         ),
@@ -155,7 +154,7 @@ class _ForceUpdateScreen extends StatelessWidget {
                     onPressed: onRetry,
                     child: Text(
                       'Já atualizei',
-                      style: GoogleFonts.inter(
+                      style: TextStyle(fontFamily: 'Inter', 
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                         color: Colors.white.withOpacity(0.85),

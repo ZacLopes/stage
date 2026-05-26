@@ -11,7 +11,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/analytics/screen_tracking.dart';
 import '../../core/constants/stage_colors.dart';
@@ -119,7 +118,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
           ),
           title: Text(
             'Continuar com telefone',
-            style: GoogleFonts.outfit(
+            style: TextStyle(fontFamily: 'Outfit', 
               color: StageColors.titleText,
               fontSize: 18,
               fontWeight: FontWeight.w600,
@@ -139,7 +138,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                       children: [
                         Text(
                           'Continuar com telefone',
-                          style: GoogleFonts.outfit(
+                          style: TextStyle(fontFamily: 'Outfit', 
                             fontSize: 28,
                             fontWeight: FontWeight.bold,
                             color: StageColors.titleText,
@@ -148,7 +147,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                         const SizedBox(height: 8),
                         Text(
                           'Entre ou crie sua conta com seu número.',
-                          style: GoogleFonts.inter(
+                          style: TextStyle(fontFamily: 'Inter', 
                             fontSize: 16,
                             color: StageColors.subtitleGray,
                           ),
@@ -244,7 +243,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                           padding: const EdgeInsets.only(top: 8, left: 12),
                           child: Text(
                             'Mínimo 8 caracteres, uma letra e um número',
-                            style: GoogleFonts.inter(fontSize: 12, color: StageColors.hintGray),
+                            style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: StageColors.hintGray),
                           ),
                         ),
                       ],
@@ -269,7 +268,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                           Expanded(
                             child: Text(
                               _errorMessage!,
-                              style: GoogleFonts.inter(
+                              style: TextStyle(fontFamily: 'Inter', 
                                 color: StageColors.error,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w500,
@@ -305,7 +304,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                                     child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
                                 : Text(
                                     'Continuar',
-                                    style: GoogleFonts.outfit(
+                                    style: TextStyle(fontFamily: 'Outfit', 
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
                                       color: _isFormValid ? Colors.white : Colors.grey[500],
@@ -322,7 +321,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                   child: RichText(
                     textAlign: TextAlign.center,
                     text: TextSpan(
-                      style: GoogleFonts.inter(
+                      style: TextStyle(fontFamily: 'Inter', 
                         color: StageColors.subtitleGray,
                         fontSize: 12,
                         height: 1.4,
@@ -377,11 +376,11 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
       textInputAction: textInputAction,
       validator: validator,
       onChanged: onChanged,
-      style: GoogleFonts.inter(color: StageColors.darkText, fontSize: 16),
+      style: TextStyle(fontFamily: 'Inter', color: StageColors.darkText, fontSize: 16),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: GoogleFonts.inter(color: StageColors.subtitleGray),
-        floatingLabelStyle: GoogleFonts.inter(color: StageColors.brandBlue, fontWeight: FontWeight.bold),
+        labelStyle: TextStyle(fontFamily: 'Inter', color: StageColors.subtitleGray),
+        floatingLabelStyle: TextStyle(fontFamily: 'Inter', color: StageColors.brandBlue, fontWeight: FontWeight.bold),
         prefixIcon: Icon(icon, color: StageColors.hintGray),
         suffixIcon: suffixIcon,
         border: OutlineInputBorder(

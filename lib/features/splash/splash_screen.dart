@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/analytics/screen_tracking.dart';
 import '../../core/constants/stage_colors.dart';
@@ -132,7 +131,7 @@ class _SplashScreenState extends State<SplashScreen>
                 },
                 child: Text(
                   'Stage',
-                  style: GoogleFonts.outfit(
+                  style: TextStyle(fontFamily: 'Outfit', 
                     fontSize: 48,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,

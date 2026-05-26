@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../../core/analytics/screen_tracking.dart';
 import 'profile_viewmodel.dart';
+import 'application/profile_editor_view_model.dart';
+import '../../core/utils/display_name.dart';
 import '../auth/user_viewmodel.dart';
 import '../home/home_viewmodel.dart';
 import '../settings/settings_screen.dart';
@@ -102,8 +103,14 @@ class _ProfileScreenState extends State<ProfileScreen>
   Widget build(BuildContext context) {
     final userVM = context.watch<UserViewModel>();
     final user = userVM.user;
+    final profileEditorVM = context.watch<ProfileEditorViewModel>();
     final homeVM = context.watch<HomeViewModel>();
     final highlightId = homeVM.pendingHighlightResumeId;
+
+    // Display name — prioriza profile_personal (novo onboarding) sobre
+    // user_profiles.name (legacy, que pode ser o placeholder "User" para
+    // signups via Apple/Google/phone).
+    final displayName = resolveDisplayName(profileEditorVM, user?.name);
 
     // Clear the highlight after this frame so it only plays once per
     // request. _ResumeCard reads the id on construct and animates.
@@ -137,7 +144,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 24),
-                        _buildUserIdentity(context, user),
+                        _buildUserIdentity(context, displayName),
                         const SizedBox(height: 32),
                         
                         Row(
@@ -145,7 +152,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                             Expanded(
                               child: Text(
                                 'Sua Biblioteca',
-                                style: GoogleFonts.outfit(
+                                style: TextStyle(fontFamily: 'Outfit', 
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
                                   color: const Color(0xFF1F2937),
@@ -195,7 +202,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               children: [
                 Text(
                   'Meu Perfil',
-                  style: GoogleFonts.outfit(
+                  style: TextStyle(fontFamily: 'Outfit', 
                     fontSize: 28,
                     fontWeight: FontWeight.w800,
                     color: const Color(0xFF111827),
@@ -257,7 +264,10 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildUserIdentity(BuildContext context, UserProfile? user) {
+  Widget _buildUserIdentity(BuildContext context, String displayName) {
+    final initial = displayName.isNotEmpty
+        ? displayName.substring(0, 1).toUpperCase()
+        : 'U';
     return Row(
       children: [
         Container(
@@ -278,18 +288,22 @@ class _ProfileScreenState extends State<ProfileScreen>
             radius: 24,
             backgroundColor: const Color(0xFFF3F4F6),
             child: Text(
-              user?.name.isNotEmpty == true ? user!.name.substring(0, 1).toUpperCase() : 'U',
+              initial,
               style: const TextStyle(fontSize: 20, color: Color(0xFF4F46E5), fontWeight: FontWeight.bold),
             ),
           ),
         ),
         const SizedBox(width: 16),
-        Text(
-          user?.name ?? 'Usuário',
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF111827),
+        Flexible(
+          child: Text(
+            displayName,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF111827),
+            ),
           ),
         ),
       ],
@@ -318,7 +332,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           const SizedBox(height: 16),
           Text(
             'Nenhum currículo salvo',
-            style: GoogleFonts.outfit(
+            style: TextStyle(fontFamily: 'Outfit', 
               fontSize: 16,
               fontWeight: FontWeight.w600,
               color: const Color(0xFF374151),
@@ -427,7 +441,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   alignment: Alignment.centerLeft,
                   child: Text(
                     'Ordenar por',
-                    style: GoogleFonts.outfit(
+                    style: TextStyle(fontFamily: 'Outfit', 
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
                       color: const Color(0xFF111827),
@@ -549,7 +563,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               // Title
               Text(
                 'Excluir Currículo?',
-                style: GoogleFonts.outfit(
+                style: TextStyle(fontFamily: 'Outfit', 
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
                   color: const Color(0xFF1F2937),
@@ -561,7 +575,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               RichText(
                 textAlign: TextAlign.center,
                 text: TextSpan(
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter', 
                     fontSize: 14,
                     color: Colors.grey[600],
                     height: 1.4,
@@ -590,7 +604,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       ),
                       child: Text(
                         'Manter',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter', 
                           fontWeight: FontWeight.w600,
                           color: Colors.grey[600],
                         ),
@@ -610,7 +624,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       ),
                       child: Text(
                         'Excluir',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter', 
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
                         ),
@@ -889,7 +903,7 @@ class _ResumeCardState extends State<_ResumeCard>
                     widget.resume.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter', 
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
                       color: const Color(0xFF1F2937),

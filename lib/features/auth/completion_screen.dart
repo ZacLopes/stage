@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:provider/provider.dart';
 import '../../core/analytics/screen_tracking.dart';
@@ -187,7 +186,7 @@ class _CompletionScreenState extends State<CompletionScreen>
                             ),
                             child: Text(
                               'Perfil Criado! 🎉',
-                              style: GoogleFonts.inter(
+                              style: TextStyle(fontFamily: 'Inter', 
                                 color: StageColors.ctaGreen,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14,
@@ -197,7 +196,7 @@ class _CompletionScreenState extends State<CompletionScreen>
                           const SizedBox(height: 16),
                           Text(
                             'Como você quer\ncomeçar, $firstName?',
-                            style: GoogleFonts.outfit(
+                            style: TextStyle(fontFamily: 'Outfit', 
                               fontSize: 36,
                               fontWeight: FontWeight.bold,
                               color: StageColors.titleText,
@@ -207,7 +206,7 @@ class _CompletionScreenState extends State<CompletionScreen>
                           const SizedBox(height: 12),
                           Text(
                             'Escolha um caminho pra começar a aplicar para vagas.',
-                            style: GoogleFonts.inter(
+                            style: TextStyle(fontFamily: 'Inter', 
                               fontSize: 16,
                               color: StageColors.subtitleGray,
                               height: 1.5,
@@ -271,7 +270,7 @@ class _PickingLoader extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             'Salvando seu currículo...',
-            style: GoogleFonts.inter(
+            style: TextStyle(fontFamily: 'Inter', 
               color: StageColors.subtitleGray,
               fontWeight: FontWeight.w500,
             ),
@@ -337,7 +336,7 @@ class _PathCard extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: GoogleFonts.outfit(
+                    style: TextStyle(fontFamily: 'Outfit', 
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                       color: StageColors.titleText,
@@ -346,7 +345,7 @@ class _PathCard extends StatelessWidget {
                   const SizedBox(height: 6),
                   Text(
                     subtitle,
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 14,
                       color: StageColors.bodyGray,
                       height: 1.4,

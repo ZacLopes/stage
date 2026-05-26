@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/analytics/screen_tracking.dart';
@@ -107,7 +106,7 @@ class _NameInputScreenState extends State<NameInputScreen>
                   Text(
                     'Como podemos te chamar?',
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.outfit(
+                    style: TextStyle(fontFamily: 'Outfit', 
                       fontSize: 28,
                       fontWeight: FontWeight.w700,
                       color: StageColors.titleText,
@@ -118,7 +117,7 @@ class _NameInputScreenState extends State<NameInputScreen>
                   Text(
                     'Vamos usar esse nome no seu currículo e em todo o app.',
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 15,
                       color: StageColors.subtitleGray,
                       height: 1.4,
@@ -132,13 +131,13 @@ class _NameInputScreenState extends State<NameInputScreen>
                     textInputAction: TextInputAction.done,
                     textCapitalization: TextCapitalization.words,
                     autocorrect: false,
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 17,
                       color: StageColors.darkText,
                     ),
                     decoration: InputDecoration(
                       hintText: 'Seu nome completo',
-                      hintStyle: GoogleFonts.inter(
+                      hintStyle: TextStyle(fontFamily: 'Inter', 
                         color: StageColors.hintGray,
                       ),
                       filled: true,
@@ -187,7 +186,7 @@ class _NameInputScreenState extends State<NameInputScreen>
                     Text(
                       _errorMessage!,
                       textAlign: TextAlign.center,
-                      style: GoogleFonts.inter(
+                      style: TextStyle(fontFamily: 'Inter', 
                         fontSize: 13,
                         color: StageColors.error,
                       ),
@@ -219,7 +218,7 @@ class _NameInputScreenState extends State<NameInputScreen>
                           )
                         : Text(
                             'Continuar',
-                            style: GoogleFonts.outfit(
+                            style: TextStyle(fontFamily: 'Outfit', 
                               fontSize: 17,
                               fontWeight: FontWeight.w600,
                             ),

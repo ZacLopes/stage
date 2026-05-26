@@ -892,6 +892,8 @@ class SupabaseRepository {
     String title,
     List<int> pdfBytes, {
     SavedResumeSource source = SavedResumeSource.manual,
+    Map<String, dynamic>? resumeData,
+    String? templateId,
   }) async {
     try {
       final userId = _client.auth.currentUser?.id;
@@ -916,6 +918,8 @@ class SupabaseRepository {
             'title': title,
             'file_path': storagePath,
             'source': source.dbValue,
+            if (resumeData != null) 'resume_data': resumeData,
+            if (templateId != null) 'template_id': templateId,
           })
           .select()
           .single();
@@ -923,6 +927,45 @@ class SupabaseRepository {
       return SavedResume.fromMap(inserted);
     } catch (e) {
       print('Error saving resume: $e');
+      rethrow;
+    }
+  }
+
+  /// Substitui o PDF de um saved_resume e atualiza o template_id no DB.
+  /// Usado quando o user troca o template de um CV existente na
+  /// biblioteca: re-render no client → upload sobrescreve mesmo
+  /// `file_path` → update da coluna `template_id`.
+  ///
+  /// Retorna o `SavedResume` atualizado.
+  Future<SavedResume> updateResumeTemplate({
+    required String resumeId,
+    required String filePath,
+    required List<int> pdfBytes,
+    required String templateId,
+  }) async {
+    try {
+      // 1. Sobrescreve o PDF no mesmo file_path (upsert: true). Mantém o
+      //    path estável — não precisa atualizar file_path no DB.
+      await _client.storage.from('resumes').uploadBinary(
+        filePath,
+        pdfBytes is Uint8List ? pdfBytes : Uint8List.fromList(pdfBytes),
+        fileOptions: const FileOptions(
+          contentType: 'application/pdf',
+          upsert: true,
+        ),
+      );
+
+      // 2. Atualiza template_id no DB e devolve a row atualizada.
+      final updated = await _client
+          .from('saved_resumes')
+          .update({'template_id': templateId})
+          .eq('id', resumeId)
+          .select()
+          .single();
+
+      return SavedResume.fromMap(updated);
+    } catch (e) {
+      print('Error updating resume template: $e');
       rethrow;
     }
   }

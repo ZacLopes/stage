@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -172,7 +171,7 @@ class _AuthScreenState extends State<AuthScreen>
                       const SizedBox(height: 32),
                       Text(
                         'Vamos lá!',
-                        style: GoogleFonts.outfit(
+                        style: TextStyle(fontFamily: 'Outfit', 
                           fontSize: 32,
                           fontWeight: FontWeight.bold,
                           color: StageColors.titleText,
@@ -182,7 +181,7 @@ class _AuthScreenState extends State<AuthScreen>
                       const SizedBox(height: 12),
                       Text(
                         'Sua jornada começa em segundos.',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 16,
                           color: StageColors.subtitleGray,
                         ),
@@ -265,7 +264,7 @@ class _AuthScreenState extends State<AuthScreen>
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             child: Text(
                               'ou',
-                              style: GoogleFonts.inter(
+                              style: TextStyle(fontFamily: 'Inter', 
                                 color: StageColors.subtitleGray,
                                 fontSize: 14,
                               ),
@@ -355,7 +354,7 @@ class _SocialButton extends StatelessWidget {
                   child: Text(
                     text,
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                       color: textColor,

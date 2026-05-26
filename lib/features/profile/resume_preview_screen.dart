@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../../core/widgets/pii_mask.dart';
 
 class ResumePreviewScreen extends StatelessWidget {
@@ -22,7 +21,7 @@ class ResumePreviewScreen extends StatelessWidget {
         centerTitle: true,
         title: Text(
           title,
-          style: GoogleFonts.outfit(
+          style: TextStyle(fontFamily: 'Outfit', 
             fontWeight: FontWeight.bold,
             fontSize: 18,
             color: const Color(0xFF1F2937),

@@ -245,7 +245,7 @@ class ProfilePdfData {
       fullName: fullName,
       email: personal.email ?? '',
       phone: phone,
-      linkedin: '', // schema relacional não tem campo de LinkedIn separado
+      linkedin: personal.linkedinUrl ?? '',
       location: location,
       address: personal.locationStreetAddress ?? '',
       language: 'pt',
@@ -268,9 +268,11 @@ class ProfilePdfData {
   String _formatPhone(String? cc, String? num) {
     final c = (cc ?? '').trim();
     final n = (num ?? '').trim();
-    if (c.isEmpty && n.isEmpty) return '';
+    // Telefone só faz sentido com número. Sem número, retorna vazio mesmo
+    // que tenha country code (4 users reais na base hoje têm cc='+55' e
+    // n=NULL — antes mostraria "Mobile: +55" sem número no PDF).
+    if (n.isEmpty) return '';
     if (c.isEmpty) return n;
-    if (n.isEmpty) return c;
     return '$c $n';
   }
 

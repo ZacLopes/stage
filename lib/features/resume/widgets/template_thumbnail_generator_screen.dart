@@ -18,9 +18,9 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:printing/printing.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../pdf_service.dart';
 import 'template_thumbnail_mock_data.dart';
@@ -30,6 +30,7 @@ const _kTemplateIds = [
   'jakes_resume',
   'forte_foundation',
   'one_page_compact',
+  'cobalt_modern',
 ];
 
 class TemplateThumbnailGeneratorScreen extends StatefulWidget {
@@ -121,13 +122,55 @@ class _TemplateThumbnailGeneratorScreenState
     );
   }
 
+  /// Abre o share sheet nativo com os PNGs gerados. No iPhone permite
+  /// AirDrop pro Mac, save no Files app, envio por iMessage etc — mais
+  /// rápido que tentar achar o diretório sandboxado do app.
+  Future<void> _sharePngs() async {
+    if (_outputDirPath == null) return;
+    final dir = Directory(_outputDirPath!);
+    if (!dir.existsSync()) return;
+    final pngs = dir
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.toLowerCase().endsWith('.png'))
+        .map((f) => XFile(f.path))
+        .toList();
+    if (pngs.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Nenhum PNG encontrado pra compartilhar'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          files: pngs,
+          subject: 'Thumbnails dos templates do Stage',
+          text: 'PNGs gerados pra assets/images/templates/',
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Falha ao compartilhar: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(
           '[DEV] Gerar thumbnails',
-          style: GoogleFonts.outfit(fontWeight: FontWeight.w600),
+          style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w600),
         ),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
@@ -142,7 +185,7 @@ class _TemplateThumbnailGeneratorScreenState
               Text(
                 'Regenera os PNGs de preview dos 4 templates de currículo. '
                 'Use sempre que o HTML de algum template mudar.',
-                style: GoogleFonts.inter(fontSize: 14, color: Colors.grey[700], height: 1.4),
+                style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: Colors.grey[700], height: 1.4),
               ),
               const SizedBox(height: 24),
               ElevatedButton.icon(
@@ -214,12 +257,12 @@ class _TemplateThumbnailGeneratorScreenState
           Expanded(
             child: Text(
               id,
-              style: GoogleFonts.jetBrainsMono(fontSize: 14, fontWeight: FontWeight.w500),
+              style: TextStyle(fontFamily: 'monospace', fontSize: 14, fontWeight: FontWeight.w500),
             ),
           ),
           Text(
             trailing,
-            style: GoogleFonts.inter(
+            style: TextStyle(fontFamily: 'Inter', 
               fontSize: 12,
               color: color,
               fontWeight: FontWeight.w600,
@@ -243,12 +286,12 @@ class _TemplateThumbnailGeneratorScreenState
         children: [
           Text(
             'PNGs salvos em:',
-            style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[700]),
+            style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[700]),
           ),
           const SizedBox(height: 8),
           SelectableText(
             _outputDirPath!,
-            style: GoogleFonts.jetBrainsMono(fontSize: 11, color: Colors.black87),
+            style: TextStyle(fontFamily: 'monospace', fontSize: 11, color: Colors.black87),
           ),
           const SizedBox(height: 12),
           Row(
@@ -259,16 +302,21 @@ class _TemplateThumbnailGeneratorScreenState
                 label: const Text('Copiar caminho'),
                 style: TextButton.styleFrom(foregroundColor: const Color(0xFF00C27A)),
               ),
+              const SizedBox(width: 8),
+              TextButton.icon(
+                onPressed: _sharePngs,
+                icon: const Icon(Icons.ios_share, size: 16),
+                label: const Text('Compartilhar PNGs'),
+                style: TextButton.styleFrom(foregroundColor: const Color(0xFF00C27A)),
+              ),
             ],
           ),
           const SizedBox(height: 8),
           Text(
-            'Próximos passos:\n'
-            '1. Copie o caminho acima\n'
-            '2. No Finder: Cmd+Shift+G → cole o caminho\n'
-            '3. Move os 4 PNGs pra assets/images/templates/ no projeto\n'
-            '4. Commit os assets',
-            style: GoogleFonts.inter(fontSize: 12, color: Colors.grey[800], height: 1.5),
+            'No iPhone: toque em "Compartilhar PNGs" → AirDrop pro seu Mac '
+            '(ou Salvar em Arquivos). Depois move os PNGs pra '
+            'assets/images/templates/ e commita.',
+            style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.grey[800], height: 1.5),
           ),
         ],
       ),

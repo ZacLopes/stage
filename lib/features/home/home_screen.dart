@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../profile/profile_screen.dart';
@@ -432,7 +431,7 @@ class _PendingBadgeIcon extends StatelessWidget {
               child: Text(
                 count > 99 ? '99+' : '$count',
                 textAlign: TextAlign.center,
-                style: GoogleFonts.inter(
+                style: TextStyle(fontFamily: 'Inter', 
                   color: Colors.white,
                   fontSize: 10,
                   fontWeight: FontWeight.w700,

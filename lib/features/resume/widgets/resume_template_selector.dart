@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../../../services/analytics_service.dart';
@@ -59,6 +58,16 @@ class _ResumeTemplateSelectorState extends State<ResumeTemplateSelector> {
       style: 'Sans-serif moderno, compacto',
       color: Color(0xFF0F172A),
     ),
+    _TemplateMeta(
+      id: 'cobalt_modern',
+      name: 'Cobalt Modern',
+      thumbnail: 'assets/images/templates/cobalt_modern.png',
+      description:
+          'Layout 2 colunas com sidebar de contato/skills, cor de destaque azul cobalt. Ideal pra design, marketing, tech e candidatos que querem se diferenciar visualmente.',
+      ats: 'Média-Alta',
+      style: 'Sans-serif moderno (Inter), 2 colunas, accent azul',
+      color: Color(0xFF1E40AF),
+    ),
   ];
 
   @override
@@ -96,7 +105,7 @@ class _ResumeTemplateSelectorState extends State<ResumeTemplateSelector> {
               children: [
                 Text(
                   'Escolha seu Modelo',
-                  style: GoogleFonts.outfit(
+                  style: TextStyle(fontFamily: 'Outfit', 
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
                     color: const Color(0xFF111827),
@@ -205,7 +214,7 @@ class _TemplateCard extends StatelessWidget {
                             const SizedBox(height: 8),
                             Text(
                               'Preview indisponível',
-                              style: GoogleFonts.inter(
+                              style: TextStyle(fontFamily: 'Inter', 
                                 fontSize: 11,
                                 color: Colors.grey[500],
                               ),
@@ -225,7 +234,7 @@ class _TemplateCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     template.name,
-                    style: GoogleFonts.outfit(
+                    style: TextStyle(fontFamily: 'Outfit', 
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: const Color(0xFF111827),
@@ -240,7 +249,7 @@ class _TemplateCard extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               template.description,
-              style: GoogleFonts.inter(
+              style: TextStyle(fontFamily: 'Inter', 
                 fontSize: 12,
                 color: Colors.grey[600],
                 height: 1.4,

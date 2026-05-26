@@ -105,14 +105,56 @@ class ProfileViewModel extends ChangeNotifier {
     String title,
     List<int> pdfBytes, {
     SavedResumeSource source = SavedResumeSource.manual,
+    Map<String, dynamic>? resumeData,
+    String? templateId,
   }) async {
     try {
-      final saved = await _repository.saveResume(title, pdfBytes, source: source);
+      final saved = await _repository.saveResume(
+        title,
+        pdfBytes,
+        source: source,
+        resumeData: resumeData,
+        templateId: templateId,
+      );
       await loadSavedResumes(); // Refresh list
       return saved;
     } catch (e) {
       print('Error saving resume: $e');
       _error = 'Erro ao salvar currículo';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  /// Troca o template de um CV salvo na biblioteca: re-render server-side
+  /// (PDF novo) → upload sobrescreve o arquivo → atualiza `template_id`.
+  /// Só faz sentido quando `resume.resumeData != null` (ie, CV salvo
+  /// depois da migration 20260526). Atualiza a lista in-memory pra UI.
+  Future<SavedResume> updateResumeTemplate({
+    required SavedResume resume,
+    required List<int> newPdfBytes,
+    required String newTemplateId,
+  }) async {
+    try {
+      final updated = await _repository.updateResumeTemplate(
+        resumeId: resume.id,
+        filePath: resume.filePath,
+        pdfBytes: newPdfBytes,
+        templateId: newTemplateId,
+      );
+      // Substitui in-memory pra evitar refetch completo (e flicker da
+      // biblioteca enquanto carrega). Mantém o resumeData original do
+      // local (não vem no UPDATE return se o jsonb não foi tocado).
+      final mergedResumeData = updated.resumeData ?? resume.resumeData;
+      final merged = updated.copyWith(resumeData: mergedResumeData);
+      _savedResumes = _savedResumes
+          .map((r) => r.id == merged.id ? merged : r)
+          .toList();
+      notifyListeners();
+      return merged;
+    } catch (e) {
+      print('Error updating resume template: $e');
+      _error = 'Erro ao trocar modelo do currículo';
       notifyListeners();
       rethrow;
     }

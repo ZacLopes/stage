@@ -64,7 +64,6 @@ class _ReviewPersonalInfoScreenState extends State<ReviewPersonalInfoScreen> {
       child: PersonalInfoForm(
         initial: initial,
         requireCriticalFields: true,
-        showHeadline: false,
         onChanged: (d) => setState(() => _draft = d),
       ),
     );

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../../jobs/pending_adapted_cv_tracker.dart';
@@ -56,7 +55,7 @@ class PendingAdaptedCvBanner extends StatelessWidget {
                   'Seu CV pra ${p.jobTitle} tá pronto',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter', 
                     color: Colors.white,
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
@@ -69,7 +68,7 @@ class PendingAdaptedCvBanner extends StatelessWidget {
                       : 'Toque pra baixar agora',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter', 
                     color: Colors.white.withOpacity(0.85),
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
@@ -92,7 +91,7 @@ class PendingAdaptedCvBanner extends StatelessWidget {
                 ),
                 child: Text(
                   'Abrir',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter', 
                     color: const Color(0xFF4F46E5),
                     fontSize: 13,
                     fontWeight: FontWeight.w800,

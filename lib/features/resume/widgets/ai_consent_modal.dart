@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class AIConsentModal extends StatefulWidget {
@@ -53,7 +52,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
               const SizedBox(height: 20),
               Text(
                 'Uso de Inteligência Artificial',
-                style: GoogleFonts.outfit(
+                style: TextStyle(fontFamily: 'Outfit', 
                   fontSize: 28,
                   fontWeight: FontWeight.w800,
                   color: const Color(0xFF111827),
@@ -68,7 +67,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                     children: [
                       Text(
                         'Para gerar seu currículo personalizado e relatórios com IA, precisamos enviar alguns dos seus dados para processamento.',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 16,
                           color: const Color(0xFF4B5563),
                           height: 1.6,
@@ -92,7 +91,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                                 const SizedBox(width: 8),
                                 Text(
                                   'Terceiro que receberá seus dados:',
-                                  style: GoogleFonts.inter(
+                                  style: TextStyle(fontFamily: 'Inter', 
                                     fontSize: 14,
                                     fontWeight: FontWeight.w700,
                                     color: const Color(0xFF1F2937),
@@ -103,7 +102,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                             const SizedBox(height: 8),
                             Text(
                               'OpenAI, Inc.',
-                              style: GoogleFonts.inter(
+                              style: TextStyle(fontFamily: 'Inter', 
                                 fontSize: 18,
                                 fontWeight: FontWeight.w800,
                                 color: const Color(0xFF111827),
@@ -112,7 +111,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                             const SizedBox(height: 4),
                             Text(
                               'Os dados são enviados de forma segura (HTTPS) via API para processamento de linguagem natural. A OpenAI não armazena permanentemente seus dados pessoais.',
-                              style: GoogleFonts.inter(
+                              style: TextStyle(fontFamily: 'Inter', 
                                 fontSize: 13,
                                 color: const Color(0xFF6B7280),
                                 height: 1.5,
@@ -125,7 +124,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                       // --- DATA LIST ---
                       Text(
                         'Dados que serão enviados:',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                           color: const Color(0xFF1F2937),
@@ -142,7 +141,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                       // --- PURPOSE ---
                       Text(
                         'Finalidade:',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                           color: const Color(0xFF1F2937),
@@ -151,7 +150,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                       const SizedBox(height: 8),
                       Text(
                         'Esses dados serão utilizados exclusivamente para gerar o conteúdo do seu currículo e relatórios de análise de perfil. Nenhum dado será compartilhado com terceiros além da OpenAI, Inc.',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 14,
                           color: const Color(0xFF4B5563),
                           height: 1.6,
@@ -163,7 +162,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                         onTap: _launchAppPrivacy,
                         child: Text(
                           'Política de Privacidade do App',
-                          style: GoogleFonts.inter(
+                          style: TextStyle(fontFamily: 'Inter', 
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
                             color: const Color(0xFF4F46E5),
@@ -176,7 +175,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                         onTap: _launchOpenAIPrivacy,
                         child: Text(
                           'Política de Privacidade da OpenAI',
-                          style: GoogleFonts.inter(
+                          style: TextStyle(fontFamily: 'Inter', 
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
                             color: const Color(0xFF4F46E5),
@@ -189,7 +188,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                         onTap: _launchSupport,
                         child: Text(
                           'Suporte do App',
-                          style: GoogleFonts.inter(
+                          style: TextStyle(fontFamily: 'Inter', 
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
                             color: const Color(0xFF4F46E5),
@@ -225,7 +224,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                       },
                       child: Text(
                         'Eu autorizo o envio dos meus dados pessoais para a OpenAI, Inc. para processamento conforme descrito acima.',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 13,
                           color: const Color(0xFF374151),
                           height: 1.4,
@@ -250,7 +249,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                       ),
                       child: Text(
                         'Recusar',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: const Color(0xFF4B5563),
@@ -275,7 +274,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                       ),
                       child: Text(
                         'Aceitar e continuar',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
                         ),
@@ -301,7 +300,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
           Expanded(
             child: Text(
               text,
-              style: GoogleFonts.inter(
+              style: TextStyle(fontFamily: 'Inter', 
                 fontSize: 15,
                 color: const Color(0xFF4B5563),
               ),

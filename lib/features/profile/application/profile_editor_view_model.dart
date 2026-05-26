@@ -62,15 +62,37 @@ class ProfileEditorViewModel extends ChangeNotifier {
       _skills.isEmpty;
 
   ProfileEditorViewModel(this._repo) {
-    // Auto-load quando user troca de sessão
+    // Auto-load em qualquer evento com user ativo. Cobre:
+    //   - signedIn         → login novo
+    //   - initialSession   → cold start com sessão restaurada do storage
+    //                        (sem isso, abrir o app já logado deixa
+    //                        personal null e a UI mostra "User")
+    //   - tokenRefreshed   → keep-alive
+    //   - userUpdated      → mudanças de perfil via auth API
     Supabase.instance.client.auth.onAuthStateChange.listen((data) {
       final ev = data.event;
-      if (ev == AuthChangeEvent.signedIn) {
-        load();
-      } else if (ev == AuthChangeEvent.signedOut) {
-        _clear();
+      switch (ev) {
+        case AuthChangeEvent.signedIn:
+        case AuthChangeEvent.initialSession:
+        case AuthChangeEvent.tokenRefreshed:
+        case AuthChangeEvent.userUpdated:
+          if (Supabase.instance.client.auth.currentUser != null) {
+            load();
+          }
+        case AuthChangeEvent.signedOut:
+          _clear();
+        default:
+          // Outros eventos (passwordRecovery, mfaChallengeVerified) não
+          // afetam o perfil — ignora.
+          break;
       }
     });
+    // Boot defensivo: se já existe sessão no momento que o VM é instanciado
+    // (caso comum em main.dart, MultiProvider monta antes do listener
+    // capturar initialSession), dispara load imediatamente.
+    if (Supabase.instance.client.auth.currentUser != null) {
+      load();
+    }
   }
 
   // ──────────────────────────────────────────────────────────────────────

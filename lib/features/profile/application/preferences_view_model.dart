@@ -14,7 +14,6 @@ class PreferencesViewModel extends ChangeNotifier {
 
   JobPreferences? _prefs;
   List<DesiredTitle> _desiredTitles = [];
-  List<ApplicationCountry> _countries = [];
   List<OtherLocation> _otherLocations = [];
 
   bool _isLoading = false;
@@ -23,7 +22,6 @@ class PreferencesViewModel extends ChangeNotifier {
 
   JobPreferences? get prefs => _prefs;
   List<DesiredTitle> get desiredTitles => List.unmodifiable(_desiredTitles);
-  List<ApplicationCountry> get countries => List.unmodifiable(_countries);
   List<OtherLocation> get otherLocations => List.unmodifiable(_otherLocations);
   bool get isLoading => _isLoading;
   SaveStatus get saveStatus => _saveStatus;
@@ -41,13 +39,11 @@ class PreferencesViewModel extends ChangeNotifier {
       final results = await Future.wait([
         _repo.getJobPreferences(userId),
         _repo.getDesiredTitles(userId),
-        _repo.getApplicationCountries(userId),
         _repo.getOtherLocations(userId),
       ]);
       _prefs = results[0] as JobPreferences?;
       _desiredTitles = results[1] as List<DesiredTitle>;
-      _countries = results[2] as List<ApplicationCountry>;
-      _otherLocations = results[3] as List<OtherLocation>;
+      _otherLocations = results[2] as List<OtherLocation>;
     } catch (e) {
       _lastError = 'Erro ao carregar preferências: $e';
       debugPrint('[PreferencesViewModel] load: $e');
@@ -80,11 +76,6 @@ class PreferencesViewModel extends ChangeNotifier {
     await upsertPrefs(current.copyWith(jobTypes: types));
   }
 
-  Future<void> setExperienceLevel(List<ExperienceLevel> levels) async {
-    final current = _prefs ?? _emptyPrefs();
-    await upsertPrefs(current.copyWith(experienceLevel: levels));
-  }
-
   Future<void> setPrimaryLocation({
     String? country,
     String? state,
@@ -115,21 +106,6 @@ class PreferencesViewModel extends ChangeNotifier {
     try {
       await _repo.replaceDesiredTitles(userId, titles);
       _desiredTitles = await _repo.getDesiredTitles(userId);
-      _saved();
-    } catch (e) {
-      _error('Erro: $e');
-    }
-  }
-
-  Future<void> replaceApplicationCountries(List<ApplicationCountry> countries) async {
-    final userId = _userId();
-    if (userId == null) return;
-    _countries = countries;
-    notifyListeners();
-    _saving();
-    try {
-      await _repo.replaceApplicationCountries(userId, countries);
-      _countries = await _repo.getApplicationCountries(userId);
       _saved();
     } catch (e) {
       _error('Erro: $e');

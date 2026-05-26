@@ -9,7 +9,6 @@ import 'package:career_gamification/features/profile/profile_viewmodel.dart';
 import 'package:career_gamification/features/resume/resume_viewmodel.dart';
 import 'package:career_gamification/features/resume/widgets/ai_consent_modal.dart';
 import 'package:career_gamification/data/models/models.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Particle model for confetti effects
@@ -1304,7 +1303,7 @@ class _GeneratingOverlayContent extends StatelessWidget {
               const SizedBox(height: 18),
               Text(
                 'Gerando seu currículo…',
-                style: GoogleFonts.outfit(
+                style: TextStyle(fontFamily: 'Outfit', 
                   color: Colors.white,
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
@@ -1314,7 +1313,7 @@ class _GeneratingOverlayContent extends StatelessWidget {
               Text(
                 'A IA tá montando bullets Harvard com suas respostas',
                 textAlign: TextAlign.center,
-                style: GoogleFonts.inter(
+                style: TextStyle(fontFamily: 'Inter', 
                   color: Colors.white.withOpacity(0.7),
                   fontSize: 12.5,
                   fontWeight: FontWeight.w500,

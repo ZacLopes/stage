@@ -16,17 +16,11 @@ class PersonalInfoForm extends StatefulWidget {
   final void Function(PersonalInfo draft) onChanged;
   final bool requireCriticalFields; // true no onboarding
 
-  /// Mostra o campo "Cargo / posição atual" (headline). Default true.
-  /// Desligado no onboarding pq a maioria dos usuários é estudante/estagiário
-  /// e o campo gera ruído. A aba Perfil mantém pra quem quer preencher.
-  final bool showHeadline;
-
   const PersonalInfoForm({
     super.key,
     required this.initial,
     required this.onChanged,
     this.requireCriticalFields = false,
-    this.showHeadline = true,
   });
 
   @override
@@ -38,9 +32,11 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
   late final TextEditingController _lastName;
   late final TextEditingController _email;
   late final TextEditingController _phoneNumber;
-  late final TextEditingController _headline;
+  late final TextEditingController _dateOfBirth;
   late final TextEditingController _summary;
   String _phoneCountryCode = '+55';
+  DateTime? _parsedDob;
+  String? _dobError;
 
   @override
   void initState() {
@@ -56,13 +52,80 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
           ? BrazilPhoneFormatter.format(initialPhone)
           : initialPhone,
     );
-    _headline = TextEditingController(text: i?.headline ?? '');
     _summary = TextEditingController(text: i?.summary ?? '');
     _phoneCountryCode = i?.phoneCountryCode ?? '+55';
 
-    for (final c in [_firstName, _lastName, _email, _phoneNumber, _headline, _summary]) {
+    _parsedDob = i?.dateOfBirth;
+    _dateOfBirth = TextEditingController(
+      text: _parsedDob != null ? _formatDob(_parsedDob!) : '',
+    );
+
+    for (final c in [_firstName, _lastName, _email, _phoneNumber, _summary]) {
       c.addListener(_emitChange);
     }
+  }
+
+  static String _formatDob(DateTime d) {
+    final dd = d.day.toString().padLeft(2, '0');
+    final mm = d.month.toString().padLeft(2, '0');
+    return '$dd/$mm/${d.year}';
+  }
+
+  void _onDobChanged(String value) {
+    final digits = value.replaceAll(RegExp(r'\D'), '');
+    if (digits.length != 8) {
+      setState(() {
+        _parsedDob = null;
+        _dobError = digits.isEmpty ? null : null; // só erra quando tenta salvar incompleta
+      });
+      _emitChange();
+      return;
+    }
+    final day = int.tryParse(digits.substring(0, 2));
+    final month = int.tryParse(digits.substring(2, 4));
+    final year = int.tryParse(digits.substring(4, 8));
+    if (day == null || month == null || year == null || year < 1900) {
+      setState(() {
+        _parsedDob = null;
+        _dobError = 'Data inválida';
+      });
+      _emitChange();
+      return;
+    }
+    final candidate = DateTime(year, month, day);
+    if (candidate.day != day || candidate.month != month || candidate.year != year) {
+      setState(() {
+        _parsedDob = null;
+        _dobError = 'Data inválida';
+      });
+      _emitChange();
+      return;
+    }
+    final now = DateTime.now();
+    if (candidate.isAfter(now)) {
+      setState(() {
+        _parsedDob = null;
+        _dobError = 'Data no futuro';
+      });
+      _emitChange();
+      return;
+    }
+    setState(() {
+      _parsedDob = candidate;
+      _dobError = null;
+    });
+    _emitChange();
+  }
+
+  int? get _ageInYears {
+    final dob = _parsedDob;
+    if (dob == null) return null;
+    final now = DateTime.now();
+    var age = now.year - dob.year;
+    final hadBirthdayThisYear = (now.month > dob.month) ||
+        (now.month == dob.month && now.day >= dob.day);
+    if (!hadBirthdayThisYear) age -= 1;
+    return age < 0 ? null : age;
   }
 
   void _emitChange() {
@@ -74,7 +137,8 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
       email: _email.text.trim().isEmpty ? null : _email.text.trim().toLowerCase(),
       phoneCountryCode: _phoneCountryCode,
       phoneNumber: _phoneNumber.text.trim().isEmpty ? null : _phoneNumber.text.trim(),
-      headline: _headline.text.trim().isEmpty ? null : _headline.text.trim(),
+      dateOfBirth: _parsedDob,
+      ageRange: ageRangeFromDate(_parsedDob),
       summary: _summary.text.trim().isEmpty ? null : _summary.text.trim(),
     ));
   }
@@ -85,15 +149,17 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
     _lastName.dispose();
     _email.dispose();
     _phoneNumber.dispose();
-    _headline.dispose();
+    _dateOfBirth.dispose();
     _summary.dispose();
     super.dispose();
   }
 
-  InputDecoration _decoration(String label, {bool critical = false, bool empty = false}) {
+  InputDecoration _decoration(String label, {bool critical = false, bool empty = false, String? helper, String? errorText}) {
     final isMissing = widget.requireCriticalFields && critical && empty;
     return InputDecoration(
       labelText: label,
+      helperText: helper,
+      errorText: errorText,
       filled: true,
       fillColor: Colors.white,
       border: OutlineInputBorder(
@@ -117,6 +183,7 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
 
   @override
   Widget build(BuildContext context) {
+    final ageHelper = _ageInYears != null ? '$_ageInYears anos' : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -179,14 +246,18 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
             ),
           ],
         ),
-        if (widget.showHeadline) ...[
-          const SizedBox(height: 14),
-          TextField(
-            controller: _headline,
-            decoration: _decoration('Cargo / posição atual'),
-            maxLines: 1,
+        const SizedBox(height: 14),
+        TextField(
+          controller: _dateOfBirth,
+          decoration: _decoration(
+            'Data de nascimento',
+            helper: ageHelper,
+            errorText: _dobError,
           ),
-        ],
+          keyboardType: TextInputType.number,
+          inputFormatters: [_DobFormatter()],
+          onChanged: _onDobChanged,
+        ),
         const SizedBox(height: 14),
         TextField(
           controller: _summary,
@@ -197,6 +268,28 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
           textCapitalization: TextCapitalization.sentences,
         ),
       ],
+    );
+  }
+}
+
+/// Formata input como DD/MM/AAAA, limitando a 8 dígitos.
+class _DobFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text.replaceAll(RegExp(r'\D'), '');
+    final limited = digits.length > 8 ? digits.substring(0, 8) : digits;
+    final buf = StringBuffer();
+    for (int i = 0; i < limited.length; i++) {
+      if (i == 2 || i == 4) buf.write('/');
+      buf.write(limited[i]);
+    }
+    final formatted = buf.toString();
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
     );
   }
 }

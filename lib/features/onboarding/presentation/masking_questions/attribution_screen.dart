@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../../../splash/splash_screen.dart' show AuthGate;
 import '../onboarding_scaffold.dart';
 import 'first_name_screen.dart';
 
@@ -51,6 +52,18 @@ class _AttributionScreenState extends State<AttributionScreen> {
       title: 'Como nos conheceu?',
       subtitle: 'Ajuda a gente entender de onde você vem.',
       progress: 0.13,
+      // Voltar daqui = volta pra TwoDoorsScreen (escolha Upload/Trail).
+      // pushReplacement em UploadPreviewSheet+ExtractionInProgressScreen
+      // remove o TwoDoors do stack, então maybePop não funciona.
+      // pushAndRemoveUntil força AuthGate, que re-renderiza TwoDoors
+      // automaticamente (user logado + !hasCampaign).
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF1F2937)),
+        onPressed: () => Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const AuthGate()),
+          (route) => false,
+        ),
+      ),
       onContinue: _selected == null ? null : _continue,
       child: Column(
         children: _options.map((opt) {

@@ -62,7 +62,10 @@ const RATE_LIMIT_PER_DAY = 30
 // era 40s (F0); F5 adiciona o step B (~5-10s extras). Cliente Flutter
 // timeout subiu pra 120s pra cobrir o overhead total do pipeline em 2
 // etapas com retries. Sem isso, step B abortava no meio.
-const OPENAI_TIMEOUT_MS = 50000
+// 75s = folga pra prompts v2 com TRIM RULE + CONCISION RULE (12K+ chars,
+// ~30s p50 + retry interno). Antes 50s — bate timeout em peak load com
+// prompts longos, gera fallback v1 que falha em CV EN.
+const OPENAI_TIMEOUT_MS = 75000
 const MAX_BULLET_INFLATION = 1.3 // adapt não pode > 1.3x bullets do original
 
 // ────────────────────────────────────────────────────────────────────────────

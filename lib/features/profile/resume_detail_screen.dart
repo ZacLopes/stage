@@ -1,14 +1,16 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/services.dart';
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/analytics/screen_tracking.dart';
+import '../../core/constants/stage_colors.dart';
 import '../../data/models/models.dart';
 import '../../services/analytics_service.dart';
 import '../auth/user_viewmodel.dart';
+import '../jobs/models/adapted_resume.dart';
 import '../jobs/pending_adapted_cv_tracker.dart';
 import '../resume/services/resume_renderer.dart';
 import '../resume/resume_edit_screen.dart';
@@ -17,6 +19,55 @@ import '../resume/widgets/ai_consent_modal.dart';
 import '../resume/widgets/resume_template_selector.dart';
 import 'profile_viewmodel.dart';
 import '../../core/widgets/pii_mask.dart';
+
+/// Metadata dos 5 templates exibidos no seletor inline da biblioteca.
+/// Espelha `_kAdaptedTemplates` em adapted_resume_preview_screen.dart —
+/// se mudar lá, atualizar aqui também.
+const List<_LibraryTemplateOption> _kLibraryTemplates = [
+  _LibraryTemplateOption(
+    id: 'harvard_ats',
+    label: 'Harvard ATS',
+    description: 'Clássico, ideal pra IB/Consulting/Corporate',
+    thumbnail: 'assets/images/templates/harvard_ats.png',
+  ),
+  _LibraryTemplateOption(
+    id: 'jakes_resume',
+    label: "Jake's Resume",
+    description: 'Tech/dev, FAANG-friendly',
+    thumbnail: 'assets/images/templates/jakes_resume.png',
+  ),
+  _LibraryTemplateOption(
+    id: 'forte_foundation',
+    label: 'Forte Foundation',
+    description: 'Banking/MBA, conservador',
+    thumbnail: 'assets/images/templates/forte_foundation.png',
+  ),
+  _LibraryTemplateOption(
+    id: 'one_page_compact',
+    label: 'One-Page Compact',
+    description: 'Estudante early-career, sans-serif moderno',
+    thumbnail: 'assets/images/templates/one_page_compact.png',
+  ),
+  _LibraryTemplateOption(
+    id: 'cobalt_modern',
+    label: 'Cobalt Modern',
+    description: '2 colunas com sidebar, sans-serif moderno, accent azul cobalt',
+    thumbnail: 'assets/images/templates/cobalt_modern.png',
+  ),
+];
+
+class _LibraryTemplateOption {
+  final String id;
+  final String label;
+  final String description;
+  final String thumbnail;
+  const _LibraryTemplateOption({
+    required this.id,
+    required this.label,
+    required this.description,
+    required this.thumbnail,
+  });
+}
 
 /// Detail/editor screen for a saved resume, opened from the Profile
 /// library. Has two modes:
@@ -53,12 +104,31 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
   String? _previewKey;
   bool _isRegeneratingPreview = false;
 
+  // Estado do 3º modo: "structured adapted" (CV salvo na biblioteca com
+  // resume_data estruturado). Permite trocar template e persistir.
+  late SavedResume _currentResume; // pode ser atualizado por updateResumeTemplate
+  late String _selectedTemplateId; // template aplicado no PDF visível
+  bool _isChangingTemplate = false; // disable UI enquanto re-render+upload
+
   bool get _isEditable =>
       widget.resume.title.startsWith(ResumeViewModel.kTrailResumeBaseTitle);
+
+  /// True quando o CV salvo tem `resume_data` estruturado e veio da
+  /// adaptação (source=adapted). Habilita o seletor de template inline
+  /// na biblioteca + troca persistente. CVs antigos (resumeData=null)
+  /// continuam view-only.
+  bool get _isStructuredAdapted =>
+      !_isEditable &&
+      _currentResume.resumeData != null &&
+      _currentResume.source == SavedResumeSource.adapted;
 
   @override
   void initState() {
     super.initState();
+    _currentResume = widget.resume;
+    // Default = template salvo no DB; fallback pra harvard_ats (template
+    // mais antigo). Só usado quando _isStructuredAdapted.
+    _selectedTemplateId = _currentResume.templateId ?? 'harvard_ats';
     if (!_isEditable) {
       _loadViewOnlyPdf();
     }
@@ -69,7 +139,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
     setState(() => _isLoadingPdf = true);
     try {
       final profileVM = context.read<ProfileViewModel>();
-      final bytes = await profileVM.downloadResumeBytes(widget.resume);
+      final bytes = await profileVM.downloadResumeBytes(_currentResume);
       if (!mounted) return;
       setState(() {
         _viewOnlyPdfBytes = bytes;
@@ -78,6 +148,214 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
     } catch (_) {
       if (mounted) setState(() => _isLoadingPdf = false);
     }
+  }
+
+  /// Troca o template do CV salvo: re-renderiza via ResumeRenderer com o
+  /// `resume_data` persistido, faz upload no mesmo file_path, atualiza
+  /// `template_id` no DB, e troca o PDF visível na tela.
+  ///
+  /// Idempotente: noop se newTemplateId == atual.
+  Future<void> _changeTemplateForLibraryItem(String newTemplateId) async {
+    if (newTemplateId == _selectedTemplateId) return;
+    if (_currentResume.resumeData == null) return; // safety
+    HapticFeedback.selectionClick();
+    setState(() => _isChangingTemplate = true);
+    try {
+      final user = context.read<UserViewModel>().user;
+      // Reconstrói ResumeData a partir do jsonb persistido.
+      final resumeData = AdaptedResume.parseResumeData(_currentResume.resumeData!);
+      // Re-render com o template novo.
+      final rendered = await ResumeRenderer.render(
+        userId: user?.id,
+        user: user,
+        fallbackResume: resumeData,
+        templateId: newTemplateId,
+      );
+      // Persiste: sobrescreve PDF no Storage + atualiza template_id no DB.
+      final profileVM = context.read<ProfileViewModel>();
+      final updated = await profileVM.updateResumeTemplate(
+        resume: _currentResume,
+        newPdfBytes: rendered.bytes,
+        newTemplateId: newTemplateId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _currentResume = updated;
+        _selectedTemplateId = newTemplateId;
+        _viewOnlyPdfBytes = rendered.bytes;
+        _isChangingTemplate = false;
+      });
+      // ignore: unawaited_futures
+      Analytics.shared.cvTemplateChanged(templateId: newTemplateId);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Modelo trocado pra "${_kLibraryTemplates.firstWhere((t) => t.id == newTemplateId, orElse: () => _kLibraryTemplates.first).label}"',
+          ),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: StageColors.brandCyan,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isChangingTemplate = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro ao trocar modelo: $e'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.red.shade600,
+        ),
+      );
+    }
+  }
+
+  /// Bottom sheet com os 5 templates pra trocar o modelo de um CV salvo
+  /// na biblioteca. Idêntico ao seletor da preview de adaptado pra UX
+  /// consistente.
+  void _openLibraryTemplatePicker() {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    'Trocar modelo',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    'O PDF será regerado com o modelo novo e substituído na biblioteca.',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ..._kLibraryTemplates.map((t) {
+                  final isSelected = t.id == _selectedTemplateId;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () {
+                        Navigator.of(sheetCtx).pop();
+                        _changeTemplateForLibraryItem(t.id);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? StageColors.brandCyan.withOpacity(0.06)
+                              : const Color(0xFFF9FAFB),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isSelected
+                                ? StageColors.brandCyan
+                                : const Color(0xFFE5E7EB),
+                            width: isSelected ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: Image.asset(
+                                t.thumbnail,
+                                width: 56,
+                                height: 72,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Container(
+                                  width: 56,
+                                  height: 72,
+                                  color: const Color(0xFFE5E7EB),
+                                  child: const Icon(
+                                    Icons.description_outlined,
+                                    color: Color(0xFF9CA3AF),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          t.label,
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w700,
+                                            color: isSelected
+                                                ? StageColors.brandCyan
+                                                : const Color(0xFF111827),
+                                          ),
+                                        ),
+                                      ),
+                                      if (isSelected)
+                                        const Icon(
+                                          Icons.check_circle_rounded,
+                                          size: 18,
+                                          color: StageColors.brandCyan,
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    t.description,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF6B7280),
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _exportToPdf(UserProfile? user, ResumeData resume) async {
@@ -188,7 +466,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
         ),
         title: Text(
           widget.resume.title,
-          style: GoogleFonts.outfit(
+          style: TextStyle(fontFamily: 'Outfit', 
             fontWeight: FontWeight.bold,
             fontSize: 17,
             color: const Color(0xFF1F2937),
@@ -265,7 +543,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                   const SizedBox(width: 6),
                   Text(
                     'Modelo',
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
                       color: const Color(0xFF4F46E5),
@@ -495,77 +773,187 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
         child: CircularProgressIndicator(color: Color(0xFF4F46E5)),
       );
     }
-    return Column(
+    return Stack(
       children: [
-        Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              const double horizontalPadding = 16;
-              const double maxWidth = 600;
-              return InteractiveViewer(
-                minScale: 0.5,
-                maxScale: 4.0,
-                child: PdfPreview(
-                  build: (_) => _viewOnlyPdfBytes!,
-                  useActions: false,
-                  canChangePageFormat: false,
-                  canChangeOrientation: false,
-                  canDebug: false,
-                  maxPageWidth: maxWidth,
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 24,
-                    horizontal: horizontalPadding,
-                  ),
-                  scrollViewDecoration:
-                      const BoxDecoration(color: Color(0xFFF3F4F6)),
-                  pdfPreviewPageDecoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(4),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
+        Column(
+          children: [
+            // Toolbar "Trocar modelo" — visível só pra CVs adapted com
+            // resume_data persistido (migration 20260526+). CVs antigos
+            // ficam só com share/delete.
+            if (_isStructuredAdapted) _buildLibraryTemplateToolbar(),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  const double horizontalPadding = 16;
+                  const double maxWidth = 600;
+                  return InteractiveViewer(
+                    minScale: 0.5,
+                    maxScale: 4.0,
+                    child: PdfPreview(
+                      // Key força recriação do PdfPreview quando bytes mudam
+                      // (troca de template). Sem isso o widget pode cachear
+                      // o PDF anterior internamente.
+                      key: ValueKey('view_only_pdf_${_viewOnlyPdfBytes!.length}'),
+                      build: (_) => _viewOnlyPdfBytes!,
+                      useActions: false,
+                      canChangePageFormat: false,
+                      canChangeOrientation: false,
+                      canDebug: false,
+                      maxPageWidth: maxWidth,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 24,
+                        horizontal: horizontalPadding,
                       ),
-                    ],
-                  ),
-                  loadingWidget: const Center(
-                    child: CircularProgressIndicator(color: Color(0xFF4F46E5)),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _shareViewOnlyPdf,
-                    icon: const Icon(Icons.share_rounded, size: 18),
-                    label: const Text('Compartilhar'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF4F46E5),
-                      side: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14)),
-                      textStyle: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 14,
+                      scrollViewDecoration:
+                          const BoxDecoration(color: Color(0xFFF3F4F6)),
+                      pdfPreviewPageDecoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      loadingWidget: const Center(
+                        child: CircularProgressIndicator(color: Color(0xFF4F46E5)),
                       ),
                     ),
-                  ),
+                  );
+                },
+              ),
+            ),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _shareViewOnlyPdf,
+                        icon: const Icon(Icons.share_rounded, size: 18),
+                        label: const Text('Compartilhar'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF4F46E5),
+                          side: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                          textStyle: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
+            ),
+          ],
+        ),
+        // Overlay enquanto a troca de template está rolando (re-render +
+        // upload). Bloqueia interação pra evitar double-tap em outro
+        // template no meio do upload.
+        if (_isChangingTemplate)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black.withOpacity(0.35),
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      height: 36,
+                      width: 36,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        color: Colors.white,
+                      ),
+                    ),
+                    SizedBox(height: 16),
+                    Text(
+                      'Aplicando novo modelo...',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
       ],
+    );
+  }
+
+  /// Toolbar acima do PDF com o template atual + botão pra trocar.
+  /// Renderizada só em modo `_isStructuredAdapted`.
+  Widget _buildLibraryTemplateToolbar() {
+    final selected = _kLibraryTemplates.firstWhere(
+      (t) => t.id == _selectedTemplateId,
+      orElse: () => _kLibraryTemplates.first,
+    );
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+      child: Row(
+        children: [
+          const Text(
+            'Modelo:',
+            style: TextStyle(
+              fontSize: 13,
+              color: Color(0xFF6B7280),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: GestureDetector(
+              onTap: _isChangingTemplate ? null : _openLibraryTemplatePicker,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3F4F6),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.dashboard_customize_rounded,
+                      size: 16,
+                      color: Color(0xFF374151),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        selected.label,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF111827),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.expand_more_rounded,
+                      size: 16,
+                      color: Color(0xFF6B7280),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

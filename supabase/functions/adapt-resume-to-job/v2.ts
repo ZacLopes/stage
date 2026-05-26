@@ -60,7 +60,43 @@ import { captureEvent, trackAIGeneration } from '../_shared/posthog.ts'
 // listam tudo + checklist exige preservação. Validador exige preservação
 // anti-invenção em cada nova seção. Resolve issues do CV Gabriel: LinkedIn,
 // GPA 8.9, Minor, Class Rep, Languages, Tools.
-export const PROMPT_VERSION_V2 = 'v16-v2'
+// v27-v2: Phase 2 do sistema adaptativo. Detecta densidade do perfil
+// (small/medium/large) via counts diretos do profile relacional e
+// ramifica TRIM RULE + CONCISION RULE + SUMMARY OUTPUT em 3 variantes:
+//   - small:  SEM trim, summary verboso (4-5 frases, ~400 chars),
+//             certs verbosas. Fillers ("comprehensive", "throughout
+//             the year") ficam pra preencher página com elegância.
+//   - medium: TRIM moderado, summary 3-4 frases (~320 chars), certs OK.
+//   - large:  TRIM agressivo (atual), summary 3 frases (~240 chars),
+//             concision em certs >70 chars. Aperta pra caber 1 página.
+// Server-side detection — client não envia hint (mais robusto).
+// Combina com Phase 1 (loop adaptativo client-side de CSS tiers).
+// v26-v2: SUMMARY OUTPUT max 3 sentences (~240 chars). Antes summary
+// gerava 4 linhas no PDF A4 10pt, deixando 1 linha extra de overflow.
+// Drop conectores redundantes ("Experience in" → "experience in",
+// "Leadership experience in X" se X já coberto por experience entry).
+// v25-v2: encurta TRIM RULE e CONCISION RULE em ~50% — v24 fez prompt
+// crescer pra 12K chars causando timeout 50s no OpenAI. Mesmas regras
+// (preserve facts, drop fillers), mas em texto mais compacto. Combinado
+// com timeout 50→75s no index.ts.
+// v24-v2: TRIM RULE em bullets/summary. GPT remove fillers ("comprehensive",
+// "detailed", "throughout the year", "showcasing analytical capabilities")
+// preservando todos os fatos (verbos, números, nomes próprios, lugares,
+// tech). Target: bullets 1-2 linhas em A4 11pt. Action=kept fica intacto.
+// v23-v2: CONCISION RULE nas certifications. Se cert >70 chars, GPT encurta
+// preservando institution+program core+year+location, removendo qualifiers
+// redundantes ("In-person executive program, held in", "Online course",
+// etc). Sem mexer em conteúdo factual. Economia ~1 linha por cert longo.
+// v22-v2: refator do validator de skills — usa CONTAGEM (unmatched <=
+// extraSkills.length) em vez de token overlap + whitelist.
+// v21-v2: validator aceita traduções de extra_skills (token overlap + whitelist) — quebrava em pares sem overlap.
+// v20-v2: refina instrução de tradução das extra_skills (BEFORE add, BOTH skills+summary).
+// v19-v2: extra_skills em PT traduzidas pro idioma do CV (tentativa 1).
+// v18-v2: períodos formatados no idioma do CV (Aug/Dec em EN, Ago/Dez em PT).
+// v17-v2: injeta `language` no resume_data output (fix mistura PT/EN no PDF).
+// v16-v2: prompt v2 baseline com preservação de Languages/Tools/Education
+// detalhada (gpa, majors, minors, activities, linkedin, streetAddress).
+export const PROMPT_VERSION_V2 = 'v27-v2'
 export const MODEL_V2_DRAFT = 'gpt-4o-mini'
 export const MODEL_V2_REFINE = 'gpt-4o'
 
@@ -256,23 +292,28 @@ export interface InputResumeV2 {
   keywordPool: Set<string>
 }
 
-function formatMonthYearPt(d: Date): string {
-  const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
-                  'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+function formatMonthYear(d: Date, lang: 'pt' | 'en'): string {
+  const monthsPt = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
+                    'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+  const monthsEn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const months = lang === 'en' ? monthsEn : monthsPt
   return `${months[d.getMonth()]} ${d.getFullYear()}`
 }
 
-function periodFromExp(exp: any): string {
+function periodFromExp(exp: any, lang: 'pt' | 'en'): string {
   if (!exp.start_date) return ''
-  const s = formatMonthYearPt(new Date(exp.start_date))
-  if (exp.is_current) return `${s} - Atual`
+  const s = formatMonthYear(new Date(exp.start_date), lang)
+  const current = lang === 'en' ? 'Present' : 'Atual'
+  if (exp.is_current) return `${s} - ${current}`
   if (!exp.end_date) return s
-  return `${s} - ${formatMonthYearPt(new Date(exp.end_date))}`
+  return `${s} - ${formatMonthYear(new Date(exp.end_date), lang)}`
 }
 
-function periodFromEdu(edu: any): string {
-  const s = edu.start_date ? formatMonthYearPt(new Date(edu.start_date)) : ''
-  const e = edu.end_date ? formatMonthYearPt(new Date(edu.end_date)) : 'Atual'
+function periodFromEdu(edu: any, lang: 'pt' | 'en'): string {
+  const current = lang === 'en' ? 'Present' : 'Atual'
+  const s = edu.start_date ? formatMonthYear(new Date(edu.start_date), lang) : ''
+  const e = edu.end_date ? formatMonthYear(new Date(edu.end_date), lang) : current
   if (!s) return e
   return `${s} - ${e}`
 }
@@ -329,9 +370,21 @@ function detectCvLanguage(opts: {
 }
 
 function formatLocation(p: any): string {
-  return [p.location_city, p.location_state, p.location_country]
-    .filter((x) => x && String(x).trim().length > 0)
-    .join(', ')
+  // Deduplica city == state (case-insensitive). Comum em cidades-estado
+  // brasileiras como São Paulo (city) + São Paulo (state). Evita output
+  // tipo "São Paulo, São Paulo, Brazil" no header do CV adaptado.
+  const parts = [p.location_city, p.location_state, p.location_country]
+    .map((x) => (x ? String(x).trim() : ''))
+    .filter((x) => x.length > 0)
+  const seen = new Set<string>()
+  const dedup: string[] = []
+  for (const part of parts) {
+    const key = part.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    dedup.push(part)
+  }
+  return dedup.join(', ')
 }
 
 // Categorias que vira "tools" (separado de skills técnicas). extract-profile
@@ -385,29 +438,34 @@ export function buildInputResumeV2(profile: ProfileRelational): InputResumeV2 {
     .filter((s) => !TOOL_CATEGORIES.has(s.category))
     .map((s) => s.name)
 
+  // Detecta idioma ANTES de formatar periods (precisa propagar pro
+  // formatMonthYear). Pra detectar, coletamos os bullets crus do profile
+  // sem ainda transformá-los em InputBulletV2 — só precisamos do texto.
+  const rawBullets: string[] = []
+  for (const exp of profile.experiences) {
+    for (const b of (exp.profile_bullets as any[] ?? [])) {
+      if (b && typeof b.text === 'string' && b.text.trim().length > 0) {
+        rawBullets.push(b.text.trim())
+      }
+    }
+  }
+  const language: 'pt' | 'en' = detectCvLanguage({
+    summary: p.summary as string | undefined,
+    headline: p.headline as string | undefined,
+    bullets: rawBullets,
+  })
+
   const experiences: InputExperienceV2[] = profile.experiences.map((exp) => ({
     id: exp.id as string,
     role: (exp.title as string) ?? '',
     company: (exp.company as string) ?? '',
-    period: periodFromExp(exp),
+    period: periodFromExp(exp, language),
     location: (exp.location as string) ?? '',
     bullets: ((exp.profile_bullets as any[]) ?? [])
       .filter((b) => b && typeof b.text === 'string' && b.text.trim().length > 0)
       .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
       .map((b) => ({ id: b.id as string, text: (b.text as string).trim() })),
   }))
-
-  // Detecta idioma DEPOIS de montar experiences (precisa dos bullets).
-  // Output deve seguir esse idioma — sem tradução pra evitar:
-  //   1. Mudança de sentido em termos técnicos (ex: "stakeholders" não traduz bem)
-  //   2. Falso-positivo no validador anti-invenção
-  //   3. UX inconsistente com o CV original do user
-  const allBullets = experiences.flatMap((e) => e.bullets.map((b) => b.text))
-  const language: 'pt' | 'en' = detectCvLanguage({
-    summary: p.summary as string | undefined,
-    headline: p.headline as string | undefined,
-    bullets: allBullets,
-  })
 
   // Education COMPLETA — majors, minors, activities, gpa (Tier 1.1).
   // Antes só era enviado majors[0]; agora o GPT recebe tudo e o validador
@@ -430,7 +488,7 @@ export function buildInputResumeV2(profile: ProfileRelational): InputResumeV2 {
       id: edu.id as string,
       degree: (edu.degree as string) ?? '',
       institution: (edu.institution as string) ?? '',
-      period: periodFromEdu(edu),
+      period: periodFromEdu(edu, language),
       location: (edu.location as string) ?? '',
       majors,
       minors,
@@ -630,24 +688,65 @@ interface JobContextV2 {
 
 export { type JobContextV2 }
 
+/**
+ * Densidade do perfil — usado pra ajustar regras de TRIM/CONCISION/SUMMARY
+ * no prompt v2. CVs pequenos precisam de conteúdo mais verboso pra preencher
+ * a página com elegância; CVs grandes precisam de bullets concisos pra
+ * caber em 1 página.
+ *
+ * Detectado server-side em handleAdaptV2 após loadProfileV2, baseado em
+ * counts diretos do profile (não confia em hint do client).
+ */
+export type ProfileDensity = 'small' | 'medium' | 'large'
+
+/**
+ * Classifica o perfil por volume de conteúdo. Regras:
+ * - `large`: ≥3 experiences OU (≥2 experiences + ≥3 certifications) OU
+ *            (≥2 experiences + leadership/projects)
+ * - `small`: 1 experience E ≤2 certifications E sem projects/awards
+ * - `medium`: restante
+ *
+ * Conta tudo que aparece no prompt — experiences inclui voluntary/leadership
+ * que vão pra `profile_experiences` (extracurriculares).
+ */
+export function detectProfileDensity(profile: ProfileRelational): ProfileDensity {
+  const exps = profile.experiences?.length ?? 0
+  const certs = profile.certifications?.length ?? 0
+  const projs = profile.projects?.length ?? 0
+  const awards = profile.awards?.length ?? 0
+
+  // Large: muito conteúdo
+  if (exps >= 3) return 'large'
+  if (exps >= 2 && certs >= 3) return 'large'
+  if (exps >= 2 && (projs + awards) >= 2) return 'large'
+
+  // Small: conteúdo mínimo
+  if (exps <= 1 && certs <= 2 && projs === 0 && awards === 0) return 'small'
+
+  // Medium: resto
+  return 'medium'
+}
+
 export function buildUserPromptV2(
   input: InputResumeV2,
   job: JobContextV2,
   extraSkills: string[] = [],
+  density: ProfileDensity = 'large',
 ): string {
   // Quando input é EN, o user prompt inteiro vai em EN — headers, tarefa,
   // checklist. Sem isso, GPT vê o tom PT do prompt + system_prompt e
   // traduz a saída. Mistura de línguas no contexto é o sinal mais forte
   // que GPT segue.
   return input.language === 'en'
-    ? _buildUserPromptEN(input, job, extraSkills)
-    : _buildUserPromptPT(input, job, extraSkills)
+    ? _buildUserPromptEN(input, job, extraSkills, density)
+    : _buildUserPromptPT(input, job, extraSkills, density)
 }
 
 function _buildUserPromptEN(
   input: InputResumeV2,
   job: JobContextV2,
   extraSkills: string[],
+  density: ProfileDensity,
 ): string {
   const lines: string[] = []
 
@@ -673,6 +772,21 @@ function _buildUserPromptEN(
     lines.push('')
     lines.push('### Current summary')
     lines.push(input.summary)
+    lines.push('')
+    // Density-aware: small CVs precisam summary mais verboso pra preencher
+    // a página sem deixar branco; large CVs precisam conciso pra caber 1 página.
+    const summaryRule = density === 'small'
+        ? 'SUMMARY OUTPUT: 4-5 sentences, ~320-400 chars (4-5 lines in A4). ' +
+          'Keep details rich — describe interests deeply, areas of focus, target career path, ' +
+          'and what makes the candidate distinct. PRESERVE all factual nouns from input.'
+        : density === 'medium'
+            ? 'SUMMARY OUTPUT: 3-4 sentences, ~280-320 chars (3-4 lines in A4 10pt). ' +
+              'Keep core facts: degree, school, core interests/focus area, key experience type, and target career.'
+            : 'SUMMARY OUTPUT: max 3 sentences, ~240 chars total (3 lines in A4 10pt). ' +
+              'Drop redundant connectors: "Experience in" → "experience in"; "Leadership experience in X initiatives" ' +
+              'if X is already covered by an experience entry → omit. Keep core facts: degree, school, ' +
+              'core interests/focus area, key experience type, and target career.'
+    lines.push(summaryRule)
   }
 
   if (input.skills.length > 0) {
@@ -735,6 +849,24 @@ function _buildUserPromptEN(
     lines.push('')
     lines.push('### Certifications (preserve ALL — format "Name - Institution - Year")')
     input.certifications.forEach((c) => lines.push(`- ${c}`))
+    lines.push('')
+    if (density !== 'small') {
+      lines.push(
+        'CONCISION: If cert >70 chars, shorten by removing qualifiers ' +
+        '("In-person", "Online", "Executive program", "held in", "self-paced course"). ' +
+        'PRESERVE: institution (full), program core, year, location. ' +
+        'NEVER: create unknown acronyms; drop institution/year/program. ' +
+        'Ex: "Search Funds Institute - Entrepreneurship through Acquisition: In-person executive program, held in Madrid - 2025" → ' +
+        '"Search Funds Institute - Entrepreneurship through Acquisition (Madrid, 2025)".',
+      )
+    } else {
+      // Small density: NO concision — keep certs verbose to fill page.
+      lines.push(
+        'CERT VERBOSITY: KEEP all certification details verbose. ' +
+        'Preserve qualifiers ("In-person", "executive program", "held in Madrid"). ' +
+        'This profile has minimal content — verbose certs help fill the page elegantly.',
+      )
+    }
   }
 
   if (input.achievements.length > 0) {
@@ -772,15 +904,64 @@ function _buildUserPromptEN(
     lines.push('## SKILLS CONFIRMED BY CANDIDATE (not yet in CV)')
     extraSkills.forEach((s) => lines.push(`- ${s}`))
     lines.push(
-      'Include each one in `resume.skills`. These OVERRIDE the "skills must appear in CV" rule. If a skill is in Portuguese (e.g. "Operação de caixa"), KEEP it in Portuguese as listed — it is a proper term from the Brazilian job market.',
+      'These OVERRIDE the "skills must appear in CV" rule. ' +
+      'BEFORE adding to output, TRANSLATE each Portuguese skill to English when there is a clear, common English equivalent. ' +
+      'Examples of REQUIRED translation: ' +
+      '"Engenharia Agrícola" → "Agricultural Engineering"; ' +
+      '"Engenharia Civil" → "Civil Engineering"; ' +
+      '"Engenharia Mecânica" → "Mechanical Engineering"; ' +
+      '"Manutenção elétrica" → "Electrical Maintenance"; ' +
+      '"Análise de dados" → "Data Analysis"; ' +
+      '"Atendimento ao cliente" → "Customer Service"; ' +
+      '"Orçamento" → "Budgeting"; ' +
+      '"Vendas" → "Sales"; ' +
+      '"Gestão de projetos" → "Project Management". ' +
+      'Then put the TRANSLATED form in BOTH `resume.skills` (the array — appears in PDF Technical Skills line) AND any mention in `resume.summary`. ' +
+      'KEEP in Portuguese ONLY when no clean English equivalent exists or term is Brazilian-specific (e.g. "Operação de caixa"); ' +
+      'product/tool names stay as-is ("Power BI", "SQL", "Excel"). ' +
+      'When in doubt, TRANSLATE. The output `resume.skills` array MUST be in the same language as the rest of the CV (English).',
     )
   }
 
   lines.push('')
+  // Density-aware TRIM:
+  //   - small: NO TRIM — bullets verbosos OK ("comprehensive", "throughout the year"
+  //     ficam) pra preencher página com elegância
+  //   - medium: TRIM moderado — só remove fillers super-óbvios
+  //   - large: TRIM agressivo (atual) — remove tudo decorativo pra caber 1 página
+  if (density === 'small') {
+    lines.push('## VERBOSITY RULE — bullets/summary')
+    lines.push(
+      'For _action="rewritten": KEEP detail-rich phrasing. Preserve qualifiers ' +
+      '("comprehensive", "detailed", "throughout the year", "showcasing X") if natural. ' +
+      'This profile has minimal content — verbose bullets fill the page elegantly. ' +
+      'Still: NEVER add facts not in input. _action="kept" stays byte-identical.',
+    )
+  } else if (density === 'medium') {
+    lines.push('## TRIM RULE — bullets/summary (moderate)')
+    lines.push(
+      'For _action="rewritten": LIGHT trim — remove only super-obvious fillers ' +
+      '("comprehensive", "throughout the year"). KEEP most descriptive phrasing ' +
+      '("strategic", "detailed", "showcasing X" OK). Preserve facts. _action="kept" byte-identical.',
+    )
+  } else {
+    lines.push('## TRIM RULE — bullets/summary (aggressive)')
+    lines.push(
+      'For _action="rewritten" only: TRIM fillers, PRESERVE facts. ' +
+      'KEEP: verbs, numbers ("100+ hours"), names (Embraer, Stanford), places, tech, products. ' +
+      'DROP: "comprehensive", "detailed", "potential", "throughout the year", "showcasing X", ' +
+      '"demonstrating X", "which strengthened X", "in order to". ' +
+      'Ex: "Conducted comprehensive market analysis to identify potential targets and enhance pipeline" → ' +
+      '"Conducted market analysis to identify targets, supporting pipeline". ' +
+      'NEVER trim if result loses a fact. _action="kept" stays byte-identical.',
+    )
+  }
+  lines.push('')
   lines.push('## TASK')
   lines.push(
     'Adapt the candidate CV to this job. Reorder skills (most relevant first). ' +
-    'Reformulate bullets (_action="rewritten") with _source_bullet_id pointing to the original. ' +
+    'Reformulate bullets (_action="rewritten") with _source_bullet_id pointing to the original — ' +
+    'apply the TRIM RULE above to keep bullets concise (target 1-2 lines each in A4 with 11pt font). ' +
     'Unchanged bullets: _action="kept" — text MUST be byte-identical to the original. ' +
     'List at most 6 changes in "changes" array.',
   )
@@ -790,6 +971,9 @@ function _buildUserPromptEN(
   lines.push(`  ☐ resume.experiences.length === ${input.experiences.length} (NOT more, NOT less)`)
   lines.push(`  ☐ resume.education.length === ${input.education.length} (NOT more, NOT less)`)
   lines.push('  ☐ Bullets with _action="kept" have text byte-identical to the original (translation is NOT "kept", use "rewritten")')
+  if (extraSkills.length > 0) {
+    lines.push(`  ☐ Every Portuguese extra_skill ${extraSkills.map((s) => `"${s}"`).join(', ')} has been TRANSLATED to English in resume.skills array (e.g. "Engenharia Civil" → "Civil Engineering", NOT kept raw)`)
+  }
   lines.push('  ☐ Every bullet has _source_bullet_id (uuid from input) OR is _action="synthesized" with null')
   lines.push(`  ☐ resume.linkedin === "${input.linkedin}" (copied exactly; empty stays empty — NEVER invent URL)`)
   lines.push(`  ☐ resume.streetAddress === "${input.streetAddress}" (copied exactly)`)
@@ -816,6 +1000,7 @@ function _buildUserPromptPT(
   input: InputResumeV2,
   job: JobContextV2,
   extraSkills: string[],
+  density: ProfileDensity,
 ): string {
   const lines: string[] = []
 
@@ -838,6 +1023,20 @@ function _buildUserPromptPT(
     lines.push('')
     lines.push('### Resumo atual')
     lines.push(input.summary)
+    lines.push('')
+    // Density-aware (PT mirror)
+    const summaryRulePt = density === 'small'
+        ? 'SUMMARY OUTPUT: 4-5 frases, ~320-400 chars (4-5 linhas em A4). ' +
+          'Mantenha detalhes ricos — descreva interesses em profundidade, áreas de foco, ' +
+          'carreira alvo, e o que torna o candidato distinto. PRESERVE todos os substantivos factuais.'
+        : density === 'medium'
+            ? 'SUMMARY OUTPUT: 3-4 frases, ~280-320 chars (3-4 linhas em A4 10pt). ' +
+              'Mantenha fatos essenciais: curso, instituição, áreas de interesse, tipo de experiência, carreira alvo.'
+            : 'SUMMARY OUTPUT: máx 3 frases, ~240 chars total (3 linhas em A4 10pt). ' +
+              'Corte conectores redundantes: "Experiência em" → "experiência em"; "Experiência de liderança em X iniciativas" ' +
+              'se X já está coberto por uma experience entry → omita. Mantenha fatos essenciais: ' +
+              'curso, instituição, áreas de interesse, tipo de experiência principal, e carreira alvo.'
+    lines.push(summaryRulePt)
   }
 
   if (input.skills.length > 0) {
@@ -898,6 +1097,23 @@ function _buildUserPromptPT(
     lines.push('')
     lines.push('### Certificações (preserve TODAS — formato "Nome - Instituição - Ano")')
     input.certifications.forEach((c) => lines.push(`- ${c}`))
+    lines.push('')
+    if (density !== 'small') {
+      lines.push(
+        'CONCISÃO: Se cert >70 chars, encurte removendo qualifiers ' +
+        '("Presencial", "Online", "Programa executivo", "realizado em", "Curso"). ' +
+        'PRESERVE: instituição (full), nome do programa, ano, local. ' +
+        'NUNCA: crie siglas desconhecidas; tire instituição/ano/programa. ' +
+        'Ex: "Search Funds Institute - ETA: Programa executivo presencial, realizado em Madrid - 2025" → ' +
+        '"Search Funds Institute - ETA (Madrid, 2025)".',
+      )
+    } else {
+      lines.push(
+        'VERBOSIDADE EM CERTIFICAÇÕES: MANTENHA todos os detalhes verbosos. ' +
+        'Preserve qualifiers ("Presencial", "Programa executivo", "realizado em Madrid"). ' +
+        'Esse perfil tem pouco conteúdo — certs verbosas ajudam a preencher a página.',
+      )
+    }
   }
 
   if (input.achievements.length > 0) {
@@ -938,10 +1154,40 @@ function _buildUserPromptPT(
   }
 
   lines.push('')
+  // Density-aware (PT mirror)
+  if (density === 'small') {
+    lines.push('## REGRA DE VERBOSIDADE — bullets/summary')
+    lines.push(
+      'Para action=rewritten: MANTENHA frases ricas em detalhes. Preserve qualifiers ' +
+      '("abrangente", "detalhado", "ao longo do ano") quando soarem naturais. ' +
+      'Esse perfil tem pouco conteúdo — bullets verbosos preenchem a página com elegância. ' +
+      'Ainda assim: NUNCA invente fatos. action=kept fica idêntico.',
+    )
+  } else if (density === 'medium') {
+    lines.push('## REGRA DE CONCISÃO — bullets/summary (moderada)')
+    lines.push(
+      'Para action=rewritten: TRIM leve — corte só fillers super-óbvios ' +
+      '("abrangente", "ao longo do ano"). MANTENHA maior parte da descrição ' +
+      '("estratégico", "detalhado", "demonstrando X" OK). Preserve fatos. action=kept idêntico.',
+    )
+  } else {
+    lines.push('## REGRA DE CONCISÃO — bullets/summary (agressiva)')
+    lines.push(
+      'Para action=rewritten apenas: CORTE fillers, PRESERVE fatos. ' +
+      'MANTENHA: verbos, números ("100+ horas"), nomes (Embraer, Stanford), locais, tech. ' +
+      'CORTE: "abrangente", "detalhado", "potencial", "ao longo do ano", "demonstrando X", ' +
+      '"evidenciando X", "que fortaleceu X", "a fim de". ' +
+      'Ex: "Realizei análise abrangente de mercado para identificar potenciais alvos e fortalecer pipeline" → ' +
+      '"Realizei análise de mercado para identificar alvos, apoiando pipeline". ' +
+      'NUNCA corte se perder fato. action=kept fica idêntico.',
+    )
+  }
+  lines.push('')
   lines.push('## TAREFA')
   lines.push(
     'Adapte o currículo do candidato pra essa vaga. Reordene skills colocando as relevantes primeiro. ' +
-    'Reformule bullets (action=rewritten) com _source_bullet_id apontando pro bullet original. ' +
+    'Reformule bullets (action=rewritten) com _source_bullet_id apontando pro bullet original — ' +
+    'aplique a REGRA DE CONCISÃO acima pra manter bullets concisos (target 1-2 linhas cada em A4 11pt). ' +
     'Bullets sem mudança: action=kept — texto DEVE ser idêntico ao original (tradução NÃO é "kept", use "rewritten"). ' +
     'Liste em "changes" no máximo 6 mudanças.',
   )
@@ -1127,6 +1373,7 @@ export function validateAdaptationV2(
   input: InputResumeV2,
   parsed: any,
   _job?: JobContextV2,
+  extraSkills: string[] = [],
 ): void {
   const r = parsed?.resume
   if (!r || typeof r !== 'object') {
@@ -1394,16 +1641,49 @@ export function validateAdaptationV2(
     }
   }
 
-  // 4. Skills — só do pool
+  // 4. Skills — só do pool, com slots de tradução pras extra_skills.
+  //
+  // Quando user confirma uma extra_skill em PT mas o CV é EN, o prompt
+  // instrui GPT a traduzir ("Engenharia Civil" → "Civil Engineering",
+  // "Documentação técnica" → "Technical Documentation"). Validator precisa
+  // aceitar essas traduções sem rejeitar como "skill inventada".
+  //
+  // Heurística (refatorada v21+): contagem em vez de token overlap.
+  // - Skills do CV original: exact-match estrito (a fonte de verdade).
+  // - Skills do output que NÃO batem com CV nem com extra raw: presumidas
+  //   traduções. Aceitas até `extraSkills.length` de slots. Acima disso é
+  //   invenção real.
+  //
+  // Caso edge: GPT pode gerar 1 "tradução" + 1 invenção real quando
+  // extraSkills.length=2. Esse caso passa, mas é raro e o limite de
+  // 12 skills total já mitiga. False positives anteriores (rejeitar
+  // tradução legítima) eram MUITO mais frequentes que esse edge case.
   const skillsOut = Array.isArray(r.skills) ? r.skills : []
   if (skillsOut.length > 12) {
     throw new ValidationErrorV2('skills', `${skillsOut.length} skills > max 12`)
   }
-  const inSkillsNorm = new Set(input.skills.map((s) => normalize(s)))
+  const extraSkillsNorm = new Set(extraSkills.map((s) => normalize(s)))
+  // CV-original = input.skills MENOS o que veio de extra_skills (pushed
+  // antes da chamada OpenAI em main()).
+  const cvOriginalNorm = new Set(
+    input.skills.map(normalize).filter((s) => !extraSkillsNorm.has(s)),
+  )
+  const translationSlots = extraSkills.length
+  let unmatchedCount = 0
+  const unmatchedNames: string[] = []
   for (const s of skillsOut) {
     const ns = normalize(String(s ?? ''))
-    if (!inSkillsNorm.has(ns)) {
-      throw new ValidationErrorV2('skills', `skill inventada: "${s}"`)
+    if (cvOriginalNorm.has(ns)) continue       // skill original do CV
+    if (extraSkillsNorm.has(ns)) continue      // extra mantida na forma raw
+    // Não bate exato com nada → consome um slot de tradução
+    unmatchedCount++
+    unmatchedNames.push(String(s ?? ''))
+    if (unmatchedCount > translationSlots) {
+      throw new ValidationErrorV2(
+        'skills',
+        `skill inventada: "${s}" (${unmatchedCount} unmatched > ${translationSlots} translation slots ` +
+        `for extras=[${extraSkills.join(', ')}])`,
+      )
     }
   }
 
@@ -1576,7 +1856,12 @@ export async function handleAdaptV2(opts: HandleAdaptV2Opts): Promise<AdaptRespo
   const profile = await loadProfileV2(supabaseAdmin, userId)
   if (!profile) return null
 
-  console.log(`[adapt-v2] activating v2 path for user=${userId.slice(0, 8)} job=${jobId.slice(0, 8)}`)
+  // Phase 2: detecta densidade do perfil pra ajustar regras de TRIM/CONCISION/
+  // SUMMARY no prompt. small → conteúdo verboso pra preencher; large → trim
+  // agressivo pra caber 1 página.
+  const density = detectProfileDensity(profile)
+
+  console.log(`[adapt-v2] activating v2 path for user=${userId.slice(0, 8)} job=${jobId.slice(0, 8)} density=${density}`)
 
   // 2. Build input + inject extra_skills
   const input = buildInputResumeV2(profile)
@@ -1632,8 +1917,8 @@ export async function handleAdaptV2(opts: HandleAdaptV2Opts): Promise<AdaptRespo
   }
 
   // 4. Call OpenAI com 1 retry em validation fail
-  const userPromptInitial = buildUserPromptV2(input, job, extraSkillsClean)
-  console.log(`[adapt-v2] calling OpenAI (prompt ${userPromptInitial.length} chars)`)
+  const userPromptInitial = buildUserPromptV2(input, job, extraSkillsClean, density)
+  console.log(`[adapt-v2] calling OpenAI (prompt ${userPromptInitial.length} chars, density=${density})`)
 
   let parsed: any = null
   let lastErr: ValidationErrorV2 | null = null
@@ -1672,7 +1957,7 @@ export async function handleAdaptV2(opts: HandleAdaptV2Opts): Promise<AdaptRespo
     }
 
     try {
-      validateAdaptationV2(input, candidate, job)
+      validateAdaptationV2(input, candidate, job, extraSkillsClean)
       parsed = candidate
     } catch (e) {
       lastErr = e as ValidationErrorV2
@@ -1735,6 +2020,16 @@ export async function handleAdaptV2(opts: HandleAdaptV2Opts): Promise<AdaptRespo
   // 5. Deriva `description` (backward compat com templates v1)
   deriveDescriptionsFromBullets(parsed)
 
+  // 5b. Injeta `language` no resume_data pra o cliente Flutter renderizar
+  // headers + glue words no idioma correto. Sem isso, adapted_resume.dart
+  // cai no fallback 'pt' e renderiza "SUMÁRIO/EXPERIÊNCIA PROFISSIONAL"
+  // sobre conteúdo em EN — Frankenstein PT/EN. O idioma já foi detectado
+  // do CV original em `input.language` (linha ~406) e usado pra escolher
+  // o prompt EN vs PT — agora propagamos pro output também.
+  if (parsed?.resume && typeof parsed.resume === 'object') {
+    parsed.resume.language = input.language
+  }
+
   // 6. Match score: pega do cache de match_analyses pra "before".
   // V2 não computa upgrade (computeMatchUpgrade é do v1 e usa bigrams da
   // description string). Por ora retorna before=after=cached. Próxima
@@ -1790,6 +2085,7 @@ export async function handleAdaptV2(opts: HandleAdaptV2Opts): Promise<AdaptRespo
       version_used: 'v2',
       prompt_version: PROMPT_VERSION_V2,
       model_used: MODEL_V2_DRAFT,
+      profile_density: density,  // Phase 2: small/medium/large
       validator_retries: Math.max(0, attempts - 1),
       tokens_used: tokensUsedTotal,
       input_experiences: input.experiences.length,

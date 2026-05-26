@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/analytics/screen_tracking.dart';
+import '../../core/utils/display_name.dart';
 import '../auth/user_viewmodel.dart';
 import '../auth/onboarding_screen.dart';
-import 'edit_account_screen.dart';
+import '../profile/application/profile_editor_view_model.dart';
+import 'change_password_screen.dart';
 import '../resume/widgets/template_thumbnail_generator_screen.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../../core/utils/app_notifications.dart';
@@ -37,7 +39,14 @@ class _SettingsScreenState extends State<SettingsScreen>
   Widget build(BuildContext context) {
     final userVM = context.watch<UserViewModel>();
     final user = userVM.user;
+    final profileEditorVM = context.watch<ProfileEditorViewModel>();
     final isEmailVerified = userVM.isEmailVerified;
+
+    // Display name — prioriza profile_personal (novo onboarding) sobre
+    // user_profiles.name legacy, que pode ser o placeholder "User".
+    final displayName = resolveDisplayName(profileEditorVM, user?.name);
+    final displayInitial =
+        displayName.isNotEmpty ? displayName.trim()[0].toUpperCase() : 'U';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF3F4F6),
@@ -80,9 +89,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                         radius: 28,
                         backgroundColor: const Color(0xFFEEF2FF),
                         child: Text(
-                          (user?.name.trim().isNotEmpty ?? false)
-                              ? user!.name.trim()[0].toUpperCase()
-                              : 'U',
+                          displayInitial,
                           style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5)),
                         ),
                       ),
@@ -91,7 +98,12 @@ class _SettingsScreenState extends State<SettingsScreen>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(user?.name ?? 'Usuário', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                            Text(
+                              displayName,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
                             const SizedBox(height: 4),
                             Text(user?.email ?? 'email@exemplo.com', style: TextStyle(color: Colors.grey[600], fontSize: 13)),
                           ],
@@ -102,13 +114,13 @@ class _SettingsScreenState extends State<SettingsScreen>
                 ),
                 const Divider(height: 1),
                 _SettingsTile(
-                  icon: Icons.person_outline,
-                  title: 'Dados Pessoais',
-                  subtitle: 'Nome, curso, universidade',
+                  icon: Icons.lock_outline,
+                  title: 'Senha',
+                  subtitle: 'Trocar senha de acesso',
                   onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const EditAccountScreen()),
+                      MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
                     );
                   },
                 ),
@@ -489,8 +501,12 @@ class _FoundersContactSheet extends StatelessWidget {
 
   Future<void> _openWhatsApp(BuildContext context) async {
     Analytics.shared.foundersContactOpened(channel: 'whatsapp');
-    final userName = context.read<UserViewModel>().user?.name ?? '';
-    final greeting = userName.isNotEmpty ? 'Oi, sou o(a) $userName.' : 'Oi!';
+    final userName = resolveDisplayName(
+      context.read<ProfileEditorViewModel>(),
+      context.read<UserViewModel>().user?.name,
+    );
+    final hasRealName = userName.isNotEmpty && userName != 'Usuário';
+    final greeting = hasRealName ? 'Oi, sou o(a) $userName.' : 'Oi!';
     final text = Uri.encodeComponent(
       '$greeting Tô usando o Stage e queria mandar um feedback…',
     );
@@ -506,8 +522,11 @@ class _FoundersContactSheet extends StatelessWidget {
 
   Future<void> _openEmail(BuildContext context) async {
     Analytics.shared.foundersContactOpened(channel: 'email');
-    final userName = context.read<UserViewModel>().user?.name ?? '';
-    final subject = Uri.encodeComponent('Feedback Stage — ${userName.isNotEmpty ? userName : 'Usuário'}');
+    final userName = resolveDisplayName(
+      context.read<ProfileEditorViewModel>(),
+      context.read<UserViewModel>().user?.name,
+    );
+    final subject = Uri.encodeComponent('Feedback Stage — $userName');
     final body = Uri.encodeComponent(
       'Oi ${_FoundersContact.founderName}!\n\n'
       '[Conte o que aconteceu, sua sugestão ou o que você gostaria de ver no Stage]\n\n'

@@ -785,6 +785,16 @@ class SavedResume {
   final String filePath;
   final DateTime createdAt;
   final SavedResumeSource source;
+  /// ResumeData estruturado (jsonb no DB). Quando presente, app habilita
+  /// troca de template na biblioteca — re-renderiza o PDF e substitui o
+  /// arquivo no Storage. Null em CVs antigos (pré-2026-05-26) e em
+  /// imported PDFs. Guardado como Map em vez de ResumeData pra evitar
+  /// circular import entre models.dart e resume_viewmodel.dart;
+  /// converte via `AdaptedResume.parseResumeData(map)` quando precisar.
+  final Map<String, dynamic>? resumeData;
+  /// Template atualmente aplicado no PDF do file_path. Atualizado em
+  /// cada troca de template. Null em CVs antigos.
+  final String? templateId;
 
   SavedResume({
     required this.id,
@@ -792,6 +802,8 @@ class SavedResume {
     required this.filePath,
     required this.createdAt,
     this.source = SavedResumeSource.manual,
+    this.resumeData,
+    this.templateId,
   });
 
   Map<String, dynamic> toMap() {
@@ -801,16 +813,40 @@ class SavedResume {
       'file_path': filePath,
       'created_at': createdAt.toIso8601String(),
       'source': source.dbValue,
+      if (resumeData != null) 'resume_data': resumeData,
+      if (templateId != null) 'template_id': templateId,
     };
   }
 
   factory SavedResume.fromMap(Map<String, dynamic> map) {
+    final rawResumeData = map['resume_data'];
     return SavedResume(
       id: map['id'],
       title: map['title'],
       filePath: map['file_path'],
       createdAt: DateTime.parse(map['created_at']),
       source: SavedResumeSource.fromDb(map['source'] as String?),
+      resumeData: rawResumeData is Map
+          ? Map<String, dynamic>.from(rawResumeData)
+          : null,
+      templateId: map['template_id'] as String?,
+    );
+  }
+
+  SavedResume copyWith({
+    String? title,
+    String? filePath,
+    Map<String, dynamic>? resumeData,
+    String? templateId,
+  }) {
+    return SavedResume(
+      id: id,
+      title: title ?? this.title,
+      filePath: filePath ?? this.filePath,
+      createdAt: createdAt,
+      source: source,
+      resumeData: resumeData ?? this.resumeData,
+      templateId: templateId ?? this.templateId,
     );
   }
 }
