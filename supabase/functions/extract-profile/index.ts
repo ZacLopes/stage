@@ -699,14 +699,17 @@ serve(async (req) => {
     let saveErrorMessage: string | null = null
     let saveAttempts = 0
 
-    // Chama save_profile_from_json direto via RPC em vez de invocar a edge
-    // function save-profile. Razão: o gateway do Supabase tem verify_jwt=true
-    // por default em edge functions novas, rejeitando o service_role JWT no
-    // formato gateway-to-gateway (erro UNAUTHORIZED_INVALID_JWT_FORMAT).
-    // RPC direto via supabaseAdmin (service_role client) bypassa o gateway
-    // e chama o Postgres diretamente. A função save_profile_from_json é
-    // SECURITY DEFINER + GRANT TO service_role, então tem permissão correta.
-    // save-profile/index.ts continua deployada como rollback safety.
+    // Chama save_profile_from_json direto via RPC. Razão: o gateway do
+    // Supabase tem verify_jwt=true por default em edge functions novas,
+    // rejeitando o service_role JWT no formato gateway-to-gateway (erro
+    // UNAUTHORIZED_INVALID_JWT_FORMAT). RPC direto via supabaseAdmin
+    // (service_role client) bypassa o gateway e chama o Postgres
+    // diretamente. A função save_profile_from_json é SECURITY DEFINER +
+    // GRANT TO service_role, então tem permissão correta.
+    //
+    // O wrapper edge function save-profile foi deletado em 2026-05-27 —
+    // ficou órfão (zero invocações em 14d). Se precisar rollback, restaurar
+    // via git history.
     for (let attempt = 1; attempt <= 2; attempt++) {
       saveAttempts = attempt
       try {
