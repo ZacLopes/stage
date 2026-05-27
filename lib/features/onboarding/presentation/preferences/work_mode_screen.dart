@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../profile/application/preferences_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'job_types_screen.dart';
 
@@ -22,6 +23,7 @@ class WorkModeScreen extends StatefulWidget {
 
 class _WorkModeScreenState extends State<WorkModeScreen> {
   final Set<WorkMode> _selected = {};
+  bool _saving = false;
 
   @override
   void initState() {
@@ -30,10 +32,18 @@ class _WorkModeScreenState extends State<WorkModeScreen> {
     if (current != null) _selected.addAll(current);
   }
 
-  void _next() async {
+  Future<void> _next() async {
+    if (_saving) return;
     AnalyticsService.shared.track('onboarding_preferences_work_mode_completed');
-    await context.read<PreferencesViewModel>().setWorkMode(_selected.toList());
+    final vm = context.read<PreferencesViewModel>();
+    setState(() => _saving = true);
+    final ok = await saveWithRetry(
+      context: context,
+      operation: () => vm.setWorkMode(_selected.toList()),
+    );
     if (!mounted) return;
+    setState(() => _saving = false);
+    if (!ok) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => const JobTypesScreen()));
   }
 
@@ -43,8 +53,9 @@ class _WorkModeScreenState extends State<WorkModeScreen> {
       title: 'Como prefere trabalhar?',
       subtitle: 'Pode selecionar mais de um.',
       progress: 0.81,
-      onContinue: _selected.isEmpty ? null : _next,
-      skipButton: _selected.isNotEmpty
+      continueLabel: _saving ? 'Salvando…' : 'Continuar',
+      onContinue: (_selected.isEmpty || _saving) ? null : _next,
+      skipButton: (_selected.isNotEmpty || _saving)
           ? null
           : TextButton(
               onPressed: _next,

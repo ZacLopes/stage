@@ -16,6 +16,7 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/constants/job_areas.dart';
 import '../../../../services/analytics_service.dart';
 import '../../application/preferences_view_model.dart';
 import '../../application/profile_editor_view_model.dart';
@@ -397,30 +398,11 @@ Widget _saveButton({
 }
 
 // =============================================================================
-// _AreasSheet — Áreas desejadas (multi-select 12 áreas)
+// _AreasSheet — Áreas desejadas (multi-select)
+// Catálogo importado de `lib/core/constants/job_areas.dart` — single source
+// of truth. Mudar a lista lá reflete aqui e no DesiredTitlesScreen do
+// onboarding. Ver instruções de sync cross-language no arquivo.
 // =============================================================================
-
-class _Area {
-  final String label;
-  final IconData icon;
-  const _Area(this.label, this.icon);
-}
-
-const List<_Area> _kAreas = [
-  _Area('Tecnologia', Icons.computer_rounded),
-  _Area('Engenharia', Icons.engineering_rounded),
-  _Area('Design', Icons.palette_rounded),
-  _Area('Produto', Icons.widgets_rounded),
-  _Area('Marketing', Icons.campaign_rounded),
-  _Area('Vendas', Icons.trending_up_rounded),
-  _Area('Finanças', Icons.attach_money_rounded),
-  _Area('Recursos Humanos', Icons.groups_rounded),
-  _Area('Operações', Icons.settings_rounded),
-  _Area('Jurídico', Icons.gavel_rounded),
-  _Area('Administrativo', Icons.folder_rounded),
-  _Area('Saúde', Icons.local_hospital_rounded),
-  _Area('Geral', Icons.work_rounded),
-];
 
 class _AreasSheet extends StatefulWidget {
   const _AreasSheet();
@@ -488,7 +470,7 @@ class _AreasSheetState extends State<_AreasSheet> {
         child: Wrap(
           spacing: 10,
           runSpacing: 10,
-          children: _kAreas.map((area) {
+          children: kJobAreas.map((area) {
             final selected = _selected.contains(area.label);
             return _ChipToggle(
               label: area.label,

@@ -13,6 +13,7 @@ import '../../services/facebook_events_service.dart';
 import '../../services/notifications_service.dart';
 import '../../services/profile_events.dart';
 import '../../services/profile_snapshot_service.dart';
+import '../profile/application/profile_editor_view_model.dart';
 import 'phone_auth_helpers.dart';
 
 class UserViewModel extends ChangeNotifier {
@@ -24,6 +25,14 @@ class UserViewModel extends ChangeNotifier {
   bool _isLoading = true;
   Campaign? _currentCampaign;
   StreamSubscription<void>? _profileEventsSub;
+
+  /// Referência opcional ao ProfileEditorViewModel pra que `needsProfileSetup`
+  /// consulte o source-of-truth atual (`profile_personal`) antes de cair na
+  /// verificação legacy de `user_profiles`. Injetado tardiamente pelo
+  /// main.dart via [attachProfileEditor] — antes da injeção, a função se
+  /// comporta exatamente como antes (só verifica `user_profiles`). Sem
+  /// inicialização nula: nullable proposital.
+  ProfileEditorViewModel? _profileEditor;
 
   UserViewModel(this._repository, this._localStorage) {
     _init();
@@ -179,15 +188,50 @@ class UserViewModel extends ChangeNotifier {
     }
   }
 
+  /// Liga este UserViewModel ao ProfileEditorViewModel pra que [needsProfileSetup]
+  /// consulte o source-of-truth atual (`profile_personal`) antes da
+  /// verificação legacy. Chamado pelo main.dart após o MultiProvider montar
+  /// (via ProxyProvider). Seguro chamar múltiplas vezes — só substitui a
+  /// referência, sem side-effects.
+  void attachProfileEditor(ProfileEditorViewModel vm) {
+    _profileEditor = vm;
+  }
+
   /// Verdadeiro quando o user existe mas falta algum campo obrigatório do
-  /// perfil (nome, idade, telefone, curso, semestre, universidade). Usado
-  /// pelo SplashScreen pra direcionar pra `TwoDoorsScreen` (entrada do
-  /// onboarding profile-first) antes de seguir pra Home — especialmente
-  /// útil pra users que entraram via Apple/Google, que pulam o EmailSignup
-  /// e por isso nunca preenchem esses campos. Cobre o caso "Apple sem nome".
+  /// perfil. Usado pelo SplashScreen pra direcionar pra `TwoDoorsScreen`
+  /// (entrada do onboarding profile-first) antes de seguir pra Home.
+  ///
+  /// Estratégia em 2 camadas (Gap #3 da auditoria):
+  ///   1. NOVA: se `profile_personal` tem nome + sobrenome + email, perfil
+  ///      é considerado completo. Cobre 100% dos users do novo onboarding
+  ///      (Semana 2+).
+  ///   2. LEGACY (fallback): verificação original baseada em `user_profiles`.
+  ///      Mantém compatibilidade com users antigos que preencheram via
+  ///      onboarding pré-Semana 2 (têm `user_profiles.name/age/course/etc`
+  ///      mas podem não ter `profile_personal`).
+  ///
+  /// Importante: a verificação NOVA só retorna false (= "completo"). Se ela
+  /// não bater (profile_personal vazio/parcial), cai pra LEGACY pra evitar
+  /// regressão. Pior caso = comportamento idêntico ao antigo.
   bool get needsProfileSetup {
     final u = _user;
     if (u == null) return false;
+
+    // Camada 1: profile_personal (source of truth do novo onboarding).
+    final personal = _profileEditor?.personal;
+    if (personal != null) {
+      final hasFirstName = (personal.firstName ?? '').trim().isNotEmpty;
+      final hasLastName = (personal.lastName ?? '').trim().isNotEmpty;
+      final hasEmail = (personal.email ?? '').trim().isNotEmpty;
+      if (hasFirstName && hasLastName && hasEmail) {
+        return false; // perfil novo está completo
+      }
+    }
+
+    // Camada 2 (LEGACY): verificação original. NÃO MUDA — é o comportamento
+    // que rodava antes deste fix. Se a camada 1 não bateu (sem
+    // profile_personal carregado ainda, ou campos vazios), respeita exatamente
+    // o que o app fazia antes. Garantia: zero regressão pra users antigos.
     final name = u.name.trim();
     if (name.isEmpty || name.toLowerCase() == 'user') return true;
     if (u.age == null) return true;

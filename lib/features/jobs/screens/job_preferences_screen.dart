@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../core/analytics/screen_tracking.dart';
+import '../../../core/constants/job_areas.dart';
 import '../jobs_viewmodel.dart';
 import '../models/user_preferences.dart';
 
@@ -50,24 +51,10 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
   static const _border = Color(0xFFE2E8F0);
 
   // ── Catálogo de opções ─────────────────────────────────────────────
-  // Lista alinhada com `inferArea()` dos edge functions de sync
-  // (sync-jobs-ats, sync-jobs-apify). FilterHelpers cuida de sinônimos
-  // (RH ↔ Recursos Humanos) — não duplique lógica aqui.
-  static const _areas = <_OptionItem>[
-    _OptionItem('Tecnologia', icon: Icons.computer_rounded),
-    _OptionItem('Engenharia', icon: Icons.engineering_rounded),
-    _OptionItem('Design', icon: Icons.palette_rounded),
-    _OptionItem('Produto', icon: Icons.widgets_rounded),
-    _OptionItem('Marketing', icon: Icons.campaign_rounded),
-    _OptionItem('Vendas', icon: Icons.trending_up_rounded),
-    _OptionItem('Finanças', icon: Icons.attach_money_rounded),
-    _OptionItem('Recursos Humanos', icon: Icons.groups_rounded),
-    _OptionItem('Operações', icon: Icons.settings_rounded),
-    _OptionItem('Jurídico', icon: Icons.gavel_rounded),
-    _OptionItem('Administrativo', icon: Icons.folder_rounded),
-    _OptionItem('Saúde', icon: Icons.local_hospital_rounded),
-    _OptionItem('Geral', icon: Icons.work_rounded),
-  ];
+  // Lista importada de `lib/core/constants/job_areas.dart` (single source
+  // of truth). Mudar lá reflete aqui, no DesiredTitlesScreen do onboarding
+  // e no PreferencesTab. FilterHelpers cuida de sinônimos (RH ↔ Recursos
+  // Humanos, Design ↔ Produto) — não duplique lógica aqui.
 
   // Cobertura ampliada das principais capitais + cidades-polo. O matching
   // em FilterHelpers expande automaticamente: escolher "São Paulo" pega
@@ -459,7 +446,7 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: _areas.map((area) {
+      children: kJobAreas.map((area) {
         final selected = _selectedAreas.contains(area.label);
         final atMax = _selectedAreas.length >= _maxAreas && !selected;
         return _GradientChip(
@@ -1008,13 +995,6 @@ class _GradientChip extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Item de catálogo simples (label + icone).
-class _OptionItem {
-  final String label;
-  final IconData icon;
-  const _OptionItem(this.label, {required this.icon});
 }
 
 /// Item raw value ↔ display label (modelo, tipo de vaga).

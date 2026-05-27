@@ -17,6 +17,7 @@ import '../../services/analytics_service.dart';
 import '../../services/facebook_events_service.dart';
 import '../../services/notifications_service.dart';
 import 'home_viewmodel.dart';
+import 'widgets/pending_upload_banner.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -291,6 +292,11 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
       body: SafeArea(
         child: Column(
           children: [
+            // Banner de PDF pendente — só aparece se o upload do CV durante
+            // o onboarding falhou (rede ruim, Storage indisponível). Mostra
+            // botão "Tentar agora" que reupload usando bytes do cache local.
+            // Se não há pending, renderiza SizedBox.shrink() — zero overhead.
+            const PendingUploadBanner(),
             // F8 da reformulação: banner persistente removido. O CV adaptado
             // agora é salvo automaticamente na biblioteca com o nome da vaga
             // (source='adapted') quando o user tap "Aprovar e baixar" na

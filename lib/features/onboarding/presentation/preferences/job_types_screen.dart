@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../profile/application/preferences_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'onboarding_complete_screen.dart';
 
@@ -25,6 +26,7 @@ class JobTypesScreen extends StatefulWidget {
 
 class _JobTypesScreenState extends State<JobTypesScreen> {
   final Set<JobType> _selected = {};
+  bool _saving = false;
 
   @override
   void initState() {
@@ -33,10 +35,18 @@ class _JobTypesScreenState extends State<JobTypesScreen> {
     if (current != null) _selected.addAll(current);
   }
 
-  void _next() async {
+  Future<void> _next() async {
+    if (_saving) return;
     AnalyticsService.shared.track('onboarding_preferences_job_types_completed');
-    await context.read<PreferencesViewModel>().setJobTypes(_selected.toList());
+    final vm = context.read<PreferencesViewModel>();
+    setState(() => _saving = true);
+    final ok = await saveWithRetry(
+      context: context,
+      operation: () => vm.setJobTypes(_selected.toList()),
+    );
     if (!mounted) return;
+    setState(() => _saving = false);
+    if (!ok) return;
     // push normal (NÃO pushReplacement) — preserva JobTypes na stack pra
     // que back-swipe do OnboardingComplete volte 1 tela só. Quando o user
     // toca "Começar" lá, o popUntil isFirst limpa tudo de qualquer jeito.
@@ -52,8 +62,9 @@ class _JobTypesScreenState extends State<JobTypesScreen> {
       title: 'Que tipo de vaga te interessa?',
       subtitle: 'Pode selecionar mais de um.',
       progress: 0.94,
-      onContinue: _selected.isEmpty ? null : _next,
-      skipButton: _selected.isNotEmpty
+      continueLabel: _saving ? 'Salvando…' : 'Continuar',
+      onContinue: (_selected.isEmpty || _saving) ? null : _next,
+      skipButton: (_selected.isNotEmpty || _saving)
           ? null
           : TextButton(
               onPressed: _next,

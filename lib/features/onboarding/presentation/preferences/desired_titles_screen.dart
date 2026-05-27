@@ -1,13 +1,16 @@
-// DesiredTitlesScreen — áreas desejadas. Catálogo fixo de 12 áreas alinhado
-// com job_preferences_screen + inferArea() dos edge functions de sync.
+// DesiredTitlesScreen — áreas desejadas. Catálogo importado de
+// `lib/core/constants/job_areas.dart` (single source of truth no Dart).
+// Pra adicionar/remover/renomear área, ver instruções nesse arquivo.
 // (legado: nome do arquivo + entidade ainda usam "title", mas a semântica é "área")
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../../core/constants/job_areas.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../profile/application/preferences_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'location_screen.dart';
 
@@ -17,30 +20,6 @@ const _kTextColor = Color(0xFF111827);
 const _kAccent = Color(0xFF29B6D2);
 const _kChipBg = Color(0xFFF3F4F6);
 
-class _Area {
-  final String label;
-  final IconData icon;
-  const _Area(this.label, this.icon);
-}
-
-// Lista alinhada com job_preferences_screen._areas e inferArea() das edge
-// functions de sync (sync-jobs-ats, sync-jobs-apify).
-const List<_Area> _areas = [
-  _Area('Tecnologia', Icons.computer_rounded),
-  _Area('Engenharia', Icons.engineering_rounded),
-  _Area('Design', Icons.palette_rounded),
-  _Area('Produto', Icons.widgets_rounded),
-  _Area('Marketing', Icons.campaign_rounded),
-  _Area('Vendas', Icons.trending_up_rounded),
-  _Area('Finanças', Icons.attach_money_rounded),
-  _Area('Recursos Humanos', Icons.groups_rounded),
-  _Area('Operações', Icons.settings_rounded),
-  _Area('Jurídico', Icons.gavel_rounded),
-  _Area('Administrativo', Icons.folder_rounded),
-  _Area('Saúde', Icons.local_hospital_rounded),
-  _Area('Geral', Icons.work_rounded),
-];
-
 class DesiredTitlesScreen extends StatefulWidget {
   const DesiredTitlesScreen({super.key});
   @override
@@ -49,6 +28,7 @@ class DesiredTitlesScreen extends StatefulWidget {
 
 class _DesiredTitlesScreenState extends State<DesiredTitlesScreen> {
   final Set<String> _selected = {};
+  bool _saving = false;
 
   @override
   void initState() {
@@ -66,7 +46,7 @@ class _DesiredTitlesScreenState extends State<DesiredTitlesScreen> {
     final selected = <String>{};
 
     // 1. Fonte primária: user_preferences.areas (array de strings que JÁ
-    //    casam exatamente com os labels de _areas — populadas via fluxo de
+    //    casam exatamente com os labels de kJobAreas — populadas via fluxo de
     //    job preferences). Match direto, sem heurística.
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
@@ -78,7 +58,7 @@ class _DesiredTitlesScreenState extends State<DesiredTitlesScreen> {
             .maybeSingle();
         final rawAreas = row?['areas'];
         if (rawAreas is List) {
-          final validLabels = _areas.map((a) => a.label).toSet();
+          final validLabels = kJobAreas.map((a) => a.label).toSet();
           for (final a in rawAreas) {
             final label = a?.toString() ?? '';
             if (validLabels.contains(label)) selected.add(label);
@@ -97,7 +77,7 @@ class _DesiredTitlesScreenState extends State<DesiredTitlesScreen> {
     final existing = context.read<PreferencesViewModel>().desiredTitles;
     for (final t in existing) {
       final lower = t.title.toLowerCase();
-      for (final area in _areas) {
+      for (final area in kJobAreas) {
         if (selected.contains(area.label)) continue;
         if (lower.contains(area.label.toLowerCase())) {
           selected.add(area.label);
@@ -122,6 +102,7 @@ class _DesiredTitlesScreenState extends State<DesiredTitlesScreen> {
   }
 
   Future<void> _continue() async {
+    if (_saving) return;
     AnalyticsService.shared.track('onboarding_preferences_desired_titles_completed',
         props: {'count': _selected.length});
     final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
@@ -137,8 +118,15 @@ class _DesiredTitlesScreenState extends State<DesiredTitlesScreen> {
               orderIndex: e.key,
             ))
         .toList();
-    await context.read<PreferencesViewModel>().replaceDesiredTitles(entries);
+    final vm = context.read<PreferencesViewModel>();
+    setState(() => _saving = true);
+    final ok = await saveWithRetry(
+      context: context,
+      operation: () => vm.replaceDesiredTitles(entries),
+    );
     if (!mounted) return;
+    setState(() => _saving = false);
+    if (!ok) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => const LocationScreen()));
   }
 
@@ -148,11 +136,12 @@ class _DesiredTitlesScreenState extends State<DesiredTitlesScreen> {
       title: 'Em quais áreas você quer atuar?',
       subtitle: 'Toca nas que combinam com você.',
       progress: 0.69,
-      onContinue: _selected.isEmpty ? null : _continue,
+      continueLabel: _saving ? 'Salvando…' : 'Continuar',
+      onContinue: (_selected.isEmpty || _saving) ? null : _continue,
       child: Wrap(
         spacing: 10,
         runSpacing: 10,
-        children: _areas.map((area) {
+        children: kJobAreas.map((area) {
           final selected = _selected.contains(area.label);
           return _AreaChip(
             label: area.label,

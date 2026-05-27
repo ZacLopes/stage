@@ -9,6 +9,8 @@ import '../../../../services/analytics_service.dart';
 import '../../../auth/phone_auth_helpers.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../../utils/onboarding_input_decoration.dart';
+import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'gender_screen.dart';
 
@@ -21,6 +23,7 @@ class PhoneScreen extends StatefulWidget {
 class _PhoneScreenState extends State<PhoneScreen> {
   late final TextEditingController _ctrl;
   String _code = '+55';
+  bool _saving = false;
 
   @override
   void initState() {
@@ -64,19 +67,25 @@ class _PhoneScreenState extends State<PhoneScreen> {
 
   bool get _valid => _digitsCount >= 8;
 
-  void _continue() async {
-    if (!_valid) return;
+  Future<void> _continue() async {
+    if (!_valid || _saving) return;
     AnalyticsService.shared.track('onboarding_masking_question_answered', props: {'question': 'phone'});
     final vm = context.read<ProfileEditorViewModel>();
     final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
     final base = vm.personal ?? PersonalInfo(userId: userId);
     // Sempre persiste só dígitos — máscara é puramente visual.
     final digits = _ctrl.text.replaceAll(RegExp(r'\D'), '');
-    await vm.commitPersonal(base.copyWith(
-      phoneCountryCode: _code,
-      phoneNumber: digits,
-    ));
+    setState(() => _saving = true);
+    final ok = await saveWithRetry(
+      context: context,
+      operation: () => vm.commitPersonal(base.copyWith(
+        phoneCountryCode: _code,
+        phoneNumber: digits,
+      )),
+    );
     if (!mounted) return;
+    setState(() => _saving = false);
+    if (!ok) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => const GenderScreen()));
   }
 
@@ -85,7 +94,8 @@ class _PhoneScreenState extends State<PhoneScreen> {
     return OnboardingScaffold(
       title: 'Qual seu telefone?',
       progress: 0.38,
-      onContinue: _valid ? _continue : null,
+      continueLabel: _saving ? 'Salvando…' : 'Continuar',
+      onContinue: (_valid && !_saving) ? _continue : null,
       child: Row(
         children: [
           SizedBox(
@@ -123,12 +133,8 @@ class _PhoneScreenState extends State<PhoneScreen> {
                       FilteringTextInputFormatter.digitsOnly,
                       LengthLimitingTextInputFormatter(15),
                     ],
-              decoration: InputDecoration(
+              decoration: onboardingInputDecoration(
                 hintText: _code == '+55' ? '(11) 98765-4321' : '11987654321',
-                filled: true,
-                fillColor: Colors.white,
-                border: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
               ),
               onChanged: (_) => setState(() {}),
             ),

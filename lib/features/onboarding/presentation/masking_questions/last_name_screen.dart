@@ -7,6 +7,8 @@ import '../../../../services/analytics_service.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/application/extraction_status_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../../utils/onboarding_input_decoration.dart';
+import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'email_screen.dart';
 
@@ -18,6 +20,7 @@ class LastNameScreen extends StatefulWidget {
 
 class _LastNameScreenState extends State<LastNameScreen> {
   late final TextEditingController _ctrl;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -36,7 +39,8 @@ class _LastNameScreenState extends State<LastNameScreen> {
     super.dispose();
   }
 
-  void _continue() async {
+  Future<void> _continue() async {
+    if (_saving) return;
     final value = _ctrl.text.trim();
     if (value.isEmpty) return;
     AnalyticsService.shared.track('onboarding_masking_question_answered', props: {'question': 'last_name'});
@@ -44,9 +48,14 @@ class _LastNameScreenState extends State<LastNameScreen> {
     final vm = context.read<ProfileEditorViewModel>();
     final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
     final base = vm.personal ?? PersonalInfo(userId: userId);
-    await vm.commitPersonal(base.copyWith(lastName: value));
-
+    setState(() => _saving = true);
+    final ok = await saveWithRetry(
+      context: context,
+      operation: () => vm.commitPersonal(base.copyWith(lastName: value)),
+    );
     if (!mounted) return;
+    setState(() => _saving = false);
+    if (!ok) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => const EmailScreen()));
   }
 
@@ -55,18 +64,13 @@ class _LastNameScreenState extends State<LastNameScreen> {
     return OnboardingScaffold(
       title: 'E seu sobrenome?',
       progress: 0.25,
-      onContinue: _ctrl.text.trim().isEmpty ? null : _continue,
+      continueLabel: _saving ? 'Salvando…' : 'Continuar',
+      onContinue: (_ctrl.text.trim().isEmpty || _saving) ? null : _continue,
       child: TextField(
         controller: _ctrl,
         autofocus: true,
         textCapitalization: TextCapitalization.words,
-        decoration: const InputDecoration(
-          hintText: 'Ex: Silva',
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
-          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-        ),
+        decoration: onboardingInputDecoration(hintText: 'Ex: Silva'),
         onChanged: (_) => setState(() {}),
         onSubmitted: (_) => _continue(),
       ),

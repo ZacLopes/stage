@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'first_name_screen.dart';
 
@@ -30,18 +31,24 @@ class AttributionScreen extends StatefulWidget {
 
 class _AttributionScreenState extends State<AttributionScreen> {
   String? _selected;
+  bool _saving = false;
 
-  void _continue() async {
-    if (_selected == null) return;
+  Future<void> _continue() async {
+    if (_selected == null || _saving) return;
     AnalyticsService.shared.track('onboarding_masking_question_answered',
         props: {'question': 'attribution', 'value': _selected!});
 
     final vm = context.read<ProfileEditorViewModel>();
     final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
     final base = vm.personal ?? PersonalInfo(userId: userId);
-    await vm.commitPersonal(base.copyWith(attributionSource: _selected));
-
+    setState(() => _saving = true);
+    final ok = await saveWithRetry(
+      context: context,
+      operation: () => vm.commitPersonal(base.copyWith(attributionSource: _selected)),
+    );
     if (!mounted) return;
+    setState(() => _saving = false);
+    if (!ok) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => const FirstNameScreen()));
   }
 
@@ -61,7 +68,8 @@ class _AttributionScreenState extends State<AttributionScreen> {
         onPressed: () =>
             Navigator.of(context).popUntil((route) => route.isFirst),
       ),
-      onContinue: _selected == null ? null : _continue,
+      continueLabel: _saving ? 'Salvando…' : 'Continuar',
+      onContinue: (_selected == null || _saving) ? null : _continue,
       child: Column(
         children: _options.map((opt) {
           final isSelected = _selected == opt;

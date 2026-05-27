@@ -15,6 +15,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../data/models/models.dart' show SavedResumeSource;
 import '../../../services/analytics_service.dart';
+import '../../../services/pending_resume_upload_service.dart';
 import '../../profile/application/extraction_status_view_model.dart';
 import '../../profile/profile_viewmodel.dart';
 import 'extraction_in_progress_screen.dart';
@@ -139,7 +140,29 @@ class _UploadPreviewSheetState extends State<UploadPreviewSheet> {
     }
   }
 
+  /// Salva o PDF em Storage + tabela saved_resumes. Cache local serve de
+  /// rede de segurança: se o upload remoto falhar, o arquivo fica no
+  /// device + flag pending → o PendingUploadBanner oferece retry depois.
   Future<void> _saveResumeInBackground(ProfileViewModel profileVM) async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    final pendingSvc = PendingResumeUploadService.shared;
+
+    // 1) Stash local primeiro — se o app fechar no meio ou a rede cair,
+    //    a próxima sessão consegue retry.
+    if (userId != null) {
+      try {
+        await pendingSvc.stash(
+          userId: userId,
+          pdfBytes: widget.pdfBytes,
+          filename: widget.fileName,
+        );
+      } catch (e) {
+        debugPrint('[UploadPreviewSheet] stash local falhou: $e');
+        // Continua mesmo sem stash — o upload pode dar certo na primeira.
+      }
+    }
+
+    // 2) Tenta upload remoto.
     try {
       final title = await profileVM.resolveUniqueTitle('Meu Currículo');
       await profileVM.saveResume(
@@ -148,8 +171,17 @@ class _UploadPreviewSheetState extends State<UploadPreviewSheet> {
         source: SavedResumeSource.imported,
       );
       debugPrint('[UploadPreviewSheet] PDF salvo em saved_resumes: $title');
+
+      // 3) Sucesso → limpa cache local (não precisa mais de retry).
+      if (userId != null) {
+        await pendingSvc.clear(userId);
+      }
     } catch (e) {
-      debugPrint('[UploadPreviewSheet] saveResume falhou (não bloqueia): $e');
+      debugPrint('[UploadPreviewSheet] saveResume falhou: $e');
+      // 4) Falha → registra pra o banner mostrar. Arquivo local fica.
+      if (userId != null) {
+        await pendingSvc.recordFailure(userId: userId, error: e.toString());
+      }
     }
   }
 

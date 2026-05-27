@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'age_range_screen.dart';
 
@@ -25,6 +26,7 @@ class GenderScreen extends StatefulWidget {
 
 class _GenderScreenState extends State<GenderScreen> {
   Gender? _selected;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -32,14 +34,20 @@ class _GenderScreenState extends State<GenderScreen> {
     _selected = context.read<ProfileEditorViewModel>().personal?.gender;
   }
 
-  void _continue() async {
-    if (_selected == null) return;
+  Future<void> _continue() async {
+    if (_selected == null || _saving) return;
     AnalyticsService.shared.track('onboarding_masking_question_answered', props: {'question': 'gender'});
     final vm = context.read<ProfileEditorViewModel>();
     final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
     final base = vm.personal ?? PersonalInfo(userId: userId);
-    await vm.commitPersonal(base.copyWith(gender: _selected));
+    setState(() => _saving = true);
+    final ok = await saveWithRetry(
+      context: context,
+      operation: () => vm.commitPersonal(base.copyWith(gender: _selected)),
+    );
     if (!mounted) return;
+    setState(() => _saving = false);
+    if (!ok) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => const AgeRangeScreen()));
   }
 
@@ -49,7 +57,8 @@ class _GenderScreenState extends State<GenderScreen> {
       title: 'Qual seu gênero?',
       subtitle: 'Será usado nas suas candidaturas quando aplicável.',
       progress: 0.44,
-      onContinue: _selected == null ? null : _continue,
+      continueLabel: _saving ? 'Salvando…' : 'Continuar',
+      onContinue: (_selected == null || _saving) ? null : _continue,
       child: Column(
         children: _options.map((tuple) {
           final value = tuple.$1;

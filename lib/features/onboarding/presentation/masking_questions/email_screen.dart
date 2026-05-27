@@ -8,6 +8,8 @@ import '../../../auth/phone_auth_helpers.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/application/extraction_status_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../../utils/onboarding_input_decoration.dart';
+import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'phone_screen.dart';
 
@@ -19,6 +21,7 @@ class EmailScreen extends StatefulWidget {
 
 class _EmailScreenState extends State<EmailScreen> {
   late final TextEditingController _ctrl;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -46,16 +49,21 @@ class _EmailScreenState extends State<EmailScreen> {
     return t.contains('@') && t.contains('.');
   }
 
-  void _continue() async {
-    if (!_valid) return;
+  Future<void> _continue() async {
+    if (!_valid || _saving) return;
     AnalyticsService.shared.track('onboarding_masking_question_answered', props: {'question': 'email'});
 
     final vm = context.read<ProfileEditorViewModel>();
     final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
     final base = vm.personal ?? PersonalInfo(userId: userId);
-    await vm.commitPersonal(base.copyWith(email: _ctrl.text.trim().toLowerCase()));
-
+    setState(() => _saving = true);
+    final ok = await saveWithRetry(
+      context: context,
+      operation: () => vm.commitPersonal(base.copyWith(email: _ctrl.text.trim().toLowerCase())),
+    );
     if (!mounted) return;
+    setState(() => _saving = false);
+    if (!ok) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => const PhoneScreen()));
   }
 
@@ -64,19 +72,14 @@ class _EmailScreenState extends State<EmailScreen> {
     return OnboardingScaffold(
       title: 'Melhor email pra te contatar?',
       progress: 0.31,
-      onContinue: _valid ? _continue : null,
+      continueLabel: _saving ? 'Salvando…' : 'Continuar',
+      onContinue: (_valid && !_saving) ? _continue : null,
       child: TextField(
         controller: _ctrl,
         autofocus: true,
         keyboardType: TextInputType.emailAddress,
         autocorrect: false,
-        decoration: const InputDecoration(
-          hintText: 'voce@email.com',
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
-          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-        ),
+        decoration: onboardingInputDecoration(hintText: 'voce@email.com'),
         onChanged: (_) => setState(() {}),
       ),
     );

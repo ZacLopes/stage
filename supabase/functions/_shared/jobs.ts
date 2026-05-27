@@ -473,6 +473,29 @@ export function isCompanyNameBlacklisted(name: string | null | undefined): boole
  * (Jurídico antes de Tecnologia, senão "Programa de Estágio em Direito"
  * cai em Tecnologia por causa de "programa").
  *
+ * ⚠️ SINCRONIZAÇÃO CROSS-LANGUAGE — leia antes de editar
+ *
+ * As strings retornadas (1º elemento de cada tupla nas `rules` + fallback
+ * "Geral") são as ÁREAS que vagas terão no banco. O app Flutter mostra
+ * uma lista de áreas pro user escolher como "áreas desejadas" — essa
+ * lista precisa BATER com o que esta função produz, senão:
+ *   • user escolhe área que nenhuma vaga tem (feed vazio), ou
+ *   • vagas viram pra "Geral" sem categoria correta.
+ *
+ * Catálogo Dart (single source of truth no app):
+ *   lib/core/constants/job_areas.dart
+ *
+ * Drift atual conhecido (2026-05-26):
+ *   • "Design" existe no app Dart mas NÃO tem categoria própria aqui —
+ *     vagas de design caem em "Produto" (regex inclui "design|ux|ui").
+ *     Mitigado pelo mapa de sinônimos em filter_helpers.dart no client
+ *     (Design ↔ Produto bidirecional), então user que escolhe "Design"
+ *     ainda vê as vagas de Produto. Pra ter filtro estrito de Design,
+ *     adicionar regex próprio AQUI antes de "Produto" e atualizar
+ *     filter_helpers.dart pra remover Design dos sinônimos de Produto.
+ *
+ * Se adicionar/remover/renomear área aqui, atualizar o catálogo Dart também.
+ *
  * @param title título da vaga
  * @param contextHints texto opcional concatenado (departamento, descrição, tags)
  */

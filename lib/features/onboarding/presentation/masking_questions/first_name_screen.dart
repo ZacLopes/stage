@@ -7,6 +7,8 @@ import '../../../../services/analytics_service.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/application/extraction_status_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../../utils/onboarding_input_decoration.dart';
+import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'last_name_screen.dart';
 
@@ -18,6 +20,7 @@ class FirstNameScreen extends StatefulWidget {
 
 class _FirstNameScreenState extends State<FirstNameScreen> {
   late final TextEditingController _ctrl;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -35,7 +38,8 @@ class _FirstNameScreenState extends State<FirstNameScreen> {
     super.dispose();
   }
 
-  void _continue() async {
+  Future<void> _continue() async {
+    if (_saving) return;
     final value = _ctrl.text.trim();
     if (value.isEmpty) return;
     AnalyticsService.shared.track('onboarding_masking_question_answered',
@@ -44,9 +48,14 @@ class _FirstNameScreenState extends State<FirstNameScreen> {
     final vm = context.read<ProfileEditorViewModel>();
     final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
     final base = vm.personal ?? PersonalInfo(userId: userId);
-    await vm.commitPersonal(base.copyWith(firstName: value));
-
+    setState(() => _saving = true);
+    final ok = await saveWithRetry(
+      context: context,
+      operation: () => vm.commitPersonal(base.copyWith(firstName: value)),
+    );
     if (!mounted) return;
+    setState(() => _saving = false);
+    if (!ok) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => const LastNameScreen()));
   }
 
@@ -55,12 +64,13 @@ class _FirstNameScreenState extends State<FirstNameScreen> {
     return OnboardingScaffold(
       title: 'Qual seu primeiro nome?',
       progress: 0.19,
-      onContinue: _ctrl.text.trim().isEmpty ? null : _continue,
+      continueLabel: _saving ? 'Salvando…' : 'Continuar',
+      onContinue: (_ctrl.text.trim().isEmpty || _saving) ? null : _continue,
       child: TextField(
         controller: _ctrl,
         autofocus: true,
         textCapitalization: TextCapitalization.words,
-        decoration: _decoration('Ex: Maria'),
+        decoration: onboardingInputDecoration(hintText: 'Ex: Maria'),
         onChanged: (_) => setState(() {}),
         onSubmitted: (_) => _continue(),
       ),
@@ -68,21 +78,3 @@ class _FirstNameScreenState extends State<FirstNameScreen> {
   }
 }
 
-InputDecoration _decoration(String hint) => InputDecoration(
-      hintText: hint,
-      filled: true,
-      fillColor: Colors.white,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF29B6D2), width: 2),
-      ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-    );

@@ -19,9 +19,9 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../services/analytics_service.dart';
-import '../../../profile/application/preferences_view_model.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'work_locations_screen.dart';
 
@@ -50,6 +50,7 @@ class _LocationScreenState extends State<LocationScreen> {
   Timer? _cepDebounce;
   bool _cepLoading = false;
   bool _gpsLoading = false;
+  bool _saving = false;
   String? _hint;
 
   @override
@@ -237,33 +238,37 @@ class _LocationScreenState extends State<LocationScreen> {
   bool get _canContinue => _resolvedCity != null && _resolvedCity!.isNotEmpty;
 
   Future<void> _continue() async {
-    if (!_canContinue) return;
+    if (!_canContinue || _saving) return;
     final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
     final profileVm = context.read<ProfileEditorViewModel>();
-    final prefsVm = context.read<PreferencesViewModel>();
 
+    // Salva APENAS em profile_personal.location_*. A tela seguinte
+    // (WorkLocationsScreen) lê essa cidade em memória pra pré-marcar como
+    // chip — sem escrever em profile_other_locations aqui. Antes essa
+    // tela já adicionava a residência em other_locations, e se o user
+    // pulasse a próxima tela, ele ficava "preso" a aceitar vagas só na
+    // cidade dele. Agora "onde mora" e "onde quer trabalhar" são fontes
+    // separadas — só vão pra other_locations as cidades que o user
+    // explicitamente confirmar na próxima tela.
     final base = profileVm.personal ?? PersonalInfo(userId: userId);
-    await profileVm.commitPersonal(base.copyWith(
-      locationCity: _resolvedCity,
-      locationState: _resolvedState,
-      locationCountry: 'BR',
-      // CEP é o marcador de "user passou por essa tela" — usado pra
-      // hidratar na próxima visita.
-      locationPostalCode: _cep.text.trim().isEmpty ? null : _cep.text.trim(),
-    ));
-
-    await prefsVm.replaceOtherLocations([
-      OtherLocation(
-        id: '', userId: userId,
-        city: _resolvedCity,
-        state: _resolvedState,
-        country: 'BR',
-      ),
-    ]);
+    setState(() => _saving = true);
+    final ok = await saveWithRetry(
+      context: context,
+      operation: () => profileVm.commitPersonal(base.copyWith(
+        locationCity: _resolvedCity,
+        locationState: _resolvedState,
+        locationCountry: 'BR',
+        // CEP é o marcador de "user passou por essa tela" — usado pra
+        // hidratar na próxima visita.
+        locationPostalCode: _cep.text.trim().isEmpty ? null : _cep.text.trim(),
+      )),
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (!ok) return;
 
     AnalyticsService.shared.track('onboarding_preferences_location_completed',
         props: {'mode': _gpsLoading ? 'gps' : 'cep'});
-    if (!mounted) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkLocationsScreen()));
   }
 
@@ -275,7 +280,8 @@ class _LocationScreenState extends State<LocationScreen> {
       title: 'Onde você mora?',
       subtitle: 'Vamos usar pra te mostrar vagas próximas.',
       progress: 0.75,
-      onContinue: _formMode && _canContinue ? _continue : null,
+      continueLabel: _saving ? 'Salvando…' : 'Continuar',
+      onContinue: (_formMode && _canContinue && !_saving) ? _continue : null,
       customFooter: _formMode ? null : _buildInitialFooter(),
       child: GestureDetector(
         onTap: () => FocusScope.of(context).unfocus(),

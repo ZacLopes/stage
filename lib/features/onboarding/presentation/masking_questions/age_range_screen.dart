@@ -12,6 +12,7 @@ import '../../../../services/analytics_service.dart';
 import '../../../profile/application/extraction_status_view_model.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../../utils/save_with_retry.dart';
 import '../all_set_screen.dart';
 import '../onboarding_scaffold.dart';
 import '../preferences/desired_titles_screen.dart';
@@ -26,6 +27,7 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
   final _controller = TextEditingController();
   DateTime? _parsed;
   String? _error;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -105,7 +107,7 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
 
   Future<void> _continue() async {
     final dob = _parsed;
-    if (dob == null) return;
+    if (dob == null || _saving) return;
     HapticFeedback.lightImpact();
     AnalyticsService.shared.track('onboarding_masking_question_answered',
         props: {'question': 'date_of_birth'});
@@ -114,11 +116,17 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
     final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
     final base = vm.personal ?? PersonalInfo(userId: userId);
     final derived = ageRangeFromDate(dob);
-    await vm.commitPersonal(base.copyWith(
-      dateOfBirth: dob,
-      ageRange: derived,
-    ));
+    setState(() => _saving = true);
+    final ok = await saveWithRetry(
+      context: context,
+      operation: () => vm.commitPersonal(base.copyWith(
+        dateOfBirth: dob,
+        ageRange: derived,
+      )),
+    );
     if (!mounted) return;
+    setState(() => _saving = false);
+    if (!ok) return;
 
     // Bifurca conforme origem:
     //  - Upload (extração rodou) → AllSetScreen → revisar dados do CV
@@ -143,7 +151,8 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
       title: 'Qual sua data de nascimento?',
       subtitle: 'Algumas vagas pedem idade mínima.',
       progress: 0.5,
-      onContinue: _parsed == null ? null : _continue,
+      continueLabel: _saving ? 'Salvando…' : 'Continuar',
+      onContinue: (_parsed == null || _saving) ? null : _continue,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

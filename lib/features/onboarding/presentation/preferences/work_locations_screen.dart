@@ -1,7 +1,15 @@
 // WorkLocationsScreen — cidades onde o user quer trabalhar.
 //
-// Mostra a cidade que já cadastrou em LocationScreen (primary, vinda de
-// other_locations) e permite adicionar/remover outras via busca.
+// Lê a cidade-residência de profile_personal (NÃO de profile_other_locations)
+// e pré-marca como chip. Lista também outras cidades já salvas (caso o user
+// esteja re-abrindo a tela). User pode remover qualquer chip — só vai pro
+// banco o que ele confirmar tocando Continuar.
+//
+// Antes, LocationScreen escrevia a residência em profile_other_locations
+// direto. Causava bug: se o user pulasse essa tela, ficava "preso" a só
+// aceitar vagas na cidade onde mora. Agora "onde mora" e "onde quer
+// trabalhar" são fontes separadas — esta tela é o único caminho pra
+// popular profile_other_locations.
 //
 // Busca usa API pública do IBGE (lista oficial de municípios brasileiros,
 // ~5.570 entries). Carrega 1x na primeira abertura, cacheia em memória,
@@ -17,7 +25,9 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../profile/application/preferences_view_model.dart';
+import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'work_mode_screen.dart';
 
@@ -37,11 +47,35 @@ class WorkLocationsScreen extends StatefulWidget {
 
 class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
   final List<OtherLocation> _locations = [];
+  bool _saving = false;
 
   @override
   void initState() {
     super.initState();
+    // 1) Seed com cidades-de-trabalho já salvas (re-abertura da tela).
     _locations.addAll(context.read<PreferencesViewModel>().otherLocations);
+
+    // 2) Pré-marca a cidade-residência (lendo de profile_personal — fonte
+    //    de verdade) se ainda não está na lista. Sem isso, user que veio
+    //    direto da LocationScreen veria a tela vazia. User pode remover o
+    //    chip da residência se não quer trabalhar lá.
+    final personal = context.read<ProfileEditorViewModel>().personal;
+    final homeCity = personal?.locationCity?.trim() ?? '';
+    if (homeCity.isNotEmpty) {
+      final homeState = personal?.locationState ?? '';
+      final alreadyInList = _locations.any((l) =>
+          (l.city?.toLowerCase() ?? '') == homeCity.toLowerCase() &&
+          (l.state ?? '') == homeState);
+      if (!alreadyInList) {
+        _locations.add(OtherLocation(
+          id: '',
+          userId: Supabase.instance.client.auth.currentUser?.id ?? '',
+          city: homeCity,
+          state: homeState.isEmpty ? null : homeState,
+          country: personal?.locationCountry ?? 'BR',
+        ));
+      }
+    }
   }
 
   Future<void> _addLocation() async {
@@ -72,18 +106,34 @@ class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
   }
 
   Future<void> _continue() async {
-    await context.read<PreferencesViewModel>().replaceOtherLocations(_locations);
+    if (_saving) return;
+    final vm = context.read<PreferencesViewModel>();
+    setState(() => _saving = true);
+    final ok = await saveWithRetry(
+      context: context,
+      operation: () => vm.replaceOtherLocations(_locations),
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (!ok) return;
     AnalyticsService.shared.track('onboarding_preferences_work_locations_completed',
         props: {'count': _locations.length, 'skipped': false});
-    if (!mounted) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkModeScreen()));
   }
 
   Future<void> _skip() async {
-    await context.read<PreferencesViewModel>().replaceOtherLocations([]);
+    if (_saving) return;
+    final vm = context.read<PreferencesViewModel>();
+    setState(() => _saving = true);
+    final ok = await saveWithRetry(
+      context: context,
+      operation: () => vm.replaceOtherLocations([]),
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (!ok) return;
     AnalyticsService.shared.track('onboarding_preferences_work_locations_completed',
         props: {'count': 0, 'skipped': true});
-    if (!mounted) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkModeScreen()));
   }
 
@@ -93,8 +143,9 @@ class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
       title: 'Onde você quer trabalhar?',
       subtitle: 'Adicione cidades específicas — ou pule se topa qualquer lugar.',
       progress: 0.78,
-      onContinue: _locations.isEmpty ? null : _continue,
-      skipButton: _locations.isNotEmpty
+      continueLabel: _saving ? 'Salvando…' : 'Continuar',
+      onContinue: (_locations.isEmpty || _saving) ? null : _continue,
+      skipButton: (_locations.isNotEmpty || _saving)
           ? null
           : TextButton(
               onPressed: _skip,

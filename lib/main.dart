@@ -185,18 +185,30 @@ Future<void> _bootstrap() async {
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider<UserViewModel>(
+        // ProfileEditorViewModel vem ANTES do UserViewModel — este declara
+        // dependência via ChangeNotifierProxyProvider pra resolver
+        // `needsProfileSetup` consultando `profile_personal` (source of
+        // truth do novo onboarding) antes da verificação legacy. Sem
+        // essa injeção, `needsProfileSetup` sempre retornava true pra
+        // users do novo onboarding (Gap #3 da auditoria).
+        ChangeNotifierProvider<ProfileEditorViewModel>(
+          create: (_) => ProfileEditorViewModel(profileRepository),
+        ),
+        ChangeNotifierProxyProvider<ProfileEditorViewModel, UserViewModel>(
           create: (_) => UserViewModel(repository, localStorageRepository),
+          // `update` roda sempre que o ProfileEditorViewModel notifica
+          // (load, save, clear). `attachProfileEditor` é idempotente —
+          // só substitui a referência interna sem disparar side-effects.
+          update: (_, profileEditor, userVm) {
+            userVm!.attachProfileEditor(profileEditor);
+            return userVm;
+          },
         ),
         ChangeNotifierProvider<GamificationViewModel>(
           create: (_) => GamificationViewModel(repository),
         ),
         ChangeNotifierProvider<ProfileViewModel>(
           create: (_) => ProfileViewModel(repository, aiService, localStorageRepository),
-        ),
-        // Profile-first editor (estrutura relacional Semana 1)
-        ChangeNotifierProvider<ProfileEditorViewModel>(
-          create: (_) => ProfileEditorViewModel(profileRepository),
         ),
         ChangeNotifierProvider<PreferencesViewModel>(
           create: (_) => PreferencesViewModel(profileRepository),
