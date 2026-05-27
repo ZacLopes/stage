@@ -82,8 +82,6 @@ class _AuthScreenState extends State<AuthScreen>
       // Empurrar telas específicas daqui causava GlobalKey duplicada
       // (auth_screen pushava HomeScreen enquanto o AuthGate Consumer
       // também montava uma — duas BottomNavigationBars na árvore).
-      // O caminho de email/senha NÃO usa esse listener — EmailSignup já
-      // navega manualmente pra ProfileSetupScreen após o signUp.
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const AuthGate()),
         (route) => false,

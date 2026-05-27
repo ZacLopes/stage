@@ -181,12 +181,10 @@ class UserViewModel extends ChangeNotifier {
 
   /// Verdadeiro quando o user existe mas falta algum campo obrigatório do
   /// perfil (nome, idade, telefone, curso, semestre, universidade). Usado
-  /// pelo AuthGate pra forçar o `ProfileSetupScreen` antes de seguir pra
-  /// Home — especialmente útil pra users que entraram via Apple/Google,
-  /// que pulam o EmailSignup e por isso nunca preenchem esses campos.
-  ///
-  /// Cobre o caso "Apple sem nome" — se o nome estiver vazio/User, o Step 1
-  /// do ProfileSetup pede o nome. Não precisa de tela separada.
+  /// pelo SplashScreen pra direcionar pra `TwoDoorsScreen` (entrada do
+  /// onboarding profile-first) antes de seguir pra Home — especialmente
+  /// útil pra users que entraram via Apple/Google, que pulam o EmailSignup
+  /// e por isso nunca preenchem esses campos. Cobre o caso "Apple sem nome".
   bool get needsProfileSetup {
     final u = _user;
     if (u == null) return false;

@@ -168,19 +168,14 @@ class AuthGate extends StatelessWidget {
 
         if (viewModel.isLoggedIn) {
           // Roteamento centralizado pós-login. Ordem importa:
-          // 1. hasCampaign=true → HomeScreen (user já finalizou o onboarding,
-          //    novo ou legacy). Tem prioridade porque o novo flow popula
-          //    profile_personal mas NÃO os campos legacy de user_profiles
-          //    (course/semester/university) — sem essa prioridade,
-          //    needsProfileSetup ficaria true pra sempre e AuthGate
-          //    renderizaria ProfileSetupScreen, que pusha TwoDoors → loop.
-          // 2. needsProfileSetup → ProfileSetupScreen (cobre o caso Apple/Google
-          //    que pula EmailSignup — coleta nome, idade, telefone, curso,
-          //    semestre, universidade). Inclui o caso "Apple sem nome".
-          //    Pra users do novo flow, esse postFrameCallback que pusha
-          //    TwoDoors é o ponto de entrada do onboarding.
-          // 3. tudo certo (sem campaign mas sem precisar de profile setup) →
-          //    CompletionScreen (escolher upload CV / trilha — legacy flow).
+          // 1. hasCampaign=true → HomeScreen (user já finalizou onboarding).
+          //    Tem prioridade porque o novo flow popula profile_personal mas
+          //    NÃO os campos legacy de user_profiles (course/semester/
+          //    university) — sem essa prioridade, needsProfileSetup ficaria
+          //    true e a gente entraria em loop redirecionando pra TwoDoors.
+          // 2. needsProfileSetup → TwoDoorsScreen (entrada do onboarding
+          //    profile-first). Cobre Apple/Google sem nome, phone signup, etc.
+          // 3. Sem campaign mas sem precisar setup → CompletionScreen (legacy).
           //
           // Esse Consumer re-roteia automaticamente quando o state muda
           // (ex: user finaliza onboarding → hasCampaign vira true → rebuild →
@@ -190,12 +185,6 @@ class AuthGate extends StatelessWidget {
             return const HomeScreen();
           }
           if (viewModel.needsProfileSetup) {
-            // Pula ProfileSetupScreen (legacy) e vai direto pro novo flow.
-            // Antes: ProfileSetupScreen → postFrameCallback async checava
-            // feature flag → push TwoDoors. Se o flag não retornasse 'true'
-            // (rede lenta, cache PostHog, etc.), o user ficava preso na
-            // tela legacy de 3 passos. Render direto elimina o flash + o
-            // risco de cair no fluxo errado.
             return const TwoDoorsScreen();
           }
           return const CompletionScreen();

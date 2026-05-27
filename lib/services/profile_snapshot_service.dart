@@ -52,10 +52,11 @@ class ProfileSnapshot {
   /// calcular match score / renderizar PDF.
   ///
   /// Critério intencionalmente estrito: first/last name por si só são
-  /// dados de identificação (preenchidos via ProfileSetupScreen no signup),
-  /// não sinalizam "tem perfil profissional pra analisar". User precisa de
-  /// pelo menos um summary/headline OU uma entrada em experience/education/
-  /// skills/etc pra match score fazer sentido.
+  /// dados de identificação (preenchidos via masking_questions do
+  /// onboarding novo), não sinalizam "tem perfil profissional pra
+  /// analisar". User precisa de pelo menos um summary/headline OU uma
+  /// entrada em experience/education/skills/etc pra match score fazer
+  /// sentido.
   bool get isEmpty {
     final hasProfessionalSummary = personal != null &&
         ((personal!.summary?.trim().isNotEmpty ?? false) ||
