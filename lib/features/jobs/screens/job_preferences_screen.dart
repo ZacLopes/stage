@@ -65,6 +65,7 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
     _OptionItem('Operações', icon: Icons.settings_rounded),
     _OptionItem('Jurídico', icon: Icons.gavel_rounded),
     _OptionItem('Administrativo', icon: Icons.folder_rounded),
+    _OptionItem('Saúde', icon: Icons.local_hospital_rounded),
     _OptionItem('Geral', icon: Icons.work_rounded),
   ];
 

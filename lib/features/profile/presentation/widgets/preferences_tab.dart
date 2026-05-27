@@ -418,6 +418,7 @@ const List<_Area> _kAreas = [
   _Area('Operações', Icons.settings_rounded),
   _Area('Jurídico', Icons.gavel_rounded),
   _Area('Administrativo', Icons.folder_rounded),
+  _Area('Saúde', Icons.local_hospital_rounded),
   _Area('Geral', Icons.work_rounded),
 ];
 

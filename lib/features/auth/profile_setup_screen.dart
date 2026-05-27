@@ -47,9 +47,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
   final List<String> _jobTypes = ['Estágio', 'Trainee', 'CLT Júnior'];
   final List<String> _workModels = ['Remoto', 'Híbrido', 'Presencial', 'Tanto faz'];
   final List<String> _areas = [
-    'Marketing', 'Finanças', 'Tecnologia', 'Design', 
-    'Engenharia', 'Administração', 'Jurídico', 
-    'Recursos Humanos', 'Comunicação', 'Vendas'
+    'Marketing', 'Finanças', 'Tecnologia', 'Design',
+    'Engenharia', 'Administração', 'Jurídico',
+    'Recursos Humanos', 'Comunicação', 'Vendas', 'Saúde'
   ];
 
   @override

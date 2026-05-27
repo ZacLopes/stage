@@ -536,8 +536,34 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         _matchCache[job.id] = result;
       });
     } catch (e) {
-      // Falha silenciosa — fallback determinístico já está sendo mostrado.
-      // Não loggar com print pra não poluir console em casos esperados (offline).
+      // IA falhou (timeout, rate limit 429, 5xx, offline). Pre-fix essa
+      // branch era "falha silenciosa" — _matchInflight era limpo mas o
+      // cache ficava vazio e o ring continuava em "pending" eternamente
+      // (até user dar swipe, que disparava nova tentativa = mesma falha).
+      //
+      // Agora: cai pro fallback determinístico (MatchScoreCalculator
+      // client-side, gratuito, sem rate limit, mesmo input que a IA via).
+      // Pode dar score diferente do que a IA daria, mas é melhor que
+      // pending eterno. Se uma sessão futura da IA tiver sucesso, o
+      // resultado da IA sobrescreve (precedência no cache).
+      if (mounted) {
+        try {
+          final vm = context.read<JobsViewModel>();
+          final userVm = context.read<UserViewModel>();
+          final fallback = MatchScoreCalculator.calculate(
+            job: job,
+            prefs: vm.preferences,
+            gamificationData: userVm.user?.gamificationData,
+            profileText: _profileText,
+          );
+          setState(() {
+            _matchCache[job.id] = fallback;
+          });
+        } catch (_) {
+          // Fallback também falhou (raro — só se Provider context não
+          // estiver disponível). Aceita pending → próximo swipe re-tenta.
+        }
+      }
     } finally {
       _matchInflight.remove(job.id);
     }

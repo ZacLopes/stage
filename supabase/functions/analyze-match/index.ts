@@ -21,7 +21,7 @@ const corsHeaders = {
 }
 
 const MODEL = 'gpt-4o-mini'
-const PROMPT_VERSION = 'v9' // bump quando alterar SYSTEM_PROMPT (invalida cache)
+const PROMPT_VERSION = 'v10' // bump quando alterar SYSTEM_PROMPT (invalida cache)
 const CACHE_TTL_DAYS = 30
 // Subido de 100 → 300 em 2026-05-26 porque PROMPT_VERSION bumps em sequência
 // (v5→v9) invalidaram cache de todos os jobs visíveis no app, forçando
@@ -199,12 +199,20 @@ async function loadPrefs(client: any, userId: string): Promise<any> {
     const relJobTypes = Array.isArray(jp?.job_types)
       ? jp.job_types.filter((s: any) => typeof s === 'string' && s.length > 0)
       : []
-    const relLocations = [
-      ...(jp?.primary_location_city ? [String(jp.primary_location_city)] : []),
-      ...otherLocs
-        .map((o) => (o?.city ?? '').trim())
-        .filter((s) => s.length > 0),
-    ]
+    // Inclui state como segundo elemento da location preferida quando o
+    // user só preencheu state (sem city). Sem isso, user que mora em "MG"
+    // sem cidade específica não casava com vagas em Belo Horizonte/MG.
+    const relLocations: string[] = []
+    if (jp?.primary_location_city) {
+      relLocations.push(String(jp.primary_location_city))
+    }
+    if (jp?.primary_location_state) {
+      relLocations.push(String(jp.primary_location_state))
+    }
+    for (const o of otherLocs) {
+      const c = (o?.city ?? '').trim()
+      if (c.length > 0) relLocations.push(c)
+    }
 
     const hasRelational =
       relAreas.length > 0 ||
@@ -518,11 +526,16 @@ function buildUserPrompt(opts: {
     } else {
       lines.push('Salário mínimo: não definido')
     }
-    if (whoIAm.skills) lines.push(`Skills (resumo): ${String(whoIAm.skills).slice(0, 500)}`)
-    if (whoIAm.summary) lines.push(`Sobre mim: ${String(whoIAm.summary).slice(0, 300)}`)
-    if (whoIAm.interests) lines.push(`Interesses: ${String(whoIAm.interests).slice(0, 300)}`)
-    if (profileSection) {
+    // whoIAm.derived legacy só entra se NÃO temos profile_text — o
+    // profile_text das tabelas relacionais é fonte mais rica e atualizada.
+    // Pra users históricos sem migração profile-first, whoIAm.derived ainda
+    // é o melhor sinal disponível.
+    if (hasProfileText) {
       lines.push(`Perfil estruturado (skills/experiências/formação):\n${profileSection}`)
+    } else {
+      if (whoIAm.skills) lines.push(`Skills (resumo): ${String(whoIAm.skills).slice(0, 500)}`)
+      if (whoIAm.summary) lines.push(`Sobre mim: ${String(whoIAm.summary).slice(0, 300)}`)
+      if (whoIAm.interests) lines.push(`Interesses: ${String(whoIAm.interests).slice(0, 300)}`)
     }
     if (cvSection) lines.push(`CV importado (trecho relevante):\n${cvSection}`)
   }
@@ -532,7 +545,16 @@ function buildUserPrompt(opts: {
   lines.push(`Título: ${job.title}`)
   lines.push(`Área: ${job.area || 'não informada'}`)
   lines.push(`Tipo: ${job.job_type}`)
-  lines.push(`Localização: ${job.location_city || ''}, ${job.location_state || ''}`)
+  // Sanitiza location_city: ~23 vagas em prod têm city="Remoto"/"Brasil"
+  // (vindas do sync que não conseguiu extrair cidade real). Isso confundia
+  // a IA — "São Paulo" do user nunca casava com "Remoto" da vaga, mesmo
+  // quando work_model='remoto' já cobria essa dimensão.
+  const cityRaw = (job.location_city || '').trim()
+  const isPseudoCity = /^(remoto|brasil|brazil|home[- ]?office)$/i.test(cityRaw)
+  const cityForPrompt = isPseudoCity ? '' : cityRaw
+  const stateForPrompt = (job.location_state || '').trim()
+  const locParts = [cityForPrompt, stateForPrompt].filter((s) => s.length > 0)
+  lines.push(`Localização: ${locParts.join(', ') || 'não informada'}`)
   lines.push(`Modelo: ${job.work_model}`)
   if (job.salary_min || job.salary_max) {
     const min = job.salary_min ? `R$ ${(job.salary_min / 100).toFixed(0)}` : '?'

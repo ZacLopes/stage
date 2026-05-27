@@ -480,6 +480,10 @@ export function inferArea(title: string, contextHints?: string | null): string {
   const text = `${title ?? ""} ${contextHints ?? ""}`.toLowerCase();
 
   const rules: Array<[string, RegExp]> = [
+    // Saúde antes de tudo — vagas tipo "Estágio em Enfermagem" tinham
+    // "enferma" pegando matchers genéricos depois e caindo em Produto/
+    // Operações/RH errado. 22 vagas mal classificadas em 2026-05-27.
+    ["Saúde", /(enferma|enferm[ae]ir[ao]|medic|m[ée]dic[ao]|farma|farm[áa]cia|farmac[êe]utic|fisio|fisioterap|nutricion|psic[óo]log|psicologia|biom[ée]dic|odont|odontol[óo]gi|veterin|cl[íi]nica|hospital|sa[úu]de|enfermagem|radiolo|terapeut|fonoaudi)/],
     ["Jurídico", /(jur[íi]dic|direito|advog|advocacia|legal|compliance|contencioso|tribut[áa]rio|paralegal|direito (?:empresarial|trabalhista|c[íi]vel|tribut[áa]rio|penal|consumidor)|escrit[óo]rio de advocacia)/],
     ["Tecnologia", /(engenharia de software|desenvolved|software engineer|backend|frontend|full[- ]?stack|dados|data|machine learning|ml|devops|sre|cloud|infraestrutura|qa|testes?|cybersecurity|segurança da informação|tech|tecnologia|program(?:a[cdr]|ação|ador)|sistemas)/],
     ["Marketing", /(marketing|growth|crm|mídia|branding|comunicação|publicidade|social media)/],

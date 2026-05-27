@@ -30,10 +30,14 @@ class AIService {
 
   /// Calcula match IA pra uma vaga. Lança exception em qualquer falha —
   /// caller (JobsSwipeScreen) faz fallback pro determinístico.
+  // Timeout cliente subiu de 9s pra 12s em 2026-05-27. Servidor tem
+  // OPENAI_TIMEOUT_MS=8000 + ~1-2s de overhead Supabase Gateway + cache
+  // lookup → 9s era margem apertada em network lento. 12s dá folga
+  // pra retries internos do gateway sem mascarar lentidão real da IA.
   Future<MatchResult> analyzeMatch(String jobId) async {
     final response = await _client.functions
         .invoke('analyze-match', body: {'job_id': jobId})
-        .timeout(const Duration(seconds: 9));
+        .timeout(const Duration(seconds: 12));
 
     if (response.status != 200) {
       throw Exception('analyze-match status ${response.status}');
@@ -273,6 +277,22 @@ class AIService {
         detail: m['detail']?.toString(),
       );
     }).toList();
+
+    // Detecta Cenário C do servidor (analyze-match retorna 1 reason "Sem
+    // perfil" matched=false com score=50). Converte pra MatchResult.unknown
+    // pra UI renderizar card amarelo "Configure suas preferências" via
+    // `match.isUnknown` em vez de "Match razoável 50%" enganoso.
+    //
+    // Acontece quando user tem `_hasProfileData=true` (qualquer skill basta)
+    // mas perfil semanticamente vazio (sem narrativa). hasResume filtra
+    // antes no _resolveMatch, mas defesa em profundidade aqui.
+    final isScenarioC = reasons.length == 1 &&
+        reasons.first.label == 'Sem perfil' &&
+        !reasons.first.matched;
+    if (isScenarioC) {
+      return const MatchResult.unknown();
+    }
+
     return MatchResult(score: score, reasons: reasons);
   }
 
