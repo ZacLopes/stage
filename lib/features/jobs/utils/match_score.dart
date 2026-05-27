@@ -98,10 +98,17 @@ class MatchReason {
 /// Sem preferências configuradas → fallback de 75 com nota explicativa
 /// (não quero mostrar 50% pra todo mundo zerado).
 class MatchScoreCalculator {
+  /// [profileText] é o pseudo-texto agregado das tabelas `profile_*` (ver
+  /// `ProfileSnapshot.toPseudoText()`). Substitui o legacy
+  /// `gamification_data.imported_resume.raw_text` no Cenário B (sem prefs
+  /// completas, usa keyword overlap contra requisitos da vaga). Caller é
+  /// responsável por construir e cachear — geralmente já foi carregado pra
+  /// pintar empty states em outras telas.
   static MatchResult calculate({
     required Job job,
     UserJobPreferences? prefs,
     Map<String, dynamic>? gamificationData,
+    String? profileText,
   }) {
     if (prefs == null || prefs.isEmpty) {
       // Sem prefs → estado unknown explícito. UI trata sem mostrar % inflado.
@@ -194,10 +201,11 @@ class MatchScoreCalculator {
     }
 
     // ── 6. Skills/CV × requisitos da vaga (10, proporcional) ──────
-    // Aceita 2 fontes pra perfil do user: skills estruturadas (vindo
-    // da trilha) OU texto bruto do CV importado. Comparamos contra
-    // requirements + description da vaga.
-    final userPool = _extractUserPool(gamificationData);
+    // Aceita 2 fontes pra perfil do user: skills estruturadas da trilha
+    // (gamification_data.whoIAm.derived.*) E pseudo-texto agregado das
+    // tabelas profile_* (skills, bullets, summary, certifications,
+    // languages, etc). Comparamos contra requirements + description.
+    final userPool = _extractUserPool(gamificationData, profileText);
     if (userPool.isNotEmpty) {
       const weight = 10;
       totalWeight += weight;
@@ -250,11 +258,17 @@ class MatchScoreCalculator {
   };
 
   /// Extrai um "pool" de palavras-chave que representam o perfil do user.
-  /// Une skills estruturadas (gamificationData.whoIAm.derived.skills) com
-  /// texto bruto do CV importado (gamificationData.imported_resume.raw_text).
-  /// Retorna lower-case, sem duplicados.
-  static Set<String> _extractUserPool(Map<String, dynamic>? data) {
-    if (data == null) return const {};
+  /// Une skills estruturadas (gamificationData.whoIAm.derived.*) com o
+  /// pseudo-texto agregado das tabelas `profile_*` (ver
+  /// `ProfileSnapshot.toPseudoText`). Retorna lower-case, sem duplicados.
+  ///
+  /// Fonte legacy `imported_resume.raw_text` foi removida — o conteúdo
+  /// equivalente agora chega via [profileText] (skills, bullets, summary,
+  /// certifications, languages das tabelas relacionais).
+  static Set<String> _extractUserPool(
+    Map<String, dynamic>? data,
+    String? profileText,
+  ) {
     final pool = <String>{};
 
     void addText(String? s) {
@@ -270,21 +284,20 @@ class MatchScoreCalculator {
       }
     }
 
-    // 1. Skills estruturadas (vindo da trilha)
-    final whoIAm = data['whoIAm'];
+    // 1. Skills estruturadas vindo da trilha (gamification_data.whoIAm).
+    // whoIAm.derived NÃO é parte do imported_resume — fica em outro lugar
+    // do JSONB e segue sendo a fonte primária pra users que preencheram
+    // a trilha sem importar CV.
+    final whoIAm = data?['whoIAm'];
     if (whoIAm is Map && whoIAm['derived'] is Map) {
       addText((whoIAm['derived'] as Map)['skills']?.toString());
       addText((whoIAm['derived'] as Map)['summary']?.toString());
       addText((whoIAm['derived'] as Map)['interests']?.toString());
     }
 
-    // 2. CV importado — skills estruturadas (caso futuro AI parsing)
-    final imported = data['imported_resume'];
-    if (imported is Map) {
-      addText(imported['skills']?.toString());
-      // Texto bruto do PDF (caminho atual: sem AI, só keyword overlap)
-      addText(imported['raw_text']?.toString());
-    }
+    // 2. Pseudo-texto agregado das tabelas profile_* (skills, bullets,
+    // summary, education majors/minors, certifications, languages...).
+    addText(profileText);
 
     return pool;
   }

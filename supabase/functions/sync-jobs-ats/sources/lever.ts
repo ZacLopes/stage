@@ -99,6 +99,8 @@ export async function sync(
         company_id: companyId,
         title: job.text,
         description: description || job.text,
+        // job.description é o HTML cru do Lever (descriptionPlain é o já-stripped).
+        description_html: job.description ? job.description.slice(0, 16000) : null,
         requirements,
         benefits,
         location_city: city,

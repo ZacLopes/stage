@@ -251,6 +251,40 @@ class AnalyticsService {
         'current_template_id': currentTemplateId,
       });
 
+  // ── Senha (settings) ────────────────────────────────────────────────
+  /// Disparado em sucesso da troca de senha. Sem props sensíveis — só
+  /// timestamp implícito do PostHog. Combinado com `password_change_failed`
+  /// dá pra medir taxa de sucesso e detectar gargalos.
+  Future<void> passwordChanged() => track('password_changed');
+
+  /// Disparado em falha de troca de senha. `reason` é um código
+  /// pequeno (ex: `wrong_current`, `weak`, `same`, `reauth_network`,
+  /// `update_400`) que dá granularidade pra debug sem expor input do user.
+  Future<void> passwordChangeFailed({required String reason}) =>
+      track('password_change_failed', props: {'reason': reason});
+
+  // ── Migração OAuth (users legados de email+senha) ───────────────────
+  /// User clicou em "Vincular com Apple/Google" no banner de migração.
+  /// `provider` = 'apple' | 'google'. Combinado com `_completed` e
+  /// `_failed` dá taxa de sucesso da migração.
+  Future<void> oauthMigrationStarted({required String provider}) =>
+      track('oauth_migration_started', props: {'provider': provider});
+
+  /// Identity OAuth vinculada com sucesso à conta legada. Banner some.
+  Future<void> oauthMigrationCompleted({required String provider}) =>
+      track('oauth_migration_completed', props: {'provider': provider});
+
+  /// Falha no link. `reason`: 'canceled' (user fechou), 'launch_failed',
+  /// 'already_linked', ou outro código com origem (`launch_<exception>`).
+  Future<void> oauthMigrationFailed({
+    required String provider,
+    required String reason,
+  }) =>
+      track('oauth_migration_failed', props: {
+        'provider': provider,
+        'reason': reason,
+      });
+
   // ── Trilha (gamificação) ────────────────────────────────────────────
   Future<void> trackPhaseStarted({required String phaseId}) =>
       track('phase_started', props: {'phase_id': phaseId});

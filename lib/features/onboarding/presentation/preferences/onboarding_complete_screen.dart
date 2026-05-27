@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../auth/user_viewmodel.dart';
-import '../../../splash/splash_screen.dart';
 import '../onboarding_scaffold.dart';
 
 class OnboardingCompleteScreen extends StatefulWidget {
@@ -80,16 +79,17 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
     if (widget.onFinish != null) {
       widget.onFinish!();
     } else {
-      // pushAndRemoveUntil(AuthGate, false): força AuthGate como única rota
-      // na stack, ignorando o histórico. Necessário porque algumas telas do
-      // auth flow usam pushReplacement antes de chegar aqui (ex:
-      // profile_setup_screen → TwoDoors), o que remove AuthGate da stack.
-      // popUntil isFirst nessas situações cai numa tela do onboarding em
-      // vez de AuthGate → loop. Reset explícito resolve.
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const AuthGate()),
-        (route) => false,
-      );
+      // Volta pro AuthGate (rota raiz). O Consumer<UserViewModel> dele
+      // detecta hasCampaign=true e re-renderiza HomeScreen
+      // automaticamente. Todo o onboarding (Upload e Trail) usa push
+      // regular, então AuthGate sempre está no fundo do stack como
+      // isFirst.
+      //
+      // ⚠️ Não usar pushAndRemoveUntil(AuthGate) aqui — cria uma SEGUNDA
+      // instância de AuthGate enquanto a antiga ainda existe no widget
+      // tree, gerando 2 HomeScreens e GlobalKeys duplicadas (TutorialKeys
+      // do jobs_swipe_screen colide).
+      Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }
 

@@ -3,6 +3,10 @@
 //
 // Função: respiro psicológico — "tudo pronto, agora confere se ficou certo".
 // Não persiste nada, só navega. Sem dados, sem rede.
+//
+// Só é exibida no caminho Upload (com CV). No Trail, a AgeRangeScreen
+// pula essa tela e vai direto pras preferências — sem CV não há nada
+// extraído pra "conferir", então a tela ficaria prometendo algo vazio.
 
 import 'package:flutter/material.dart';
 import '../../../services/analytics_service.dart';

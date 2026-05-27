@@ -870,6 +870,36 @@ ${_buildHarvardCssForTier(tier)}
   /// `gabriel-hiromiti-matsumoto` antes quebravam em 2 linhas no PDF.
   static String _noBreakHyphens(String s) => s.replaceAll('-', '‑');
 
+  /// Normaliza URL de LinkedIn pra exibição no PDF e retorna HTML pronto
+  /// pra interpolar (já escapado). Aplica:
+  ///   1. Remove protocol `http(s)://` e `www.`
+  ///   2. Remove query string `?param=…` (LinkedIn mobile cola
+  ///      `?skipRedirect=true` no link copiado, polui o display)
+  ///   3. Remove trailing `/`
+  ///   4. Substitui `-` por non-breaking hyphen (não quebra username)
+  ///   5. Insere `<wbr>` depois de cada `/` pra permitir quebra suave
+  ///      em coluna estreita sem quebrar no meio do username
+  static String _cleanLinkedinForDisplay(String raw) {
+    var url = raw.replaceAll(RegExp(r'^https?://(www\.)?'), '');
+    final qIdx = url.indexOf('?');
+    if (qIdx > 0) url = url.substring(0, qIdx);
+    if (url.endsWith('/')) url = url.substring(0, url.length - 1);
+    url = _noBreakHyphens(url);
+    // Escapa antes de injetar <wbr> pra evitar dupla-escapagem.
+    return _escapeHtml(url).replaceAll('/', '/<wbr>');
+  }
+
+  /// Insere `<wbr>` (word break opportunity) depois de `@` e `.` no email.
+  /// Permite quebra de linha em pontos visualmente aceitáveis quando o
+  /// container é estreito — em vez de quebrar no meio da palavra (ex:
+  /// `outlook.co` linha 1, `m` linha 2). Já retorna escapado.
+  static String _wrappableEmail(String email) {
+    final escaped = _escapeHtml(email);
+    return escaped
+        .replaceAll('@', '@<wbr>')
+        .replaceAll('.', '.<wbr>');
+  }
+
   /// Renderiza um item de `EducationItem.activities` como `<li>`. Se a
   /// string vier no formato "Label: content" (preservado do CV original
   /// pelo extract-profile), separa em `<b>Label:</b> content`. Senão
@@ -962,7 +992,7 @@ ${_buildHarvardCssForTier(tier)}
     if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(resume.phone));
     if (resume.email.isNotEmpty) contactParts.add(_escapeHtml(resume.email));
     if (resume.linkedin.isNotEmpty) {
-      contactParts.add(_escapeHtml(_noBreakHyphens(resume.linkedin.replaceAll(RegExp(r'^https?://(www\.)?'), ''))));
+      contactParts.add(_cleanLinkedinForDisplay(resume.linkedin));
     }
     if (resume.location.isNotEmpty) contactParts.add(_escapeHtml(resume.location));
     final contactLine = contactParts.join(' | ');
@@ -1168,7 +1198,7 @@ ${_buildTierOverrideCss(tier)}
     if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(resume.phone));
     if (resume.email.isNotEmpty) contactParts.add(_escapeHtml(resume.email));
     if (resume.linkedin.isNotEmpty) {
-      contactParts.add(_escapeHtml(_noBreakHyphens(resume.linkedin.replaceAll(RegExp(r'^https?://(www\.)?'), ''))));
+      contactParts.add(_cleanLinkedinForDisplay(resume.linkedin));
     }
     final contactLine = contactParts.join(' • ');
 
@@ -1396,7 +1426,7 @@ ${_buildTierOverrideCss(tier)}
     if (resume.email.isNotEmpty) contactParts.add(_escapeHtml(resume.email));
     if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(resume.phone));
     if (resume.linkedin.isNotEmpty) {
-      contactParts.add(_escapeHtml(_noBreakHyphens(resume.linkedin.replaceAll(RegExp(r'^https?://(www\.)?'), ''))));
+      contactParts.add(_cleanLinkedinForDisplay(resume.linkedin));
     }
     if (resume.location.isNotEmpty) contactParts.add(_escapeHtml(resume.location));
     final contactLine = contactParts.join('  ·  ');
@@ -1600,11 +1630,10 @@ ${_buildTierOverrideCss(tier)}
       contactItems.add('<div class="ct">${_escapeHtml(resume.phone)}</div>');
     }
     if (resume.email.isNotEmpty) {
-      contactItems.add('<div class="ct">${_escapeHtml(resume.email)}</div>');
+      contactItems.add('<div class="ct">${_wrappableEmail(resume.email)}</div>');
     }
     if (resume.linkedin.isNotEmpty) {
-      final linkedinClean = _noBreakHyphens(resume.linkedin.replaceAll(RegExp(r'^https?://(www\.)?'), ''));
-      contactItems.add('<div class="ct">${_escapeHtml(linkedinClean)}</div>');
+      contactItems.add('<div class="ct">${_cleanLinkedinForDisplay(resume.linkedin)}</div>');
     }
     final fullLocation = <String>[];
     if (resume.address.isNotEmpty) fullLocation.add(resume.address);
@@ -1765,13 +1794,17 @@ body { font-family: 'Inter', -apple-system, 'Segoe UI', 'Helvetica Neue', sans-s
 
 /* Sidebar */
 .side-sec { margin-bottom: 10pt; }
-.side-title { font-size: 8.5pt; font-weight: 700; color: #1E40AF; letter-spacing: 1.2pt; margin-bottom: 5pt; padding-bottom: 2pt; border-bottom: 1pt solid #CBD5E1; }
+/* letter-spacing reduzido de 1.2pt → 0.5pt — em coluna estreita, 1.2 deixa
+   o título visualmente "rasgado" (ex: "H A B I L I D A D E S"). */
+.side-title { font-size: 8.5pt; font-weight: 700; color: #1E40AF; letter-spacing: 0.5pt; margin-bottom: 5pt; padding-bottom: 2pt; border-bottom: 1pt solid #CBD5E1; }
 .side-list { list-style: none; padding: 0; margin: 0; }
 .side-list li { font-size: 9pt; color: #334155; margin-bottom: 2pt; padding-left: 7pt; position: relative; line-height: 1.3; }
 .side-list li::before { content: "•"; color: #1E40AF; position: absolute; left: 0; top: 0; font-weight: 700; }
 .side-text { font-size: 9pt; color: #334155; line-height: 1.4; }
 .side-meta { color: #64748B; font-size: 8pt; }
-.ct { font-size: 8.5pt; color: #334155; margin-bottom: 3pt; line-height: 1.3; word-break: break-word; }
+/* overflow-wrap: anywhere respeita os <wbr> injetados em email/URL (quebra
+   em @, ., /) em vez de quebrar em qualquer char como word-break fazia. */
+.ct { font-size: 8.5pt; color: #334155; margin-bottom: 3pt; line-height: 1.3; overflow-wrap: anywhere; }
 
 /* Main */
 .main-sec { margin-bottom: 11pt; }
@@ -1831,10 +1864,7 @@ ${_buildCobaltTierExtraCss(tier)}
     if (resume.phone.isNotEmpty) parts.add('${_l10n('mobile', resume.language)}: ${resume.phone}');
     if (resume.email.isNotEmpty) parts.add(resume.email);
     if (resume.linkedin.isNotEmpty) {
-      parts.add(_noBreakHyphens(resume.linkedin
-          .replaceAll('https://', '')
-          .replaceAll('http://', '')
-          .replaceAll('www.', '')));
+      parts.add(_cleanLinkedinForDisplay(resume.linkedin));
     }
     return parts.join(' | ');
   }

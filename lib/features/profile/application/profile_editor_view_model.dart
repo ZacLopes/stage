@@ -12,6 +12,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../services/profile_events.dart';
 import '../domain/entities/entities.dart';
 import '../domain/repositories/profile_repository.dart';
 
@@ -483,6 +484,11 @@ class ProfileEditorViewModel extends ChangeNotifier {
   void _setSaved() {
     _saveStatus = SaveStatus.saved;
     notifyListeners();
+    // Notifica outros ViewModels (UserViewModel, JobsViewModel) que o
+    // perfil mudou — eles invalidam caches relacionados (hasResume,
+    // profileText pro match score). Sem isso, adicionar skill/exp/edu
+    // não reflete no card de match até hot-restart.
+    ProfileEvents.instance.notifyChanged();
     // Volta pra idle após 2s
     Timer(const Duration(seconds: 2), () {
       if (_saveStatus == SaveStatus.saved) {

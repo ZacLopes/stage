@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../data/models/models.dart' show SavedResumeSource;
 import '../../../services/analytics_service.dart';
 import '../../profile/application/extraction_status_view_model.dart';
@@ -70,6 +71,15 @@ class _UploadPreviewSheetState extends State<UploadPreviewSheet> {
     final extractionVM = context.read<ExtractionStatusViewModel>();
     final profileVM = context.read<ProfileViewModel>();
 
+    // Limpa cache legacy do CV anterior ANTES de iniciar a nova extração.
+    // O extract-profile escreve em `user_profiles.gamification_data.
+    // imported_resume` quando termina, mas durante os 10-15s que ele leva,
+    // várias features (match score, CV adaptado, adapt-resume-to-job)
+    // continuam lendo o cache antigo — e mostrariam dados do CV anterior.
+    // Limpar primeiro deixa a janela "vazia" em vez de "suja".
+    // Fire-and-forget: falha não bloqueia upload.
+    _clearLegacyImportedResume();
+
     // Dispara extract-profile em background
     extractionVM.start(widget.pdfBytes);
 
@@ -83,10 +93,50 @@ class _UploadPreviewSheetState extends State<UploadPreviewSheet> {
     _saveResumeInBackground(profileVM);
 
     Navigator.pop(context); // fecha o sheet
-    Navigator.pushReplacement(
+    // Push regular (não pushReplacement) pra preservar AuthGate no fundo
+    // do stack. Sem AuthGate como rota raiz, o popUntil(isFirst) do
+    // OnboardingCompleteScreen cairia numa tela do onboarding e
+    // criar 2 HomeScreens (com GlobalKeys duplicadas) durante a
+    // transição. Como ExtractionInProgressScreen tem showBack=false,
+    // user não consegue voltar acidentalmente.
+    Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const ExtractionInProgressScreen()),
     );
+  }
+
+  /// Remove `imported_resume` do JSONB legacy antes de uma nova extração.
+  /// Evita que features que ainda leem do cache (match score, CV adaptado,
+  /// adapt-resume-to-job) sirvam dados do CV anterior durante a janela em
+  /// que a nova extração está rodando. Fire-and-forget: falha vai pro
+  /// debugPrint e não bloqueia o fluxo.
+  Future<void> _clearLegacyImportedResume() async {
+    try {
+      final supabase = Supabase.instance.client;
+      final userId = supabase.auth.currentUser?.id;
+      if (userId == null) return;
+
+      final row = await supabase
+          .from('user_profiles')
+          .select('gamification_data')
+          .eq('id', userId)
+          .maybeSingle();
+      if (row == null) return;
+
+      final gd = Map<String, dynamic>.from(
+        (row['gamification_data'] as Map?) ?? const {},
+      );
+      if (!gd.containsKey('imported_resume')) return;
+
+      gd.remove('imported_resume');
+      await supabase
+          .from('user_profiles')
+          .update({'gamification_data': gd})
+          .eq('id', userId);
+      debugPrint('[UploadPreviewSheet] cache imported_resume limpo');
+    } catch (e) {
+      debugPrint('[UploadPreviewSheet] limpar cache falhou: $e');
+    }
   }
 
   Future<void> _saveResumeInBackground(ProfileViewModel profileVM) async {

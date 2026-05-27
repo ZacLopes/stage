@@ -114,6 +114,16 @@ function isCompanyBlacklisted(subdomain: string | null | undefined): boolean {
   return COMPANY_BLACKLIST.has(subdomain.toLowerCase().trim());
 }
 
+/// Escapa caracteres HTML perigosos pra interpolar texto plano dentro de
+/// tags. Usado na construção do <li> de Responsabilidades. Não cobre
+/// atributos (não usamos), só conteúdo de elemento.
+function escapeHtmlText(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 /**
  * Bloqueia vagas fora do Brasil. Apify "proxyCountry: BR" só roteia o scraper
  * por proxy BR — não filtra o RESULTADO. Empresas multinacionais (ex: "Nexa
@@ -160,11 +170,17 @@ async function upsertGupyCompany(
   const description = job.careerPageAbout
     ? stripHtml(job.careerPageAbout).slice(0, 1000)
     : null;
+  // HTML cru preservado pra renderização rica no app via flutter_html.
+  // Limite maior (4000) porque HTML tem overhead de tags.
+  const descriptionHtml = job.careerPageAbout
+    ? job.careerPageAbout.slice(0, 4000)
+    : null;
 
   return await getOrCreateCompany(supabase, slug, name, SOURCE_NAME, {
     logo_url: job.careerPageLogo,
     website: job.careerPageWebsite,
     description,
+    description_html: descriptionHtml,
   });
 }
 
@@ -189,6 +205,24 @@ async function upsertJob(
   }
   const description = blocks.join("\n\n").slice(0, 8000);
 
+  // HTML cru pro render rico no app. Usa job.description (Gupy entrega o HTML
+  // original aqui) e concatena uma seção de Responsabilidades com <ul><li>
+  // pra que a UI consiga renderizar a lista semanticamente. descriptionHtml
+  // é null quando não há nada de HTML útil.
+  const htmlBlocks: string[] = [];
+  if (job.description && job.description.trim().length > 0) {
+    htmlBlocks.push(job.description);
+  }
+  if (responsibilities.length > 0) {
+    const items = responsibilities
+      .map((r) => `<li>${escapeHtmlText(r)}</li>`)
+      .join("");
+    htmlBlocks.push(`<p><strong>Responsabilidades:</strong></p><ul>${items}</ul>`);
+  }
+  const descriptionHtml = htmlBlocks.length > 0
+    ? htmlBlocks.join("\n").slice(0, 16000)
+    : null;
+
   const deadline = job.applicationDeadline || job.expiresAt;
   const locationCity = job.city || (job.isRemoteWork ? "Remoto" : "Brasil");
   const locationState = job.stateCode || "BR";
@@ -200,6 +234,7 @@ async function upsertJob(
     company_id: companyId,
     title: job.name,
     description,
+    description_html: descriptionHtml,
     requirements,
     benefits,
     location_city: locationCity,

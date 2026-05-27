@@ -39,6 +39,17 @@ class ExtractionStatusViewModel extends ChangeNotifier {
   String? _error;
   DateTime? _startedAt;
 
+  ExtractionStatusViewModel() {
+    // Limpa o estado quando o user faz logout — sem isso, um próximo
+    // signup veria dados do CV anterior em memória nas masking questions
+    // antes mesmo de ter feito upload. Cross-session data leak.
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      if (data.event == AuthChangeEvent.signedOut) {
+        reset();
+      }
+    });
+  }
+
   ExtractionStatus get status => _status;
   ExtractionResult? get result => _result;
   String? get error => _error;
@@ -74,6 +85,12 @@ class ExtractionStatusViewModel extends ChangeNotifier {
         body: {
           'pdf_base64': pdfBase64,
           if (rawTextFallback != null) 'raw_text_fallback': rawTextFallback,
+          // Força nova extração ignorando o cache em user_profiles.
+          // gamification_data.imported_resume. Sem isso, qualquer upload
+          // posterior do mesmo user_id retorna os dados do primeiro PDF
+          // (cache é por user_id, não por conteúdo do PDF). Bug observado
+          // em prod: user trocou de currículo, viu nome do CV anterior.
+          'force': true,
         },
       ).timeout(const Duration(seconds: 75));
 

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/utils/brazil_phone_formatter.dart';
 import '../../../../services/analytics_service.dart';
+import '../../../auth/phone_auth_helpers.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
 import '../onboarding_scaffold.dart';
@@ -25,8 +26,26 @@ class _PhoneScreenState extends State<PhoneScreen> {
   void initState() {
     super.initState();
     final vm = context.read<ProfileEditorViewModel>();
-    final initialPhone = vm.personal?.phoneNumber ?? '';
-    _code = vm.personal?.phoneCountryCode ?? '+55';
+
+    // Prioridade do pré-preenchimento:
+    //  1. profile_personal (user já passou por essa tela antes)
+    //  2. synthetic email do phone signup (ex: phone_5543991260202@stage.app
+    //     → +55 / 43991260202). Sem isso, user que entrou com telefone
+    //     teria que redigitar o número que ele acabou de fornecer.
+    //  3. Vazio + default +55.
+    String initialPhone = vm.personal?.phoneNumber ?? '';
+    String initialCode = vm.personal?.phoneCountryCode ?? '+55';
+
+    if (initialPhone.isEmpty) {
+      final authEmail = Supabase.instance.client.auth.currentUser?.email;
+      final parsed = PhoneAuthHelpers.parseSyntheticEmail(authEmail);
+      if (parsed != null) {
+        initialPhone = parsed.phone;
+        initialCode = parsed.countryCode;
+      }
+    }
+
+    _code = initialCode;
     _ctrl = TextEditingController(
       text: _code == '+55' && initialPhone.isNotEmpty
           ? BrazilPhoneFormatter.format(initialPhone)

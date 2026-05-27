@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
@@ -9,21 +10,29 @@ import '../../data/local_storage_repository.dart';
 import '../../data/database_helper.dart';
 import '../../services/analytics_service.dart';
 import '../../services/facebook_events_service.dart';
-import '../../services/cv_content_validator.dart';
 import '../../services/notifications_service.dart';
-import '../../services/pdf_text_extractor.dart';
+import '../../services/profile_events.dart';
+import '../../services/profile_snapshot_service.dart';
+import 'phone_auth_helpers.dart';
 
 class UserViewModel extends ChangeNotifier {
   final SupabaseRepository _repository;
   final LocalStorageRepository _localStorage;
   final SupabaseClient _supabase = Supabase.instance.client;
-  
+
   UserProfile? _user;
   bool _isLoading = true;
   Campaign? _currentCampaign;
+  StreamSubscription<void>? _profileEventsSub;
 
   UserViewModel(this._repository, this._localStorage) {
     _init();
+    // Ouve mudanças no perfil estruturado (ProfileEditorViewModel emite
+    // após cada save). Re-fetch `_hasProfileData` pra que `hasResume`
+    // sync reflita imediatamente quando o user adiciona uma skill.
+    _profileEventsSub = ProfileEvents.instance.changes.listen((_) {
+      refreshHasResume();
+    });
   }
 
   bool _isDisposed = false;
@@ -31,6 +40,7 @@ class UserViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
+    _profileEventsSub?.cancel();
     super.dispose();
   }
 
@@ -38,30 +48,77 @@ class UserViewModel extends ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get isLoggedIn => _user != null && _supabase.auth.currentUser != null;
   bool get isEmailVerified => _supabase.auth.currentUser?.emailConfirmedAt != null;
+
+  /// True quando a conta tem auth por email+senha (vs. OAuth puro). Usado
+  /// pra decidir se "Trocar senha" faz sentido — Apple/Google users não
+  /// têm `encrypted_password` em auth.users e tentar `signInWithPassword`
+  /// falha sem motivo claro pro user.
+  ///
+  /// Lógica: identities é a lista de providers vinculados à conta.
+  /// Provider = 'email' significa que a conta foi criada com senha (ou
+  /// teve senha vinculada depois). Se a única identity for 'apple'/'google',
+  /// retorna false. Phone signup também conta como 'email' aqui (porque o
+  /// signup interno usa email synthetic + senha), mas filtramos por
+  /// synthetic email em outro nível.
+  bool get hasPasswordAuth {
+    final identities = _supabase.auth.currentUser?.identities;
+    if (identities == null || identities.isEmpty) return false;
+    return identities.any((id) => id.provider == 'email');
+  }
+
+  /// True quando o user é legado de email+senha e AINDA não vinculou OAuth.
+  /// Sinaliza pra UI mostrar o banner "Conecte sua conta a Google/Apple"
+  /// — eles precisam migrar antes que a sessão atual expire, senão ficam
+  /// presos (já que removemos a tela de login email).
+  ///
+  /// False quando:
+  /// - User não tem email auth (OAuth puro — não precisa migrar)
+  /// - User é phone signup (synthetic email, fluxo separado)
+  /// - User JÁ tem Apple ou Google linkado (migração concluída)
+  bool get needsOAuthMigration {
+    if (!hasPasswordAuth) return false;
+    if (PhoneAuthHelpers.isSyntheticEmail(_user?.email)) return false;
+    final identities = _supabase.auth.currentUser?.identities;
+    if (identities == null) return false;
+    final hasOAuth = identities.any(
+      (id) => id.provider == 'apple' || id.provider == 'google',
+    );
+    return !hasOAuth;
+  }
   Campaign? get currentCampaign => _currentCampaign;
   bool get hasCampaign => _currentCampaign != null;
   bool get showM1ResetNotice =>
       _user?.gamificationData['show_m1_reset_notice'] == true;
 
+  /// Snapshot do "user tem profile_* populado" — carregado async em
+  /// [_loadUser]/[_loadProfileDataPresence]. Usado pelo getter sync
+  /// [hasResume] sem ter que fazer query a cada build. Re-atualiza após
+  /// upload de CV via [refreshHasResume].
+  bool _hasProfileData = false;
+
+  /// Snapshot do "user tem material narrativo pra adaptar CV". Critério
+  /// mais estrito que [_hasProfileData] — exige exp/proj/edu-com-conteúdo
+  /// ou CV importado. Carregado junto com [_hasProfileData].
+  bool _canAdaptCv = false;
+
   /// Verdadeiro quando o user tem algum "perfil profissional" no app — seja
-  /// CV importado (raw_text suficiente) seja trilha minimamente preenchida
-  /// (skills/summary/interests gerados).
+  /// dados nas tabelas relacionais `profile_*` (CV importado via
+  /// extract-profile ou perfil preenchido via Profile Editor) seja trilha
+  /// minimamente preenchida (`whoIAm.derived.skills/summary/interests`).
   ///
   /// Usado pra decidir se faz sentido calcular/mostrar match score: sem CV
   /// nem trilha, score IA cai no Cenário C (50 fixo) e o determinístico não
   /// tem skills pra comparar — UI fica enganosa. Melhor não mostrar score.
+  ///
+  /// Antes lia `gamification_data.imported_resume.raw_text` (legacy cache).
+  /// Pós Fase 2 da migração profile-first usa o snapshot relacional.
   bool get hasResume {
+    if (_hasProfileData) return true;
+
+    // Trilha gerou skills/summary/interests (gamification_data.whoIAm.derived
+    // continua sendo a fonte primária pra users que não importaram CV).
     final data = _user?.gamificationData;
     if (data == null) return false;
-
-    // CV importado tem texto útil (>= 200 chars cobre PDFs reais)
-    final imported = data['imported_resume'];
-    if (imported is Map) {
-      final raw = imported['raw_text']?.toString() ?? '';
-      if (raw.length >= 200) return true;
-    }
-
-    // Ou trilha gerou skills/summary/interests
     final who = data['whoIAm'];
     if (who is Map) {
       final derived = who['derived'];
@@ -76,8 +133,50 @@ class UserViewModel extends ChangeNotifier {
         }
       }
     }
-
     return false;
+  }
+
+  /// True quando o user tem material narrativo suficiente pra adaptar CV
+  /// pra uma vaga (experiência, projeto, formação detalhada ou CV
+  /// importado). Critério estrito — skills/summary isolados não bastam
+  /// porque a adaptação reescreve bullets, e sem bullets a IA não tem o
+  /// que reformular.
+  ///
+  /// Usado pelo `ResumeAdaptationSheet` no pre-check (evita chamar a IA
+  /// e esperar 15s pra ela falhar com `profile_incomplete`).
+  bool get canAdaptCv => _canAdaptCv;
+
+  /// Re-checa se o user tem dados nas tabelas `profile_*` e notifica
+  /// listeners se mudou. Útil pra UI invalidar caches de match score após
+  /// upload/extração de CV — o caller (ex: tela de upload preview) chama
+  /// quando termina de salvar.
+  Future<void> refreshHasResume() async {
+    final hadProfileData = _hasProfileData;
+    final couldAdaptCv = _canAdaptCv;
+    await _loadProfileDataPresence();
+    final changed =
+        _hasProfileData != hadProfileData || _canAdaptCv != couldAdaptCv;
+    if (changed && !_isDisposed) {
+      notifyListeners();
+    }
+  }
+
+  Future<void> _loadProfileDataPresence() async {
+    final uid = _user?.id ?? _supabase.auth.currentUser?.id;
+    if (uid == null) {
+      _hasProfileData = false;
+      _canAdaptCv = false;
+      return;
+    }
+    try {
+      final snapshot = await ProfileSnapshotService().loadSnapshot(uid);
+      _hasProfileData = !snapshot.isEmpty;
+      _canAdaptCv = snapshot.canAdaptCv;
+    } catch (_) {
+      // Falha silenciosa — caímos no fallback whoIAm.derived no getter.
+      _hasProfileData = false;
+      _canAdaptCv = false;
+    }
   }
 
   /// Verdadeiro quando o user existe mas falta algum campo obrigatório do
@@ -253,6 +352,10 @@ class UserViewModel extends ChangeNotifier {
         _user = userProfile;
         if (_user != null) {
           _currentCampaign = await _repository.getLatestCampaign(_user!.id!);
+          // Carrega presença de dados nas tabelas profile_* (alimenta o
+          // getter sync `hasResume`). Bloqueia o load — barato (1 query
+          // paralela de cada tabela; ~100ms em rede normal).
+          await _loadProfileDataPresence();
           // Reprocessamento de CV existente (background — não bloqueia load)
           // Cobre o caso de upload feito antes do código de extração existir.
           // ignore: unawaited_futures
@@ -261,6 +364,8 @@ class UserViewModel extends ChangeNotifier {
       } else {
         _user = null;
         _currentCampaign = null;
+        _hasProfileData = false;
+        _canAdaptCv = false;
       }
     } catch (e) {
       print('Error loading user: $e');
@@ -271,19 +376,24 @@ class UserViewModel extends ChangeNotifier {
     }
   }
 
-  /// Se o user tem PDF salvo na biblioteca mas `gamification_data.imported_resume.raw_text`
-  /// está vazio, baixa o PDF mais recente, extrai texto e salva. Roda em background.
-  /// Idempotente: pula se já tem texto extraído.
+  /// Se o user tem PDF salvo na biblioteca mas as tabelas `profile_*` estão
+  /// vazias (ou só com user_id em `profile_personal`), dispara
+  /// `extract-profile` em background pra popular o perfil relacional.
+  /// Idempotente: pula se já tem dados extraídos. Fire-and-forget — não
+  /// bloqueia o load nem faz error surfacing ao user.
+  ///
+  /// Antes a função extraía raw_text local + persistia em
+  /// `gamification_data.imported_resume.raw_text`. Pós Fase 2 da migração
+  /// profile-first o servidor cuida da extração estruturada (GPT-4o com
+  /// suporte nativo a PDF + save_profile_from_json), então aqui só
+  /// orquestramos a chamada.
   Future<void> _reprocessLatestResumeIfNeeded() async {
     final user = _user;
     if (user == null) return;
 
-    // Já tem texto extraído? Skip.
-    final imported = user.gamificationData['imported_resume'];
-    if (imported is Map) {
-      final existingText = imported['raw_text']?.toString() ?? '';
-      if (existingText.length >= 200) return;
-    }
+    // Tabelas profile_* já populadas? Skip — extract-profile já rodou em
+    // algum upload anterior (ou backfill).
+    if (_hasProfileData) return;
 
     try {
       final resumes = await _repository.getSavedResumes();
@@ -293,34 +403,23 @@ class UserViewModel extends ChangeNotifier {
       final bytes = await _repository.downloadResume(latest.filePath);
       if (bytes.isEmpty) return;
 
-      final rawText = ResumePdfExtractor.extract(bytes);
-      if (!ResumePdfExtractor.isUsable(rawText)) {
-        print('Reprocess CV: extracted text too short (${rawText.length} chars). Likely scan/image PDF.');
-        return;
-      }
+      final pdfBase64 = base64Encode(bytes);
+      final response = await _supabase.functions.invoke(
+        'extract-profile',
+        body: {
+          'pdf_base64': pdfBase64,
+          'force': true,
+        },
+      ).timeout(const Duration(seconds: 75));
 
-      // Anti-non-CV: usuários antigos podem ter salvado extrato/doc gov.br
-      // como "currículo" antes da validação existir. Não reprocessa esses
-      // pra raw_text — deixa o registro vazio e o user reenvia CV correto.
-      final detection = CvContentValidator.detect(rawText);
-      if (detection.isNonCv) {
-        print('Reprocess CV: detected non-CV content (${detection.category!.name}). Skipping.');
-        return;
+      final data = response.data;
+      if (data is Map && data['error'] == null) {
+        // Re-checa presença pra que `hasResume` reflita o estado novo.
+        await refreshHasResume();
       }
-
-      final updated = Map<String, dynamic>.from(user.gamificationData);
-      updated['imported_resume'] = {
-        'raw_text': rawText,
-        // .toUtc() obrigatório — created_at é UTC, sem isso fica off-by-3h em Brasília.
-        'imported_at': DateTime.now().toUtc().toIso8601String(),
-        'reprocessed_from_storage': true,
-      };
-      await _repository.updateUserProfile(user.copyWith(gamificationData: updated));
-      _user = user.copyWith(gamificationData: updated);
-      notifyListeners();
-      print('✅ CV reprocessado (${rawText.length} chars) — match score vai usar agora.');
     } catch (e) {
-      print('Reprocess CV failed (non-blocking): $e');
+      // Background reprocess é best-effort: log discreto e segue.
+      debugPrint('Reprocess CV via extract-profile failed (non-blocking): $e');
     }
   }
 
@@ -745,6 +844,172 @@ class UserViewModel extends ChangeNotifier {
     }
   }
 
+  /// Vincula uma identity Apple ao user atual via Sign In with Apple
+  /// nativo. Não troca a sessão — só ADICIONA a identity 'apple' na
+  /// mesma row de `auth.users`. Próximo login via Apple resolve no
+  /// mesmo user (e mesmo `user.id` UUID — todos os dados continuam).
+  ///
+  /// Pré-requisito: user logado. Disponível na sessão atual; quando
+  /// o JWT expirar, o user pode fazer login normal via Apple.
+  ///
+  /// Throws com mensagem human-readable em caso de falha (canceled,
+  /// already linked, network).
+  Future<void> linkAppleIdentity() async {
+    // ignore: unawaited_futures
+    Analytics.shared.oauthMigrationStarted(provider: 'apple');
+    try {
+      final rawNonce = _supabase.auth.generateRawNonce();
+      final hashedNonce = sha256.convert(utf8.encode(rawNonce)).toString();
+
+      final credential = await SignInWithApple.getAppleIDCredential(
+        scopes: [AppleIDAuthorizationScopes.email],
+        nonce: hashedNonce,
+      );
+
+      final idToken = credential.identityToken;
+      if (idToken == null) {
+        throw Exception('Apple Id token missing.');
+      }
+
+      // linkIdentityWithIdToken (gotrue 2.16+) faz o vínculo direto
+      // sem trocar a sessão — diferente de signInWithIdToken, que
+      // criaria uma sessão nova ou falharia se o email já existir.
+      await _supabase.auth.linkIdentityWithIdToken(
+        provider: OAuthProvider.apple,
+        idToken: idToken,
+        nonce: rawNonce,
+      );
+
+      // Refresh user pra UI pegar a nova identity (banner some).
+      await _loadUser();
+      // ignore: unawaited_futures
+      Analytics.shared.oauthMigrationCompleted(provider: 'apple');
+    } on SignInWithAppleAuthorizationException catch (e) {
+      // ignore: unawaited_futures
+      Analytics.shared.oauthMigrationFailed(
+        provider: 'apple',
+        reason: e.code.name,
+      );
+      if (e.code == AuthorizationErrorCode.canceled) {
+        // Cancel do user — não é erro fatal. Throw com code próprio
+        // pra UI distinguir e não mostrar erro feio.
+        throw const OAuthLinkException('canceled');
+      }
+      rethrow;
+    } catch (e) {
+      // ignore: unawaited_futures
+      Analytics.shared.oauthMigrationFailed(
+        provider: 'apple',
+        reason: 'unknown',
+      );
+      rethrow;
+    }
+  }
+
+  /// Vincula uma identity Google ao user atual. Abre browser flow
+  /// (não há Google Sign-In nativo no projeto atualmente), retorna
+  /// pro app via deeplink. Mesmo resultado que Apple: adiciona
+  /// identity 'google' sem mudar `user.id`.
+  Future<void> linkGoogleIdentity() async {
+    // ignore: unawaited_futures
+    Analytics.shared.oauthMigrationStarted(provider: 'google');
+    try {
+      final launched = await _supabase.auth.linkIdentity(
+        OAuthProvider.google,
+        redirectTo: 'io.supabase.stage://login-callback',
+      );
+      if (!launched) {
+        // ignore: unawaited_futures
+        Analytics.shared.oauthMigrationFailed(
+          provider: 'google',
+          reason: 'launch_failed',
+        );
+        throw const OAuthLinkException('launch_failed');
+      }
+      // O resultado real do link chega via deeplink → onAuthStateChange
+      // (`AuthChangeEvent.userUpdated`). Como o listener em _init já
+      // chama _loadUser nesse evento, o banner some sozinho. Não dá
+      // pra `await` aqui — o flow OAuth é externo (browser).
+      // Telemetria de "completed" vai disparar no listener.
+    } catch (e) {
+      // ignore: unawaited_futures
+      Analytics.shared.oauthMigrationFailed(
+        provider: 'google',
+        reason: 'launch_${e.runtimeType}',
+      );
+      rethrow;
+    }
+  }
+
+  /// Troca a senha do usuário com re-autenticação. Diferente de
+  /// `updateProfile(password: ...)` que confia no JWT atual (vulnerável
+  /// a sequestro de sessão em celular destravado), este método primeiro
+  /// re-autentica via `signInWithPassword` pra confirmar identidade.
+  ///
+  /// Erros tipados (UI traduz pra mensagem):
+  /// - `wrong_password`: senha atual incorreta
+  /// - `no_email`: user logado sem email (não-suportado — phone-only)
+  /// - `weak_password`: nova senha não atende requisitos do Supabase
+  /// - `same_password`: nova == atual (Supabase rejeita)
+  /// - `network`: falha de conexão
+  /// - `unknown`: outros casos (loga e propaga)
+  ///
+  /// Em sucesso, Supabase invalida sessões em outros devices (boa segurança).
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final email = _user?.email ?? _supabase.auth.currentUser?.email;
+    if (email == null || email.isEmpty) {
+      throw const PasswordChangeException('no_email');
+    }
+
+    // 1. Re-autentica com senha atual. signInWithPassword renova o JWT
+    //    e valida a senha — se errar, throw AuthException com message
+    //    "Invalid login credentials".
+    try {
+      await _supabase.auth.signInWithPassword(
+        email: email,
+        password: currentPassword,
+      );
+    } on AuthException catch (e) {
+      final msg = e.message.toLowerCase();
+      if (msg.contains('invalid') || msg.contains('credentials')) {
+        // ignore: unawaited_futures
+        Analytics.shared.passwordChangeFailed(reason: 'wrong_current');
+        throw const PasswordChangeException('wrong_password');
+      }
+      // ignore: unawaited_futures
+      Analytics.shared.passwordChangeFailed(reason: 'reauth_${e.statusCode ?? "unknown"}');
+      rethrow;
+    } catch (e) {
+      // ignore: unawaited_futures
+      Analytics.shared.passwordChangeFailed(reason: 'reauth_network');
+      throw const PasswordChangeException('network');
+    }
+
+    // 2. updateUser pra trocar a senha de fato.
+    try {
+      await _supabase.auth.updateUser(UserAttributes(password: newPassword));
+    } on AuthException catch (e) {
+      final msg = e.message.toLowerCase();
+      // ignore: unawaited_futures
+      if (msg.contains('weak') || msg.contains('too short')) {
+        Analytics.shared.passwordChangeFailed(reason: 'weak');
+        throw const PasswordChangeException('weak_password');
+      }
+      if (msg.contains('same') || msg.contains('different from')) {
+        Analytics.shared.passwordChangeFailed(reason: 'same');
+        throw const PasswordChangeException('same_password');
+      }
+      Analytics.shared.passwordChangeFailed(reason: 'update_${e.statusCode ?? "unknown"}');
+      rethrow;
+    }
+
+    // ignore: unawaited_futures
+    Analytics.shared.passwordChanged();
+  }
+
   Future<void> updateAIConsent(bool consent) async {
     if (_user == null) return;
     
@@ -770,4 +1035,28 @@ class UserViewModel extends ChangeNotifier {
   Future<void> revokeAIConsent() async {
     await updateAIConsent(false);
   }
+}
+
+/// Exception tipada da troca de senha. `code` é uma das strings:
+/// `wrong_password`, `no_email`, `weak_password`, `same_password`,
+/// `network`. UI traduz pra mensagem PT-BR ao redor disso.
+class PasswordChangeException implements Exception {
+  final String code;
+  const PasswordChangeException(this.code);
+  @override
+  String toString() => 'PasswordChangeException($code)';
+}
+
+/// Exception tipada do link de identity OAuth (Apple/Google) na conta
+/// existente. `code`:
+/// - `canceled`: user cancelou o prompt nativo (Apple) ou fechou o
+///   browser (Google). Não é erro fatal — UI ignora silenciosamente.
+/// - `launch_failed`: não conseguimos abrir o browser pro Google.
+/// - `already_linked`: provider já vinculado (não deve acontecer porque
+///   o banner some assim que vincula, mas defensive).
+class OAuthLinkException implements Exception {
+  final String code;
+  const OAuthLinkException(this.code);
+  @override
+  String toString() => 'OAuthLinkException($code)';
 }

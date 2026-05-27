@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../services/profile_events.dart';
 import '../domain/entities/entities.dart';
 import '../domain/repositories/profile_repository.dart';
 import 'profile_editor_view_model.dart' show SaveStatus;
@@ -27,7 +28,28 @@ class PreferencesViewModel extends ChangeNotifier {
   SaveStatus get saveStatus => _saveStatus;
   String? get lastError => _lastError;
 
-  PreferencesViewModel(this._repo);
+  PreferencesViewModel(this._repo) {
+    // Limpa o estado quando o user faz signOut ou delete account — sem
+    // isso, o singleton Provider mantém `_desiredTitles` em memória da
+    // sessão anterior e a próxima conta vê seleções alheias (bug
+    // observado: criar conta nova mostra "Tecnologia" pré-marcada na
+    // DesiredTitlesScreen porque a conta deletada tinha selecionado).
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      if (data.event == AuthChangeEvent.signedOut) {
+        _clear();
+      }
+    });
+  }
+
+  void _clear() {
+    _prefs = null;
+    _desiredTitles = [];
+    _otherLocations = [];
+    _isLoading = false;
+    _saveStatus = SaveStatus.idle;
+    _lastError = null;
+    notifyListeners();
+  }
 
   Future<void> load() async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
@@ -140,6 +162,13 @@ class PreferencesViewModel extends ChangeNotifier {
   void _saved() {
     _saveStatus = SaveStatus.saved;
     notifyListeners();
+    // Notifica outros ViewModels (UserViewModel, JobsViewModel, swipe
+    // screen) que as preferências mudaram — eles invalidam caches de
+    // match score. Sem isso, alterar work_mode/desired_titles via
+    // aba Perfil → Preferências não reflete no card de match até
+    // hot-restart, mesmo com `analyze-match` server-side lendo do
+    // relacional, porque o cliente serve do `_matchCache` em memória.
+    ProfileEvents.instance.notifyChanged();
   }
 
   void _error(String msg) {

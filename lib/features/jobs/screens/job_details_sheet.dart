@@ -1,7 +1,8 @@
 import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter_html/flutter_html.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/job.dart';
 import '../utils/match_score.dart';
 
@@ -32,22 +33,18 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
   /// pro field do model (que hoje é 0).
   int get _score => widget.match?.score ?? widget.job.matchScore;
 
-  Color get _matchColor {
-    final score = _score;
-    if (score >= 85) return const Color(0xFF10B981);
-    if (score >= 70) return const Color(0xFF3B82F6);
-    return const Color(0xFFF59E0B);
-  }
+  /// True quando não há análise utilizável — user sem CV/perfil ou sem
+  /// preferências configuradas. UI esconde score e renderiza CTA "complete
+  /// seu perfil" em vez de mostrar 0%.
+  bool get _hideScore =>
+      (widget.match?.isNoResume ?? false) || (widget.match?.isUnknown ?? false);
 
-  List<Color> get _headerGradient {
-    final score = _score;
-    if (score >= 85) {
-      return [const Color(0xFF065F46), const Color(0xFF047857), const Color(0xFF059669)];
-    } else if (score >= 70) {
-      return [const Color(0xFF1E3A8A), const Color(0xFF1E40AF), const Color(0xFF2563EB)];
-    }
-    return [const Color(0xFF78350F), const Color(0xFF92400E), const Color(0xFFB45309)];
-  }
+  // Monocromático: sheet sempre usa brand cyan/blue, independente da faixa
+  // de match. Diferenciação vem do número no ring.
+  static const Color _matchColor = Color(0xFF29B6D2);     // brandCyan
+  static const Color _matchColorDark = Color(0xFF1565A8); // brandBlue
+
+  List<Color> get _headerGradient => const [_matchColor, _matchColorDark];
 
   @override
   void initState() {
@@ -126,14 +123,10 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                             _buildSection(
                               title: 'Sobre a vaga',
                               icon: Icons.info_outline_rounded,
-                              color: const Color(0xFF4F46E5),
-                              child: Text(
-                                widget.job.description,
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  height: 1.65,
-                                  color: Color(0xFF475569),
-                                ),
+                              color: const Color(0xFF64748B),
+                              child: _buildJobHtml(
+                                html: widget.job.descriptionHtml,
+                                fallbackPlain: widget.job.description,
                               ),
                             ),
                             const SizedBox(height: 24),
@@ -144,7 +137,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                               _buildSection(
                                 title: 'Requisitos',
                                 icon: Icons.checklist_rounded,
-                                color: const Color(0xFF7C3AED),
+                                color: const Color(0xFF64748B),
                                 child: Column(
                                   children: widget.job.requirements
                                       .asMap()
@@ -161,7 +154,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                               _buildSection(
                                 title: 'Benefícios',
                                 icon: Icons.card_giftcard_rounded,
-                                color: const Color(0xFF059669),
+                                color: const Color(0xFF64748B),
                                 child: Wrap(
                                   spacing: 8,
                                   runSpacing: 8,
@@ -178,14 +171,10 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                               _buildSection(
                                 title: 'Sobre a ${widget.job.companyName}',
                                 icon: Icons.business_rounded,
-                                color: const Color(0xFF0EA5E9),
-                                child: Text(
-                                  widget.job.aboutCompany,
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    height: 1.65,
-                                    color: Color(0xFF475569),
-                                  ),
+                                color: const Color(0xFF64748B),
+                                child: _buildJobHtml(
+                                  html: widget.job.aboutCompanyHtml,
+                                  fallbackPlain: widget.job.aboutCompany,
                                 ),
                               ),
                               const SizedBox(height: 24),
@@ -202,9 +191,6 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                   ],
                 ),
               ),
-
-              // Bottom CTA
-              _buildBottomBar(),
             ],
           );
         },
@@ -228,30 +214,28 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
       ),
       child: Stack(
         children: [
-          // Decorative arcs
+          // Glow sutil superior à esquerda — única decoração restante,
+          // alinhada com o estilo glassmorphism do JobCard.
           Positioned(
-            right: -40,
+            left: -30,
             top: -40,
             child: Container(
               width: 160,
               height: 160,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.06),
+                gradient: RadialGradient(
+                  colors: [
+                    Colors.white.withOpacity(0.10),
+                    Colors.white.withOpacity(0.0),
+                  ],
+                ),
               ),
             ),
           ),
-          Positioned(
-            left: -20,
-            bottom: -40,
-            child: Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.04),
-              ),
-            ),
+          // Overlay glass
+          Positioned.fill(
+            child: Container(color: Colors.white.withOpacity(0.06)),
           ),
 
           // Close button
@@ -291,9 +275,9 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.2),
-                            blurRadius: 16,
-                            offset: const Offset(0, 6),
+                            color: Colors.black.withOpacity(0.12),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
                           ),
                         ],
                       ),
@@ -319,8 +303,12 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.18),
+                              color: Colors.white.withOpacity(0.22),
                               borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.25),
+                                width: 0.5,
+                              ),
                             ),
                             child: Text(
                               widget.job.jobType.toUpperCase(),
@@ -360,47 +348,63 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                       ),
                     ),
 
-                    // Animated ring
-                    AnimatedBuilder(
-                      animation: _ringAnim,
-                      builder: (_, __) => SizedBox(
+                    // Animated ring (esconde quando sem perfil/prefs —
+                    // mostrar 0% é enganoso porque sugere análise feita).
+                    if (_hideScore)
+                      Container(
                         width: 64,
                         height: 64,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            CustomPaint(
-                              size: const Size(64, 64),
-                              painter: _RingPainter(
-                                progress: _ringAnim.value,
-                                score: _score,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.15),
+                        ),
+                        child: const Icon(
+                          Icons.person_outline_rounded,
+                          color: Colors.white,
+                          size: 32,
+                        ),
+                      )
+                    else
+                      AnimatedBuilder(
+                        animation: _ringAnim,
+                        builder: (_, __) => SizedBox(
+                          width: 64,
+                          height: 64,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              CustomPaint(
+                                size: const Size(64, 64),
+                                painter: _RingPainter(
+                                  progress: _ringAnim.value,
+                                  score: _score,
+                                ),
                               ),
-                            ),
-                            Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  '${(_score * _ringAnim.value).toInt()}%',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w900,
+                              Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '${(_score * _ringAnim.value).toInt()}%',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w900,
+                                    ),
                                   ),
-                                ),
-                                Text(
-                                  'match',
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.75),
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.w600,
+                                  Text(
+                                    'match',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.75),
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
-                          ],
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ],
@@ -431,14 +435,19 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
   //  MATCH CARD
   // ════════════════════════════════════════════
   Widget _buildMatchCard() {
+    // Sem perfil/prefs → renderiza CTA pra completar perfil em vez de
+    // mostrar "Match razoável 0%" enganoso. User precisa entender que
+    // não dá pra calcular match sem ele ter colocado dados primeiro.
+    if (_hideScore) return _buildNoProfileCard();
+
     final score = _score;
     String matchLabel;
     String matchDescription;
     if (score >= 85) {
-      matchLabel = 'Excelente match! 🎯';
+      matchLabel = 'Excelente match';
       matchDescription = 'Seu perfil atende muito bem aos requisitos desta vaga.';
     } else if (score >= 70) {
-      matchLabel = 'Bom match! ✨';
+      matchLabel = 'Bom match';
       matchDescription = 'Você tem um bom alinhamento com o perfil buscado.';
     } else {
       matchLabel = 'Match razoável';
@@ -488,17 +497,17 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                     children: [
                       Text(
                         matchLabel,
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontWeight: FontWeight.w800,
-                          color: _matchColor.withOpacity(0.9),
+                          color: Color(0xFF0F172A),
                           fontSize: 15,
                         ),
                       ),
                       const SizedBox(height: 3),
                       Text(
                         matchDescription,
-                        style: TextStyle(
-                          color: _matchColor.withOpacity(0.7),
+                        style: const TextStyle(
+                          color: Color(0xFF64748B),
                           fontSize: 13,
                           height: 1.4,
                         ),
@@ -535,9 +544,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                               ? Icons.check_circle_rounded
                               : Icons.remove_circle_outline_rounded,
                           size: 16,
-                          color: r.matched
-                              ? const Color(0xFF10B981)
-                              : Colors.grey[400],
+                          color: r.matched ? _matchColor : Colors.grey[400],
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -576,10 +583,91 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
     );
   }
 
+  /// Card de "sem análise possível" — substitui o match card quando user
+  /// não tem perfil/CV nem preferências. Em vez de mostrar 0% enganoso,
+  /// explica o porquê + dá CTA visual claro.
+  Widget _buildNoProfileCard() {
+    final isUnknown = widget.match?.isUnknown ?? false;
+    final title = isUnknown
+        ? 'Configure suas preferências'
+        : 'Crie seu currículo pra ver matches';
+    final description = isUnknown
+        ? 'Sem preferências de área, modelo e cidade, não dá pra calcular o quanto a vaga combina com você.'
+        : 'Importe um PDF ou complete seu perfil pra IA analisar o quanto cada vaga combina com você.';
+
+    return AnimatedBuilder(
+      animation: _slideAnim,
+      builder: (_, child) => SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0.3, 0),
+          end: Offset.zero,
+        ).animate(_slideAnim),
+        child: FadeTransition(opacity: _slideAnim, child: child),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              const Color(0xFFFEF3C7),
+              const Color(0xFFFEF3C7).withOpacity(0.4),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFFCD34D)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: const BoxDecoration(
+                color: Color(0xFFFBBF24),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.lightbulb_outline_rounded,
+                color: Colors.white,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF78350F),
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    description,
+                    style: const TextStyle(
+                      color: Color(0xFF92400E),
+                      fontSize: 13,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ════════════════════════════════════════════
   //  METRICS ROW
   // ════════════════════════════════════════════
   Widget _buildMetricsRow() {
+    const neutral = Color(0xFF64748B);
     return Row(
       children: [
         Expanded(
@@ -587,7 +675,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
             icon: Icons.location_on_rounded,
             label: 'Local',
             value: widget.job.location,
-            color: const Color(0xFF0EA5E9),
+            color: neutral,
           ),
         ),
         const SizedBox(width: 10),
@@ -596,7 +684,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
             icon: Icons.payments_rounded,
             label: 'Salário',
             value: widget.job.salaryRange,
-            color: const Color(0xFF10B981),
+            color: neutral,
           ),
         ),
         const SizedBox(width: 10),
@@ -605,7 +693,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
             icon: Icons.laptop_mac_rounded,
             label: 'Modelo',
             value: widget.job.workModel,
-            color: const Color(0xFF7C3AED),
+            color: neutral,
           ),
         ),
       ],
@@ -735,18 +823,123 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
   }
 
   // ════════════════════════════════════════════
+  //  HTML CONTENT (description + aboutCompany)
+  // ════════════════════════════════════════════
+  /// Renderiza HTML cru de description/aboutCompany com estilo consistente
+  /// ao restante da sheet (mesma fonte, mesma cor base que o antigo Text).
+  /// Se [html] estiver vazio (vagas em cache antes do campo HTML existir),
+  /// cai pro [fallbackPlain] num Text comum.
+  Widget _buildJobHtml({required String html, required String fallbackPlain}) {
+    final trimmed = html.trim();
+    if (trimmed.isEmpty) {
+      return Text(
+        fallbackPlain,
+        style: const TextStyle(
+          fontSize: 15,
+          height: 1.65,
+          color: Color(0xFF475569),
+        ),
+      );
+    }
+    const baseFont = 'Inter';
+    const baseColor = Color(0xFF475569);
+    const accent = Color(0xFF00C27A);
+    return Html(
+      data: trimmed,
+      onLinkTap: (url, attributes, element) async {
+        if (url == null || url.isEmpty) return;
+        final uri = Uri.tryParse(url);
+        if (uri == null) return;
+        // Browser externo (Safari/Chrome) — saída explícita do app.
+        try {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } catch (_) {}
+      },
+      style: {
+        'body': Style(
+          margin: Margins.zero,
+          padding: HtmlPaddings.zero,
+          fontFamily: baseFont,
+          fontSize: FontSize(15),
+          lineHeight: const LineHeight(1.65),
+          color: baseColor,
+        ),
+        'p': Style(
+          margin: Margins.only(bottom: 10),
+        ),
+        'strong': Style(fontWeight: FontWeight.w700, color: const Color(0xFF1F2937)),
+        'b': Style(fontWeight: FontWeight.w700, color: const Color(0xFF1F2937)),
+        'em': Style(fontStyle: FontStyle.italic),
+        'i': Style(fontStyle: FontStyle.italic),
+        'h1': Style(
+          fontFamily: 'Outfit',
+          fontSize: FontSize(18),
+          fontWeight: FontWeight.w800,
+          color: const Color(0xFF1F2937),
+          margin: Margins.only(top: 14, bottom: 8),
+        ),
+        'h2': Style(
+          fontFamily: 'Outfit',
+          fontSize: FontSize(17),
+          fontWeight: FontWeight.w800,
+          color: const Color(0xFF1F2937),
+          margin: Margins.only(top: 14, bottom: 8),
+        ),
+        'h3': Style(
+          fontFamily: 'Outfit',
+          fontSize: FontSize(16),
+          fontWeight: FontWeight.w700,
+          color: const Color(0xFF1F2937),
+          margin: Margins.only(top: 12, bottom: 6),
+        ),
+        'h4': Style(
+          fontFamily: 'Outfit',
+          fontSize: FontSize(15),
+          fontWeight: FontWeight.w700,
+          color: const Color(0xFF1F2937),
+          margin: Margins.only(top: 12, bottom: 6),
+        ),
+        'ul': Style(
+          margin: Margins.only(top: 4, bottom: 10, left: 4),
+          padding: HtmlPaddings.only(left: 16),
+        ),
+        'ol': Style(
+          margin: Margins.only(top: 4, bottom: 10, left: 4),
+          padding: HtmlPaddings.only(left: 16),
+        ),
+        'li': Style(
+          margin: Margins.only(bottom: 4),
+        ),
+        'a': Style(
+          color: accent,
+          textDecoration: TextDecoration.underline,
+        ),
+        // Hardcoded reset pra tags que podem quebrar layout — flutter_html
+        // ignora os blockeds via onlyRenderTheseTags abaixo, mas zerar
+        // estilo defende caso a whitelist mude no futuro.
+        'img': Style(display: Display.none),
+        'iframe': Style(display: Display.none),
+        'script': Style(display: Display.none),
+        'table': Style(display: Display.none),
+      },
+      // Whitelist explícita — bloqueia img/iframe/script/table/video/object
+      // mesmo que venham no HTML do ATS. Reduz risco de layout quebrado e
+      // qualquer surpresa visual.
+      onlyRenderTheseTags: const {
+        'html', 'body', 'div', 'span', 'p', 'br', 'hr',
+        'b', 'strong', 'i', 'em', 'u',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'ul', 'ol', 'li',
+        'a',
+        'small', 'sub', 'sup',
+      },
+    );
+  }
+
+  // ════════════════════════════════════════════
   //  REQUIREMENT ITEM
   // ════════════════════════════════════════════
   Widget _buildRequirementItem(int index, String req) {
-    final colors = [
-      const Color(0xFF4F46E5),
-      const Color(0xFF7C3AED),
-      const Color(0xFF0EA5E9),
-      const Color(0xFF059669),
-      const Color(0xFFF59E0B),
-    ];
-    final color = colors[index % colors.length];
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
@@ -757,16 +950,16 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
             height: 22,
             margin: const EdgeInsets.only(top: 1),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: _matchColor.withOpacity(0.1),
               shape: BoxShape.circle,
             ),
             child: Center(
               child: Text(
                 '${index + 1}',
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w800,
-                  color: color,
+                  color: _matchColor,
                 ),
               ),
             ),
@@ -803,11 +996,9 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
         width: isLong ? double.infinity : null,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFFF0FDF4), Color(0xFFDCFCE7)],
-          ),
+          color: const Color(0xFFF8FAFC),
           borderRadius: BorderRadius.circular(isLong ? 12 : 20),
-          border: Border.all(color: const Color(0xFFBBF7D0)),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -815,14 +1006,14 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
           children: [
             const Padding(
               padding: EdgeInsets.only(top: 2),
-              child: Icon(Icons.check_circle_rounded, size: 14, color: Color(0xFF10B981)),
+              child: Icon(Icons.check_rounded, size: 14, color: _matchColor),
             ),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
                 benefit,
                 style: const TextStyle(
-                  color: Color(0xFF166534),
+                  color: Color(0xFF334155),
                   fontWeight: FontWeight.w600,
                   fontSize: 13,
                   height: 1.4,
@@ -863,9 +1054,9 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
             if (widget.job.deadline != null)
               _footerChip(
                 icon: Icons.event_rounded,
-                iconColor: const Color(0xFFF59E0B),
+                iconColor: const Color(0xFF94A3B8),
                 text: widget.job.deadline!,
-                textColor: const Color(0xFF92400E),
+                textColor: const Color(0xFF475569),
                 bold: true,
               ),
           ],
@@ -900,65 +1091,6 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
     );
   }
 
-  // ════════════════════════════════════════════
-  //  BOTTOM BAR
-  // ════════════════════════════════════════════
-  Widget _buildBottomBar() {
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        12,
-        20,
-        MediaQuery.of(context).padding.bottom + 12,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 16,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // AI adapt button
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: OutlinedButton(
-              onPressed: () {
-                HapticFeedback.lightImpact();
-                Navigator.pop(context);
-              },
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF4F46E5),
-                side: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.auto_awesome_rounded, size: 18, color: Color(0xFF4F46E5)),
-                  SizedBox(width: 8),
-                  Text(
-                    'Adaptar meu currículo com IA',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF4F46E5),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 // ─────────────────────────────────────────────

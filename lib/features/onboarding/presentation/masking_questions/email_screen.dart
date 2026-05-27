@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../services/analytics_service.dart';
+import '../../../auth/phone_auth_helpers.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/application/extraction_status_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
@@ -25,7 +26,11 @@ class _EmailScreenState extends State<EmailScreen> {
     final vm = context.read<ProfileEditorViewModel>();
     final extraction = context.read<ExtractionStatusViewModel>();
     final fromExtraction = extraction.result?.parsed['email']?.toString() ?? '';
-    final authEmail = Supabase.instance.client.auth.currentUser?.email ?? '';
+    final rawAuthEmail = Supabase.instance.client.auth.currentUser?.email ?? '';
+    // Ignora email sintético do signup por telefone (`phone_<digits>@stage.app`).
+    // Mostrar isso pré-preenchido confunde o user — ele acha que esse é o
+    // email "real" da conta. Deixa vazio pra ele digitar o email de verdade.
+    final authEmail = PhoneAuthHelpers.isSyntheticEmail(rawAuthEmail) ? '' : rawAuthEmail;
     final initial = vm.personal?.email ?? fromExtraction.ifEmpty(authEmail);
     _ctrl = TextEditingController(text: initial);
   }

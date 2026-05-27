@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/ai_service.dart';
 import '../../services/analytics_service.dart';
+import '../../services/profile_events.dart';
+import '../../services/profile_snapshot_service.dart';
 import 'data/job_repository.dart';
 import 'data/swipe_repository.dart';
 import 'data/preferences_repository.dart';
@@ -22,6 +24,7 @@ class JobsViewModel extends ChangeNotifier {
   /// da sessão estar pronta — race condition que bloqueava o feed até
   /// hot-restart).
   StreamSubscription<AuthState>? _authSub;
+  StreamSubscription<void>? _profileEventsSub;
 
   JobsViewModel(
     this._jobRepository,
@@ -29,6 +32,14 @@ class JobsViewModel extends ChangeNotifier {
     this._preferencesRepository,
     this._aiService,
   ) {
+    // Invalida cache de profileText quando o user edita o perfil — sem
+    // isso, adicionar skill via Profile Editor não reflete no match
+    // score determinístico até hot-restart.
+    _profileEventsSub = ProfileEvents.instance.changes.listen((_) {
+      _profileTextLoaded = false;
+      _cachedProfileText = null;
+      notifyListeners();
+    });
     _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
       switch (data.event) {
         case AuthChangeEvent.signedIn:
@@ -54,6 +65,8 @@ class JobsViewModel extends ChangeNotifier {
           _autoReloadAttempted = false;
           _gamificationDataLoaded = false;
           _cachedGamificationData = null;
+          _profileTextLoaded = false;
+          _cachedProfileText = null;
           _totalAvailable = 0;
           _totalAfterFilters = 0;
           notifyListeners();
@@ -67,6 +80,7 @@ class JobsViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _authSub?.cancel();
+    _profileEventsSub?.cancel();
     super.dispose();
   }
 
@@ -246,9 +260,10 @@ class JobsViewModel extends ChangeNotifier {
 
   /// Aplica filtro de score mínimo in-memory.
   /// 1. Busca scores cacheados em batch (1 SQL select).
-  /// 2. Busca `gamification_data` (1 select) pra que o fallback determinístico
-  ///    seja IDÊNTICO ao mostrado no card. Sem isso, o filtro divergia da UI
-  ///    (filtro dizia 75, card mostrava 30) e deixava passar vagas baixas.
+  /// 2. Busca `gamification_data` + snapshot das tabelas `profile_*` em
+  ///    paralelo — assim o fallback determinístico seja IDÊNTICO ao
+  ///    mostrado no card. Sem isso, o filtro divergia da UI (filtro dizia
+  ///    75, card mostrava 30) e deixava passar vagas baixas.
   /// 3. Pra vagas sem cache IA, usa fallback determinístico com mesmo input
   ///    que o card calcula.
   /// 4. Retorna só vagas com score >= [minScore].
@@ -258,14 +273,18 @@ class JobsViewModel extends ChangeNotifier {
   Future<List<Job>> _filterByMatchScore(List<Job> jobs, int minScore) async {
     final ids = jobs.map((j) => j.id).toList();
 
-    // Pega cache de match (IA preciso) + gamification_data em paralelo
+    // Pega cache de match (IA preciso) + gamification_data + pseudo-texto
+    // das tabelas profile_* em paralelo.
     Map<String, MatchResult> cached = const {};
     Map<String, dynamic>? gamificationData;
+    String? profileText;
     try {
       final cachedFuture = _aiService.fetchCachedMatches(ids);
       final gamifFuture = _fetchGamificationData();
+      final profileFuture = _fetchProfileText();
       cached = await cachedFuture;
       gamificationData = await gamifFuture;
+      profileText = await profileFuture;
     } catch (e) {
       print('Match score filter: failed to load context, allowing all: $e');
       return jobs; // falha graciosa — não zera o feed
@@ -276,22 +295,23 @@ class JobsViewModel extends ChangeNotifier {
       if (aiScore != null && aiScore > 0) {
         return aiScore >= minScore;
       }
-      // Fallback determinístico — usa mesmo input que o card (prefs + gamif),
-      // garantindo consistência visual: se filtro deixa passar, card mostra
-      // score >= threshold.
+      // Fallback determinístico — usa mesmo input que o card (prefs + gamif
+      // + profile_*), garantindo consistência visual: se filtro deixa passar,
+      // card mostra score >= threshold.
       final fallback = MatchScoreCalculator.calculate(
         job: job,
         prefs: _preferences,
         gamificationData: gamificationData,
+        profileText: profileText,
       );
       return fallback.score >= minScore;
     }).toList();
   }
 
   /// Lê `gamification_data` do user_profiles. Usado pra alinhar o fallback
-  /// determinístico de match score com o que o card mostra (skills do CV
-  /// importado afetam o score). Cacheia em memória durante a sessão pra
-  /// evitar refetch a cada filtro.
+  /// determinístico de match score com o que o card mostra (skills da trilha
+  /// — `whoIAm.derived` — afetam o score). Cacheia em memória durante a
+  /// sessão pra evitar refetch a cada filtro.
   Map<String, dynamic>? _cachedGamificationData;
   bool _gamificationDataLoaded = false;
   Future<Map<String, dynamic>?> _fetchGamificationData() async {
@@ -312,6 +332,33 @@ class JobsViewModel extends ChangeNotifier {
     return _cachedGamificationData;
   }
 
+  /// Carrega o pseudo-texto agregado das tabelas `profile_*` pra alimentar
+  /// o keyword overlap do match score. Substitui o legacy
+  /// `imported_resume.raw_text`. Cacheado por sessão.
+  String? _cachedProfileText;
+  bool _profileTextLoaded = false;
+  final ProfileSnapshotService _profileSnapshotService =
+      ProfileSnapshotService();
+  Future<String?> _fetchProfileText() async {
+    if (_profileTextLoaded) return _cachedProfileText;
+    try {
+      final uid = userId;
+      if (uid == null) {
+        _cachedProfileText = null;
+      } else {
+        final snapshot = await _profileSnapshotService.loadSnapshot(uid);
+        final text = snapshot.toPseudoText().trim();
+        _cachedProfileText = text.isEmpty ? null : text;
+      }
+    } catch (e) {
+      print('fetchProfileText failed: $e');
+      _cachedProfileText = null;
+    } finally {
+      _profileTextLoaded = true;
+    }
+    return _cachedProfileText;
+  }
+
   /// Reload jobs (e.g. after changing preferences).
   Future<void> reloadJobs() async {
     if (_isLoading) return;
@@ -322,10 +369,13 @@ class JobsViewModel extends ChangeNotifier {
     _undoStack.clear();
     _swipedIds.clear();
     _autoReloadAttempted = false;
-    // Invalida cache de gamification_data — pode ter mudado (user importou CV,
-    // completou trilha, etc) e isso afeta o fallback do score.
+    // Invalida cache de gamification_data + profile_* — pode ter mudado
+    // (user importou CV, completou trilha, editou perfil) e isso afeta o
+    // fallback do score.
     _gamificationDataLoaded = false;
     _cachedGamificationData = null;
+    _profileTextLoaded = false;
+    _cachedProfileText = null;
     notifyListeners();
 
     try {

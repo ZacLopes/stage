@@ -10,8 +10,8 @@ import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:provider/provider.dart';
 import '../../../services/analytics_service.dart';
 import '../../auth/user_viewmodel.dart';
-import '../../home/home_viewmodel.dart';
 import '../../splash/splash_screen.dart' show AuthGate;
+import 'masking_questions/attribution_screen.dart';
 import 'upload_preview_sheet.dart';
 import 'onboarding_scaffold.dart';
 
@@ -143,26 +143,16 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
       return;
     }
 
-    // Default standalone: cria campaign skipped + abre aba Currículo.
-    // AuthGate detecta hasCampaign=true e renderiza HomeScreen automaticamente,
-    // com a tab Resume selecionada (que tem a trilha existente).
-    setState(() => _processing = true);
-    try {
-      await context.read<UserViewModel>().createCampaign(isSkipped: true);
-      if (!mounted) return;
-      context.read<HomeViewModel>().requestTabChange(HomeTabs.resume);
-      Analytics.shared.onboardingCompleted();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro: $e'),
-            backgroundColor: const Color(0xFFEF4444),
-          ),
-        );
-        setState(() => _processing = false);
-      }
-    }
+    // Trail flow: passa pelas mesmas masking questions do fluxo Upload pra
+    // coletar dados pessoais. ExtractionStatusViewModel fica em
+    // `notStarted` (sem CV pra extrair) — AllSetScreen detecta isso e
+    // pula as telas de revisão de CV, indo direto pras preferences.
+    // A campaign é criada no OnboardingCompleteScreen no final do fluxo,
+    // igual ao path Upload.
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AttributionScreen()),
+    );
   }
 
   @override

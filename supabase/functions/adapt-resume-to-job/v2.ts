@@ -212,9 +212,20 @@ export async function loadProfileV2(
 
   const experiences = expR.data ?? []
   const education = eduR.data ?? []
+  const projects = projR.data ?? []
 
-  if (experiences.length === 0 && education.length === 0) {
-    console.log(`[adapt-v2] empty profile (no exp+edu) for user=${userId.slice(0, 8)} → fallback v1`)
+  // Critério de "tem material narrativo suficiente pra adaptar CV":
+  // exige experiência OU projeto OU educação (com ou sem conteúdo
+  // descritivo — IA pode sintetizar bullets a partir de degree+major).
+  // Skills/summary/interests isolados NÃO bastam — adaptação reescreve
+  // bullets e sem bullets a IA não tem o que reformular.
+  //
+  // Calouros sem experiência prévia podem cadastrar projetos pessoais/
+  // acadêmicos (profile_projects) pra entrar no v2 path. Antes do
+  // 2026-05-26 só exp+edu eram aceitos, deixando calouros caindo no v1
+  // legacy (que retornava profile_incomplete por raw_text vazio).
+  if (experiences.length === 0 && education.length === 0 && projects.length === 0) {
+    console.log(`[adapt-v2] empty profile (no exp+edu+proj) for user=${userId.slice(0, 8)} → fallback v1`)
     return null
   }
 
@@ -225,7 +236,7 @@ export async function loadProfileV2(
     languages: langR.data ?? [],
     skills: skillR.data ?? [],
     certifications: certR.data ?? [],
-    projects: projR.data ?? [],
+    projects,
     interests: intR.data ?? [],
     awards: awdR.data ?? [],
   }

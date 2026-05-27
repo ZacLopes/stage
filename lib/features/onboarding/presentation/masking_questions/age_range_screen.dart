@@ -9,10 +9,12 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../services/analytics_service.dart';
+import '../../../profile/application/extraction_status_view_model.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
 import '../all_set_screen.dart';
 import '../onboarding_scaffold.dart';
+import '../preferences/desired_titles_screen.dart';
 
 class AgeRangeScreen extends StatefulWidget {
   const AgeRangeScreen({super.key});
@@ -117,9 +119,21 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
       ageRange: derived,
     ));
     if (!mounted) return;
+
+    // Bifurca conforme origem:
+    //  - Upload (extração rodou) → AllSetScreen → revisar dados do CV
+    //  - Trail (sem CV) → pula AllSetScreen e a revisão (não há nada extraído
+    //    pra revisar), vai direto pras preferências de vaga.
+    final extraction = context.read<ExtractionStatusViewModel>();
+    final cameFromUpload = extraction.status != ExtractionStatus.notStarted;
+
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const AllSetScreen()),
+      MaterialPageRoute(
+        builder: (_) => cameFromUpload
+            ? const AllSetScreen()
+            : const DesiredTitlesScreen(),
+      ),
     );
   }
 

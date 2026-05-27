@@ -208,6 +208,9 @@ async function upsertJob(
     company_id: companyId,
     title: job.title,
     description,
+    // rawDesc é o HTML cru entregue pelo scraper (Brazil Jobs / outros). App
+    // renderiza via flutter_html quando presente; senão cai no texto plano.
+    description_html: rawDesc && rawDesc.trim().length > 0 ? rawDesc.slice(0, 16000) : null,
     requirements: tags, // Brazil Jobs não separa requirements estruturalmente — usa tags
     benefits,
     location_city: locationCity,

@@ -92,6 +92,8 @@ export async function sync(
         company_id: companyId,
         title: job.title,
         description: description || job.title,
+        // job.content é o HTML cru do Greenhouse — preserva pra render rico no app.
+        description_html: job.content ? job.content.slice(0, 16000) : null,
         requirements,
         benefits,
         location_city: city,

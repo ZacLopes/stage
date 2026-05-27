@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../../../services/ai_service.dart';
 import '../../../services/analytics_service.dart';
+import '../../../services/profile_snapshot_service.dart';
 import '../../auth/user_viewmodel.dart';
 import 'package:printing/printing.dart';
 import '../../resume/services/resume_renderer.dart';
@@ -143,14 +144,16 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
       return;
     }
 
-    // Pré-check client-side: se o user não tem CV importado nem trilha
-    // preenchida, o server vai retornar 422 `profile_incomplete` depois
-    // de ~15-25s e ainda assim consumir 1 round-trip + tempo de IA. Sob
-    // este caminho pulamos direto pro estado de erro com o mesmo código.
-    // Pré-fix: 18 usuários únicos perderam tempo nessa fricção em 7 dias.
+    // Pré-check client-side: usa critério estrito `canAdaptCv` (precisa de
+    // material narrativo — experiência, projeto, formação detalhada ou CV
+    // importado). Skills/summary isolados NÃO bastam porque a adaptação
+    // reescreve bullets e sem bullets a IA não tem o que reformular —
+    // resultado seria um PDF com nome + 1 skill = vazio.
+    // Pré-fix: 18 usuários únicos perderam tempo nessa fricção em 7 dias
+    // esperando o server retornar 422 após ~15-25s.
     if (!force) {
       final userVM = context.read<UserViewModel>();
-      if (!userVM.hasResume) {
+      if (!userVM.canAdaptCv) {
         Analytics.shared.cvAdaptationStarted(jobId: widget.job.id);
         Analytics.shared.cvAdaptationFailed(
           jobId: widget.job.id,
@@ -159,7 +162,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
         setState(() {
           _error = const ResumeAdaptationException(
             'profile_incomplete',
-            'Complete seu perfil ou suba seu currículo antes de adaptar.',
+            'Pra eu adaptar seu currículo, preciso de pelo menos uma experiência, projeto ou formação completa — ou um CV importado em PDF. Só com habilidades não dá pra reescrever os bullets.',
           );
           _isLoading = false;
           _retrying = false;
@@ -262,37 +265,41 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
   // ── Actions ────────────────────────────────────────────────────────
   /// Abre a tela de preview + edição (F1). Esta é a porta de entrada
   /// padrão pra download — usuário sempre revisa antes. A preview screen
-  /// gera o PDF internamente após o "Aprovar e baixar" e retorna `true`.
+  /// gera o PDF interno após o "Aprovar e baixar" e retorna `true`.
   ///
-  /// Monta o `originalResumeData` a partir de
-  /// `imported_resume.parsed` (F2/F3) do user — necessário pro toggle
-  /// "Original | Adaptado" funcionar quando o user importou CV em vez de
-  /// criar via editor/trilha (ResumeViewModel ficaria null).
+  /// Monta o `originalResumeData` a partir das tabelas relacionais
+  /// `profile_*` (via [ProfileSnapshotService]) — necessário pro toggle
+  /// "Original | Adaptado" quando o user importou CV em vez de criar via
+  /// editor/trilha (ResumeViewModel ficaria null). Antes lia
+  /// `imported_resume.parsed`, agora lê das 18 tabelas relacionais (Fase
+  /// 2 da migração profile-first).
   Future<void> _openPreview() async {
     final adapted = _adapted;
     if (adapted == null) return;
     HapticFeedback.mediumImpact();
 
-    ResumeData? originalFromParsed;
+    ResumeData? originalFromProfile;
     final user = context.read<UserViewModel>().user;
-    final imported = user?.gamificationData['imported_resume'];
-    final parsed = imported is Map ? imported['parsed'] : null;
-    if (parsed is Map) {
-      try {
-        originalFromParsed = AdaptedResume.parseResumeData(
-          Map<String, dynamic>.from(parsed),
+    try {
+      final snapshot = await ProfileSnapshotService().loadCurrent();
+      if (snapshot != null && !snapshot.isEmpty) {
+        originalFromProfile = snapshot.toResumeData(
+          userFallbackName: user?.name,
+          userFallbackEmail: user?.email,
+          userFallbackPhone: user?.phone,
         );
-      } catch (e) {
-        debugPrint('preview: failed to parse original from imported_resume.parsed: $e');
       }
+    } catch (e) {
+      debugPrint('preview: failed to build original from profile_* tables: $e');
     }
 
+    if (!mounted) return;
     final downloaded = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => AdaptedResumePreviewScreen(
           adapted: adapted,
           job: widget.job,
-          originalResumeData: originalFromParsed,
+          originalResumeData: originalFromProfile,
         ),
         fullscreenDialog: true,
       ),

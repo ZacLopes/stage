@@ -9,8 +9,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/analytics/screen_tracking.dart';
 import '../../../core/constants/stage_app_links.dart';
+import 'dart:async';
+
 import '../../../services/ai_service.dart';
 import '../../../services/analytics_service.dart';
+import '../../../services/profile_events.dart';
+import '../../../services/profile_snapshot_service.dart';
 import '../../auth/user_viewmodel.dart';
 import '../../home/home_viewmodel.dart';
 import '../../tutorial/tutorial_keys.dart';
@@ -69,8 +73,18 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   final Set<String> _matchInflight = {};            // calls em andamento
   bool _hydrated = false;                           // primeira hidratação rodou?
   int _currentIndex = 0;                            // posição no swiper
-  static const int _bufferAhead = 5;                // janela à frente
-  static const int _initialPrefetch = 10;           // 1ª onda
+  // Prefetch reduzido em 2026-05-27: antes era 10 prefetch + 5 buffer ahead,
+  // o que disparava 10 chamadas IA logo na abertura da aba. Como o user só
+  // vê 1 card por vez no swiper, as outras 8-9 chamadas eram desperdiçadas
+  // se ele saía da tela antes — e ainda esgotavam rate limit (100/dia/user)
+  // em sessões de teste ou após mudanças que invalidavam cache.
+  //
+  // Agora: prefetch só os 3 primeiros + mantém pipeline de 2 prontos à
+  // frente. Cards ainda sem score mostram MatchResult.pending (animação
+  // de dots pulsando + anel tracejado) — nunca score fake. Quando IA
+  // chega em 2-3s, ring atualiza pro score real.
+  static const int _bufferAhead = 2;                // janela à frente
+  static const int _initialPrefetch = 3;            // 1ª onda
   static const int _maxConcurrent = 4;              // limite OpenAI paralelo
 
   /// F3.1: variante do experimento `ai_match_v1` (PostHog feature flag).
@@ -98,6 +112,16 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   /// sessão anterior e os cards não atualizam mesmo com o CV novo no DB.
   bool? _lastHasResume;
 
+  /// Pseudo-texto agregado das tabelas `profile_*` pra alimentar o keyword
+  /// overlap do match score determinístico (Cenário B). Carregado uma vez
+  /// na primeira hidratação; invalidado quando `hasResume` muda OU
+  /// `ProfileEvents` dispara (user editou perfil). Null enquanto não
+  /// carregou — `MatchScoreCalculator` lida graciosamente.
+  String? _profileText;
+  final ProfileSnapshotService _profileSnapshotService =
+      ProfileSnapshotService();
+  StreamSubscription<void>? _profileEventsSub;
+
   @override
   void initState() {
     super.initState();
@@ -114,6 +138,18 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
             CurvedAnimation(parent: ctrl, curve: Curves.easeInOut),
           ),
         ));
+    // Re-carrega pseudo-texto sempre que o user edita o perfil
+    // (ProfileEditorViewModel emite via ProfileEvents). Sem isso,
+    // adicionar skill nova não reflete no match até hot-restart.
+    _profileEventsSub = ProfileEvents.instance.changes.listen((_) {
+      if (!mounted) return;
+      _profileText = null;
+      _matchCache.clear();
+      _matchInflight.clear();
+      _hydrated = false;
+      // ignore: unawaited_futures
+      _loadProfileTextIfNeeded();
+    });
   }
 
   @override
@@ -143,6 +179,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
 
   @override
   void dispose() {
+    _profileEventsSub?.cancel();
     _swiperController.dispose();
     for (final c in _btnControllers.values) {
       c.dispose();
@@ -473,6 +510,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         job: job,
         prefs: vm.preferences,
         gamificationData: userVm.user?.gamificationData,
+        profileText: _profileText,
       );
       if (!mounted) return;
       setState(() {
@@ -506,7 +544,9 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   }
 
   /// Hidratação inicial: 1 SELECT em batch nos próximos 20 jobs +
-  /// dispara IA pros 10 primeiros que ainda não estão no cache.
+  /// pseudo-texto das tabelas `profile_*` (necessário pro Cenário B do
+  /// match score determinístico) + dispara IA pros 10 primeiros que
+  /// ainda não estão no cache.
   Future<void> _hydrateAndPrefetch(List<Job> jobs) async {
     if (_hydrated || jobs.isEmpty) return;
     _hydrated = true;
@@ -518,11 +558,31 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       setState(() => _matchCache.addAll(cached));
     }
 
+    // Pré-carrega pseudo-texto do perfil em paralelo. Usado pelo caminho
+    // determinístico de _kickOffMatch (Skills/CV × requisitos da vaga).
+    // ignore: unawaited_futures
+    _loadProfileTextIfNeeded();
+
     // Dispara IA pras N primeiras que ainda não têm cache
     for (final job in jobs.take(_initialPrefetch)) {
       if (!_matchCache.containsKey(job.id)) {
         _kickOffMatch(job);
       }
+    }
+  }
+
+  /// Carrega o pseudo-texto agregado das tabelas `profile_*` uma vez por
+  /// sessão (ou após `hasResume` mudar). Idempotente: pula se já tem.
+  Future<void> _loadProfileTextIfNeeded() async {
+    if (_profileText != null) return;
+    try {
+      final snapshot = await _profileSnapshotService.loadCurrent();
+      if (snapshot == null) return;
+      final text = snapshot.toPseudoText().trim();
+      if (!mounted || text.isEmpty) return;
+      setState(() => _profileText = text);
+    } catch (_) {
+      // Falha silenciosa — match score cai pro Cenário A (só prefs).
     }
   }
 
@@ -554,6 +614,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       _matchCache.clear();
       _matchInflight.clear();
       _hydrated = false; // re-roda o prefetch IA com o novo perfil
+      _profileText = null; // re-carrega pseudo-texto na próxima hidratação
     }
     _lastHasResume = currentHasResume;
 

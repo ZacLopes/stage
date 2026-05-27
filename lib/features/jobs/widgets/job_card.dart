@@ -64,65 +64,15 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
     super.dispose();
   }
 
-  /// Score efetivo usado pra cor/badge. Prioriza o passado externamente
+  /// Score efetivo usado pra badge. Prioriza o passado externamente
   /// (calculado pelo MatchScoreCalculator); fallback pro field do model.
   int get _score => widget.matchScore ?? widget.job.matchScore;
 
-  /// Cor de acento — usada em shadow do card, ring de match, divisor da seção.
-  /// Alinhada com o `_cardGradient` pra UI parecer coerente.
-  Color get _matchColor {
-    if (widget.isNoResume) return const Color(0xFF6366F1); // indigo — convida ação
-    if (widget.isPending) return const Color(0xFF64748B);  // slate neutro
-    if (_score >= 85) return const Color(0xFF10B981);     // esmeralda
-    if (_score >= 70) return const Color(0xFF8B5CF6);     // violeta
-    return const Color(0xFFF59E0B);                        // âmbar
-  }
-
-  /// Gradient do header. Antes usava cores quase pretas (verde escuro
-  /// `#064E3B`, marrom morto `#78350F`) com 2 stops planos — o card parecia
-  /// chapado e opaco. Agora: paletas vibrantes mas profundas, 3 stops pra
-  /// criar profundidade, alinhadas com o brand (indigo→violet aparece no
-  /// resto do app).
-  List<Color> get _cardGradient {
-    if (widget.isNoResume) {
-      // Indigo→violet — comunica "ação pendente" + alinha com brand do app
-      return [
-        const Color(0xFF6366F1),
-        const Color(0xFF8B5CF6),
-        const Color(0xFF7C3AED),
-      ];
-    }
-    if (widget.isPending) {
-      // Slate elegante — não comunica score nenhum (IA ainda calculando)
-      return [
-        const Color(0xFF475569),
-        const Color(0xFF334155),
-        const Color(0xFF1E293B),
-      ];
-    }
-    if (_score >= 85) {
-      // Esmeralda vibrante → teal → cyan profundo
-      return [
-        const Color(0xFF10B981),
-        const Color(0xFF0D9488),
-        const Color(0xFF0F766E),
-      ];
-    }
-    if (_score >= 70) {
-      // Indigo → violet → purple — premium, casa com o brand do app
-      return [
-        const Color(0xFF6366F1),
-        const Color(0xFF8B5CF6),
-        const Color(0xFF7C3AED),
-      ];
-    }
-    // Âmbar → laranja → coral — calor sem agressividade
-    return [
-      const Color(0xFFF59E0B),
-      const Color(0xFFF97316),
-      const Color(0xFFEA580C),
-    ];
-  }
+  // Paleta monocromática brand — header e acentos não mudam com a faixa de
+  // match. Diferenciação visual fica só no número do ring (e nos estados
+  // isNoResume/isPending via conteúdo do ring, não cor).
+  static const Color _accent = Color(0xFF29B6D2);     // StageColors.brandCyan
+  static const Color _accentDark = Color(0xFF1565A8); // StageColors.brandBlue
 
   @override
   Widget build(BuildContext context) {
@@ -131,18 +81,13 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: _matchColor.withOpacity(0.15),
-              blurRadius: 30,
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 24,
               spreadRadius: 0,
-              offset: const Offset(0, 12),
-            ),
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 20,
-              offset: const Offset(0, 4),
+              offset: const Offset(0, 8),
             ),
           ],
         ),
@@ -230,50 +175,30 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                                 _buildChip(
                                   icon: Icons.payments_rounded,
                                   label: widget.job.salaryRange,
-                                  gradientColors: [const Color(0xFFDCFCE7), const Color(0xFFBBF7D0)],
-                                  textColor: const Color(0xFF166534),
-                                  iconColor: const Color(0xFF16A34A),
                                 ),
                                 _buildChip(
                                   icon: Icons.laptop_mac_rounded,
                                   label: widget.job.workModel,
-                                  gradientColors: [const Color(0xFFEDE9FE), const Color(0xFFDDD6FE)],
-                                  textColor: const Color(0xFF5B21B6),
-                                  iconColor: const Color(0xFF7C3AED),
                                 ),
                                 _buildChip(
                                   icon: Icons.work_rounded,
                                   label: widget.job.jobType,
-                                  gradientColors: [const Color(0xFFFEF3C7), const Color(0xFFFDE68A)],
-                                  textColor: const Color(0xFF92400E),
-                                  iconColor: const Color(0xFFD97706),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 14),
 
-                            // Description section header
-                            Row(
-                              children: [
-                                Container(
-                                  width: 3,
-                                  height: 14,
-                                  decoration: BoxDecoration(
-                                    color: _matchColor,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                const Text(
-                                  'Sobre a vaga',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF334155),
-                                    letterSpacing: 0.2,
-                                  ),
-                                ),
-                              ],
+                            // Description section header — overline minúsculo,
+                            // sem barra colorida. Hierarquia vem do tracking
+                            // e da cor mais clara.
+                            const Text(
+                              'SOBRE A VAGA',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF94A3B8),
+                                letterSpacing: 1.2,
+                              ),
                             ),
                             const SizedBox(height: 6),
                       ],
@@ -308,41 +233,16 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                     ),
                     const SizedBox(height: 6),
 
-                    // Tap indicator pinned at bottom
-                    Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              _matchColor.withOpacity(0.08),
-                              _matchColor.withOpacity(0.05),
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: _matchColor.withOpacity(0.2),
-                            width: 1,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.touch_app_rounded,
-                              size: 13,
-                              color: _matchColor,
-                            ),
-                            const SizedBox(width: 5),
-                            Text(
-                              'Toque para detalhes',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: _matchColor,
-                              ),
-                            ),
-                          ],
+                    // Affordance discreta — chevron no canto direito sinaliza
+                    // que o card é tocável, sem o peso de um pill com label.
+                    const Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 4),
+                        child: Icon(
+                          Icons.chevron_right_rounded,
+                          size: 22,
+                          color: Color(0xFFCBD5E1),
                         ),
                       ),
                     ),
@@ -359,20 +259,21 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
 
   Widget _buildPremiumHeader() {
     return Container(
-      height: 120,
+      height: 110,
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: _cardGradient,
-          // 3 stops criam profundidade — meio segura a cor central por
-          // mais tempo, transições nas pontas são mais suaves.
-          stops: _cardGradient.length == 3 ? const [0.0, 0.55, 1.0] : null,
+          colors: [
+            _accent.withOpacity(0.92),
+            _accentDark.withOpacity(0.95),
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
       ),
       child: Stack(
         children: [
-          // Glow superior à esquerda — dá sensação de luz incidente
+          // Glow sutil superior à esquerda — única decoração restante.
+          // Cria sensação de luz incidente sem virar "bolha".
           Positioned(
             left: -30,
             top: -40,
@@ -383,51 +284,16 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                 shape: BoxShape.circle,
                 gradient: RadialGradient(
                   colors: [
-                    Colors.white.withOpacity(0.18),
+                    Colors.white.withOpacity(0.10),
                     Colors.white.withOpacity(0.0),
                   ],
                 ),
               ),
             ),
           ),
-          // Bolha decorativa direita topo
-          Positioned(
-            right: -25,
-            top: -25,
-            child: Container(
-              width: 110,
-              height: 110,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.12),
-              ),
-            ),
-          ),
-          // Bolha menor direita base
-          Positioned(
-            right: 40,
-            bottom: -35,
-            child: Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.10),
-              ),
-            ),
-          ),
-          // Acento secundário esquerda
-          Positioned(
-            left: 30,
-            bottom: -50,
-            child: Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.06),
-              ),
-            ),
+          // Overlay translúcido — efeito glass por cima do gradient
+          Positioned.fill(
+            child: Container(color: Colors.white.withOpacity(0.06)),
           ),
 
           // Content
@@ -445,9 +311,9 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
+                        color: Colors.black.withOpacity(0.12),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
                       ),
                     ],
                   ),
@@ -476,8 +342,12 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.15),
+                          color: Colors.white.withOpacity(0.22),
                           borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.25),
+                            width: 0.5,
+                          ),
                         ),
                         child: Text(
                           widget.job.jobType.toUpperCase(),
@@ -569,16 +439,16 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
 
   Widget _buildLogoFallback() {
     return Container(
-      color: _matchColor.withOpacity(0.1),
+      color: _accent.withOpacity(0.1),
       child: Center(
         child: Text(
           widget.job.companyName.isNotEmpty
               ? widget.job.companyName[0].toUpperCase()
               : '?',
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: 26,
             fontWeight: FontWeight.w900,
-            color: _matchColor,
+            color: _accent,
           ),
         ),
       ),
@@ -588,27 +458,25 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
   Widget _buildChip({
     required IconData icon,
     required String label,
-    required List<Color> gradientColors,
-    required Color textColor,
-    required Color iconColor,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: gradientColors),
-        borderRadius: BorderRadius.circular(10),
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 13, color: iconColor),
-          const SizedBox(width: 5),
+          Icon(icon, size: 13, color: const Color(0xFF64748B)),
+          const SizedBox(width: 6),
           Text(
             label,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: textColor,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF334155),
             ),
           ),
         ],

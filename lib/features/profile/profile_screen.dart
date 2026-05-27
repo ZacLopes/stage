@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/analytics/screen_tracking.dart';
+import '../../services/analytics_service.dart';
 import 'profile_viewmodel.dart';
+import 'profile_tab_prefs.dart';
 import 'application/profile_editor_view_model.dart';
-import '../../core/utils/display_name.dart';
-import '../auth/user_viewmodel.dart';
 import '../home/home_viewmodel.dart';
 import '../settings/settings_screen.dart';
 import 'resume_detail_screen.dart';
-import 'presentation/profile_editor_screen.dart';
-import '../tutorial/tutorial_keys.dart';
+import 'presentation/widgets/personal_info_form.dart';
+import 'presentation/widgets/preferences_tab.dart';
+import 'presentation/widgets/profile_section_list.dart';
 import '../../data/models/models.dart';
 import '../../core/widgets/pii_mask.dart';
 
@@ -61,10 +63,176 @@ const Map<SavedResumeSource, _SourceMeta> _kSourceMeta = {
 };
 
 class _ProfileScreenState extends State<ProfileScreen>
-    with ScreenTrackingMixin {
+    with
+        SingleTickerProviderStateMixin,
+        AutomaticKeepAliveClientMixin,
+        ScreenTrackingMixin {
   @override
   String get screenName => 'profile';
 
+  @override
+  bool get wantKeepAlive => true;
+
+  late final TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(
+      length: 3,
+      vsync: this,
+      // Clamp pra evitar IndexError em users com lastIndex=1 (antiga
+      // ordem Info/Currículos). Nova ordem é Info/Preferências/Currículos.
+      // Na primeira abertura após o update, quem tinha Currículos (1) cai
+      // em Preferências (1) — não-bloqueante, próxima sessão fica certo.
+      initialIndex: ProfileTabPrefs.shared.lastIndex.clamp(0, 2),
+    );
+    _tabController.addListener(_handleTabChanged);
+  }
+
+  @override
+  void dispose() {
+    _tabController.removeListener(_handleTabChanged);
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  void _handleTabChanged() {
+    if (_tabController.indexIsChanging) return;
+    final idx = _tabController.index;
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    ProfileTabPrefs.shared.save(uid, idx);
+    final tabName = switch (idx) {
+      0 => 'info',
+      1 => 'preferences',
+      _ => 'resumes',
+    };
+    Analytics.shared.track('profile_tab_changed', props: {'tab': tabName});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return PiiMask(
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF3F4F6),
+        body: Column(
+          children: [
+            _buildModernHeader(context),
+            _buildTabBar(),
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: const [
+                  _InfoTab(),
+                  PreferencesTab(),
+                  _ResumesTab(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModernHeader(BuildContext context) {
+    // Header transparente — sem faixa branca chapada nem border, consistente
+    // com as abas Vagas e Salvas.
+    return Container(
+      padding: const EdgeInsets.only(top: 60, left: 16, right: 16, bottom: 24),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Meu Perfil',
+                  style: TextStyle(fontFamily: 'Outfit',
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF111827),
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Gerencie seus currículos e informações',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
+            },
+            icon: Container(
+               padding: const EdgeInsets.all(8),
+                 decoration: BoxDecoration(
+                  color: const Color(0xFFF3F4F6),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              child: const Icon(Icons.settings, color: Color(0xFF9CA3AF), size: 20),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabBar() {
+    return Container(
+      color: const Color(0xFFF3F4F6),
+      child: TabBar(
+        controller: _tabController,
+        labelColor: const Color(0xFF00C27A),
+        unselectedLabelColor: const Color(0xFF9CA3AF),
+        indicatorColor: const Color(0xFF00C27A),
+        indicatorWeight: 3,
+        labelStyle: const TextStyle(
+          fontFamily: 'Outfit',
+          fontWeight: FontWeight.w700,
+          fontSize: 14,
+        ),
+        unselectedLabelStyle: const TextStyle(
+          fontFamily: 'Outfit',
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
+        ),
+        tabs: const [
+          Tab(text: 'Informações'),
+          Tab(text: 'Preferências'),
+          Tab(text: 'Currículos'),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// _ResumesTab — biblioteca de currículos (conteúdo histórico da aba Perfil).
+// =============================================================================
+
+class _ResumesTab extends StatefulWidget {
+  const _ResumesTab();
+
+  @override
+  State<_ResumesTab> createState() => _ResumesTabState();
+}
+
+class _ResumesTabState extends State<_ResumesTab> {
   _ResumeSort _sort = _ResumeSort.newest;
 
   /// Aplica a ordenação selecionada à lista bruta do view model.
@@ -101,19 +269,9 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   @override
   Widget build(BuildContext context) {
-    final userVM = context.watch<UserViewModel>();
-    final user = userVM.user;
-    final profileEditorVM = context.watch<ProfileEditorViewModel>();
     final homeVM = context.watch<HomeViewModel>();
     final highlightId = homeVM.pendingHighlightResumeId;
 
-    // Display name — prioriza profile_personal (novo onboarding) sobre
-    // user_profiles.name (legacy, que pode ser o placeholder "User" para
-    // signups via Apple/Google/phone).
-    final displayName = resolveDisplayName(profileEditorVM, user?.name);
-
-    // Clear the highlight after this frame so it only plays once per
-    // request. _ResumeCard reads the id on construct and animates.
     if (highlightId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -124,189 +282,47 @@ class _ProfileScreenState extends State<ProfileScreen>
     return Consumer<ProfileViewModel>(
       builder: (context, viewModel, child) {
         if (viewModel.isLoading) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return const Center(child: CircularProgressIndicator());
         }
-
-        return PiiMask(child: Scaffold(
-          backgroundColor: const Color(0xFFF3F4F6),
-          body: Column(
-            children: [
-              _buildModernHeader(context),
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: () => viewModel.loadSavedResumes(),
-                  child: SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 24),
-                        _buildUserIdentity(context, displayName),
-                        const SizedBox(height: 32),
-                        
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                'Sua Biblioteca',
-                                style: TextStyle(fontFamily: 'Outfit', 
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF1F2937),
-                                ),
-                              ),
-                            ),
-                            if (viewModel.savedResumes.isNotEmpty)
-                              _buildSortButton(),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        if (viewModel.savedResumes.isNotEmpty) ...[
-                          _buildSourceLegend(viewModel),
-                          const SizedBox(height: 16),
-                        ],
-
-                        if (viewModel.savedResumes.isEmpty)
-                          _buildEmptyState()
-                        else
-                          _buildResumeList(viewModel, highlightId),
-                          
-                        const SizedBox(height: 40),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ));
-      },
-    );
-  }
-
-  Widget _buildModernHeader(BuildContext context) {
-    // Header transparente — sem faixa branca chapada nem border, consistente
-    // com as abas Vagas e Salvas.
-    return Container(
-      padding: const EdgeInsets.only(top: 60, left: 16, right: 16, bottom: 24),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
+        return RefreshIndicator(
+          onRefresh: () => viewModel.loadSavedResumes(),
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Meu Perfil',
-                  style: TextStyle(fontFamily: 'Outfit', 
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF111827),
-                    letterSpacing: -0.5,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Sua Biblioteca',
+                        style: TextStyle(fontFamily: 'Outfit',
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF1F2937),
+                        ),
+                      ),
+                    ),
+                    if (viewModel.savedResumes.isNotEmpty)
+                      _buildSortButton(),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'Gerencie sua biblioteca de currículos',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[600],
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+                const SizedBox(height: 12),
+                if (viewModel.savedResumes.isNotEmpty) ...[
+                  _buildSourceLegend(viewModel),
+                  const SizedBox(height: 16),
+                ],
+                if (viewModel.savedResumes.isEmpty)
+                  _buildEmptyState()
+                else
+                  _buildResumeList(viewModel, highlightId),
+                const SizedBox(height: 40),
               ],
             ),
           ),
-          const SizedBox(width: 4),
-          // Botão Editar Perfil — abre o editor estruturado profile-first.
-          // Semana 2: spotlight tutorial aponta aqui na primeira abertura pós-update.
-          IconButton(
-            key: TutorialKeys.editProfileButton,
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ProfileEditorScreen()),
-              );
-            },
-            tooltip: 'Editar Perfil',
-            icon: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF00C27A).withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.edit_outlined, color: Color(0xFF00C27A), size: 20),
-            ),
-          ),
-          const SizedBox(width: 4),
-          IconButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              );
-            },
-            icon: Container(
-               padding: const EdgeInsets.all(8),
-                 decoration: BoxDecoration(
-                  color: const Color(0xFFF3F4F6),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              child: const Icon(Icons.settings, color: Color(0xFF9CA3AF), size: 20),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildUserIdentity(BuildContext context, String displayName) {
-    final initial = displayName.isNotEmpty
-        ? displayName.substring(0, 1).toUpperCase()
-        : 'U';
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(2),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2),
-            boxShadow: [
-               BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
-            ],
-            gradient: const LinearGradient(
-              colors: [Color(0xFF6366F1), Color(0xFF818CF8)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-          child: CircleAvatar(
-            radius: 24,
-            backgroundColor: const Color(0xFFF3F4F6),
-            child: Text(
-              initial,
-              style: const TextStyle(fontSize: 20, color: Color(0xFF4F46E5), fontWeight: FontWeight.bold),
-            ),
-          ),
-        ),
-        const SizedBox(width: 16),
-        Flexible(
-          child: Text(
-            displayName,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF111827),
-            ),
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -332,7 +348,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           const SizedBox(height: 16),
           Text(
             'Nenhum currículo salvo',
-            style: TextStyle(fontFamily: 'Outfit', 
+            style: TextStyle(fontFamily: 'Outfit',
               fontSize: 16,
               fontWeight: FontWeight.w600,
               color: const Color(0xFF374151),
@@ -441,7 +457,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   alignment: Alignment.centerLeft,
                   child: Text(
                     'Ordenar por',
-                    style: TextStyle(fontFamily: 'Outfit', 
+                    style: TextStyle(fontFamily: 'Outfit',
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
                       color: const Color(0xFF111827),
@@ -485,7 +501,6 @@ class _ProfileScreenState extends State<ProfileScreen>
         .where((s) => present.contains(s))
         .toList();
     if (entries.length < 2) {
-      // Só 1 tipo presente — não vale a pena mostrar legenda.
       return const SizedBox.shrink();
     }
     return Wrap(
@@ -545,37 +560,32 @@ class _ProfileScreenState extends State<ProfileScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Icon Header (Warning/Delete)
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFEE2E2), // Very light red
+                  color: const Color(0xFFFEE2E2),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
                   Icons.delete_forever_rounded,
-                  color: Color(0xFFDC2626), // Sharp red
+                  color: Color(0xFFDC2626),
                   size: 32,
                 ),
               ),
               const SizedBox(height: 20),
-              
-              // Title
               Text(
                 'Excluir Currículo?',
-                style: TextStyle(fontFamily: 'Outfit', 
+                style: TextStyle(fontFamily: 'Outfit',
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
                   color: const Color(0xFF1F2937),
                 ),
               ),
               const SizedBox(height: 8),
-              
-              // Subtitle
               RichText(
                 textAlign: TextAlign.center,
                 text: TextSpan(
-                  style: TextStyle(fontFamily: 'Inter', 
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 14,
                     color: Colors.grey[600],
                     height: 1.4,
@@ -591,8 +601,6 @@ class _ProfileScreenState extends State<ProfileScreen>
                 ),
               ),
               const SizedBox(height: 24),
-              
-              // Actions
               Row(
                 children: [
                   Expanded(
@@ -604,7 +612,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       ),
                       child: Text(
                         'Manter',
-                        style: TextStyle(fontFamily: 'Inter', 
+                        style: TextStyle(fontFamily: 'Inter',
                           fontWeight: FontWeight.w600,
                           color: Colors.grey[600],
                         ),
@@ -624,7 +632,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       ),
                       child: Text(
                         'Excluir',
-                        style: TextStyle(fontFamily: 'Inter', 
+                        style: TextStyle(fontFamily: 'Inter',
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
                         ),
@@ -644,6 +652,227 @@ class _ProfileScreenState extends State<ProfileScreen>
     }
   }
 }
+
+// =============================================================================
+// _InfoTab — editor estruturado do perfil (antigo ProfileEditorScreen).
+// =============================================================================
+
+class _InfoTab extends StatefulWidget {
+  const _InfoTab();
+
+  @override
+  State<_InfoTab> createState() => _InfoTabState();
+}
+
+class _InfoTabState extends State<_InfoTab> {
+  bool _personalExpanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final vm = context.watch<ProfileEditorViewModel>();
+    return vm.isLoading
+        ? const Center(child: CircularProgressIndicator(color: Color(0xFF00C27A)))
+        : RefreshIndicator(
+            color: const Color(0xFF00C27A),
+            onRefresh: () => vm.load(),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+              children: [
+                _header(vm),
+                const SizedBox(height: 16),
+                _personalCard(vm),
+                const SizedBox(height: 12),
+                const ProfileSectionList(
+                  showLowConfidenceBadges: false,
+                ),
+              ],
+            ),
+          );
+  }
+
+  Widget _header(ProfileEditorViewModel vm) {
+    final p = vm.personal;
+    final name = p?.fullName ?? '';
+    final headline = p?.headline ?? '';
+    final location = p?.formattedLocation ?? '';
+    final score = vm.completenessScore;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 28,
+                backgroundColor: const Color(0xFF00C27A).withValues(alpha: 0.15),
+                child: Text(
+                  name.isEmpty ? '?' : name.substring(0, 1).toUpperCase(),
+                  style: const TextStyle(
+                    color: Color(0xFF00C27A),
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name.isEmpty ? 'Seu nome' : name,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                    ),
+                    if (headline.isNotEmpty || location.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          [headline, location].where((s) => s.isNotEmpty).join(' • '),
+                          style: const TextStyle(color: Color(0xFF6B7280), fontSize: 13),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              // Indicador de salvamento — substitui o que ficava no AppBar
+              // do antigo ProfileEditorScreen. AnimatedSwitcher suaviza a
+              // transição idle → saving → saved → idle (some sozinho em 2s
+              // via lógica no view model).
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                child: _saveIndicator(vm.saveStatus),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: score / 100,
+                    backgroundColor: const Color(0xFFE5E7EB),
+                    color: const Color(0xFF00C27A),
+                    minHeight: 8,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '$score% completo',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF6B7280),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _saveIndicator(SaveStatus status) {
+    String label;
+    Color color;
+    IconData icon;
+    switch (status) {
+      case SaveStatus.saving:
+        label = 'Salvando';
+        color = const Color(0xFF6B7280);
+        icon = Icons.sync;
+        break;
+      case SaveStatus.saved:
+        label = 'Salvo';
+        color = const Color(0xFF10B981);
+        icon = Icons.check_circle_outline;
+        break;
+      case SaveStatus.error:
+        label = 'Erro';
+        color = const Color(0xFFEF4444);
+        icon = Icons.error_outline;
+        break;
+      case SaveStatus.idle:
+        return const SizedBox.shrink(key: ValueKey('idle'));
+    }
+    return Padding(
+      key: ValueKey(status),
+      padding: const EdgeInsets.only(left: 8, top: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _personalCard(ProfileEditorViewModel vm) {
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => setState(() => _personalExpanded = !_personalExpanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  const Icon(Icons.person_outline, color: Color(0xFF6B7280)),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Informações pessoais',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Icon(
+                    _personalExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                    color: const Color(0xFF6B7280),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_personalExpanded && vm.personal != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+              child: PersonalInfoForm(
+                initial: vm.personal,
+                onChanged: (draft) => vm.updatePersonalDraft(draft),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// _ResumeCard — card individual de um currículo na biblioteca.
+// =============================================================================
 
 class _ResumeCard extends StatefulWidget {
   final SavedResume resume;
@@ -699,7 +928,7 @@ class _ResumeCardState extends State<_ResumeCard>
         if (mounted) _controller.forward();
       });
     } else {
-      _controller.value = 1.0; // settled state
+      _controller.value = 1.0;
     }
   }
 
@@ -734,8 +963,6 @@ class _ResumeCardState extends State<_ResumeCard>
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
-                // F8: borda colorida discreta na cor do source — sinal
-                // visual ambiente sem competir com o conteúdo do card.
                 border: Border.all(color: sourceMeta.color.withOpacity(0.35), width: 1),
                 boxShadow: [
                   BoxShadow(
@@ -755,7 +982,6 @@ class _ResumeCardState extends State<_ResumeCard>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Preview Area (Capinha)
             Expanded(
               child: Container(
                 width: double.infinity,
@@ -763,7 +989,6 @@ class _ResumeCardState extends State<_ResumeCard>
                 color: const Color(0xFFF9FAFB),
                 child: Stack(
                   children: [
-                    // Mock Document Design
                     Container(
                       width: double.infinity,
                       height: double.infinity,
@@ -794,11 +1019,6 @@ class _ResumeCardState extends State<_ResumeCard>
                         ],
                       ),
                     ),
-                    
-                    // F8: badge da origem (manual/imported/adapted) no
-                    // canto superior esquerdo do preview. Sinal direto
-                    // pro usuário identificar de relance se o CV foi
-                    // adaptado por IA, importado de PDF, ou editado.
                     Positioned(
                       top: 4,
                       left: 4,
@@ -833,8 +1053,6 @@ class _ResumeCardState extends State<_ResumeCard>
                         ),
                       ),
                     ),
-
-                    // Quick Action Link
                     Positioned(
                       top: 4,
                       right: 4,
@@ -892,8 +1110,6 @@ class _ResumeCardState extends State<_ResumeCard>
                 ),
               ),
             ),
-            
-            // Info Area
             Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
@@ -903,7 +1119,7 @@ class _ResumeCardState extends State<_ResumeCard>
                     widget.resume.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontFamily: 'Inter', 
+                    style: TextStyle(fontFamily: 'Inter',
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
                       color: const Color(0xFF1F2937),

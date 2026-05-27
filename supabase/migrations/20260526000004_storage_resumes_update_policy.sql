@@ -7,6 +7,12 @@
 --
 -- Regra simétrica às outras 3: user só atualiza arquivos dentro da pasta
 -- `<auth.uid()>/` (folder root da própria conta).
+--
+-- DROP IF EXISTS torna idempotente — a policy foi aplicada manual no remoto
+-- antes do histórico de migrations ser corrigido, então sem essa guarda
+-- `supabase db push --include-all` falharia com "already exists".
+
+DROP POLICY IF EXISTS "Users can update their own resumes in storage" ON storage.objects;
 
 CREATE POLICY "Users can update their own resumes in storage"
   ON storage.objects

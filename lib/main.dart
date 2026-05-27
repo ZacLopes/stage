@@ -29,6 +29,7 @@ import 'features/jobs/data/job_repository.dart';
 import 'features/jobs/data/swipe_repository.dart';
 import 'features/jobs/data/preferences_repository.dart';
 import 'features/jobs/pending_adapted_cv_tracker.dart';
+import 'features/profile/profile_tab_prefs.dart';
 import 'features/tutorial/tutorial_controller.dart';
 import 'features/tutorial/tutorial_overlay.dart';
 import 'services/ai_service.dart';
@@ -130,6 +131,14 @@ Future<void> _bootstrap() async {
   // primeiro frame se houver pending (sem flash vazio → cheio).
   try {
     await PendingAdaptedCvTracker.shared.hydrate();
+  } catch (_) {}
+
+  // Hidrata a última sub-aba do Perfil (Currículos vs Informações) antes da
+  // árvore montar, pra que o TabController já tenha o initialIndex correto e
+  // não ocorra flash visual aba 0 → aba salva no cold start.
+  try {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    await ProfileTabPrefs.shared.hydrate(uid);
   } catch (_) {}
 
   // Facebook App Events: init sem pedir ATT ainda. ATT é solicitado depois
@@ -342,12 +351,32 @@ class CareerGamificationApp extends StatelessWidget {
       builder: (context, child) {
         return PostHogWidget(
           // Toque em qualquer lugar fora de um campo dispensa o teclado.
-          // `HitTestBehavior.translucent` permite que widgets abaixo (botões,
-          // listas, gestos) continuem recebendo os toques normalmente — só
-          // o teclado é fechado.
-          child: GestureDetector(
+          //
+          // Usa `Listener` em vez de `GestureDetector` porque o detector
+          // participa do gesture arena e pode perder pra outros widgets
+          // (CardSwiper, InkWell, etc) — resultado: tap não chega e
+          // teclado fica órfão na tela. `Listener` recebe `PointerDownEvent`
+          // sempre, sem competir.
+          //
+          // Além do `unfocus()`, força o fechamento via canal nativo
+          // (`TextInput.hide`). Sem isso, quando o user sai de uma rota
+          // com TextField focado (onboarding → home), o FocusNode é
+          // disposed mas o teclado nativo continua aberto — `primaryFocus`
+          // vira null e `unfocus()` não tem efeito. O canal direto fecha
+          // o teclado independente do estado do foco no Flutter.
+          child: Listener(
             behavior: HitTestBehavior.translucent,
-            onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+            onPointerDown: (_) {
+              // Só dispensa se nenhum campo de texto está com foco
+              // legítimo. Sem essa guard, tap dentro de um TextField
+              // ativo fechava o teclado imediatamente (UX ruim ao editar).
+              final focus = FocusManager.instance.primaryFocus;
+              final hasEditableFocus = focus?.context?.widget is EditableText;
+              if (!hasEditableFocus) {
+                focus?.unfocus();
+                SystemChannels.textInput.invokeMethod('TextInput.hide');
+              }
+            },
             child: Stack(
               children: [
                 if (child != null) child,

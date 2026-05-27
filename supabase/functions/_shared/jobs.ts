@@ -555,6 +555,7 @@ export interface CompanyExtra {
   logo_url?: string | null;
   website?: string | null;
   description?: string | null;
+  description_html?: string | null;
 }
 
 /**
@@ -577,6 +578,7 @@ export async function getOrCreateCompany(
   if (extra?.logo_url !== undefined) payload.logo_url = extra.logo_url;
   if (extra?.website !== undefined) payload.website = extra.website;
   if (extra?.description !== undefined) payload.description = extra.description;
+  if (extra?.description_html !== undefined) payload.description_html = extra.description_html;
 
   const { data, error } = await supabase
     .from("companies")

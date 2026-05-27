@@ -18,8 +18,4 @@ class TutorialKeys {
   // ResumeTab (entry-point cards)
   static final GlobalKey trailCard = GlobalKey(debugLabel: 'tutorial.trailCard');
   static final GlobalKey importCard = GlobalKey(debugLabel: 'tutorial.importCard');
-
-  // Profile-first (Semana 2): botão "Editar Perfil" no header da aba Perfil.
-  // Spotlight aponta aqui na primeira abertura pós-update.
-  static final GlobalKey editProfileButton = GlobalKey(debugLabel: 'tutorial.editProfileButton');
 }

@@ -11,9 +11,16 @@ class Job {
   final String jobType;
   final int matchScore;
   final String description;
+  /// HTML cru do description, preservado pra renderização rica em
+  /// job_details_sheet. Texto plano (description) continua sendo usado em
+  /// JobCard preview, match_score e analytics — manter os dois evita
+  /// regressões.
+  final String descriptionHtml;
   final List<String> requirements;
   final List<String> benefits;
   final String aboutCompany;
+  /// HTML cru do aboutCompany (mesma motivação de [descriptionHtml]).
+  final String aboutCompanyHtml;
   final String postedDaysAgo;
   final String? deadline;
   /// Data crua da deadline pra comparação (filtros, agrupamento por prazo
@@ -43,9 +50,11 @@ class Job {
     required this.jobType,
     required this.matchScore,
     required this.description,
+    this.descriptionHtml = '',
     required this.requirements,
     required this.benefits,
     required this.aboutCompany,
+    this.aboutCompanyHtml = '',
     required this.postedDaysAgo,
     this.deadline,
     this.deadlineAt,
@@ -73,6 +82,7 @@ class Job {
     final String companyName = company?.name ?? json['company_name'] ?? '';
     final String companyLogoUrl = company?.logoUrl ?? '';
     final String aboutCompany = company?.description ?? '';
+    final String aboutCompanyHtmlRaw = company?.descriptionHtml ?? '';
 
     // Build location string
     final city = json['location_city'] as String?;
@@ -135,10 +145,14 @@ class Job {
     final benefits =
         _parseStringList(json['benefits']).map(_stripHtml).where((s) => s.isNotEmpty).toList();
 
-    // Strip HTML do description: alguns ATSs (Greenhouse) entregam HTML cru,
-    // e mesmo após sanitização server-side, vagas legacy podem ter ficado.
-    // Defensive na camada de leitura garante UI sempre limpa.
-    final description = _stripHtml(json['description'] as String? ?? '');
+    // description: texto plano (já vem stripped do backend) — usado em
+    //   JobCard preview, match_score e analytics.
+    // description_html: HTML cru preservado pelo sync (campo novo, NULL em
+    //   vagas antigas) — usado pelo flutter_html no detalhe da vaga.
+    // Quando description_html for null/vazio, o widget cai no fallback de
+    // texto plano automaticamente.
+    final description = json['description'] as String? ?? '';
+    final descriptionHtmlRaw = json['description_html'] as String? ?? '';
 
     return Job(
       id: json['id'] as String,
@@ -151,9 +165,11 @@ class Job {
       jobType: jobTypeDisplay,
       matchScore: matchScore,
       description: description,
+      descriptionHtml: descriptionHtmlRaw,
       requirements: requirements,
       benefits: benefits,
-      aboutCompany: _stripHtml(aboutCompany),
+      aboutCompany: aboutCompany,
+      aboutCompanyHtml: aboutCompanyHtmlRaw,
       postedDaysAgo: postedDaysAgo,
       deadline: deadlineDisplay,
       deadlineAt: deadlineRaw,
@@ -209,8 +225,11 @@ class Job {
   /// Quebras virais entre parágrafos viram \n\n, <br> vira \n, demais tags somem.
   static String _stripHtml(String input) {
     if (input.isEmpty) return input;
-    // Se não tem nenhuma tag, retorna como está (otimização rápida)
-    if (!input.contains('<')) return input;
+    // Otimização: se não tem nenhuma tag nem entidade, retorna direto.
+    // Cuidado: alguns ATSs (XP Inc. via Gupy/Apify) mandam o description sem
+    // tags `<>` mas com `&nbsp;` literais no meio do texto — checar só `<`
+    // deixava esses casos com entidades cruas na UI.
+    if (!input.contains('<') && !input.contains('&')) return input;
 
     var s = input
         // Quebras de linha semânticas

@@ -184,6 +184,14 @@ class ProfilePdfData {
     final educationOut = education.map((edu) {
       final primaryMajor = edu.majors.isNotEmpty ? edu.majors.first.name : '';
       final gpaStr = _formatGpa(edu.gpa, edu.maxGpa);
+      // Activities vêm de profile_education_activities — antes ficavam fora
+      // do PDF porque o mapeamento não passava esse campo. Agora ordenamos
+      // por orderIndex pra preservar a sequência salva no banco.
+      final activityTexts = (edu.activities.toList()
+            ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex)))
+          .map((a) => a.text)
+          .where((t) => t.trim().isNotEmpty)
+          .toList();
       return EducationItem(
         degree: edu.degree ?? '',
         institution: edu.institution,
@@ -194,6 +202,7 @@ class ProfilePdfData {
         honors: '',
         repRole: '',
         coursework: '',
+        activities: activityTexts,
       );
     }).toList();
 
@@ -272,6 +281,25 @@ class ProfilePdfData {
     // que tenha country code (4 users reais na base hoje têm cc='+55' e
     // n=NULL — antes mostraria "Mobile: +55" sem número no PDF).
     if (n.isEmpty) return '';
+
+    // Só dígitos pra normalizar — números podem vir como "43991260202",
+    // "(43) 99126-0202", "43 99126 0202", etc.
+    final digits = n.replaceAll(RegExp(r'\D'), '');
+
+    // Brasil: country code '+55' → formato (DD) 9XXXX-XXXX (celular, 11
+    // dígitos) ou (DD) XXXX-XXXX (fixo, 10 dígitos). Sem '+55' no display
+    // — o CV é brasileiro, o prefixo é redundante e ocupa espaço.
+    if ((c == '+55' || c.isEmpty) && (digits.length == 10 || digits.length == 11)) {
+      final ddd = digits.substring(0, 2);
+      final rest = digits.substring(2);
+      if (rest.length == 9) {
+        return '($ddd) ${rest.substring(0, 5)}-${rest.substring(5)}';
+      }
+      return '($ddd) ${rest.substring(0, 4)}-${rest.substring(4)}';
+    }
+
+    // Outros países: mantém formato cc + número como veio (sem assumir
+    // padrão regional que pode estar errado).
     if (c.isEmpty) return n;
     return '$c $n';
   }

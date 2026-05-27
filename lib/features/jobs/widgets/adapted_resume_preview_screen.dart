@@ -38,8 +38,10 @@ class AdaptedResumePreviewScreen extends StatefulWidget {
   final Job job;
 
   /// CV "original" do usuário antes de qualquer adaptação, usado no toggle
-  /// "Original | Adaptado". Vem do `imported_resume.parsed` do user. Se
-  /// null, o toggle cai no fallback (mostra adapted como original).
+  /// "Original | Adaptado". Pós Fase 2 da migração profile-first vem do
+  /// snapshot das tabelas relacionais `profile_*` (via
+  /// `ProfileSnapshotService` no caller). Se null, o toggle cai no
+  /// fallback (mostra adapted como original).
   final ResumeData? originalResumeData;
 
   const AdaptedResumePreviewScreen({
@@ -149,7 +151,8 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
     _selectedTemplateId = context.read<ResumeViewModel>().selectedTemplateId;
     _loadSelectedTemplate();
     // Ordem de preferência pro CV "original" no toggle:
-    //   1. Injetado pelo caller (imported_resume.parsed do user).
+    //   1. Injetado pelo caller (snapshot das tabelas profile_* via
+    //      ProfileSnapshotService).
     //   2. ResumeData do ResumeViewModel (caso o user tenha criado CV
     //      via editor/trilha em vez de importar PDF).
     //   3. Fallback pro próprio adapted (toggle perde a função mas a

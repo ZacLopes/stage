@@ -3,10 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/analytics/screen_tracking.dart';
 import '../../core/utils/display_name.dart';
+import '../auth/account_migration_screen.dart';
+import '../auth/phone_auth_helpers.dart';
 import '../auth/user_viewmodel.dart';
 import '../auth/onboarding_screen.dart';
 import '../profile/application/profile_editor_view_model.dart';
 import 'change_password_screen.dart';
+import '../resume/widgets/ai_consent_modal.dart';
 import '../resume/widgets/template_thumbnail_generator_screen.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../../core/utils/app_notifications.dart';
@@ -63,6 +66,14 @@ class _SettingsScreenState extends State<SettingsScreen>
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
+          // Banner de migração OAuth — só aparece pra users legacy de
+          // email+senha que ainda não vincularam Apple/Google. Removido
+          // o login com email do app (2026-05-26) → esses users precisam
+          // migrar antes da sessão atual expirar.
+          if (userVM.needsOAuthMigration) ...[
+            _OAuthMigrationBanner(),
+            const SizedBox(height: 20),
+          ],
           // Section: Account
           const _SectionHeader(title: 'Conta'),
           const SizedBox(height: 12),
@@ -104,26 +115,45 @@ class _SettingsScreenState extends State<SettingsScreen>
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                             ),
-                            const SizedBox(height: 4),
-                            Text(user?.email ?? 'email@exemplo.com', style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                            // Esconde linha pra contas via phone signup
+                            // (email é sintético `phone_<digits>@stage.app`,
+                            // exposto era confuso pro user).
+                            if (!PhoneAuthHelpers.isSyntheticEmail(user?.email)) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                user?.email ?? 'email@exemplo.com',
+                                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                              ),
+                            ],
                           ],
                         ),
                       ),
                     ],
                   ),
                 ),
-                const Divider(height: 1),
-                _SettingsTile(
-                  icon: Icons.lock_outline,
-                  title: 'Senha',
-                  subtitle: 'Trocar senha de acesso',
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
-                    );
-                  },
-                ),
+                // Trocar senha só faz sentido pra users com auth email+senha
+                // (identity provider 'email'). Esconde pra:
+                //  - Apple/Google OAuth users (~88% da base, sem
+                //    encrypted_password em auth.users)
+                //  - Phone signup users (synthetic email + senha random,
+                //    eles entram via OTP)
+                // Pra esses, `signInWithPassword` falharia e a UX seria
+                // confusa ("senha atual incorreta" pra alguém que nunca teve).
+                if (userVM.hasPasswordAuth &&
+                    !PhoneAuthHelpers.isSyntheticEmail(user?.email)) ...[
+                  const Divider(height: 1),
+                  _SettingsTile(
+                    icon: Icons.lock_outline,
+                    title: 'Senha',
+                    subtitle: 'Trocar senha de acesso',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
+                      );
+                    },
+                  ),
+                ],
 
               ],
             ),
@@ -269,9 +299,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                         child: const Text('Revogar', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
                       )
                     : const Icon(Icons.chevron_right, color: Color(0xFF9CA3AF), size: 20),
-                  onTap: user?.aiConsent == true ? null : () {
-                    // This will be handled by the Resume tab when they try to generate
-                  },
+                  onTap: user?.aiConsent == true
+                      ? null
+                      : () => _showGrantConsentModal(context, userVM),
                 ),
               ],
             ),
@@ -472,6 +502,37 @@ class _SettingsScreenState extends State<SettingsScreen>
         );
       }
     }
+  }
+
+  void _showGrantConsentModal(BuildContext context, UserViewModel userVM) {
+    final messenger = ScaffoldMessenger.of(context);
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      pageBuilder: (dialogContext, _, _) => AIConsentModal(
+        onAccept: () async {
+          try {
+            await userVM.updateAIConsent(true);
+            if (dialogContext.mounted) Navigator.pop(dialogContext);
+            messenger.showSnackBar(
+              const SnackBar(
+                content: Text('Consentimento autorizado.'),
+                backgroundColor: Colors.black87,
+              ),
+            );
+          } catch (_) {
+            if (dialogContext.mounted) Navigator.pop(dialogContext);
+            messenger.showSnackBar(
+              const SnackBar(
+                content: Text('Não foi possível salvar agora. Tente de novo.'),
+                backgroundColor: Colors.redAccent,
+              ),
+            );
+          }
+        },
+        onCancel: () => Navigator.pop(dialogContext),
+      ),
+    );
   }
 }
 
@@ -1003,6 +1064,84 @@ class _NotificationsTileState extends State<_NotificationsTile> {
             )
           : const Icon(Icons.chevron_right,
               color: Color(0xFF9CA3AF), size: 20),
+    );
+  }
+}
+
+/// Banner pros 112 users legacy de email+senha que precisam vincular
+/// Apple ou Google antes que a sessão atual expire (removemos a tela
+/// de login com email em 2026-05-26). Renderiza só quando
+/// `userVM.needsOAuthMigration == true` — some sozinho assim que o
+/// user vincula. Some também pra OAuth users e phone signup.
+///
+/// Visual: card amarelo destacado no topo do Settings, com CTA pra
+/// AccountMigrationScreen. Não-dismissível — a ação é obrigatória.
+class _OAuthMigrationBanner extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const AccountMigrationScreen()),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFEF3C7),
+          border: Border.all(color: const Color(0xFFFCD34D), width: 1.5),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFFB45309),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.shield_outlined,
+                color: Colors.white,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Conecte sua conta',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF78350F),
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'Vincule Apple ou Google pra continuar entrando.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF92400E),
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right,
+              color: Color(0xFFB45309),
+              size: 22,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
