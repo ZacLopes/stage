@@ -506,9 +506,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     if (_matchVariant == 'deterministic_v1') {
       final vm = context.read<JobsViewModel>();
       final userVm = context.read<UserViewModel>();
+      // Pós Passo 3 (2026-05-27): match score lê IDENTIDADE do Perfil
+      // (`profilePrefs`, tabelas relacionais), NÃO os filtros temporários
+      // do feed (`preferences`). Filtros só escondem/mostram vagas.
       final result = MatchScoreCalculator.calculate(
         job: job,
-        prefs: vm.preferences,
+        prefs: vm.profilePrefs,
         gamificationData: userVm.user?.gamificationData,
         profileText: _profileText,
       );
@@ -550,9 +553,11 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         try {
           final vm = context.read<JobsViewModel>();
           final userVm = context.read<UserViewModel>();
+          // Mesmo princípio do caminho determinístico acima: fallback
+          // lê IDENTIDADE do Perfil (profilePrefs), não filtros (preferences).
           final fallback = MatchScoreCalculator.calculate(
             job: job,
-            prefs: vm.preferences,
+            prefs: vm.profilePrefs,
             gamificationData: userVm.user?.gamificationData,
             profileText: _profileText,
           );

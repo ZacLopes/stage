@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/ai_service.dart';
 import '../../services/analytics_service.dart';
@@ -16,6 +18,12 @@ import 'utils/match_score.dart';
 class JobsViewModel extends ChangeNotifier {
   final JobRepository _jobRepository;
   final SwipeRepository _swipeRepository;
+  /// @deprecated Mantido no construtor por compatibilidade durante a migração
+  /// pra fonte única (tabelas relacionais `profile_*`). Após Passo 3 do plano
+  /// match-score (2026-05-27), JobsViewModel NÃO chama mais este repo — filtros
+  /// vão pra SharedPreferences local e identidade vem das tabelas relacionais.
+  /// Remover no Passo 6 (pós-release) junto com o cleanup do legacy.
+  // ignore: unused_field
   final PreferencesRepository _preferencesRepository;
   final AIService _aiService;
 
@@ -32,12 +40,15 @@ class JobsViewModel extends ChangeNotifier {
     this._preferencesRepository,
     this._aiService,
   ) {
-    // Invalida cache de profileText quando o user edita o perfil — sem
-    // isso, adicionar skill via Profile Editor não reflete no match
-    // score determinístico até hot-restart.
+    // Invalida cache de profileText E profilePrefs quando o user edita o
+    // perfil — sem isso, adicionar skill via Profile Editor ou mudar
+    // preferências via tab Perfil não reflete no match score determinístico
+    // até hot-restart.
     _profileEventsSub = ProfileEvents.instance.changes.listen((_) {
       _profileTextLoaded = false;
       _cachedProfileText = null;
+      _profilePrefsLoaded = false;
+      _cachedProfilePrefs = null;
       notifyListeners();
     });
     _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
@@ -67,6 +78,8 @@ class JobsViewModel extends ChangeNotifier {
           _cachedGamificationData = null;
           _profileTextLoaded = false;
           _cachedProfileText = null;
+          _profilePrefsLoaded = false;
+          _cachedProfilePrefs = null;
           _totalAvailable = 0;
           _totalAfterFilters = 0;
           notifyListeners();
@@ -114,7 +127,17 @@ class JobsViewModel extends ChangeNotifier {
   List<Job> get jobs => _jobs;
   Set<String> get swipedIds => _swipedIds;
   int get remainingCount => _jobs.length - _swipedIds.length;
+  /// Filtros TEMPORÁRIOS de feed (vivem em SharedPreferences local após
+  /// Passo 3 do plano match-score, 2026-05-27). Mexer aqui só altera o
+  /// que aparece no feed — NÃO afeta o match score. Pra identidade que
+  /// alimenta o match, ver [profilePrefs].
   UserJobPreferences? get preferences => _preferences;
+  /// Preferências de IDENTIDADE lidas das tabelas relacionais
+  /// (`profile_job_preferences`, `profile_desired_titles`,
+  /// `profile_other_locations`). Alimenta o MatchScoreCalculator no
+  /// fallback determinístico. Carregado por [_loadProfilePrefs] e
+  /// cacheado por sessão (invalida em `ProfileEvents.changes`).
+  UserJobPreferences? get profilePrefs => _cachedProfilePrefs;
   bool get isLoading => _isLoading;
   bool get isPreferencesLoading => _isPreferencesLoading;
   String? get errorMessage => _errorMessage;
@@ -228,8 +251,19 @@ class JobsViewModel extends ChangeNotifier {
   }
 
   Future<void> _performFetch() async {
-    // Load preferences first
-    _preferences = await _preferencesRepository.getPreferences(userId!);
+    // 1) Carrega FILTROS temporários do feed (local). Se não existem,
+    //    default = identidade do Perfil (tabelas relacionais), pra que o
+    //    user na 1ª abertura veja feed filtrado por área/cidade declaradas.
+    //    User pode mexer nos filtros depois sem afetar o Perfil.
+    final uid = userId!;
+    _preferences = await _loadLocalFilters(uid);
+    if (_preferences == null || _preferences!.isEmpty) {
+      _preferences = await _loadProfilePrefs();
+    } else {
+      // Pré-carrega profilePrefs em paralelo (match score precisa).
+      // ignore: unawaited_futures
+      _loadProfilePrefs();
+    }
 
     // Then load jobs with those preferences (filters de atributos: área,
     // localização, modelo, tipo, salário — feitos no SQL/repo)
@@ -274,17 +308,20 @@ class JobsViewModel extends ChangeNotifier {
     final ids = jobs.map((j) => j.id).toList();
 
     // Pega cache de match (IA preciso) + gamification_data + pseudo-texto
-    // das tabelas profile_* em paralelo.
+    // das tabelas profile_* + identidade do Perfil em paralelo.
     Map<String, MatchResult> cached = const {};
     Map<String, dynamic>? gamificationData;
     String? profileText;
+    UserJobPreferences? profilePrefs;
     try {
       final cachedFuture = _aiService.fetchCachedMatches(ids);
       final gamifFuture = _fetchGamificationData();
       final profileFuture = _fetchProfileText();
+      final profilePrefsFuture = _loadProfilePrefs();
       cached = await cachedFuture;
       gamificationData = await gamifFuture;
       profileText = await profileFuture;
+      profilePrefs = await profilePrefsFuture;
     } catch (e) {
       print('Match score filter: failed to load context, allowing all: $e');
       return jobs; // falha graciosa — não zera o feed
@@ -295,12 +332,13 @@ class JobsViewModel extends ChangeNotifier {
       if (aiScore != null && aiScore > 0) {
         return aiScore >= minScore;
       }
-      // Fallback determinístico — usa mesmo input que o card (prefs + gamif
-      // + profile_*), garantindo consistência visual: se filtro deixa passar,
-      // card mostra score >= threshold.
+      // Fallback determinístico — usa identidade do Perfil (NÃO os filtros
+      // temporários), pra que o filtro min_match_score concorde com o
+      // score mostrado no card. Pós Passo 3 (2026-05-27), o card também
+      // lê de profilePrefs (vide jobs_swipe_screen.dart).
       final fallback = MatchScoreCalculator.calculate(
         job: job,
-        prefs: _preferences,
+        prefs: profilePrefs,
         gamificationData: gamificationData,
         profileText: profileText,
       );
@@ -330,6 +368,136 @@ class JobsViewModel extends ChangeNotifier {
       _gamificationDataLoaded = true;
     }
     return _cachedGamificationData;
+  }
+
+  /// Preferências de IDENTIDADE do user (área, cidade, modelo, tipo) lidas
+  /// diretamente das tabelas relacionais `profile_job_preferences`,
+  /// `profile_desired_titles`, `profile_other_locations`. Usada pra alimentar
+  /// o MatchScoreCalculator no fallback determinístico — separadas dos
+  /// filtros temporários de feed (`_preferences`). Cacheado por sessão;
+  /// invalida em [ProfileEvents.changes] e [signOut].
+  UserJobPreferences? _cachedProfilePrefs;
+  bool _profilePrefsLoaded = false;
+  Future<UserJobPreferences?> _loadProfilePrefs() async {
+    if (_profilePrefsLoaded) return _cachedProfilePrefs;
+    try {
+      final uid = userId;
+      if (uid == null) {
+        _cachedProfilePrefs = null;
+      } else {
+        final client = Supabase.instance.client;
+        // Future.wait não infere tipo comum entre maybeSingle (Map?) e
+        // select (List<Map>) — explicitamos `dynamic` e fazemos cast depois.
+        final results = await Future.wait<dynamic>([
+          client.from('profile_job_preferences').select('*').eq('user_id', uid).maybeSingle(),
+          client.from('profile_desired_titles').select('title').eq('user_id', uid),
+          client.from('profile_other_locations').select('city').eq('user_id', uid),
+        ]);
+
+        final jp = results[0] as Map<String, dynamic>?;
+        final dtList = (results[1] as List).cast<dynamic>();
+        final olList = (results[2] as List).cast<dynamic>();
+
+        final areas = dtList
+            .map((row) => (row as Map)['title']?.toString() ?? '')
+            .where((s) => s.isNotEmpty)
+            .toList();
+
+        final locations = <String>[];
+        final primaryCity = jp?['primary_location_city']?.toString();
+        if (primaryCity != null && primaryCity.isNotEmpty) {
+          locations.add(primaryCity);
+        }
+        for (final loc in olList) {
+          final c = (loc as Map)['city']?.toString();
+          if (c != null && c.isNotEmpty) locations.add(c);
+        }
+
+        // Normaliza work_mode EN (relacional) → PT (formato que o
+        // MatchScoreCalculator e job.workModelRaw usam).
+        final workModesRaw = (jp?['work_mode'] as List?)?.cast<dynamic>() ?? [];
+        final workModes = workModesRaw.map((wm) {
+          final s = wm.toString();
+          switch (s) {
+            case 'remote': return 'remoto';
+            case 'hybrid': return 'hibrido';
+            case 'in_person': return 'presencial';
+            default: return s; // já em PT ou desconhecido
+          }
+        }).toList();
+
+        final jobTypes = (jp?['job_types'] as List?)
+            ?.cast<dynamic>()
+            .map((e) => e.toString())
+            .toList() ?? <String>[];
+
+        if (areas.isEmpty && locations.isEmpty && workModes.isEmpty && jobTypes.isEmpty) {
+          _cachedProfilePrefs = null;
+        } else {
+          _cachedProfilePrefs = UserJobPreferences(
+            userId: uid,
+            areas: areas,
+            locations: locations,
+            workModels: workModes,
+            jobTypes: jobTypes,
+            // min_salary não existe em profile_job_preferences (decisão founder
+            // 2026-05-27). Salário fica fora da identidade; se o user quiser
+            // filtrar por salário, usa filtros temporários do feed.
+            minSalary: null,
+          );
+        }
+      }
+    } catch (e) {
+      print('loadProfilePrefs failed: $e');
+      _cachedProfilePrefs = null;
+    } finally {
+      _profilePrefsLoaded = true;
+    }
+    return _cachedProfilePrefs;
+  }
+
+  // ── Filtros temporários de feed: persistência local ─────────────────
+  // Após Passo 3 do plano match-score (2026-05-27), filtros viram TEMPORÁRIOS:
+  // - Vivem em SharedPreferences local (key: 'job_filters_<userId>').
+  // - Não escrevem mais em user_preferences (Supabase) via PreferencesRepository.
+  // - Não afetam match score (que lê de [profilePrefs] = tabelas relacionais).
+  // - Default ao abrir pela 1ª vez: cópia das prefs do Perfil (vide _performFetch).
+  static String _filtersKey(String userId) => 'job_filters_$userId';
+
+  Future<UserJobPreferences?> _loadLocalFilters(String uid) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final raw = sp.getString(_filtersKey(uid));
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final map = Map<String, dynamic>.from(decoded);
+      // user_id é obrigatório no factory — fallback pro uid atual.
+      map['user_id'] = uid;
+      return UserJobPreferences.fromJson(map);
+    } catch (e) {
+      print('loadLocalFilters failed: $e');
+      return null;
+    }
+  }
+
+  Future<void> _saveLocalFilters(String uid, UserJobPreferences prefs) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final json = jsonEncode(prefs.toJson());
+      await sp.setString(_filtersKey(uid), json);
+    } catch (e) {
+      print('saveLocalFilters failed: $e');
+    }
+  }
+
+  Future<void> _clearLocalFilters(String uid) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.remove(_filtersKey(uid));
+    } catch (e) {
+      print('clearLocalFilters failed: $e');
+    }
   }
 
   /// Carrega o pseudo-texto agregado das tabelas `profile_*` pra alimentar
@@ -369,13 +537,15 @@ class JobsViewModel extends ChangeNotifier {
     _undoStack.clear();
     _swipedIds.clear();
     _autoReloadAttempted = false;
-    // Invalida cache de gamification_data + profile_* — pode ter mudado
-    // (user importou CV, completou trilha, editou perfil) e isso afeta o
-    // fallback do score.
+    // Invalida cache de gamification_data + profile_* + profilePrefs — pode
+    // ter mudado (user importou CV, completou trilha, editou perfil ou prefs
+    // via tab Perfil) e isso afeta o fallback do score.
     _gamificationDataLoaded = false;
     _cachedGamificationData = null;
     _profileTextLoaded = false;
     _cachedProfileText = null;
+    _profilePrefsLoaded = false;
+    _cachedProfilePrefs = null;
     notifyListeners();
 
     try {
@@ -494,14 +664,20 @@ class JobsViewModel extends ChangeNotifier {
   // PREFERENCES
   // ============================================
 
-  /// Load preferences from DB.
+  /// Carrega filtros temporários do feed (SharedPreferences local).
+  /// Fallback ao Perfil quando local está vazio (1ª abertura após instalar
+  /// a build nova). Depois disso, filtros são independentes do Perfil.
   Future<void> loadPreferences() async {
-    if (userId == null) return;
+    final uid = userId;
+    if (uid == null) return;
     _isPreferencesLoading = true;
     notifyListeners();
 
     try {
-      _preferences = await _preferencesRepository.getPreferences(userId!);
+      _preferences = await _loadLocalFilters(uid);
+      if (_preferences == null || _preferences!.isEmpty) {
+        _preferences = await _loadProfilePrefs();
+      }
     } catch (e) {
       print('Error loading preferences: $e');
     } finally {
@@ -510,18 +686,23 @@ class JobsViewModel extends ChangeNotifier {
     }
   }
 
-  /// Save preferences and reload jobs with new filters.
+  /// Salva filtros temporários em SharedPreferences local. NÃO escreve no
+  /// Supabase — filtros não afetam mais a identidade do user (que mora nas
+  /// tabelas relacionais). Recarrega o feed com os filtros novos aplicados.
   Future<void> savePreferences(UserJobPreferences prefs) async {
-    if (userId == null) return;
+    final uid = userId;
+    if (uid == null) return;
 
     try {
-      await _preferencesRepository.savePreferences(userId!, prefs);
+      await _saveLocalFilters(uid, prefs);
       _preferences = prefs;
       // Bumpa o version pra que JobsSwipeScreen invalide o _matchCache em
-      // memória — sem isso, scores antigos (calculados com prefs velhas)
-      // continuariam aparecendo nos cards.
+      // memória. NOTA pós Passo 3: hoje filtros não afetam mais o match
+      // (que lê de profilePrefs), então essa invalidação é defensiva — o
+      // match cache só deveria invalidar quando profilePrefs muda. Mas
+      // bumpar aqui é barato e cobre edge cases enquanto o refator
+      // termina.
       _prefsVersion++;
-      // Reload jobs with new filters
       await reloadJobs();
     } catch (e) {
       print('Error saving preferences: $e');
@@ -529,12 +710,15 @@ class JobsViewModel extends ChangeNotifier {
     }
   }
 
-  /// Clear all preferences.
+  /// Limpa filtros temporários (remove do SharedPreferences local).
+  /// O Perfil NÃO é afetado.
   Future<void> clearPreferences() async {
-    if (userId == null) return;
-
-    final emptyPrefs = UserJobPreferences(userId: userId!);
-    await savePreferences(emptyPrefs);
+    final uid = userId;
+    if (uid == null) return;
+    await _clearLocalFilters(uid);
+    _preferences = UserJobPreferences(userId: uid);
+    _prefsVersion++;
+    await reloadJobs();
   }
 
   /// Get a fresh copy of a job by ID (for details screen).
