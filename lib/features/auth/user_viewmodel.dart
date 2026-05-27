@@ -209,9 +209,9 @@ class UserViewModel extends ChangeNotifier {
     return false;
   }
 
-  /// Atualiza só o nome do user (usado pela tela NameInputScreen e pelo
-  /// "editar nome" do perfil). Persiste em `user_profiles` e re-notifica.
-  /// Normaliza pra Title Case: "joao SILVA" → "Joao Silva".
+  /// Atualiza só o nome do user (usado pelo "editar nome" do perfil).
+  /// Persiste em `user_profiles` e re-notifica. Normaliza pra Title Case:
+  /// "joao SILVA" → "Joao Silva".
   Future<void> updateName(String newName) async {
     final normalized = normalizeName(newName);
     if (normalized.isEmpty) {

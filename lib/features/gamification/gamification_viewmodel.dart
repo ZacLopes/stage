@@ -149,9 +149,9 @@ class GamificationViewModel extends ChangeNotifier {
   /// Used by PhaseCompletionWidget to decide if the "curriculum ready"
   /// celebration should fire — more reliable than checking if the just-
   /// completed phase is the last phase of `_phases`, because callers may
-  /// enter QuestionScreen without first calling [loadPhases] (e.g. the
-  /// `unified_track_list` direct-push path), which leaves `_phases`
-  /// stale and breaks the heuristic.
+  /// enter QuestionScreen without first calling [loadPhases] (direct-push
+  /// from OpenTrailView), which leaves `_phases` stale and breaks the
+  /// heuristic.
   Future<bool> isEntireCourseCompleted() {
     return _repository.isEntireCourseCompleted();
   }

@@ -167,9 +167,9 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
 
       // Fonte de verdade primária: checar se TODAS as fases do curso estão
       // completas via repo. Cobre o caso em que `_phases` está stale (user
-      // entrou na fase via unified_track_list sem passar pelo
-      // track_details_screen que chama loadPhases). Se sim, sempre mostra
-      // o currículo-pronto, independente da detecção local de "last phase".
+      // entrou na fase via direct-push de OpenTrailView sem chamar
+      // loadPhases). Se sim, sempre mostra o currículo-pronto, independente
+      // da detecção local de "last phase".
       final entireCourseDone = await widget.viewModel.isEntireCourseCompleted();
       if (!mounted) return;
 

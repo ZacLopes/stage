@@ -77,11 +77,11 @@ class _AuthScreenState extends State<AuthScreen>
         closeInAppWebView();
       } catch (_) {}
 
-      // Roteamento delegado pro AuthGate, que decide entre NameInputScreen /
-      // CompletionScreen / HomeScreen baseado em needsName + hasCampaign.
-      // Empurrar telas específicas daqui causava GlobalKey duplicada
-      // (auth_screen pushava HomeScreen enquanto o AuthGate Consumer
-      // também montava uma — duas BottomNavigationBars na árvore).
+      // Roteamento delegado pro AuthGate (SplashScreen Consumer), que
+      // decide entre TwoDoorsScreen / CompletionScreen / HomeScreen baseado
+      // em needsProfileSetup + hasCampaign. Empurrar telas específicas
+      // daqui causava GlobalKey duplicada (auth_screen pushava HomeScreen
+      // enquanto o Consumer também montava uma).
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const AuthGate()),
         (route) => false,
