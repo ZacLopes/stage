@@ -50,6 +50,12 @@ class JobsViewModel extends ChangeNotifier {
       _profilePrefsLoaded = false;
       _cachedProfilePrefs = null;
       notifyListeners();
+      // Recarrega profilePrefs em background e re-aplica filtros do feed
+      // se o user ainda não setou filtros locais (caso típico: terminou
+      // onboarding e foi pra aba Vagas — relacional acabou de receber
+      // dados, mas feed continuaria sem filtros sem este reload).
+      // ignore: unawaited_futures
+      _onProfileChanged();
     });
     _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
       switch (data.event) {
@@ -368,6 +374,43 @@ class JobsViewModel extends ChangeNotifier {
       _gamificationDataLoaded = true;
     }
     return _cachedGamificationData;
+  }
+
+  /// Reação a `ProfileEvents.changes`: recarrega `profilePrefs` (que acabou
+  /// de ser invalidado pelo listener) e re-aplica filtros do feed se o user
+  /// ainda não setou filtros locais. Cobre o cenário "user terminou
+  /// onboarding e foi pra aba Vagas" — sem isso, o feed continuaria sem
+  /// filtros até hot-restart.
+  Future<void> _onProfileChanged() async {
+    try {
+      await _loadProfilePrefs();
+      final uid = userId;
+      if (uid == null) {
+        notifyListeners();
+        return;
+      }
+      // Se filtros locais ainda não existem, re-roda _performFetch pra
+      // aplicar as prefs novas como default no feed. Guard `!_isLoading`
+      // evita concorrer com init() já em curso.
+      final localFilters = await _loadLocalFilters(uid);
+      if ((localFilters == null || localFilters.isEmpty) && !_isLoading) {
+        _isLoading = true;
+        notifyListeners();
+        try {
+          await _performFetch();
+        } finally {
+          _isLoading = false;
+          notifyListeners();
+        }
+      } else {
+        // Filtros locais já existem — só notifica pra que widgets de match
+        // re-busquem o profilePrefs atualizado.
+        notifyListeners();
+      }
+    } catch (e) {
+      // Não-fatal — user pode dar pull-to-refresh manual ou voltar à tab.
+      print('onProfileChanged failed: $e');
+    }
   }
 
   /// Preferências de IDENTIDADE do user (área, cidade, modelo, tipo) lidas
