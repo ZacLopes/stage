@@ -699,16 +699,17 @@ class GamificationViewModel extends ChangeNotifier {
       if (user != null) {
         Map<String, dynamic> updatedGamificationData = Map.from(user.gamificationData);
 
-        if (phaseId.startsWith('t1_')) {
-          final allAnswers = await _getAllAnswers();
-          final module1Data = GamificationLogic.processModule1Answers(allAnswers);
-          if (module1Data['traits'].isNotEmpty) {
-            updatedGamificationData['whoIAm'] = {
-              'derived': module1Data,
-              'last_updated': DateTime.now().toIso8601String(),
-            };
-          }
-        }
+        // T1 (Direção): respostas da trilha 1 agora vão direto pras tabelas
+        // relacionais via TrailToProfileBridge.route (chamado em answerQuestion,
+        // logo após cada resposta). Remove-se o write em
+        // `gamification_data.whoIAm` que estava quebrado em produção
+        // (Passo 4 do plano match-score, 2026-05-27 — vide
+        // docs/MATCH_SCORE_MELHORIA_CALCULO.md, M1.3 revisado).
+        //
+        // Caminho novo:
+        //   m1.1 (área)  → profile_desired_titles
+        //   m1.2 (tipo)  → profile_job_preferences.job_types
+        //   m1.3 (futuro) → profile_personal.summary (se vazio)
 
         if (phaseId.startsWith('t2_')) {
           final allAnswers = await _getAllAnswers();

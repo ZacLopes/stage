@@ -57,42 +57,111 @@ class TrailToProfileBridge {
   }
 
   // ──────────────────────────────────────────────────────────────────────
-  // T1: Direção / norte profissional → job_preferences + desired_titles
+  // T1: Direção / norte profissional
+  //
+  // 3 sub-perguntas, cada uma roteia pra uma tabela diferente:
+  //   m1.1 (M1_3_1_Q2  — área de interesse, multi-choice) → profile_desired_titles
+  //   m1.2 (M1_3_1_Q25 — tipo de vaga,      single/multi) → profile_job_preferences.job_types
+  //   m1.3 (M1_3_1_Q3  — futuro,              texto livre) → profile_personal.summary
+  //
+  // Substitui o caminho legacy `gamification_data.whoIAm` (Passo 4 do plano
+  // match-score, 2026-05-27) — o write quebrado foi removido em
+  // gamification_viewmodel.dart na mesma rodada.
   // ──────────────────────────────────────────────────────────────────────
   Future<void> _routeT1(String userId, String phaseId, dynamic answer) async {
-    // Sub-perguntas variam (área, tipo vaga, etc). Pra MVP da Semana 2, mapeamos
-    // apenas se a answer parece um título de cargo ou lista de cargos.
-    if (answer is String && answer.trim().isNotEmpty) {
-      final existing = await _repo.getDesiredTitles(userId);
-      await _repo.replaceDesiredTitles(userId, [
-        ...existing,
+    switch (phaseId) {
+      case 'm1.1':
+        await _routeT1Areas(userId, answer);
+        break;
+      case 'm1.2':
+        await _routeT1JobTypes(userId, answer);
+        break;
+      case 'm1.3':
+        await _routeT1FutureVision(userId, answer);
+        break;
+      default:
+        // phaseId desconhecido em T1 — no-op silencioso (defensivo).
+        break;
+    }
+  }
+
+  /// m1.1 — área de interesse (multi-choice). Cada opção vira 1 linha em
+  /// `profile_desired_titles`. Preserva áreas já existentes (ex: vindas da
+  /// aba Perfil → Preferências) — faz merge dedupado em vez de substituir.
+  /// Filtra opções não-area ("Ainda estou explorando", "Aberto a oportunidades").
+  Future<void> _routeT1Areas(String userId, dynamic answer) async {
+    final raw = _toStringList(answer);
+    final areas = raw
+        .where((a) {
+          final n = a.toLowerCase().trim();
+          if (n.contains('ainda estou explorando')) return false;
+          if (n.contains('aberto a oportunidades')) return false;
+          return n.isNotEmpty;
+        })
+        .toList();
+    if (areas.isEmpty) return;
+
+    final existing = await _repo.getDesiredTitles(userId);
+    final existingTitlesLower = existing.map((t) => t.title.toLowerCase().trim()).toSet();
+    final toAdd = areas
+        .where((a) => !existingTitlesLower.contains(a.toLowerCase().trim()))
+        .toList();
+    if (toAdd.isEmpty) return; // todas já existem
+
+    final entries = <DesiredTitle>[
+      ...existing,
+      for (var i = 0; i < toAdd.length; i++)
         DesiredTitle(
           id: '',
           userId: userId,
-          title: answer.trim(),
+          title: toAdd[i].trim(),
           source: DesiredTitleSource.userAdded,
-          orderIndex: existing.length,
+          orderIndex: existing.length + i,
         ),
-      ]);
-    } else if (answer is List) {
-      final titles = answer
-          .whereType<String>()
-          .where((s) => s.trim().isNotEmpty)
-          .toList();
-      if (titles.isNotEmpty) {
-        final entries = <DesiredTitle>[];
-        for (var i = 0; i < titles.length; i++) {
-          entries.add(DesiredTitle(
-            id: '',
-            userId: userId,
-            title: titles[i].trim(),
-            source: DesiredTitleSource.userAdded,
-            orderIndex: i,
-          ));
-        }
-        await _repo.replaceDesiredTitles(userId, entries);
+    ];
+    await _repo.replaceDesiredTitles(userId, entries);
+  }
+
+  /// m1.2 — tipo de vaga ("Estágio", "Trainee", etc). Mapeia pra enum
+  /// `JobType` e persiste em `profile_job_preferences.job_types`. Merge
+  /// dedupado com tipos já existentes (não substitui).
+  Future<void> _routeT1JobTypes(String userId, dynamic answer) async {
+    final raws = _toStringList(answer);
+    final newTypes = <JobType>{};
+    for (final raw in raws) {
+      final norm = raw.toLowerCase().trim();
+      if (norm.isEmpty) continue;
+      if (norm.contains('estagio') || norm.contains('estágio')) {
+        newTypes.add(JobType.internship);
+      } else if (norm.contains('trainee')) {
+        newTypes.add(JobType.trainee);
+      } else if (norm.contains('clt')) {
+        newTypes.add(JobType.juniorFullTime);
+      } else if (norm.contains('temporario') || norm.contains('temporário')) {
+        newTypes.add(JobType.temporary);
       }
     }
+    if (newTypes.isEmpty) return;
+
+    final existing = await _repo.getJobPreferences(userId) ?? JobPreferences(userId: userId);
+    final merged = <JobType>{...existing.jobTypes, ...newTypes}.toList();
+    if (merged.length == existing.jobTypes.length) return; // nenhum novo
+    await _repo.upsertJobPreferences(existing.copyWith(jobTypes: merged));
+  }
+
+  /// m1.3 — futuro profissional (texto livre). Vai pra
+  /// `profile_personal.summary` SOMENTE se ainda estiver vazio. Não
+  /// sobrescreve summary vindo de CV importado ou edição manual.
+  Future<void> _routeT1FutureVision(String userId, dynamic answer) async {
+    if (answer is! String) return;
+    final text = answer.trim();
+    if (text.isEmpty) return;
+
+    final existing = await _repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
+    if ((existing.summary ?? '').trim().isNotEmpty) {
+      return; // já tem summary, preserva
+    }
+    await _repo.upsertPersonal(existing.copyWith(summary: text));
   }
 
   // ──────────────────────────────────────────────────────────────────────
