@@ -21,14 +21,15 @@ import '../../../../services/analytics_service.dart';
 import '../../application/preferences_view_model.dart';
 import '../../application/profile_editor_view_model.dart';
 import '../../domain/entities/entities.dart';
+import '../../../../core/theme/theme.dart';
 
-const _kAccent = Color(0xFF29B6D2);
-const _kBorderColor = Color(0xFFE5E7EB);
-const _kLabelColor = Color(0xFF6B7280);
-const _kHintColor = Color(0xFF9CA3AF);
-const _kTextColor = Color(0xFF111827);
-const _kCardBg = Color(0xFFF9FAFB);
-const _kError = Color(0xFFEF4444);
+const _kAccent = AppColors.primary;
+const _kBorderColor = AppColors.border;
+const _kLabelColor = AppColors.textTertiary;
+const _kHintColor = AppColors.textDisabled;
+const _kTextColor = AppColors.textPrimary;
+const _kCardBg = AppColors.surfaceVariant;
+const _kError = AppColors.error;
 
 class PreferencesTab extends StatefulWidget {
   const PreferencesTab({super.key});
@@ -57,12 +58,12 @@ class _PreferencesTabState extends State<PreferencesTab> {
 
     if (prefsVm.isLoading && prefsVm.prefs == null) {
       return const Center(
-        child: CircularProgressIndicator(color: Color(0xFF00C27A)),
+        child: CircularProgressIndicator(color: AppColors.primary),
       );
     }
 
     return RefreshIndicator(
-      color: const Color(0xFF00C27A),
+      color: AppColors.primary,
       onRefresh: () => prefsVm.load(),
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
@@ -1405,7 +1406,7 @@ class _ChipToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = selected ? _kAccent : const Color(0xFFF3F4F6);
+    final bg = selected ? _kAccent : AppColors.background;
     final fg = selected ? Colors.white : _kTextColor;
     final iconColor = selected ? Colors.white : _kLabelColor;
     return Material(
@@ -1495,7 +1496,7 @@ class _ListTile extends StatelessWidget {
               decoration: BoxDecoration(
                 color: selected ? _kAccent : Colors.white,
                 border: Border.all(
-                  color: selected ? _kAccent : const Color(0xFFD1D5DB),
+                  color: selected ? _kAccent : AppColors.borderStrong,
                   width: 1.5,
                 ),
                 borderRadius: BorderRadius.circular(6),
@@ -1541,7 +1542,7 @@ void _snack(BuildContext context, String message) {
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       content: Text(message),
-      backgroundColor: const Color(0xFF10B981),
+      backgroundColor: AppColors.success,
       behavior: SnackBarBehavior.floating,
       duration: const Duration(seconds: 2),
     ),

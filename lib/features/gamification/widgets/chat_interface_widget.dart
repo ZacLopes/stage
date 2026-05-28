@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 class ChatInterfaceWidget extends StatefulWidget {
   final Function(String) onSelect;
@@ -75,7 +76,7 @@ class _ChatInterfaceWidgetState extends State<ChatInterfaceWidget> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const CircleAvatar(
-              backgroundColor: Color(0xFF58CC02),
+              backgroundColor: AppColors.primary,
               child: Icon(Icons.person, color: Colors.white),
             ),
             const SizedBox(width: 8),
@@ -84,7 +85,7 @@ class _ChatInterfaceWidgetState extends State<ChatInterfaceWidget> {
               child: Container(
                 padding: const EdgeInsets.all(16),
                 decoration: const BoxDecoration(
-                  color: Color(0xFFF3F4F6),
+                  color: AppColors.background,
                   borderRadius: BorderRadius.only(
                     topLeft: Radius.circular(4),
                     topRight: Radius.circular(20),
@@ -96,7 +97,7 @@ class _ChatInterfaceWidgetState extends State<ChatInterfaceWidget> {
                   widget.recruiterMessage ?? 'Conte-nos mais sobre isso...',
                   style: const TextStyle(
                     fontSize: 16,
-                    color: Color(0xFF374151),
+                    color: AppColors.textSecondary,
                     height: 1.4,
                   ),
                 ),
@@ -124,17 +125,17 @@ class _ChatInterfaceWidgetState extends State<ChatInterfaceWidget> {
                           bottomLeft: Radius.circular(20),
                           bottomRight: Radius.circular(4),
                         ),
-                        border: Border.all(color: const Color(0xFFE5E7EB), width: 2),
+                        border: Border.all(color: AppColors.border, width: 2),
                       ),
                       child: TextField(
                         controller: _textController,
                         maxLength: _maxLength,
                         maxLines: null, // Grows
                         minLines: 3,
-                        style: const TextStyle(fontSize: 16, color: Color(0xFF374151)),
+                        style: const TextStyle(fontSize: 16, color: AppColors.textSecondary),
                         decoration: InputDecoration(
                           hintText: widget.hintText ?? 'Digite sua resposta...',
-                          hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+                          hintStyle: TextStyle(color: AppColors.textDisabled, fontSize: 14),
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.all(16),
                           counterText: '',
@@ -145,7 +146,7 @@ class _ChatInterfaceWidgetState extends State<ChatInterfaceWidget> {
                    Text(
                       '${_textController.text.length} / $_maxLength',
                       style: TextStyle(
-                        color: _textController.text.length > _maxLength ? Colors.red : Colors.grey,
+                        color: _textController.text.length > _maxLength ? AppColors.error : AppColors.textTertiary,
                         fontWeight: FontWeight.bold,
                         fontSize: 12,
                       ),
@@ -155,7 +156,7 @@ class _ChatInterfaceWidgetState extends State<ChatInterfaceWidget> {
              ),
              const SizedBox(width: 8),
              const CircleAvatar(
-               backgroundColor: Color(0xFF1CB0F6),
+               backgroundColor: AppColors.secondary,
                child: Icon(Icons.edit, color: Colors.white, size: 20),
              ),
           ],
@@ -185,7 +186,7 @@ class _ChatInterfaceWidgetState extends State<ChatInterfaceWidget> {
                     duration: const Duration(milliseconds: 200),
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: isSelected ? const Color(0xFF1CB0F6) : const Color(0xFFF3F4F6),
+                      color: isSelected ? AppColors.secondary : AppColors.background,
                       borderRadius: const BorderRadius.only(
                         topLeft: Radius.circular(20),
                         topRight: Radius.circular(20),
@@ -197,7 +198,7 @@ class _ChatInterfaceWidgetState extends State<ChatInterfaceWidget> {
                       msg['text']!,
                       style: TextStyle(
                         fontSize: 16,
-                        color: isSelected ? Colors.white : const Color(0xFF374151),
+                        color: isSelected ? Colors.white : AppColors.textSecondary,
                         height: 1.4,
                       ),
                     ),

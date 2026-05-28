@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../core/constants/stage_colors.dart';
+import '../../core/theme/theme.dart';
 import '../../services/version_service.dart';
 
 /// Envolve o app e bloqueia o uso quando a versão instalada é menor que a
@@ -75,7 +75,7 @@ class _ForceUpdateScreen extends StatelessWidget {
       canPop: false,
       child: Scaffold(
         body: Container(
-          decoration: const BoxDecoration(gradient: StageColors.brandGradient),
+          decoration: const BoxDecoration(gradient: AppGradients.brand),
           child: SafeArea(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
@@ -134,7 +134,7 @@ class _ForceUpdateScreen extends StatelessWidget {
                       onPressed: () => _openStore(context),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.white,
-                        foregroundColor: StageColors.brandBlue,
+                        foregroundColor: AppColors.brandBlue,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),

@@ -5,6 +5,7 @@ import '../../../services/ai_service.dart';
 import '../../../services/analytics_service.dart';
 import '../models/job.dart';
 import '../models/job_skills_extraction.dart';
+import '../../../core/theme/theme.dart';
 
 /// Bottom sheet que aparece ANTES da adaptação de CV.
 ///
@@ -33,15 +34,15 @@ class SkillsConfirmationSheet extends StatefulWidget {
 
 class _SkillsConfirmationSheetState extends State<SkillsConfirmationSheet> {
   // ── Paleta (espelha a do resume_adaptation_sheet) ────────────────────
-  static const _indigo = Color(0xFF4F46E5);
-  static const _purple = Color(0xFF7C3AED);
-  static const _emerald = Color(0xFF10B981);
-  static const _textPrimary = Color(0xFF0F172A);
-  static const _textSecondary = Color(0xFF475569);
-  static const _textMuted = Color(0xFF94A3B8);
-  static const _border = Color(0xFFE2E8F0);
-  static const _surfaceSoft = Color(0xFFF1F5F9);
-  static const _surfaceGreen = Color(0xFFECFDF5);
+  static const _indigo = AppColors.primary;
+  static const _purple = AppColors.primary;
+  static const _emerald = AppColors.success;
+  static const _textPrimary = AppColors.textPrimary;
+  static const _textSecondary = AppColors.textSecondary;
+  static const _textMuted = AppColors.textTertiary;
+  static const _border = AppColors.border;
+  static const _surfaceSoft = AppColors.surfaceMuted;
+  static const _surfaceGreen = AppColors.successSoft;
 
   final AIService _ai = AIService();
 
@@ -170,7 +171,7 @@ class _SkillsConfirmationSheetState extends State<SkillsConfirmationSheet> {
       width: 40,
       height: 4,
       decoration: BoxDecoration(
-        color: Colors.grey.shade300,
+        color: AppColors.borderStrong,
         borderRadius: BorderRadius.circular(2),
       ),
     );
@@ -556,7 +557,7 @@ class _SelectableSkillChip extends StatelessWidget {
               const Icon(
                 Icons.history_rounded,
                 size: 13,
-                color: Color(0xFF64748B),
+                color: AppColors.textTertiary,
               ),
               const SizedBox(width: 5),
             ],
@@ -567,7 +568,7 @@ class _SelectableSkillChip extends StatelessWidget {
                 fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                 color: selected
                     ? Colors.white
-                    : const Color(0xFF334155),
+                    : AppColors.textPrimary,
                 letterSpacing: -0.1,
               ),
             ),

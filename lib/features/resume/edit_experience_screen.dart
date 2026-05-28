@@ -10,6 +10,7 @@ import '../gamification/bullet_review_screen.dart';
 import '../gamification/widgets/experience_detail_form_widget.dart';
 import 'resume_viewmodel.dart';
 import '../../core/widgets/pii_mask.dart';
+import '../../core/theme/theme.dart';
 
 /// Edit screen for an existing experience: lets the user update the D1
 /// fields (org, role, dates, city) and manage the list of approved bullets
@@ -144,7 +145,7 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5)),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
             child: const Text('Salvar'),
           ),
         ],
@@ -170,7 +171,7 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
             child: const Text('Remover'),
           ),
         ],
@@ -196,7 +197,7 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5)),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
             child: const Text('Refazer'),
           ),
         ],
@@ -254,7 +255,7 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5)),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
             child: const Text('Adicionar'),
           ),
         ],
@@ -279,14 +280,14 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
   @override
   Widget build(BuildContext context) {
     return PiiMask(child: Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
+      backgroundColor: AppColors.surfaceVariant,
       appBar: AppBar(
         title: const Text('Editar experiência'),
         backgroundColor: Colors.white,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Color(0xFF111827)),
+        iconTheme: const IconThemeData(color: AppColors.textPrimary),
         titleTextStyle: TextStyle(fontFamily: 'Inter', 
-          color: const Color(0xFF111827),
+          color: AppColors.textPrimary,
           fontWeight: FontWeight.bold,
           fontSize: 16,
         ),
@@ -329,11 +330,11 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEEF2FF),
+                  color: AppColors.primarySoft,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(Icons.edit_note,
-                    color: Color(0xFF4F46E5), size: 20),
+                    color: AppColors.primary, size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -349,7 +350,7 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
                       'Edite organização, cargo, datas e local',
                       style: TextStyle(fontFamily: 'Inter', 
                         fontSize: 12,
-                        color: const Color(0xFF6B7280),
+                        color: AppColors.textTertiary,
                       ),
                     ),
                   ],
@@ -369,7 +370,7 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
             icon: const Icon(Icons.save),
             label: const Text('Salvar detalhes'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF10B981),
+              backgroundColor: AppColors.primary,
               foregroundColor: Colors.white,
               minimumSize: const Size.fromHeight(44),
             ),
@@ -401,11 +402,11 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEEF2FF),
+                  color: AppColors.primarySoft,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(Icons.format_list_bulleted,
-                    color: Color(0xFF4F46E5), size: 20),
+                    color: AppColors.primary, size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -423,7 +424,7 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
               padding: EdgeInsets.symmetric(vertical: 8),
               child: Text(
                 'Nenhum bullet aprovado para esta experiência. Adicione manual ou gere com IA.',
-                style: TextStyle(color: Colors.grey, fontSize: 13),
+                style: TextStyle(color: AppColors.textTertiary, fontSize: 13),
               ),
             )
           else
@@ -437,8 +438,8 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
                   icon: const Icon(Icons.auto_awesome, size: 16),
                   label: const Text('Refazer com IA'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF4F46E5),
-                    side: const BorderSide(color: Color(0xFF4F46E5)),
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
                     minimumSize: const Size.fromHeight(44),
                   ),
                 ),
@@ -450,7 +451,7 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
                   icon: const Icon(Icons.add, size: 16),
                   label: const Text('Adicionar'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
+                    backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
                     minimumSize: const Size.fromHeight(44),
                   ),
@@ -468,9 +469,9 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF9FAFB),
+        color: AppColors.surfaceVariant,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        border: Border.all(color: AppColors.border),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -480,7 +481,7 @@ class _EditExperienceScreenState extends State<EditExperienceScreen>
             child: Text(
               '•',
               style: TextStyle(fontFamily: 'Inter', 
-                  fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey),
+                  fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textTertiary),
             ),
           ),
           const SizedBox(width: 8),

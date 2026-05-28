@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
+import '../../../core/theme/theme.dart';
 
 class LearningVaultWidget extends StatefulWidget {
   final Function(List<Map<String, String>>) onSave;
@@ -105,7 +106,7 @@ class _LearningVaultWidgetState extends State<LearningVaultWidget> {
                         width: 40,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: Colors.grey[300],
+                          color: AppColors.borderStrong,
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
@@ -118,10 +119,10 @@ class _LearningVaultWidgetState extends State<LearningVaultWidget> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFDCFCE7), // Light green
+                            color: AppColors.successSoft, // Light green
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const Icon(Icons.school, color: Color(0xFF16A34A), size: 28),
+                          child: const Icon(Icons.school, color: AppColors.success, size: 28),
                         ),
                         const SizedBox(width: 16),
                         const Expanded(
@@ -133,14 +134,14 @@ class _LearningVaultWidgetState extends State<LearningVaultWidget> {
                                 style: TextStyle(
                                   fontSize: 22, 
                                   fontWeight: FontWeight.bold, 
-                                  color: Color(0xFF374151)
+                                  color: AppColors.textSecondary
                                 ),
                               ),
                               Text(
                                 'Preencha os dados da certificação',
                                 style: TextStyle(
                                   fontSize: 14, 
-                                  color: Color(0xFF6B7280)
+                                  color: AppColors.textTertiary
                                 ),
                               ),
                             ],
@@ -190,7 +191,7 @@ class _LearningVaultWidgetState extends State<LearningVaultWidget> {
                               style: TextStyle(
                                 fontSize: 16, 
                                 fontWeight: FontWeight.bold, 
-                                color: Color(0xFF6B7280)
+                                color: AppColors.textTertiary
                               ),
                             ),
                           ),
@@ -206,15 +207,15 @@ class _LearningVaultWidgetState extends State<LearningVaultWidget> {
                               }
                             },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF58CC02),
+                              backgroundColor: AppColors.primary,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 16),
                               elevation: 0,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(16),
-                                side: const BorderSide(color: Color(0xFF46A302), width: 0), // Slight border logic
+                                side: const BorderSide(color: AppColors.success, width: 0), // Slight border logic
                               ),
-                              shadowColor: const Color(0xFF46A302), // Bottom shade color logic simulation
+                              shadowColor: AppColors.primary, // Bottom shade color logic simulation
                             ),
                             child: const Text(
                               'Adicionar',
@@ -253,7 +254,7 @@ class _LearningVaultWidgetState extends State<LearningVaultWidget> {
           style: const TextStyle(
             fontSize: 14, 
             fontWeight: FontWeight.bold, 
-            color: Color(0xFF374151)
+            color: AppColors.textSecondary
           ),
         ),
         const SizedBox(height: 8),
@@ -267,29 +268,29 @@ class _LearningVaultWidgetState extends State<LearningVaultWidget> {
           style: const TextStyle(
             fontSize: 16, 
             fontWeight: FontWeight.w500, 
-            color: Color(0xFF111827)
+            color: AppColors.textPrimary
           ),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: const TextStyle(color: Color(0xFF9CA3AF)),
+            hintStyle: const TextStyle(color: AppColors.textDisabled),
             filled: true,
-            fillColor: const Color(0xFFF9FAFB),
-            prefixIcon: Icon(icon, color: const Color(0xFF9CA3AF), size: 22),
+            fillColor: AppColors.surfaceVariant,
+            prefixIcon: Icon(icon, color: AppColors.textDisabled, size: 22),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+              borderSide: const BorderSide(color: AppColors.border),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+              borderSide: const BorderSide(color: AppColors.border),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: Color(0xFF58CC02), width: 2),
+              borderSide: const BorderSide(color: AppColors.success, width: 2),
             ),
             errorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: Color(0xFFEF4444)),
+              borderSide: const BorderSide(color: AppColors.error),
             ),
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
           ),
@@ -312,23 +313,23 @@ class _LearningVaultWidgetState extends State<LearningVaultWidget> {
           Container(
             padding: const EdgeInsets.all(32),
             decoration: BoxDecoration(
-              color: const Color(0xFFF3F4F6),
+              color: AppColors.background,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE5E7EB), width: 2),
+              border: Border.all(color: AppColors.border, width: 2),
             ),
             child: Column(
               children: [
-                const Icon(Icons.school_outlined, size: 64, color: Color(0xFF9CA3AF)),
+                const Icon(Icons.school_outlined, size: 64, color: AppColors.textDisabled),
                 const SizedBox(height: 16),
                 const Text(
                   'Sua estante está vazia.',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF374151)),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
                 const Text(
                   'Adicione cursos, certificações ou workshops que você realizou!',
-                  style: TextStyle(fontSize: 16, color: Color(0xFF6B7280)),
+                  style: TextStyle(fontSize: 16, color: AppColors.textTertiary),
                   textAlign: TextAlign.center,
                 ),
               ],
@@ -347,8 +348,8 @@ class _LearningVaultWidgetState extends State<LearningVaultWidget> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFE5E7EB), width: 2),
-                  boxShadow: const [BoxShadow(color: Color(0xFFE5E7EB), offset: Offset(0, 4))],
+                  border: Border.all(color: AppColors.border, width: 2),
+                  boxShadow: const [BoxShadow(color: AppColors.border, offset: Offset(0, 4))],
                 ),
                 child: Row(
                   children: [
@@ -356,10 +357,10 @@ class _LearningVaultWidgetState extends State<LearningVaultWidget> {
                       width: 48,
                       height: 48,
                       decoration: BoxDecoration(
-                        color: const Color(0xFFEFF6FF), // Light blue bg
+                        color: AppColors.primarySoft, // Light blue bg
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.workspace_premium, color: Color(0xFF3B82F6), size: 28),
+                      child: const Icon(Icons.workspace_premium, color: AppColors.info, size: 28),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -368,18 +369,18 @@ class _LearningVaultWidgetState extends State<LearningVaultWidget> {
                         children: [
                           Text(
                             course['title'] ?? '',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF374151)),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textSecondary),
                           ),
                           const SizedBox(height: 4),
                           Text(
                             '${course['institution']} • ${course['year']}',
-                            style: const TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
+                            style: const TextStyle(fontSize: 14, color: AppColors.textTertiary),
                           ),
                         ],
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Color(0xFFEF4444)),
+                      icon: const Icon(Icons.delete_outline, color: AppColors.error),
                       onPressed: () => _removeCourse(index),
                     ),
                   ],
@@ -394,11 +395,11 @@ class _LearningVaultWidgetState extends State<LearningVaultWidget> {
           onPressed: _showAddDialog,
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.white,
-            foregroundColor: const Color(0xFF58CC02),
+            foregroundColor: AppColors.success,
             padding: const EdgeInsets.symmetric(vertical: 16),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
-              side: const BorderSide(color: Color(0xFF58CC02), width: 2),
+              side: const BorderSide(color: AppColors.success, width: 2),
             ),
             elevation: 0,
           ),

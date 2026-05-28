@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../../core/utils/brazil_phone_formatter.dart';
 import '../../domain/entities/entities.dart';
+import '../../../../core/theme/theme.dart';
 
 class PersonalInfoForm extends StatefulWidget {
   final PersonalInfo? initial;
@@ -161,21 +162,23 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
       helperText: helper,
       errorText: errorText,
       filled: true,
-      fillColor: Colors.white,
+      fillColor: AppColors.surface,
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: isMissing ? Colors.amber : const Color(0xFFE5E7EB)),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderSide: BorderSide(
+          color: isMissing ? AppColors.warning : AppColors.border,
+        ),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.md),
         borderSide: BorderSide(
-          color: isMissing ? Colors.amber.shade700 : const Color(0xFFE5E7EB),
+          color: isMissing ? AppColors.warning : AppColors.border,
           width: isMissing ? 1.5 : 1,
         ),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF00C27A), width: 2),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderSide: const BorderSide(color: AppColors.primary, width: 2),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
     );

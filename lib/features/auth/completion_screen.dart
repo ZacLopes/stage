@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:provider/provider.dart';
 import '../../core/analytics/screen_tracking.dart';
-import '../../core/constants/stage_colors.dart';
+import '../../core/theme/theme.dart';
 import '../../services/analytics_service.dart';
 import '../../services/cv_import_service.dart';
 import '../home/home_viewmodel.dart';
@@ -150,7 +150,7 @@ class _CompletionScreenState extends State<CompletionScreen>
   void _showError(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: StageColors.error),
+      SnackBar(content: Text(message), backgroundColor: AppColors.error),
     );
   }
 
@@ -160,7 +160,7 @@ class _CompletionScreenState extends State<CompletionScreen>
     final firstName = userName.split(' ').first;
 
     return Scaffold(
-      backgroundColor: StageColors.offWhite,
+      backgroundColor: AppColors.surfaceVariant,
       body: SafeArea(
         child: _isPickingFile
             ? _PickingLoader()
@@ -181,13 +181,13 @@ class _CompletionScreenState extends State<CompletionScreen>
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
-                              color: StageColors.ctaGreen.withOpacity(0.1),
+                              color: AppColors.primary.withOpacity(0.1),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
                               'Perfil Criado! 🎉',
                               style: TextStyle(fontFamily: 'Inter', 
-                                color: StageColors.ctaGreen,
+                                color: AppColors.primary,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14,
                               ),
@@ -199,7 +199,7 @@ class _CompletionScreenState extends State<CompletionScreen>
                             style: TextStyle(fontFamily: 'Outfit', 
                               fontSize: 36,
                               fontWeight: FontWeight.bold,
-                              color: StageColors.titleText,
+                              color: AppColors.textPrimary,
                               height: 1.1,
                             ),
                           ),
@@ -208,7 +208,7 @@ class _CompletionScreenState extends State<CompletionScreen>
                             'Escolha um caminho pra começar a aplicar para vagas.',
                             style: TextStyle(fontFamily: 'Inter', 
                               fontSize: 16,
-                              color: StageColors.subtitleGray,
+                              color: AppColors.textTertiary,
                               height: 1.5,
                             ),
                           ),
@@ -228,7 +228,7 @@ class _CompletionScreenState extends State<CompletionScreen>
                         subtitle:
                             'Suba seu PDF — fica salvo na sua biblioteca e você já parte pra aplicar pras vagas.',
                         icon: Icons.upload_file_rounded,
-                        color: StageColors.brandBlue,
+                        color: AppColors.brandBlue,
                         onTap: _uploadResumePath,
                         isPrimary: true,
                       ),
@@ -246,7 +246,7 @@ class _CompletionScreenState extends State<CompletionScreen>
                         subtitle:
                             'Vamos construir seu currículo passo a passo na trilha interativa.',
                         icon: Icons.auto_awesome_rounded,
-                        color: StageColors.ctaGreen,
+                        color: AppColors.primary,
                         onTap: _startTrackPath,
                         isPrimary: false,
                       ),
@@ -266,12 +266,12 @@ class _PickingLoader extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const CircularProgressIndicator(color: StageColors.brandCyan),
+          const CircularProgressIndicator(color: AppColors.primary),
           const SizedBox(height: 16),
           Text(
             'Salvando seu currículo...',
             style: TextStyle(fontFamily: 'Inter', 
-              color: StageColors.subtitleGray,
+              color: AppColors.textTertiary,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -308,7 +308,7 @@ class _PathCard extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(24),
           border: Border.all(
-              color: isPrimary ? color.withOpacity(0.3) : Colors.grey[200]!,
+              color: isPrimary ? color.withOpacity(0.3) : AppColors.border!,
               width: isPrimary ? 2 : 1),
           boxShadow: [
             BoxShadow(
@@ -339,7 +339,7 @@ class _PathCard extends StatelessWidget {
                     style: TextStyle(fontFamily: 'Outfit', 
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: StageColors.titleText,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -347,7 +347,7 @@ class _PathCard extends StatelessWidget {
                     subtitle,
                     style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 14,
-                      color: StageColors.bodyGray,
+                      color: AppColors.textSecondary,
                       height: 1.4,
                     ),
                   ),
@@ -356,7 +356,7 @@ class _PathCard extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Icon(Icons.arrow_forward_ios_rounded,
-                color: Colors.grey[300], size: 16),
+                color: AppColors.borderStrong, size: 16),
           ],
         ),
       ),

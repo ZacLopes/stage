@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 class BridgeTextWidget extends StatefulWidget {
   final Function(String) onSave;
@@ -124,10 +125,10 @@ class _BridgeTextWidgetState extends State<BridgeTextWidget> with TickerProvider
                         width: 80, // Larger orbs for full screen
                         height: 80,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF59E0B),
+                          color: AppColors.warning,
                           shape: BoxShape.circle,
                           boxShadow: [
-                            BoxShadow(color: const Color(0xFFF59E0B).withOpacity(0.8), blurRadius: 40, spreadRadius: 10),
+                            BoxShadow(color: AppColors.warning.withOpacity(0.8), blurRadius: 40, spreadRadius: 10),
                           ],
                         ),
                         child: const Icon(Icons.history_edu, color: Colors.white, size: 40),
@@ -144,10 +145,10 @@ class _BridgeTextWidgetState extends State<BridgeTextWidget> with TickerProvider
                         width: 80,
                         height: 80,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF10B981),
+                          color: AppColors.success,
                           shape: BoxShape.circle,
                           boxShadow: [
-                            BoxShadow(color: const Color(0xFF10B981).withOpacity(0.8), blurRadius: 40, spreadRadius: 10),
+                            BoxShadow(color: AppColors.success.withOpacity(0.8), blurRadius: 40, spreadRadius: 10),
                           ],
                         ),
                         child: const Icon(Icons.rocket_launch, color: Colors.white, size: 40),
@@ -235,7 +236,7 @@ class _BridgeTextWidgetState extends State<BridgeTextWidget> with TickerProvider
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildnode(Icons.history_edu, const Color(0xFFF59E0B)), // Past/Orange
+                  _buildnode(Icons.history_edu, AppColors.warning), // Past/Orange
                   Expanded(
                     child: Stack(
                       alignment: Alignment.center,
@@ -244,7 +245,7 @@ class _BridgeTextWidgetState extends State<BridgeTextWidget> with TickerProvider
                           height: 4,
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(
-                              colors: [Color(0xFFF59E0B), Color(0xFF10B981)],
+                              colors: [AppColors.warning, AppColors.success],
                             ),
                             borderRadius: BorderRadius.circular(2),
                           ),
@@ -258,12 +259,12 @@ class _BridgeTextWidgetState extends State<BridgeTextWidget> with TickerProvider
                               BoxShadow(color: Colors.black12, blurRadius: 4),
                             ],
                           ),
-                          child: const Icon(Icons.bolt, color: Color(0xFF6366F1), size: 20),
+                          child: const Icon(Icons.bolt, color: AppColors.primary, size: 20),
                         ),
                       ],
                     ),
                   ),
-                  _buildnode(Icons.rocket_launch, const Color(0xFF10B981)), // Future/Green
+                  _buildnode(Icons.rocket_launch, AppColors.success), // Future/Green
                 ],
               ),
             ),
@@ -273,7 +274,7 @@ class _BridgeTextWidgetState extends State<BridgeTextWidget> with TickerProvider
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF1F2937),
+                color: AppColors.textPrimary,
               ),
               textAlign: TextAlign.center,
             ),
@@ -282,7 +283,7 @@ class _BridgeTextWidgetState extends State<BridgeTextWidget> with TickerProvider
               'Mudar de rota não é perda de tempo, é repertório. Explique como você usa o que aprendeu antes.',
               style: TextStyle(
                 fontSize: 14,
-                color: Color(0xFF6B7280),
+                color: AppColors.textTertiary,
                 height: 1.5,
               ),
               textAlign: TextAlign.center,
@@ -293,20 +294,20 @@ class _BridgeTextWidgetState extends State<BridgeTextWidget> with TickerProvider
               maxLines: 6,
               decoration: InputDecoration(
                 hintText: 'Ex: A base analítica que trouxe da Engenharia me permite hoje estruturar métricas financeiras com muito mais precisão e rigor.',
-                hintStyle: TextStyle(color: Colors.grey[400], height: 1.5),
+                hintStyle: TextStyle(color: AppColors.textDisabled, height: 1.5),
                 filled: true,
                 fillColor: Colors.white,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide(color: Colors.grey[300]!),
+                  borderSide: BorderSide(color: AppColors.borderStrong!),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide(color: Colors.grey[300]!),
+                  borderSide: BorderSide(color: AppColors.borderStrong!),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
-                  borderSide: const BorderSide(color: Color(0xFF6366F1), width: 2),
+                  borderSide: const BorderSide(color: AppColors.primary, width: 2),
                 ),
                 contentPadding: const EdgeInsets.all(24),
               ),
@@ -317,7 +318,7 @@ class _BridgeTextWidgetState extends State<BridgeTextWidget> with TickerProvider
               child: ElevatedButton(
                 onPressed: _submit,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF6366F1),
+                  backgroundColor: AppColors.primary,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/analytics/screen_tracking.dart';
-import '../../core/constants/stage_colors.dart';
+
 import '../../services/analytics_service.dart';
 import 'auth_screen.dart';
+import '../../core/theme/theme.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -63,7 +64,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: StageColors.offWhite,
+      backgroundColor: AppColors.surfaceVariant,
       body: SafeArea(
         child: Stack(
           children: [
@@ -101,7 +102,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                         width: _currentPage == index ? 24 : 8,
                         decoration: BoxDecoration(
                           color: _currentPage == index
-                              ? StageColors.brandCyan
+                              ? AppColors.brandCyan
                               : Colors.grey.withOpacity(0.3),
                           borderRadius: BorderRadius.circular(4),
                         ),
@@ -113,7 +114,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                   ElevatedButton(
                     onPressed: _nextPage,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: StageColors.ctaGreen,
+                      backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
@@ -305,7 +306,7 @@ class _BaseSlideState extends State<_BaseSlide>
                     style: TextStyle(fontFamily: 'Outfit', 
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
-                      color: StageColors.titleText,
+                      color: AppColors.textPrimary,
                       height: 1.2,
                     ),
                   ),
@@ -325,7 +326,7 @@ class _BaseSlideState extends State<_BaseSlide>
                     textAlign: TextAlign.center,
                     style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 16,
-                      color: StageColors.bodyGray,
+                      color: AppColors.textSecondary,
                       height: 1.5,
                     ),
                   ),
@@ -355,10 +356,10 @@ class _SwipeMockupState extends State<_SwipeMockup>
   late AnimationController _animController;
 
   final List<Map<String, dynamic>> _mockJobs = [
-    {'color': StageColors.brandBlue, 'icon': Icons.business},
+    {'color': AppColors.brandBlue, 'icon': Icons.business},
     {'color': const Color(0xFF1565C0), 'icon': Icons.rocket_launch},
     {'color': const Color(0xFF0D47A1), 'icon': Icons.account_balance},
-    {'color': StageColors.brandCyan, 'icon': Icons.flash_on},
+    {'color': AppColors.brandCyan, 'icon': Icons.flash_on},
     {'color': const Color(0xFFFF9800), 'icon': Icons.work_outline},
     {'color': const Color(0xFF673AB7), 'icon': Icons.location_on_outlined},
   ];
@@ -517,7 +518,6 @@ class _SwipeMockupState extends State<_SwipeMockup>
   }
 }
 
-
 class _ResumeMockup extends StatelessWidget {
   const _ResumeMockup();
 
@@ -532,7 +532,7 @@ class _ResumeMockup extends StatelessWidget {
         border: Border.all(color: Colors.grey.withOpacity(0.05), width: 1),
         boxShadow: [
           BoxShadow(
-            color: StageColors.brandBlue.withOpacity(0.08),
+            color: AppColors.brandBlue.withOpacity(0.08),
             blurRadius: 30,
             offset: const Offset(0, 10),
           )
@@ -548,19 +548,19 @@ class _ResumeMockup extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: StageColors.brandCyan.withOpacity(0.1),
+                  color: AppColors.brandCyan.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.person_rounded, color: StageColors.brandCyan, size: 24),
+                child: const Icon(Icons.person_rounded, color: AppColors.brandCyan, size: 24),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(height: 10, width: 90, decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(5))),
+                    Container(height: 10, width: 90, decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(5))),
                     const SizedBox(height: 6),
-                    Container(height: 6, width: 50, decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(3))),
+                    Container(height: 6, width: 50, decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(3))),
                   ],
                 ),
               )
@@ -606,12 +606,12 @@ class _ResumeMockup extends StatelessWidget {
         width: 44,
         height: 44,
         decoration: BoxDecoration(
-          color: completed ? StageColors.ctaGreen : (isLast ? Colors.white : Colors.grey[100]),
+          color: completed ? AppColors.primary : (isLast ? Colors.white : AppColors.divider),
           shape: BoxShape.circle,
-          border: isLast ? Border.all(color: Colors.grey[200]!, width: 2) : null,
+          border: isLast ? Border.all(color: AppColors.border!, width: 2) : null,
           boxShadow: [
             BoxShadow(
-              color: (completed ? StageColors.ctaGreen : Colors.black).withOpacity(0.1),
+              color: (completed ? AppColors.primary : Colors.black).withOpacity(0.1),
               blurRadius: 8,
               offset: const Offset(0, 4),
             )
@@ -619,7 +619,7 @@ class _ResumeMockup extends StatelessWidget {
         ),
         child: Icon(
           isLast ? Icons.article_rounded : (completed ? Icons.check_rounded : Icons.lock_rounded),
-          color: completed ? Colors.white : (isLast ? StageColors.starGold : Colors.grey[400]),
+          color: completed ? Colors.white : (isLast ? AppColors.gold : AppColors.textDisabled),
           size: isLast ? 28 : 22,
         ),
       ),
@@ -631,7 +631,7 @@ class _STrailPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = StageColors.ctaGreen.withOpacity(0.3)
+      ..color = AppColors.primary.withOpacity(0.3)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 6
       ..strokeCap = StrokeCap.round;
@@ -682,7 +682,7 @@ class _CompaniesMockupState extends State<_CompaniesMockup>
   late AnimationController _animController;
 
   final List<Map<String, dynamic>> _row1 = [
-    {'label': 'Tecnologia', 'icon': Icons.computer_rounded, 'color': StageColors.brandBlue},
+    {'label': 'Tecnologia', 'icon': Icons.computer_rounded, 'color': AppColors.brandBlue},
     {'label': 'Saúde', 'icon': Icons.medical_services_rounded, 'color': const Color(0xFFE91E63)},
     {'label': 'Jurídico', 'icon': Icons.gavel_rounded, 'color': const Color(0xFF607D8B)},
     {'label': 'Logística', 'icon': Icons.local_shipping_rounded, 'color': const Color(0xFFF57C00)},
@@ -690,14 +690,14 @@ class _CompaniesMockupState extends State<_CompaniesMockup>
 
   final List<Map<String, dynamic>> _row2 = [
     {'label': 'Design', 'icon': Icons.palette_rounded, 'color': const Color(0xFF9C27B0)},
-    {'label': 'Finanças', 'icon': Icons.account_balance_rounded, 'color': StageColors.ctaGreen},
+    {'label': 'Finanças', 'icon': Icons.account_balance_rounded, 'color': AppColors.primary},
     {'label': 'Engenharia', 'icon': Icons.engineering_rounded, 'color': const Color(0xFF795548)},
     {'label': 'Vendas', 'icon': Icons.storefront_rounded, 'color': const Color(0xFF2196F3)},
   ];
 
   final List<Map<String, dynamic>> _row3 = [
     {'label': 'Marketing', 'icon': Icons.campaign_rounded, 'color': const Color(0xFF00BCD4)},
-    {'label': 'Educação', 'icon': Icons.school_rounded, 'color': const Color(0xFFFFC107)},
+    {'label': 'Educação', 'icon': Icons.school_rounded, 'color': AppColors.warning},
     {'label': 'Agronegócio', 'icon': Icons.eco_rounded, 'color': const Color(0xFF4CAF50)},
     {'label': 'RH', 'icon': Icons.people_rounded, 'color': const Color(0xFF673AB7)},
   ];
@@ -780,10 +780,10 @@ class _CompaniesMockupState extends State<_CompaniesMockup>
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(100), // Pill shape
-                border: Border.all(color: StageColors.brandBlue.withOpacity(0.1), width: 1.5),
+                border: Border.all(color: AppColors.brandBlue.withOpacity(0.1), width: 1.5),
                 boxShadow: [
                   BoxShadow(
-                    color: StageColors.brandBlue.withOpacity(0.15),
+                    color: AppColors.brandBlue.withOpacity(0.15),
                     blurRadius: 30,
                     offset: const Offset(0, 10),
                   )
@@ -796,11 +796,11 @@ class _CompaniesMockupState extends State<_CompaniesMockup>
                     width: 44,
                     height: 44,
                     decoration: BoxDecoration(
-                      gradient: StageColors.brandGradient,
+                      gradient: AppGradients.brand,
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: StageColors.brandCyan.withOpacity(0.4),
+                          color: AppColors.brandCyan.withOpacity(0.4),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                         )
@@ -818,7 +818,7 @@ class _CompaniesMockupState extends State<_CompaniesMockup>
                         style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
-                          color: Colors.grey[500],
+                          color: AppColors.textTertiary,
                           letterSpacing: 1.2,
                         ),
                       ),
@@ -914,5 +914,4 @@ class _CompaniesMockupState extends State<_CompaniesMockup>
     );
   }
 }
-
 

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../core/constants/stage_colors.dart';
+import '../../../core/theme/theme.dart';
 
 /// Widget de edição inline para um campo do CV adaptado. Usado dentro de
 /// [AdaptedResumePreviewScreen] (F1 da reformulação).
@@ -138,7 +138,7 @@ class _ResumeBlockEditorState extends State<ResumeBlockEditor> {
                   fontSize: 11,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 0.6,
-                  color: Color(0xFF6B7280),
+                  color: AppColors.textTertiary,
                 ),
               ),
               if (_isModified) ...[
@@ -177,7 +177,7 @@ class _ResumeBlockEditorState extends State<ResumeBlockEditor> {
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
-              color: widget.readOnly ? Colors.transparent : const Color(0xFFE5E7EB),
+              color: widget.readOnly ? Colors.transparent : AppColors.border,
               width: 1,
             ),
           ),
@@ -188,8 +188,8 @@ class _ResumeBlockEditorState extends State<ResumeBlockEditor> {
                   const TextStyle(fontSize: 14, height: 1.4))
               .copyWith(
             color: isEmpty
-                ? const Color(0xFF9CA3AF)
-                : (widget.textStyle?.color ?? const Color(0xFF111827)),
+                ? AppColors.textDisabled
+                : (widget.textStyle?.color ?? AppColors.textPrimary),
             fontStyle: isEmpty ? FontStyle.italic : FontStyle.normal,
           ),
         ),
@@ -213,10 +213,10 @@ class _ResumeBlockEditorState extends State<ResumeBlockEditor> {
         hintText: widget.hint,
         contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
         enabledBorder: const UnderlineInputBorder(
-          borderSide: BorderSide(color: StageColors.brandCyan, width: 1.5),
+          borderSide: BorderSide(color: AppColors.brandCyan, width: 1.5),
         ),
         focusedBorder: const UnderlineInputBorder(
-          borderSide: BorderSide(color: StageColors.brandCyan, width: 2),
+          borderSide: BorderSide(color: AppColors.brandCyan, width: 2),
         ),
       ),
     );
@@ -244,10 +244,10 @@ class _ModifiedChip extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
           decoration: BoxDecoration(
-            color: StageColors.brandCyan.withOpacity(0.12),
+            color: AppColors.brandCyan.withOpacity(0.12),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: StageColors.brandCyan.withOpacity(0.3),
+              color: AppColors.brandCyan.withOpacity(0.3),
               width: 0.5,
             ),
           ),
@@ -257,7 +257,7 @@ class _ModifiedChip extends StatelessWidget {
               Icon(
                 expanded ? Icons.expand_less_rounded : Icons.edit_rounded,
                 size: 11,
-                color: StageColors.brandCyan,
+                color: AppColors.brandCyan,
               ),
               const SizedBox(width: 3),
               const Text(
@@ -265,7 +265,7 @@ class _ModifiedChip extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w800,
-                  color: StageColors.brandCyan,
+                  color: AppColors.brandCyan,
                   letterSpacing: 0.3,
                 ),
               ),
@@ -288,23 +288,23 @@ class _DiffViewer extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF9FAFB),
+        color: AppColors.surfaceVariant,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Row(
             children: [
-              Icon(Icons.remove_rounded, size: 12, color: Color(0xFFEF4444)),
+              Icon(Icons.remove_rounded, size: 12, color: AppColors.error),
               SizedBox(width: 4),
               Text(
                 'Original',
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w800,
-                  color: Color(0xFFEF4444),
+                  color: AppColors.error,
                   letterSpacing: 0.4,
                 ),
               ),
@@ -315,7 +315,7 @@ class _DiffViewer extends StatelessWidget {
             before.isEmpty ? '(vazio)' : before,
             style: TextStyle(
               fontSize: 12,
-              color: const Color(0xFF6B7280),
+              color: AppColors.textTertiary,
               decoration: TextDecoration.lineThrough,
               fontStyle: before.isEmpty ? FontStyle.italic : FontStyle.normal,
             ),
@@ -323,14 +323,14 @@ class _DiffViewer extends StatelessWidget {
           const SizedBox(height: 8),
           const Row(
             children: [
-              Icon(Icons.add_rounded, size: 12, color: StageColors.brandCyan),
+              Icon(Icons.add_rounded, size: 12, color: AppColors.brandCyan),
               SizedBox(width: 4),
               Text(
                 'Atual',
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w800,
-                  color: StageColors.brandCyan,
+                  color: AppColors.brandCyan,
                   letterSpacing: 0.4,
                 ),
               ),
@@ -341,7 +341,7 @@ class _DiffViewer extends StatelessWidget {
             after.isEmpty ? '(vazio)' : after,
             style: TextStyle(
               fontSize: 12,
-              color: const Color(0xFF111827),
+              color: AppColors.textPrimary,
               fontStyle: after.isEmpty ? FontStyle.italic : FontStyle.normal,
             ),
           ),
@@ -468,7 +468,7 @@ class _ResumeListEditorState extends State<ResumeListEditor> {
                 fontSize: 11,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 0.6,
-                color: Color(0xFF6B7280),
+                color: AppColors.textTertiary,
               ),
             ),
             if (_isModified) ...[
@@ -518,7 +518,7 @@ class _ResumeListEditorState extends State<ResumeListEditor> {
                 style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
               ),
               style: TextButton.styleFrom(
-                foregroundColor: StageColors.brandCyan,
+                foregroundColor: AppColors.brandCyan,
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 minimumSize: const Size(0, 28),
               ),
@@ -545,11 +545,11 @@ class _ResumeListEditorState extends State<ResumeListEditor> {
           contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(20),
-            borderSide: const BorderSide(color: StageColors.brandCyan, width: 1.5),
+            borderSide: const BorderSide(color: AppColors.brandCyan, width: 1.5),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(20),
-            borderSide: const BorderSide(color: StageColors.brandCyan, width: 2),
+            borderSide: const BorderSide(color: AppColors.brandCyan, width: 2),
           ),
         ),
       ),
@@ -579,9 +579,9 @@ class _Chip extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
             decoration: BoxDecoration(
-              color: const Color(0xFFF3F4F6),
+              color: AppColors.background,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFE5E7EB)),
+              border: Border.all(color: AppColors.border),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -594,7 +594,7 @@ class _Chip extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFF111827),
+                      color: AppColors.textPrimary,
                     ),
                   ),
                 ),
@@ -604,7 +604,7 @@ class _Chip extends StatelessWidget {
                   onTap: onRemove,
                   child: const Padding(
                     padding: EdgeInsets.all(2),
-                    child: Icon(Icons.close_rounded, size: 14, color: Color(0xFF6B7280)),
+                    child: Icon(Icons.close_rounded, size: 14, color: AppColors.textTertiary),
                   ),
                 ),
               ],
@@ -631,24 +631,24 @@ class _AddChip extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: StageColors.brandCyan.withOpacity(0.08),
+            color: AppColors.brandCyan.withOpacity(0.08),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: StageColors.brandCyan.withOpacity(0.3),
+              color: AppColors.brandCyan.withOpacity(0.3),
               style: BorderStyle.solid,
             ),
           ),
           child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.add_rounded, size: 14, color: StageColors.brandCyan),
+              Icon(Icons.add_rounded, size: 14, color: AppColors.brandCyan),
               SizedBox(width: 3),
               Text(
                 'Adicionar',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
-                  color: StageColors.brandCyan,
+                  color: AppColors.brandCyan,
                 ),
               ),
             ],

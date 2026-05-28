@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'month_year_picker_sheet.dart';
+import '../../../core/theme/theme.dart';
 
 enum DatePickerViewMode { dual, startOnly, endOnly }
 
@@ -156,19 +157,19 @@ class _DualWheelDateWidgetState extends State<DualWheelDateWidget> {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF3F4F6),
+        color: AppColors.background,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.timer, color: Color(0xFF4B5563), size: 20),
+          const Icon(Icons.timer, color: AppColors.textSecondary, size: 20),
           const SizedBox(width: 8),
           Text(
             'Duração Total: $durationText',
             style: const TextStyle(
               fontWeight: FontWeight.bold,
-              color: Color(0xFF374151),
+              color: AppColors.textSecondary,
             ),
           ),
         ],
@@ -184,14 +185,14 @@ class _DualWheelDateWidgetState extends State<DualWheelDateWidget> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE5E7EB), width: 2),
+          border: Border.all(color: AppColors.border, width: 2),
         ),
         child: Column(
           children: [
             Text(
               label,
               style: const TextStyle(
-                color: Color(0xFF9CA3AF),
+                color: AppColors.textDisabled,
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
               ),
@@ -202,11 +203,11 @@ class _DualWheelDateWidgetState extends State<DualWheelDateWidget> {
               style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF1F2937),
+                color: AppColors.textPrimary,
               ),
             ),
             const SizedBox(height: 8),
-            const Icon(Icons.calendar_today, color: Color(0xFF6366F1), size: 20),
+            const Icon(Icons.calendar_today, color: AppColors.primary, size: 20),
           ],
         ),
       ),

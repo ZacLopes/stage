@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 class QuickTimeEventWidget extends StatefulWidget {
   final Function(String) onSelect;
@@ -63,15 +64,15 @@ class _QuickTimeEventWidgetState extends State<QuickTimeEventWidget> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
               decoration: BoxDecoration(
-                color: isSelected ? const Color(0xFF58CC02) : Colors.white,
+                color: isSelected ? AppColors.success : Colors.white,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: isSelected ? const Color(0xFF46A302) : const Color(0xFFE5E7EB),
+                  color: isSelected ? AppColors.success : AppColors.border,
                   width: isSelected ? 0 : 2,
                 ),
                 boxShadow: const [
                   BoxShadow(
-                    color: Color(0xFFE5E7EB),
+                    color: AppColors.border,
                     offset: Offset(0, 4),
                     blurRadius: 0,
                   )
@@ -85,7 +86,7 @@ class _QuickTimeEventWidgetState extends State<QuickTimeEventWidget> {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: isSelected ? Colors.white : const Color(0xFF374151),
+                      color: isSelected ? Colors.white : AppColors.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -93,7 +94,7 @@ class _QuickTimeEventWidgetState extends State<QuickTimeEventWidget> {
                     action['desc']!,
                     style: TextStyle(
                       fontSize: 14,
-                      color: isSelected ? Colors.white.withOpacity(0.9) : const Color(0xFF6B7280),
+                      color: isSelected ? Colors.white.withOpacity(0.9) : AppColors.textTertiary,
                     ),
                   ),
                 ],

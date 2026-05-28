@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'month_year_picker_sheet.dart';
+import '../../../core/theme/theme.dart';
 // Note: We'll reuse DualWheelDateWidget logic or implement simple Date Pickers here.
 // For simplicity and standard UI, we'll use standard TextFields and a Date Picker dialog.
 
@@ -195,7 +196,7 @@ class _ExperienceFormWidgetState extends State<ExperienceFormWidget> {
             children: [
               Checkbox(
                 value: _isCurrent,
-                activeColor: const Color(0xFF58CC02),
+                activeColor: AppColors.success,
                 onChanged: (val) {
                   setState(() {
                     _isCurrent = val ?? false;
@@ -214,7 +215,7 @@ class _ExperienceFormWidgetState extends State<ExperienceFormWidget> {
           
           Text(
             _descriptionLabel,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF4B5563)),
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textSecondary),
           ),
           const SizedBox(height: 8),
           _buildTextField(
@@ -227,7 +228,7 @@ class _ExperienceFormWidgetState extends State<ExperienceFormWidget> {
           const SizedBox(height: 16),
            Text(
             _resultsLabel,
-             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF4B5563)),
+             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textSecondary),
           ),
           const SizedBox(height: 8),
           _buildTextField(
@@ -240,7 +241,7 @@ class _ExperienceFormWidgetState extends State<ExperienceFormWidget> {
           const SizedBox(height: 16),
            const Text(
             'Métricas (Números e Dados)',
-             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF4B5563)),
+             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textSecondary),
           ),
           const SizedBox(height: 8),
           _buildTextField(
@@ -270,18 +271,18 @@ class _ExperienceFormWidgetState extends State<ExperienceFormWidget> {
         labelText: label,
         helperText: helper,
         helperMaxLines: 2,
-        prefixIcon: icon != null ? Icon(icon, color: const Color(0xFF9CA3AF)) : null,
+        prefixIcon: icon != null ? Icon(icon, color: AppColors.textDisabled) : null,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+          borderSide: const BorderSide(color: AppColors.border),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+          borderSide: const BorderSide(color: AppColors.border),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF58CC02), width: 2),
+          borderSide: const BorderSide(color: AppColors.success, width: 2),
         ),
         filled: true,
         fillColor: Colors.white,
@@ -300,14 +301,14 @@ class _ExperienceFormWidgetState extends State<ExperienceFormWidget> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         decoration: BoxDecoration(
-          color: isDisabled ? const Color(0xFFF3F4F6) : Colors.white,
+          color: isDisabled ? AppColors.background : Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
+          border: Border.all(color: AppColors.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+            Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textTertiary)),
             const SizedBox(height: 4),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -318,11 +319,11 @@ class _ExperienceFormWidgetState extends State<ExperienceFormWidget> {
                     fontSize: 16,
                     fontWeight: value != null ? FontWeight.bold : FontWeight.normal,
                     color: value != null 
-                        ? (isDisabled ? const Color(0xFF9CA3AF) : Colors.black87)
-                        : const Color(0xFFAFAFAF),
+                        ? (isDisabled ? AppColors.textDisabled : Colors.black87)
+                        : AppColors.textDisabled,
                   ),
                 ),
-                Icon(Icons.calendar_today, size: 16, color: isDisabled ? const Color(0xFFAFAFAF) : const Color(0xFF58CC02)),
+                Icon(Icons.calendar_today, size: 16, color: isDisabled ? AppColors.textDisabled : AppColors.success),
               ],
             ),
           ],

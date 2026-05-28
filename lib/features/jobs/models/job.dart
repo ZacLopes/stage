@@ -37,6 +37,15 @@ class Job {
   final String? jobTypeRaw;   // 'estagio', 'trainee', 'clt_junior', 'temporario'
   final String? area;
   final String? externalUrl; // URL do site da empresa pra aplicar (Greenhouse/Lever/Apify)
+  /// Como o candidato aplica: 'url' (legacy — abre externalUrl no browser)
+  /// ou 'email' (abre mailto:applicationEmail com applicationSubject).
+  /// Default 'url' pra vagas antigas sem o campo no DB.
+  final String applicationMethod;
+  /// Email do recrutador. Só preenchido quando applicationMethod=='email'.
+  final String? applicationEmail;
+  /// Assunto sugerido do email de candidatura. Pode conter placeholders tipo
+  /// "[SEU NOME]" — substituídos no momento de abrir o mailto.
+  final String? applicationSubject;
   final Company? company;
 
   Job({
@@ -67,6 +76,9 @@ class Job {
     this.jobTypeRaw,
     this.area,
     this.externalUrl,
+    this.applicationMethod = 'url',
+    this.applicationEmail,
+    this.applicationSubject,
     this.company,
   });
 
@@ -182,6 +194,9 @@ class Job {
       jobTypeRaw: jobTypeRaw,
       area: json['area'] as String?,
       externalUrl: json['external_url'] as String?,
+      applicationMethod: (json['application_method'] as String?) ?? 'url',
+      applicationEmail: json['application_email'] as String?,
+      applicationSubject: json['application_subject'] as String?,
       company: company,
     );
   }

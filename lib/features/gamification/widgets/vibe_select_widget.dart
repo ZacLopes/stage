@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 class VibeSelectWidget extends StatefulWidget {
   final Function(String) onSelect;
@@ -75,10 +76,10 @@ class _VibeSelectWidgetState extends State<VibeSelectWidget> {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             decoration: BoxDecoration(
-              color: isSelected ? const Color(0xFFDDF4FF) : Colors.white,
+              color: isSelected ? AppColors.brandSoft : Colors.white,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: isSelected ? const Color(0xFF1CB0F6) : const Color(0xFFE5E7EB),
+                color: isSelected ? AppColors.secondary : AppColors.border,
                 width: isSelected ? 3 : 2,
               ),
               boxShadow: [
@@ -96,7 +97,7 @@ class _VibeSelectWidgetState extends State<VibeSelectWidget> {
                 Icon(
                   _getIcon(vibe['icon']),
                   size: 48,
-                  color: isSelected ? const Color(0xFF1CB0F6) : const Color(0xFF6B7280),
+                  color: isSelected ? AppColors.secondary : AppColors.textTertiary,
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -104,7 +105,7 @@ class _VibeSelectWidgetState extends State<VibeSelectWidget> {
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: isSelected ? const Color(0xFF1899D6) : const Color(0xFF374151),
+                    color: isSelected ? AppColors.brand : AppColors.textSecondary,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -113,7 +114,7 @@ class _VibeSelectWidgetState extends State<VibeSelectWidget> {
                   vibe['desc']!,
                   style: const TextStyle(
                     fontSize: 14.5,
-                    color: Color(0xFF6B7280),
+                    color: AppColors.textTertiary,
                     height: 1.3,
                   ),
                   textAlign: TextAlign.center,

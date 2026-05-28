@@ -14,6 +14,7 @@ import '../../splash/splash_screen.dart' show AuthGate;
 import 'masking_questions/attribution_screen.dart';
 import 'upload_preview_sheet.dart';
 import 'onboarding_scaffold.dart';
+import '../../../core/theme/theme.dart';
 
 class TwoDoorsScreen extends StatefulWidget {
   /// Callback opcional pra "Construir pela trilha". Se null, usa default:
@@ -83,16 +84,16 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
         ),
         content: const Text(
           'Sua conta fica salva — você volta exatamente daqui quando fizer login de novo.',
-          style: TextStyle(color: Color(0xFF6B7280), fontSize: 14),
+          style: TextStyle(color: AppColors.textTertiary, fontSize: 14),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogCtx, false),
-            child: const Text('Cancelar', style: TextStyle(color: Color(0xFF6B7280))),
+            child: const Text('Cancelar', style: TextStyle(color: AppColors.textTertiary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogCtx, true),
-            child: const Text('Sair', style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.w600)),
+            child: const Text('Sair', style: TextStyle(color: AppColors.error, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -113,7 +114,7 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao sair: $e'), backgroundColor: const Color(0xFFEF4444)),
+          SnackBar(content: Text('Erro ao sair: $e'), backgroundColor: AppColors.error),
         );
       }
     }
@@ -162,7 +163,7 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
       subtitle: 'Precisamos de algumas informações sobre você',
       showBack: false,
       leading: IconButton(
-        icon: const Icon(Icons.arrow_back, color: Color(0xFF1F2937)),
+        icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
         tooltip: 'Sair',
         onPressed: _confirmExit,
       ),
@@ -205,7 +206,7 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isRecommended ? const Color(0xFF29B6D2) : const Color(0xFFE5E7EB),
+            color: isRecommended ? AppColors.brandCyan : AppColors.border,
             width: isRecommended ? 1.5 : 1,
           ),
         ),
@@ -217,10 +218,10 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF29B6D2).withValues(alpha: 0.1),
+                    color: AppColors.brandCyan.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(icon, color: const Color(0xFF29B6D2), size: 26),
+                  child: Icon(icon, color: AppColors.brandCyan, size: 26),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -237,7 +238,7 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF29B6D2),
+                            color: AppColors.brandCyan,
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
@@ -254,13 +255,13 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
                     ],
                   ),
                 ),
-                const Icon(Icons.arrow_forward_ios, size: 16, color: Color(0xFF9CA3AF)),
+                const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.textDisabled),
               ],
             ),
             const SizedBox(height: 12),
             Text(
               description,
-              style: const TextStyle(color: Color(0xFF6B7280), fontSize: 14),
+              style: const TextStyle(color: AppColors.textTertiary, fontSize: 14),
             ),
           ],
         ),

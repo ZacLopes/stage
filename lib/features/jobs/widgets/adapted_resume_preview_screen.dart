@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../../core/constants/stage_colors.dart';
 import '../../../data/models/models.dart' show ResumeCourse, SavedResumeSource;
 import '../../../services/analytics_service.dart';
 import '../../auth/user_viewmodel.dart';
@@ -16,6 +15,7 @@ import '../models/adapted_resume.dart';
 import '../models/job.dart';
 import '../pending_adapted_cv_tracker.dart';
 import 'resume_block_editor.dart';
+import '../../../core/theme/theme.dart';
 
 /// Tela full-screen de preview do CV adaptado pela IA (F1 da reformulação).
 ///
@@ -497,7 +497,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Erro ao gerar PDF: $e'),
-          backgroundColor: Colors.red.shade600,
+          backgroundColor: AppColors.error,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -522,7 +522,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
+      backgroundColor: AppColors.surfaceVariant,
       body: SafeArea(
         child: Column(
           children: [
@@ -541,7 +541,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
       padding: const EdgeInsets.fromLTRB(8, 8, 16, 12),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
+        border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(
         children: [
@@ -558,7 +558,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w900,
-                    color: Color(0xFF111827),
+                    color: AppColors.textPrimary,
                     letterSpacing: -0.3,
                   ),
                 ),
@@ -569,7 +569,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 12,
-                    color: Color(0xFF6B7280),
+                    color: AppColors.textTertiary,
                   ),
                 ),
               ],
@@ -584,7 +584,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                 style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
               ),
               style: TextButton.styleFrom(
-                foregroundColor: StageColors.brandCyan,
+                foregroundColor: AppColors.brandCyan,
               ),
             ),
           // Toggle Editar/Visualizar — só visível na aba "Adaptado". Em
@@ -602,8 +602,8 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                     : Icons.edit_rounded,
                 size: 20,
                 color: _editingAdapted
-                    ? StageColors.brandCyan
-                    : const Color(0xFF6B7280),
+                    ? AppColors.brandCyan
+                    : AppColors.textTertiary,
               ),
             ),
         ],
@@ -678,7 +678,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
           Expanded(
             child: Container(
               decoration: BoxDecoration(
-                color: const Color(0xFFF3F4F6),
+                color: AppColors.background,
                 borderRadius: BorderRadius.circular(10),
               ),
               padding: const EdgeInsets.all(3),
@@ -713,7 +713,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
         height: 36,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: const Color(0xFFF3F4F6),
+          color: AppColors.background,
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
@@ -721,7 +721,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
             const Icon(
               Icons.dashboard_customize_rounded,
               size: 16,
-              color: Color(0xFF374151),
+              color: AppColors.textSecondary,
             ),
             const SizedBox(width: 6),
             Text(
@@ -729,14 +729,14 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF111827),
+                color: AppColors.textPrimary,
               ),
             ),
             const SizedBox(width: 4),
             const Icon(
               Icons.expand_more_rounded,
               size: 16,
-              color: Color(0xFF6B7280),
+              color: AppColors.textTertiary,
             ),
           ],
         ),
@@ -770,7 +770,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                     height: 4,
                     margin: const EdgeInsets.only(bottom: 12),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE5E7EB),
+                      color: AppColors.border,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -782,7 +782,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFF111827),
+                      color: AppColors.textPrimary,
                     ),
                   ),
                 ),
@@ -793,7 +793,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                     'O modelo afeta só o visual — o conteúdo adaptado fica o mesmo.',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Color(0xFF6B7280),
+                      color: AppColors.textTertiary,
                     ),
                   ),
                 ),
@@ -812,13 +812,13 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: isSelected
-                              ? StageColors.brandCyan.withOpacity(0.06)
-                              : const Color(0xFFF9FAFB),
+                              ? AppColors.brandCyan.withOpacity(0.06)
+                              : AppColors.surfaceVariant,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: isSelected
-                                ? StageColors.brandCyan
-                                : const Color(0xFFE5E7EB),
+                                ? AppColors.brandCyan
+                                : AppColors.border,
                             width: isSelected ? 1.5 : 1,
                           ),
                         ),
@@ -834,10 +834,10 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                                 errorBuilder: (_, __, ___) => Container(
                                   width: 56,
                                   height: 72,
-                                  color: const Color(0xFFE5E7EB),
+                                  color: AppColors.border,
                                   child: const Icon(
                                     Icons.description_outlined,
-                                    color: Color(0xFF9CA3AF),
+                                    color: AppColors.textDisabled,
                                   ),
                                 ),
                               ),
@@ -856,8 +856,8 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                                             fontSize: 14,
                                             fontWeight: FontWeight.w700,
                                             color: isSelected
-                                                ? StageColors.brandCyan
-                                                : const Color(0xFF111827),
+                                                ? AppColors.brandCyan
+                                                : AppColors.textPrimary,
                                           ),
                                         ),
                                       ),
@@ -865,7 +865,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                                         Icon(
                                           Icons.check_circle_rounded,
                                           size: 18,
-                                          color: StageColors.brandCyan,
+                                          color: AppColors.brandCyan,
                                         ),
                                     ],
                                   ),
@@ -874,7 +874,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                                     t.description,
                                     style: const TextStyle(
                                       fontSize: 12,
-                                      color: Color(0xFF6B7280),
+                                      color: AppColors.textTertiary,
                                       height: 1.3,
                                     ),
                                   ),
@@ -925,7 +925,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
-                color: selected ? const Color(0xFF111827) : const Color(0xFF6B7280),
+                color: selected ? AppColors.textPrimary : AppColors.textTertiary,
               ),
             ),
           ),
@@ -986,7 +986,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                 width: 16,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  color: Color(0xFF29B6D2),
+                  color: AppColors.brandCyan,
                 ),
               ),
             ),
@@ -1000,7 +1000,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
   /// `_editingAdapted = true`).
   Widget _buildAdaptedPdfView(Uint8List bytes) {
     return Container(
-      color: const Color(0xFFE5E7EB),
+      color: AppColors.border,
       child: PdfPreview(
         // Key força recriação do widget quando trocamos template/bytes —
         // sem isso, PdfPreview pode cachear o PDF anterior internamente.
@@ -1013,7 +1013,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
         loadingWidget: const Center(
           child: CircularProgressIndicator(
             strokeWidth: 2,
-            color: Color(0xFF29B6D2),
+            color: AppColors.brandCyan,
           ),
         ),
       ),
@@ -1029,7 +1029,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
       orElse: () => _kAdaptedTemplates.first,
     );
     return Container(
-      color: const Color(0xFFE5E7EB),
+      color: AppColors.border,
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1039,7 +1039,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
               width: 36,
               child: CircularProgressIndicator(
                 strokeWidth: 3,
-                color: Color(0xFF29B6D2),
+                color: AppColors.brandCyan,
               ),
             ),
             const SizedBox(height: 16),
@@ -1048,7 +1048,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
               style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF374151),
+                color: AppColors.textSecondary,
               ),
             ),
             const SizedBox(height: 4),
@@ -1056,7 +1056,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
               'Render real do PDF — leva 1-2s',
               style: TextStyle(
                 fontSize: 11,
-                color: Color(0xFF6B7280),
+                color: AppColors.textTertiary,
               ),
             ),
           ],
@@ -1070,7 +1070,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
   /// principal "Baixar PDF" pro adaptado).
   Widget _buildOriginalPdfView(Uint8List bytes) {
     return Container(
-      color: const Color(0xFFE5E7EB),
+      color: AppColors.border,
       child: PdfPreview(
         build: (_) => bytes,
         useActions: false,
@@ -1080,7 +1080,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
         loadingWidget: const Center(
           child: CircularProgressIndicator(
             strokeWidth: 2,
-            color: Color(0xFF29B6D2),
+            color: AppColors.brandCyan,
           ),
         ),
       ),
@@ -1115,7 +1115,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
               multiline: true,
               readOnly: readOnly,
               maxLength: 600,
-              textStyle: const TextStyle(fontSize: 13, height: 1.45, color: Color(0xFF374151)),
+              textStyle: const TextStyle(fontSize: 13, height: 1.45, color: AppColors.textSecondary),
               onChanged: (v) => _update(
                 field: 'summary',
                 mutate: (d) => d.copyWith(summary: v),
@@ -1262,7 +1262,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
           textStyle: const TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.w900,
-            color: Color(0xFF111827),
+            color: AppColors.textPrimary,
             height: 1.1,
           ),
           onChanged: (v) => _update(
@@ -1324,7 +1324,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
         original: original,
         hint: hint,
         readOnly: readOnly,
-        textStyle: const TextStyle(fontSize: 12, color: Color(0xFF4B5563)),
+        textStyle: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
         onChanged: onChanged,
       ),
     );
@@ -1341,12 +1341,12 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
               fontSize: 11,
               fontWeight: FontWeight.w900,
               letterSpacing: 0.8,
-              color: Color(0xFF374151),
+              color: AppColors.textSecondary,
             ),
           ),
           const SizedBox(width: 8),
           const Expanded(
-            child: Divider(color: Color(0xFFE5E7EB), height: 1),
+            child: Divider(color: AppColors.border, height: 1),
           ),
         ],
       ),
@@ -1380,7 +1380,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                   textStyle: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFF111827),
+                    color: AppColors.textPrimary,
                   ),
                   onChanged: (v) => _update(
                     field: 'experiences.$index.role',
@@ -1408,7 +1408,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                   readOnly: readOnly,
                   textStyle: const TextStyle(
                     fontSize: 11,
-                    color: Color(0xFF6B7280),
+                    color: AppColors.textTertiary,
                     fontWeight: FontWeight.w600,
                   ),
                   onChanged: (v) => _update(
@@ -1441,7 +1441,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                   textStyle: const TextStyle(
                     fontSize: 12,
                     fontStyle: FontStyle.italic,
-                    color: Color(0xFF4B5563),
+                    color: AppColors.textSecondary,
                   ),
                   onChanged: (v) => _update(
                     field: 'experiences.$index.company',
@@ -1470,7 +1470,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                     readOnly: readOnly,
                     textStyle: const TextStyle(
                       fontSize: 11,
-                      color: Color(0xFF6B7280),
+                      color: AppColors.textTertiary,
                     ),
                     onChanged: (v) => _update(
                       field: 'experiences.$index.location',
@@ -1501,7 +1501,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
             textStyle: const TextStyle(
               fontSize: 12,
               height: 1.45,
-              color: Color(0xFF374151),
+              color: AppColors.textSecondary,
             ),
             onChanged: (v) => _update(
               field: 'experiences.$index.description',
@@ -1567,7 +1567,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                   textStyle: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFF111827),
+                    color: AppColors.textPrimary,
                   ),
                   onChanged: (v) => _update(
                     field: 'education.$index.institution',
@@ -1595,7 +1595,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                   readOnly: readOnly,
                   textStyle: const TextStyle(
                     fontSize: 11,
-                    color: Color(0xFF6B7280),
+                    color: AppColors.textTertiary,
                     fontWeight: FontWeight.w600,
                   ),
                   onChanged: (v) => _update(
@@ -1628,7 +1628,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                   textStyle: const TextStyle(
                     fontSize: 12,
                     fontStyle: FontStyle.italic,
-                    color: Color(0xFF4B5563),
+                    color: AppColors.textSecondary,
                   ),
                   onChanged: (v) => _update(
                     field: 'education.$index.degree',
@@ -1657,7 +1657,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                     readOnly: readOnly,
                     textStyle: const TextStyle(
                       fontSize: 11,
-                      color: Color(0xFF6B7280),
+                      color: AppColors.textTertiary,
                     ),
                     onChanged: (v) => _update(
                       field: 'education.$index.location',
@@ -1689,7 +1689,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
               textStyle: const TextStyle(
                 fontSize: 12,
                 height: 1.45,
-                color: Color(0xFF374151),
+                color: AppColors.textSecondary,
               ),
               onChanged: (v) => _update(
                 field: 'education.$index.details',
@@ -1717,7 +1717,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
       padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + mq.padding.bottom),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+        border: Border(top: BorderSide(color: AppColors.border)),
         boxShadow: [
           BoxShadow(
             color: Color(0x0A000000),
@@ -1737,7 +1737,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                     width: 8,
                     height: 8,
                     decoration: const BoxDecoration(
-                      color: StageColors.brandCyan,
+                      color: AppColors.brandCyan,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -1747,7 +1747,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      color: StageColors.brandCyan,
+                      color: AppColors.brandCyan,
                     ),
                   ),
                 ],
@@ -1757,7 +1757,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
             child: ElevatedButton(
               onPressed: _isExporting ? null : _approveAndDownload,
               style: ElevatedButton.styleFrom(
-                backgroundColor: StageColors.brandCyan,
+                backgroundColor: AppColors.brandCyan,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
@@ -1895,7 +1895,7 @@ class _SavedConfirmationDialogState extends State<_SavedConfirmationDialog>
                         width: 72,
                         height: 72,
                         decoration: const BoxDecoration(
-                          color: Color(0xFF10B981), // emerald (mesmo do brand adapted)
+                          color: AppColors.success, // emerald (mesmo do brand adapted)
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
@@ -1923,7 +1923,7 @@ class _SavedConfirmationDialogState extends State<_SavedConfirmationDialog>
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w900,
-                              color: Color(0xFF111827),
+                              color: AppColors.textPrimary,
                               letterSpacing: -0.4,
                             ),
                           ),
@@ -1933,7 +1933,7 @@ class _SavedConfirmationDialogState extends State<_SavedConfirmationDialog>
                             textAlign: TextAlign.center,
                             style: const TextStyle(
                               fontSize: 13,
-                              color: Color(0xFF6B7280),
+                              color: AppColors.textTertiary,
                               height: 1.45,
                             ),
                           ),
@@ -1948,7 +1948,7 @@ class _SavedConfirmationDialogState extends State<_SavedConfirmationDialog>
                         child: ElevatedButton(
                           onPressed: () => Navigator.of(context).pop(),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: StageColors.brandCyan,
+                            backgroundColor: AppColors.brandCyan,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(

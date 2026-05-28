@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 class ActivitiesGridWidget extends StatefulWidget {
   final Function(String) onSelect;
@@ -72,7 +73,7 @@ class _ActivitiesGridWidgetState extends State<ActivitiesGridWidget> {
     final reflectionController = TextEditingController(text: existingData?['reflection'] ?? '');
     
     // Theme colors
-    const primaryColor = Color(0xFF58CC02);
+    const primaryColor = AppColors.success;
 
     showModalBottomSheet(
       context: context,
@@ -101,12 +102,12 @@ class _ActivitiesGridWidgetState extends State<ActivitiesGridWidget> {
                     Expanded(
                       child: Text(
                         option['label'],
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF374151)),
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
                       ),
                     ),
                     IconButton(
                         onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close, color: Color(0xFF9CA3AF))
+                        icon: const Icon(Icons.close, color: AppColors.textDisabled)
                     )
                   ],
                 ),
@@ -115,7 +116,7 @@ class _ActivitiesGridWidgetState extends State<ActivitiesGridWidget> {
                 // Field 1
                 Text(
                   option['detailTitle'] ?? 'Detalhes',
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF374151)),
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 8),
                 TextField(
@@ -123,7 +124,7 @@ class _ActivitiesGridWidgetState extends State<ActivitiesGridWidget> {
                   decoration: InputDecoration(
                     hintText: 'Digite aqui...',
                     filled: true,
-                    fillColor: const Color(0xFFF3F4F6),
+                    fillColor: AppColors.background,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                   ),
                 ),
@@ -132,7 +133,7 @@ class _ActivitiesGridWidgetState extends State<ActivitiesGridWidget> {
                 // Field 2 (Reflection)
                 Text(
                   option['reflectiveTitle'] ?? 'Reflexão',
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF374151)),
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 8),
                 TextField(
@@ -141,7 +142,7 @@ class _ActivitiesGridWidgetState extends State<ActivitiesGridWidget> {
                   decoration: InputDecoration(
                     hintText: 'Conte um pouco sobre sua experiência...',
                     filled: true,
-                    fillColor: const Color(0xFFF3F4F6),
+                    fillColor: AppColors.background,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                   ),
                 ),
@@ -219,7 +220,7 @@ class _ActivitiesGridWidgetState extends State<ActivitiesGridWidget> {
         final option = parsedOptions[index];
         final isSelected = _selectedItems.containsKey(option['id']);
         final isNone = option['id'] == 'none';
-        final activeColor = isNone ? const Color(0xFFFF4B4B) : const Color(0xFF58CC02);
+        final activeColor = isNone ? AppColors.error : AppColors.success;
 
         return GestureDetector(
           onTap: () => _handleCardTap(option),
@@ -230,7 +231,7 @@ class _ActivitiesGridWidgetState extends State<ActivitiesGridWidget> {
               color: isSelected ? activeColor.withOpacity(0.1) : Colors.white,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: isSelected ? activeColor : const Color(0xFFE5E7EB),
+                color: isSelected ? activeColor : AppColors.border,
                 width: isSelected ? 2 : 1.5,
               ),
               boxShadow: isSelected ? [] : [
@@ -243,12 +244,12 @@ class _ActivitiesGridWidgetState extends State<ActivitiesGridWidget> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: isSelected ? activeColor : const Color(0xFFF3F4F6),
+                    color: isSelected ? activeColor : AppColors.background,
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
                     _getIconData(option['icon']),
-                    color: isSelected ? Colors.white : const Color(0xFF6B7280),
+                    color: isSelected ? Colors.white : AppColors.textTertiary,
                     size: 28,
                   ),
                 ),
@@ -259,7 +260,7 @@ class _ActivitiesGridWidgetState extends State<ActivitiesGridWidget> {
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
-                    color: isSelected ? activeColor : const Color(0xFF374151),
+                    color: isSelected ? activeColor : AppColors.textSecondary,
                   ),
                 ),
               ],

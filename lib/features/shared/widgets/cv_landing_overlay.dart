@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 /// Plays a one-shot "document flying to Profile tab" animation by inserting
 /// a temporary [OverlayEntry]. Used after a CV is auto-saved (via trail
@@ -115,14 +116,14 @@ class _CvLandingAnimationState extends State<_CvLandingAnimation>
                       height: 72,
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                          colors: [AppColors.primary, AppColors.primary],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
                         borderRadius: BorderRadius.circular(20),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFF4F46E5).withOpacity(0.55),
+                            color: AppColors.primary.withOpacity(0.55),
                             blurRadius: 28,
                             offset: const Offset(0, 8),
                           ),

@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../auth/user_viewmodel.dart';
 import '../onboarding_scaffold.dart';
+import '../../../../core/theme/theme.dart';
 
 class OnboardingCompleteScreen extends StatefulWidget {
   /// Callback opcional pra rotina pós-finish. Se null, o default é
@@ -52,7 +53,7 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Erro ao finalizar: $e'),
-            backgroundColor: const Color(0xFFEF4444),
+            backgroundColor: AppColors.error,
           ),
         );
         setState(() => _finishing = false);
@@ -69,7 +70,7 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Não foi possível finalizar. Tenta novamente.'),
-          backgroundColor: Color(0xFFEF4444),
+          backgroundColor: AppColors.error,
         ),
       );
       setState(() => _finishing = false);
@@ -108,10 +109,10 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
               Container(
                 width: 120, height: 120,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF29B6D2).withValues(alpha: 0.12),
+                  color: AppColors.brandCyan.withValues(alpha: 0.12),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.celebration, color: Color(0xFF29B6D2), size: 64),
+                child: const Icon(Icons.celebration, color: AppColors.brandCyan, size: 64),
               ),
               const SizedBox(height: 28),
               const Text(
@@ -122,7 +123,7 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
               const Text(
                 'Vamos te mostrar vagas que combinam com você.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Color(0xFF6B7280), fontSize: 15),
+                style: TextStyle(color: AppColors.textTertiary, fontSize: 15),
               ),
             ],
           ),

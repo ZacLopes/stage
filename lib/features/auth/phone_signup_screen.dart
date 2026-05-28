@@ -13,7 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../core/analytics/screen_tracking.dart';
-import '../../core/constants/stage_colors.dart';
+import '../../core/theme/theme.dart';
 import '../../core/utils/auth_error_formatter.dart';
 import '../../core/utils/brazil_phone_formatter.dart';
 import '../../core/widgets/pii_mask.dart';
@@ -95,7 +95,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
       if (mounted) {
         setState(() => _errorMessage = AuthErrorFormatter.format(e));
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(backgroundColor: StageColors.error, content: Text(_errorMessage!)),
+          SnackBar(backgroundColor: AppColors.error, content: Text(_errorMessage!)),
         );
       }
     }
@@ -107,19 +107,19 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
 
     return PiiMask(
       child: Scaffold(
-        backgroundColor: StageColors.offWhite,
+        backgroundColor: AppColors.surfaceVariant,
         appBar: AppBar(
-          backgroundColor: StageColors.offWhite,
+          backgroundColor: AppColors.surfaceVariant,
           elevation: 0,
           centerTitle: true,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new_rounded, color: StageColors.darkText),
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AppColors.textPrimary),
             onPressed: () => Navigator.pop(context),
           ),
           title: Text(
             'Continuar com telefone',
             style: TextStyle(fontFamily: 'Outfit', 
-              color: StageColors.titleText,
+              color: AppColors.textPrimary,
               fontSize: 18,
               fontWeight: FontWeight.w600,
             ),
@@ -141,7 +141,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                           style: TextStyle(fontFamily: 'Outfit', 
                             fontSize: 28,
                             fontWeight: FontWeight.bold,
-                            color: StageColors.titleText,
+                            color: AppColors.textPrimary,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -149,7 +149,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                           'Entre ou crie sua conta com seu número.',
                           style: TextStyle(fontFamily: 'Inter', 
                             fontSize: 16,
-                            color: StageColors.subtitleGray,
+                            color: AppColors.textTertiary,
                           ),
                         ),
                         const SizedBox(height: 32),
@@ -169,16 +169,16 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                                       horizontal: 10, vertical: 20),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(16),
-                                    borderSide: BorderSide(color: StageColors.chipBorder),
+                                    borderSide: BorderSide(color: AppColors.borderStrong),
                                   ),
                                   enabledBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(16),
-                                    borderSide: BorderSide(color: StageColors.chipBorder),
+                                    borderSide: BorderSide(color: AppColors.borderStrong),
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(16),
                                     borderSide: const BorderSide(
-                                        color: StageColors.brandBlue, width: 2),
+                                        color: AppColors.brandBlue, width: 2),
                                   ),
                                 ),
                                 items: const [
@@ -235,7 +235,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                           suffixIcon: IconButton(
                             icon: Icon(
                                 _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                                color: StageColors.hintGray),
+                                color: AppColors.textDisabled),
                             onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                           ),
                         ),
@@ -243,7 +243,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                           padding: const EdgeInsets.only(top: 8, left: 12),
                           child: Text(
                             'Mínimo 8 caracteres, uma letra e um número',
-                            style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: StageColors.hintGray),
+                            style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppColors.textDisabled),
                           ),
                         ),
                       ],
@@ -257,19 +257,19 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       decoration: BoxDecoration(
-                        color: StageColors.error.withOpacity(0.1),
+                        color: AppColors.error.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: StageColors.error.withOpacity(0.3)),
+                        border: Border.all(color: AppColors.error.withOpacity(0.3)),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.error_outline_rounded, color: StageColors.error, size: 20),
+                          const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 20),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
                               _errorMessage!,
                               style: TextStyle(fontFamily: 'Inter', 
-                                color: StageColors.error,
+                                color: AppColors.error,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w500,
                               ),
@@ -288,7 +288,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 300),
                       decoration: BoxDecoration(
-                        color: _isFormValid ? StageColors.ctaGreen : Colors.grey[300],
+                        color: _isFormValid ? AppColors.primary : AppColors.borderStrong,
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: Material(
@@ -307,7 +307,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                                     style: TextStyle(fontFamily: 'Outfit', 
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
-                                      color: _isFormValid ? Colors.white : Colors.grey[500],
+                                      color: _isFormValid ? Colors.white : AppColors.textTertiary,
                                     ),
                                   ),
                           ),
@@ -322,7 +322,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                     textAlign: TextAlign.center,
                     text: TextSpan(
                       style: TextStyle(fontFamily: 'Inter', 
-                        color: StageColors.subtitleGray,
+                        color: AppColors.textTertiary,
                         fontSize: 12,
                         height: 1.4,
                       ),
@@ -331,7 +331,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                         TextSpan(
                           text: 'Termos de Uso',
                           style: TextStyle(
-                            color: StageColors.brandBlue,
+                            color: AppColors.brandBlue,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -339,7 +339,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                         TextSpan(
                           text: 'Política de Privacidade',
                           style: TextStyle(
-                            color: StageColors.brandBlue,
+                            color: AppColors.brandBlue,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -376,28 +376,28 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
       textInputAction: textInputAction,
       validator: validator,
       onChanged: onChanged,
-      style: TextStyle(fontFamily: 'Inter', color: StageColors.darkText, fontSize: 16),
+      style: TextStyle(fontFamily: 'Inter', color: AppColors.textPrimary, fontSize: 16),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: TextStyle(fontFamily: 'Inter', color: StageColors.subtitleGray),
-        floatingLabelStyle: TextStyle(fontFamily: 'Inter', color: StageColors.brandBlue, fontWeight: FontWeight.bold),
-        prefixIcon: Icon(icon, color: StageColors.hintGray),
+        labelStyle: TextStyle(fontFamily: 'Inter', color: AppColors.textTertiary),
+        floatingLabelStyle: TextStyle(fontFamily: 'Inter', color: AppColors.brandBlue, fontWeight: FontWeight.bold),
+        prefixIcon: Icon(icon, color: AppColors.textDisabled),
         suffixIcon: suffixIcon,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: StageColors.chipBorder),
+          borderSide: BorderSide(color: AppColors.borderStrong),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: StageColors.chipBorder),
+          borderSide: BorderSide(color: AppColors.borderStrong),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: StageColors.brandBlue, width: 2),
+          borderSide: const BorderSide(color: AppColors.brandBlue, width: 2),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: StageColors.error),
+          borderSide: const BorderSide(color: AppColors.error),
         ),
         filled: true,
         fillColor: Colors.white,

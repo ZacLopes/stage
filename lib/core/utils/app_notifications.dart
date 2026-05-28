@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../core/theme/theme.dart';
 
 enum NotificationType { success, warning, error, info }
 
@@ -115,14 +116,14 @@ class _NotificationToastState extends State<_NotificationToast> with SingleTicke
   Color _getBackgroundColor(NotificationType type) {
     switch (type) {
       case NotificationType.success:
-        return const Color(0xFF58CC02);
+        return AppColors.success;
       case NotificationType.warning:
-        return const Color(0xFFFF9600);
+        return AppColors.warning;
       case NotificationType.error:
-        return const Color(0xFFFF4B4B);
+        return AppColors.error;
       case NotificationType.info:
       default:
-        return const Color(0xFF1CB0F6);
+        return AppColors.secondary;
     }
   }
 

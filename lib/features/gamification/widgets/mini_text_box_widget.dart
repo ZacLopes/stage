@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 class MiniTextBoxWidget extends StatefulWidget {
   final Function(String) onSelect;
@@ -45,13 +46,13 @@ class _MiniTextBoxWidgetState extends State<MiniTextBoxWidget> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE5E7EB), width: 2),
+            border: Border.all(color: AppColors.border, width: 2),
           ),
           child: TextField(
             controller: _controller,
             maxLength: _maxLength,
             maxLines: 4,
-            style: const TextStyle(fontSize: 16, color: Color(0xFF374151)),
+            style: const TextStyle(fontSize: 16, color: AppColors.textSecondary),
             decoration: const InputDecoration(
               hintText: 'Ex: Fui responsável por organizar a semana da computação...',
               border: InputBorder.none,
@@ -64,7 +65,7 @@ class _MiniTextBoxWidgetState extends State<MiniTextBoxWidget> {
         Text(
           '${_controller.text.length} / $_maxLength',
           style: TextStyle(
-            color: _controller.text.length > _maxLength ? Colors.red : Colors.grey,
+            color: _controller.text.length > _maxLength ? AppColors.error : AppColors.textTertiary,
             fontWeight: FontWeight.bold,
           ),
         ),

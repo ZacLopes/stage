@@ -8,6 +8,7 @@ import '../../../profile/domain/entities/entities.dart';
 import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'job_types_screen.dart';
+import '../../../../core/theme/theme.dart';
 
 const _options = <(WorkMode, String, IconData)>[
   (WorkMode.remote, 'Remoto', Icons.home_outlined),
@@ -59,7 +60,7 @@ class _WorkModeScreenState extends State<WorkModeScreen> {
           ? null
           : TextButton(
               onPressed: _next,
-              style: TextButton.styleFrom(foregroundColor: const Color(0xFF6B7280)),
+              style: TextButton.styleFrom(foregroundColor: AppColors.textTertiary),
               child: const Text('Pular etapa'),
             ),
       child: Column(
@@ -82,23 +83,23 @@ class _WorkModeScreenState extends State<WorkModeScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
-                  color: isSelected ? const Color(0xFF29B6D2).withValues(alpha: 0.08) : Colors.white,
+                  color: isSelected ? AppColors.brandCyan.withValues(alpha: 0.08) : Colors.white,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: isSelected ? const Color(0xFF29B6D2) : const Color(0xFFE5E7EB),
+                    color: isSelected ? AppColors.brandCyan : AppColors.border,
                     width: isSelected ? 1.5 : 1,
                   ),
                 ),
                 child: Row(
                   children: [
-                    Icon(icon, color: isSelected ? const Color(0xFF29B6D2) : const Color(0xFF6B7280)),
+                    Icon(icon, color: isSelected ? AppColors.brandCyan : AppColors.textTertiary),
                     const SizedBox(width: 14),
                     Expanded(
                       child: Text(
                         label,
                         style: TextStyle(
                           fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                          color: isSelected ? const Color(0xFF29B6D2) : Colors.black87,
+                          color: isSelected ? AppColors.brandCyan : Colors.black87,
                         ),
                       ),
                     ),
@@ -125,9 +126,9 @@ class _Checkbox extends StatelessWidget {
     return Container(
       width: 22, height: 22,
       decoration: BoxDecoration(
-        color: selected ? const Color(0xFF29B6D2) : Colors.white,
+        color: selected ? AppColors.brandCyan : Colors.white,
         border: Border.all(
-          color: selected ? const Color(0xFF29B6D2) : const Color(0xFFD1D5DB),
+          color: selected ? AppColors.brandCyan : AppColors.borderStrong,
           width: 1.5,
         ),
         borderRadius: BorderRadius.circular(6),

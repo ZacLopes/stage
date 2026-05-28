@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/theme/theme.dart';
 
 /// Captures Harvard-style academic highlights: GPA/CR, distinctions,
 /// representative role, relevant coursework. All fields optional —
@@ -89,7 +90,7 @@ class _AcademicHighlightsFormWidgetState
         const Text(
           'Tudo aqui é opcional. Preencha só o que se aplica — só inclua o '
           'que vai fortalecer seu currículo.',
-          style: TextStyle(color: Color(0xFF6B7280), fontSize: 13, height: 1.4),
+          style: TextStyle(color: AppColors.textTertiary, fontSize: 13, height: 1.4),
         ),
         const SizedBox(height: 24),
 
@@ -98,7 +99,7 @@ class _AcademicHighlightsFormWidgetState
         const SizedBox(height: 4),
         const Text(
           'Inclua só se for ≥ 8,0/10. Use ponto ou vírgula. Ex: 8.9',
-          style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12),
+          style: TextStyle(color: AppColors.textDisabled, fontSize: 12),
         ),
         const SizedBox(height: 8),
         _textField(
@@ -118,7 +119,7 @@ class _AcademicHighlightsFormWidgetState
         const SizedBox(height: 4),
         const Text(
           'Ex: "1º colocado em 2 semestres", "Bolsa de mérito", "Top 5% da turma"',
-          style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12),
+          style: TextStyle(color: AppColors.textDisabled, fontSize: 12),
         ),
         const SizedBox(height: 8),
         _textField(
@@ -135,7 +136,7 @@ class _AcademicHighlightsFormWidgetState
         const SizedBox(height: 4),
         const Text(
           'Ex: "Representante de turma", "Conselho acadêmico", "Diretor da Atlética"',
-          style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12),
+          style: TextStyle(color: AppColors.textDisabled, fontSize: 12),
         ),
         const SizedBox(height: 8),
         _textField(
@@ -152,7 +153,7 @@ class _AcademicHighlightsFormWidgetState
         const Text(
           'Até 6 disciplinas relevantes para a vaga-alvo, separadas por vírgula. '
           'Ex: Finanças Corporativas, Valuation, Análise de Mercado',
-          style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12),
+          style: TextStyle(color: AppColors.textDisabled, fontSize: 12),
         ),
         const SizedBox(height: 8),
         _textField(
@@ -172,7 +173,7 @@ class _AcademicHighlightsFormWidgetState
         style: const TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.bold,
-          color: Color(0xFF374151),
+          color: AppColors.textSecondary,
           letterSpacing: 1,
         ),
       );
@@ -193,23 +194,23 @@ class _AcademicHighlightsFormWidgetState
         style: const TextStyle(fontSize: 16),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: const TextStyle(color: Color(0xFFD1D5DB)),
-          prefixIcon: Icon(icon, color: const Color(0xFF9CA3AF), size: 20),
+          hintStyle: const TextStyle(color: AppColors.borderStrong),
+          prefixIcon: Icon(icon, color: AppColors.textDisabled, size: 20),
           filled: true,
-          fillColor: const Color(0xFFF9FAFB),
+          fillColor: AppColors.surfaceVariant,
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+            borderSide: const BorderSide(color: AppColors.border),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+            borderSide: const BorderSide(color: AppColors.border),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFF00C27A), width: 2),
+            borderSide: const BorderSide(color: AppColors.success, width: 2),
           ),
         ),
       );

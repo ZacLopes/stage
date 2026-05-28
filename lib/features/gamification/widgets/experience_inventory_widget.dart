@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/theme/theme.dart';
 
 class ExperienceInventoryWidget extends StatefulWidget {
   final Function(String) onSelect;
@@ -83,16 +84,16 @@ class _ExperienceInventoryWidgetState
           decoration: BoxDecoration(
             color: isSelected
                 ? (isNone
-                    ? const Color(0xFFF3F4F6)
-                    : const Color(0xFF00C27A).withOpacity(0.08))
+                    ? AppColors.background
+                    : AppColors.success.withOpacity(0.08))
                 : Colors.white,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: isSelected
                   ? (isNone
-                      ? const Color(0xFF9CA3AF)
-                      : const Color(0xFF00C27A))
-                  : const Color(0xFFE5E7EB),
+                      ? AppColors.textDisabled
+                      : AppColors.success)
+                  : AppColors.border,
               width: isSelected ? 2 : 1.5,
             ),
           ),
@@ -111,9 +112,9 @@ class _ExperienceInventoryWidgetState
                       size: 22,
                       color: isSelected
                           ? (isNone
-                              ? const Color(0xFF6B7280)
-                              : const Color(0xFF00C27A))
-                          : const Color(0xFF9CA3AF),
+                              ? AppColors.textTertiary
+                              : AppColors.success)
+                          : AppColors.textDisabled,
                     ),
                     const SizedBox(width: 14),
                     Expanded(
@@ -126,9 +127,9 @@ class _ExperienceInventoryWidgetState
                               : FontWeight.w400,
                           color: isSelected
                               ? (isNone
-                                  ? const Color(0xFF6B7280)
-                                  : const Color(0xFF1F2937))
-                              : const Color(0xFF4B5563),
+                                  ? AppColors.textTertiary
+                                  : AppColors.textPrimary)
+                              : AppColors.textSecondary,
                         ),
                       ),
                     ),
@@ -137,8 +138,8 @@ class _ExperienceInventoryWidgetState
                         isNone ? Icons.check : Icons.check_circle,
                         size: 20,
                         color: isNone
-                            ? const Color(0xFF9CA3AF)
-                            : const Color(0xFF00C27A),
+                            ? AppColors.textDisabled
+                            : AppColors.success,
                       ),
                   ],
                 ),

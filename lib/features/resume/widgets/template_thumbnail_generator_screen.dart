@@ -24,6 +24,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../pdf_service.dart';
 import 'template_thumbnail_mock_data.dart';
+import '../../../core/theme/theme.dart';
 
 const _kTemplateIds = [
   'harvard_ats',
@@ -185,7 +186,7 @@ class _TemplateThumbnailGeneratorScreenState
               Text(
                 'Regenera os PNGs de preview dos 4 templates de currículo. '
                 'Use sempre que o HTML de algum template mudar.',
-                style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: Colors.grey[700], height: 1.4),
+                style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppColors.textSecondary, height: 1.4),
               ),
               const SizedBox(height: 24),
               ElevatedButton.icon(
@@ -199,7 +200,7 @@ class _TemplateThumbnailGeneratorScreenState
                     : const Icon(Icons.image_outlined),
                 label: Text(_running ? 'Gerando...' : 'Gerar 4 PNGs'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF00C27A),
+                  backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -232,7 +233,7 @@ class _TemplateThumbnailGeneratorScreenState
 
     if (result == null) {
       icon = Icons.radio_button_unchecked;
-      color = Colors.grey;
+      color = AppColors.textTertiary;
       trailing = 'pendente';
     } else if (result.running) {
       icon = Icons.hourglass_top;
@@ -240,7 +241,7 @@ class _TemplateThumbnailGeneratorScreenState
       trailing = 'gerando...';
     } else if (result.error != null) {
       icon = Icons.error_outline;
-      color = Colors.red;
+      color = AppColors.error;
       trailing = result.error!;
     } else {
       icon = Icons.check_circle;
@@ -277,16 +278,16 @@ class _TemplateThumbnailGeneratorScreenState
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF00C27A).withOpacity(0.08),
+        color: AppColors.success.withOpacity(0.08),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF00C27A).withOpacity(0.3)),
+        border: Border.all(color: AppColors.success.withOpacity(0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'PNGs salvos em:',
-            style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[700]),
+            style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
           ),
           const SizedBox(height: 8),
           SelectableText(
@@ -300,14 +301,14 @@ class _TemplateThumbnailGeneratorScreenState
                 onPressed: _copyPath,
                 icon: const Icon(Icons.copy, size: 16),
                 label: const Text('Copiar caminho'),
-                style: TextButton.styleFrom(foregroundColor: const Color(0xFF00C27A)),
+                style: TextButton.styleFrom(foregroundColor: AppColors.success),
               ),
               const SizedBox(width: 8),
               TextButton.icon(
                 onPressed: _sharePngs,
                 icon: const Icon(Icons.ios_share, size: 16),
                 label: const Text('Compartilhar PNGs'),
-                style: TextButton.styleFrom(foregroundColor: const Color(0xFF00C27A)),
+                style: TextButton.styleFrom(foregroundColor: AppColors.success),
               ),
             ],
           ),
@@ -316,7 +317,7 @@ class _TemplateThumbnailGeneratorScreenState
             'No iPhone: toque em "Compartilhar PNGs" → AirDrop pro seu Mac '
             '(ou Salvar em Arquivos). Depois move os PNGs pra '
             'assets/images/templates/ e commita.',
-            style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.grey[800], height: 1.5),
+            style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppColors.textPrimary, height: 1.5),
           ),
         ],
       ),

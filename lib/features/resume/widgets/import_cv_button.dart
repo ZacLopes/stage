@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../services/cv_import_service.dart';
+import '../../../core/theme/theme.dart';
 
 /// Botão "Importar CV em PDF" reutilizável. Usa o [CvImportService] e mostra
 /// feedback via SnackBar. Em sucesso, chama [onImported] (caller decide se
@@ -61,7 +62,7 @@ class _ImportCvButtonState extends State<ImportCvButton> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
-        backgroundColor: success ? const Color(0xFF10B981) : Colors.red.shade600,
+        backgroundColor: success ? AppColors.success : AppColors.error,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
       ),
@@ -92,17 +93,17 @@ class _ImportCvButtonState extends State<ImportCvButton> {
           gradient: _busy
               ? null
               : const LinearGradient(
-                  colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                  colors: [AppColors.primary, AppColors.primary],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-          color: _busy ? const Color(0xFF94A3B8) : null,
+          color: _busy ? AppColors.textTertiary : null,
           borderRadius: BorderRadius.circular(16),
           boxShadow: _busy
               ? null
               : [
                   BoxShadow(
-                    color: const Color(0xFF4F46E5).withOpacity(0.35),
+                    color: AppColors.primary.withOpacity(0.35),
                     blurRadius: 16,
                     offset: const Offset(0, 6),
                   ),
@@ -158,14 +159,14 @@ class _ImportCvButtonState extends State<ImportCvButton> {
                 height: 18,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.5,
-                  color: Color(0xFF4F46E5),
+                  color: AppColors.primary,
                 ),
               )
             : const Icon(Icons.upload_file_rounded, size: 20),
         label: Text(widget.label),
         style: OutlinedButton.styleFrom(
-          foregroundColor: const Color(0xFF4F46E5),
-          side: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
+          foregroundColor: AppColors.primary,
+          side: const BorderSide(color: AppColors.border, width: 1.5),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           textStyle: const TextStyle(
             fontSize: 14,
@@ -184,9 +185,9 @@ class _ImportCvButtonState extends State<ImportCvButton> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: const Color(0xFFF1F5F9),
+          color: AppColors.surfaceMuted,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
+          border: Border.all(color: AppColors.border),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -197,14 +198,14 @@ class _ImportCvButtonState extends State<ImportCvButton> {
                     height: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.upload_file_rounded, size: 16, color: Color(0xFF4F46E5)),
+                : const Icon(Icons.upload_file_rounded, size: 16, color: AppColors.primary),
             const SizedBox(width: 6),
             Text(
               widget.label,
               style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF334155),
+                color: AppColors.textPrimary,
               ),
             ),
           ],

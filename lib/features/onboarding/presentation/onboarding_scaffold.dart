@@ -6,11 +6,12 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
+import '../../../core/theme/theme.dart';
 
-const _kBorderColor = Color(0xFFE5E7EB);
-const _kTextColor = Color(0xFF111827);
-const _kMutedText = Color(0xFF6B7280);
-const _kAccent = Color(0xFF29B6D2);
+const _kBorderColor = AppColors.border;
+const _kTextColor = AppColors.textPrimary;
+const _kMutedText = AppColors.textTertiary;
+const _kAccent = AppColors.primary;
 
 class OnboardingScaffold extends StatelessWidget {
   final String? title;

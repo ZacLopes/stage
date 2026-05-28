@@ -5,6 +5,7 @@ import 'package:flutter_html/flutter_html.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/job.dart';
 import '../utils/match_score.dart';
+import '../../../core/theme/theme.dart';
 
 class JobDetailsSheet extends StatefulWidget {
   final Job job;
@@ -41,8 +42,8 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
 
   // Monocromático: sheet sempre usa brand cyan/blue, independente da faixa
   // de match. Diferenciação vem do número no ring.
-  static const Color _matchColor = Color(0xFF29B6D2);     // brandCyan
-  static const Color _matchColorDark = Color(0xFF1565A8); // brandBlue
+  static const Color _matchColor = AppColors.brandCyan;     // brandCyan
+  static const Color _matchColorDark = AppColors.brandBlue; // brandBlue
 
   List<Color> get _headerGradient => const [_matchColor, _matchColorDark];
 
@@ -74,7 +75,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        color: Color(0xFFF8FAFC),
+        color: AppColors.surfaceVariant,
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: DraggableScrollableSheet(
@@ -123,7 +124,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                             _buildSection(
                               title: 'Sobre a vaga',
                               icon: Icons.info_outline_rounded,
-                              color: const Color(0xFF64748B),
+                              color: AppColors.textTertiary,
                               child: _buildJobHtml(
                                 html: widget.job.descriptionHtml,
                                 fallbackPlain: widget.job.description,
@@ -137,7 +138,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                               _buildSection(
                                 title: 'Requisitos',
                                 icon: Icons.checklist_rounded,
-                                color: const Color(0xFF64748B),
+                                color: AppColors.textTertiary,
                                 child: Column(
                                   children: widget.job.requirements
                                       .asMap()
@@ -154,7 +155,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                               _buildSection(
                                 title: 'Benefícios',
                                 icon: Icons.card_giftcard_rounded,
-                                color: const Color(0xFF64748B),
+                                color: AppColors.textTertiary,
                                 child: Wrap(
                                   spacing: 8,
                                   runSpacing: 8,
@@ -171,7 +172,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                               _buildSection(
                                 title: 'Sobre a ${widget.job.companyName}',
                                 icon: Icons.business_rounded,
-                                color: const Color(0xFF64748B),
+                                color: AppColors.textTertiary,
                                 child: _buildJobHtml(
                                   html: widget.job.aboutCompanyHtml,
                                   fallbackPlain: widget.job.aboutCompany,
@@ -499,7 +500,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                         matchLabel,
                         style: const TextStyle(
                           fontWeight: FontWeight.w800,
-                          color: Color(0xFF0F172A),
+                          color: AppColors.textPrimary,
                           fontSize: 15,
                         ),
                       ),
@@ -507,7 +508,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                       Text(
                         matchDescription,
                         style: const TextStyle(
-                          color: Color(0xFF64748B),
+                          color: AppColors.textTertiary,
                           fontSize: 13,
                           height: 1.4,
                         ),
@@ -544,7 +545,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                               ? Icons.check_circle_rounded
                               : Icons.remove_circle_outline_rounded,
                           size: 16,
-                          color: r.matched ? _matchColor : Colors.grey[400],
+                          color: r.matched ? _matchColor : AppColors.textDisabled,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -557,8 +558,8 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                                     fontSize: 13,
                                     fontWeight: FontWeight.w600,
                                     color: r.matched
-                                        ? const Color(0xFF1F2937)
-                                        : Colors.grey[600],
+                                        ? AppColors.textPrimary
+                                        : AppColors.textTertiary,
                                   ),
                                 ),
                                 if (r.detail != null && r.detail!.isNotEmpty)
@@ -566,7 +567,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                                     text: '  ${r.detail}',
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: Colors.grey[600],
+                                      color: AppColors.textTertiary,
                                     ),
                                   ),
                               ],
@@ -609,12 +610,12 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              const Color(0xFFFEF3C7),
-              const Color(0xFFFEF3C7).withOpacity(0.4),
+              AppColors.warningSoft,
+              AppColors.warningSoft.withOpacity(0.4),
             ],
           ),
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFFCD34D)),
+          border: Border.all(color: AppColors.xp),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -641,7 +642,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                     title,
                     style: const TextStyle(
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFF78350F),
+                      color: AppColors.warning,
                       fontSize: 15,
                     ),
                   ),
@@ -667,7 +668,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
   //  METRICS ROW
   // ════════════════════════════════════════════
   Widget _buildMetricsRow() {
-    const neutral = Color(0xFF64748B);
+    const neutral = AppColors.textTertiary;
     return Row(
       children: [
         Expanded(
@@ -735,7 +736,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
             label,
             style: const TextStyle(
               fontSize: 11,
-              color: Color(0xFF94A3B8),
+              color: AppColors.textTertiary,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -801,7 +802,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
+                      color: AppColors.textPrimary,
                       letterSpacing: -0.2,
                     ),
                     overflow: TextOverflow.ellipsis,
@@ -811,7 +812,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
             ),
           ),
           // Divider
-          Divider(height: 1, color: const Color(0xFFF1F5F9)),
+          Divider(height: 1, color: AppColors.surfaceMuted),
           // Content
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
@@ -882,13 +883,13 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
         style: const TextStyle(
           fontSize: 15,
           height: 1.65,
-          color: Color(0xFF475569),
+          color: AppColors.textSecondary,
         ),
       );
     }
     const baseFont = 'Inter';
-    const baseColor = Color(0xFF475569);
-    const accent = Color(0xFF00C27A);
+    const baseColor = AppColors.textSecondary;
+    const accent = AppColors.success;
     return Html(
       data: trimmed,
       onLinkTap: (url, attributes, element) async {
@@ -912,36 +913,36 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
         'p': Style(
           margin: Margins.only(bottom: 10),
         ),
-        'strong': Style(fontWeight: FontWeight.w700, color: const Color(0xFF1F2937)),
-        'b': Style(fontWeight: FontWeight.w700, color: const Color(0xFF1F2937)),
+        'strong': Style(fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+        'b': Style(fontWeight: FontWeight.w700, color: AppColors.textPrimary),
         'em': Style(fontStyle: FontStyle.italic),
         'i': Style(fontStyle: FontStyle.italic),
         'h1': Style(
           fontFamily: 'Outfit',
           fontSize: FontSize(18),
           fontWeight: FontWeight.w800,
-          color: const Color(0xFF1F2937),
+          color: AppColors.textPrimary,
           margin: Margins.only(top: 14, bottom: 8),
         ),
         'h2': Style(
           fontFamily: 'Outfit',
           fontSize: FontSize(17),
           fontWeight: FontWeight.w800,
-          color: const Color(0xFF1F2937),
+          color: AppColors.textPrimary,
           margin: Margins.only(top: 14, bottom: 8),
         ),
         'h3': Style(
           fontFamily: 'Outfit',
           fontSize: FontSize(16),
           fontWeight: FontWeight.w700,
-          color: const Color(0xFF1F2937),
+          color: AppColors.textPrimary,
           margin: Margins.only(top: 12, bottom: 6),
         ),
         'h4': Style(
           fontFamily: 'Outfit',
           fontSize: FontSize(15),
           fontWeight: FontWeight.w700,
-          color: const Color(0xFF1F2937),
+          color: AppColors.textPrimary,
           margin: Margins.only(top: 12, bottom: 6),
         ),
         'ul': Style(
@@ -963,7 +964,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
         // Sem isso, flutter_html renderiza barra preta grossa.
         'hr': Style(
           border: const Border(
-            top: BorderSide(color: Color(0xFFE5E7EB), width: 1),
+            top: BorderSide(color: AppColors.border, width: 1),
           ),
           margin: Margins.symmetric(vertical: 12),
           height: Height(0),
@@ -1024,7 +1025,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
               req,
               style: const TextStyle(
                 fontSize: 14,
-                color: Color(0xFF475569),
+                color: AppColors.textSecondary,
                 height: 1.5,
               ),
             ),
@@ -1050,9 +1051,9 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
         width: isLong ? double.infinity : null,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
+          color: AppColors.surfaceVariant,
           borderRadius: BorderRadius.circular(isLong ? 12 : 20),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
+          border: Border.all(color: AppColors.border),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1067,7 +1068,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
               child: Text(
                 benefit,
                 style: const TextStyle(
-                  color: Color(0xFF334155),
+                  color: AppColors.textPrimary,
                   fontWeight: FontWeight.w600,
                   fontSize: 13,
                   height: 1.4,
@@ -1090,7 +1091,7 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFFF1F5F9),
+          color: AppColors.surfaceMuted,
           borderRadius: BorderRadius.circular(20),
         ),
         child: Wrap(
@@ -1101,16 +1102,16 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
           children: [
             _footerChip(
               icon: Icons.schedule_rounded,
-              iconColor: const Color(0xFF94A3B8),
+              iconColor: AppColors.textTertiary,
               text: widget.job.postedDaysAgo,
-              textColor: const Color(0xFF64748B),
+              textColor: AppColors.textTertiary,
             ),
             if (widget.job.deadline != null)
               _footerChip(
                 icon: Icons.event_rounded,
-                iconColor: const Color(0xFF94A3B8),
+                iconColor: AppColors.textTertiary,
                 text: widget.job.deadline!,
-                textColor: const Color(0xFF475569),
+                textColor: AppColors.textSecondary,
                 bold: true,
               ),
           ],

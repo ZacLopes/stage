@@ -16,6 +16,7 @@ import '../../utils/save_with_retry.dart';
 import '../all_set_screen.dart';
 import '../onboarding_scaffold.dart';
 import '../preferences/desired_titles_screen.dart';
+import '../../../../core/theme/theme.dart';
 
 class AgeRangeScreen extends StatefulWidget {
   const AgeRangeScreen({super.key});
@@ -167,7 +168,7 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
             decoration: InputDecoration(
               hintText: 'DD/MM/AAAA',
               hintStyle: const TextStyle(
-                color: Color(0xFF9CA3AF),
+                color: AppColors.textDisabled,
                 fontSize: 18,
                 letterSpacing: 1,
               ),
@@ -178,24 +179,24 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
                   color: _error != null
-                      ? const Color(0xFFEF4444)
-                      : const Color(0xFFE5E7EB),
+                      ? AppColors.error
+                      : AppColors.border,
                 ),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
                   color: _error != null
-                      ? const Color(0xFFEF4444)
-                      : const Color(0xFFE5E7EB),
+                      ? AppColors.error
+                      : AppColors.border,
                 ),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
                   color: _error != null
-                      ? const Color(0xFFEF4444)
-                      : const Color(0xFF29B6D2),
+                      ? AppColors.error
+                      : AppColors.brandCyan,
                   width: 1.5,
                 ),
               ),
@@ -206,7 +207,7 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
               padding: const EdgeInsets.only(top: 8, left: 4),
               child: Text(
                 _error!,
-                style: const TextStyle(color: Color(0xFFEF4444), fontSize: 13),
+                style: const TextStyle(color: AppColors.error, fontSize: 13),
               ),
             ),
         ],

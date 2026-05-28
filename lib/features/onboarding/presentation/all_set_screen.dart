@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import '../../../services/analytics_service.dart';
 import 'onboarding_scaffold.dart';
 import 'review_personal_info_screen.dart';
+import '../../../core/theme/theme.dart';
 
 class AllSetScreen extends StatefulWidget {
   const AllSetScreen({super.key});
@@ -75,12 +76,12 @@ class _AllSetScreenState extends State<AllSetScreen>
                   width: 120,
                   height: 120,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF29B6D2).withValues(alpha: 0.12),
+                    color: AppColors.brandCyan.withValues(alpha: 0.12),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
                     Icons.search_rounded,
-                    color: Color(0xFF29B6D2),
+                    color: AppColors.brandCyan,
                     size: 60,
                   ),
                 ),
@@ -103,7 +104,7 @@ class _AllSetScreenState extends State<AllSetScreen>
                     'Encontramos suas experiências, formação e habilidades. Confere se está tudo certo.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: Color(0xFF6B7280),
+                      color: AppColors.textTertiary,
                       fontSize: 15,
                       height: 1.4,
                     ),

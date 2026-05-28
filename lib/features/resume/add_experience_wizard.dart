@@ -10,6 +10,7 @@ import '../gamification/bullet_review_screen.dart';
 import '../gamification/widgets/experience_detail_form_widget.dart';
 import 'resume_viewmodel.dart';
 import '../../core/widgets/pii_mask.dart';
+import '../../core/theme/theme.dart';
 
 /// Reproduces the gamification trail's D1-D6 flow as a self-contained wizard
 /// the user can launch from the resume edit screen to add a brand-new
@@ -370,14 +371,14 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
   @override
   Widget build(BuildContext context) {
     return PiiMask(child: Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
+      backgroundColor: AppColors.surfaceVariant,
       appBar: AppBar(
         title: Text('Adicionar $_categoryLabel'),
         backgroundColor: Colors.white,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Color(0xFF111827)),
+        iconTheme: const IconThemeData(color: AppColors.textPrimary),
         titleTextStyle: TextStyle(fontFamily: 'Inter', 
-          color: const Color(0xFF111827),
+          color: AppColors.textPrimary,
           fontWeight: FontWeight.bold,
           fontSize: 16,
         ),
@@ -396,7 +397,7 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
                     margin: EdgeInsets.only(right: i < 5 ? 6 : 0),
                     height: 4,
                     decoration: BoxDecoration(
-                      color: active ? const Color(0xFF4F46E5) : const Color(0xFFE5E7EB),
+                      color: active ? AppColors.primary : AppColors.border,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -481,11 +482,11 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
               fillColor: Colors.white,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                borderSide: const BorderSide(color: AppColors.border),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 2),
+                borderSide: const BorderSide(color: AppColors.primary, width: 2),
               ),
               contentPadding: const EdgeInsets.all(16),
             ),
@@ -516,11 +517,11 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
               fillColor: Colors.white,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                borderSide: const BorderSide(color: AppColors.border),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 2),
+                borderSide: const BorderSide(color: AppColors.primary, width: 2),
               ),
               contentPadding: const EdgeInsets.all(16),
             ),
@@ -529,20 +530,20 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFFEEF2FF),
+              color: AppColors.primarySoft,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.lightbulb, size: 16, color: Color(0xFF4F46E5)),
+                const Icon(Icons.lightbulb, size: 16, color: AppColors.primary),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'Quando você concluir, a IA vai gerar 3 bullets diferentes pra você escolher o que mais te representa.',
                     style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 12,
-                      color: const Color(0xFF312E81),
+                      color: AppColors.primary,
                       height: 1.4,
                     ),
                   ),
@@ -564,7 +565,7 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
           style: TextStyle(fontFamily: 'Inter', 
             fontSize: 11,
             fontWeight: FontWeight.bold,
-            color: const Color(0xFF6B7280),
+            color: AppColors.textTertiary,
             letterSpacing: 1,
           ),
         ),
@@ -574,7 +575,7 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
           style: TextStyle(fontFamily: 'Inter', 
             fontSize: 20,
             fontWeight: FontWeight.bold,
-            color: const Color(0xFF111827),
+            color: AppColors.textPrimary,
             height: 1.3,
           ),
         ),
@@ -584,7 +585,7 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
             subtitle,
             style: TextStyle(fontFamily: 'Inter', 
               fontSize: 13,
-              color: const Color(0xFF6B7280),
+              color: AppColors.textTertiary,
               height: 1.4,
             ),
           ),
@@ -624,7 +625,7 @@ class _AddExperienceWizardScreenState extends State<AddExperienceWizardScreen> {
                     : (_step == 5 ? 'Gerar bullets com IA' : 'Próximo'),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF4F46E5),
+                backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

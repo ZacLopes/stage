@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'month_year_picker_sheet.dart';
+import '../../../core/theme/theme.dart';
 
 class AcademicFormWidget extends StatefulWidget {
   final Function(String) onSelect;
@@ -122,7 +123,7 @@ class _AcademicFormWidgetState extends State<AcademicFormWidget> {
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [Color(0xFF4F46E5), Color(0xFF06B6D4)],
+              colors: [AppColors.primary, AppColors.info],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -172,7 +173,7 @@ class _AcademicFormWidgetState extends State<AcademicFormWidget> {
         Center(
           child: Text(
             'Duração: ${_durationLabel()}',
-            style: const TextStyle(color: Color(0xFF6B7280), fontSize: 13),
+            style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
           ),
         ),
 
@@ -223,11 +224,11 @@ class _AcademicFormWidgetState extends State<AcademicFormWidget> {
           decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
           child: TextField(
             controller: controller,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1F2937)),
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
             decoration: InputDecoration(
               hintText: 'Digite aqui...',
-              hintStyle: const TextStyle(color: Color(0xFFD1D5DB)),
-              prefixIcon: Icon(icon, color: const Color(0xFF4F46E5), size: 20),
+              hintStyle: const TextStyle(color: AppColors.borderStrong),
+              prefixIcon: Icon(icon, color: AppColors.primary, size: 20),
               border: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             ),
@@ -255,7 +256,7 @@ class _AcademicFormWidgetState extends State<AcademicFormWidget> {
         ),
         child: Text(label,
             style: TextStyle(
-              color: selected ? const Color(0xFF4F46E5) : Colors.white,
+              color: selected ? AppColors.primary : Colors.white,
               fontWeight: FontWeight.bold,
               fontSize: 13,
             )),
@@ -271,16 +272,16 @@ class _AcademicFormWidgetState extends State<AcademicFormWidget> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE5E7EB), width: 2),
+          border: Border.all(color: AppColors.border, width: 2),
         ),
         child: Column(
           children: [
-            Text(label, style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 11, fontWeight: FontWeight.bold)),
+            Text(label, style: const TextStyle(color: AppColors.textDisabled, fontSize: 11, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
             Text(_formatDate(date),
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1F2937))),
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
             const SizedBox(height: 4),
-            const Icon(Icons.calendar_today, color: Color(0xFF6366F1), size: 16),
+            const Icon(Icons.calendar_today, color: AppColors.primary, size: 16),
           ],
         ),
       ),
@@ -297,17 +298,17 @@ class _AcademicFormWidgetState extends State<AcademicFormWidget> {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? const Color(0xFF4F46E5) : Colors.white,
+          color: selected ? AppColors.primary : Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: selected ? const Color(0xFF4F46E5) : const Color(0xFFE5E7EB),
+            color: selected ? AppColors.primary : AppColors.border,
             width: 2,
           ),
-          boxShadow: selected ? [] : [const BoxShadow(color: Color(0xFFE5E7EB), offset: Offset(0, 3), blurRadius: 0)],
+          boxShadow: selected ? [] : [const BoxShadow(color: AppColors.border, offset: Offset(0, 3), blurRadius: 0)],
         ),
         child: Text(label,
             style: TextStyle(
-              color: selected ? Colors.white : const Color(0xFF4B5563),
+              color: selected ? Colors.white : AppColors.textSecondary,
               fontWeight: FontWeight.bold,
               fontSize: 13,
             )),
@@ -317,7 +318,7 @@ class _AcademicFormWidgetState extends State<AcademicFormWidget> {
 
   Widget _sectionLabel(String text) => Text(
     text,
-    style: const TextStyle(color: Color(0xFF6B7280), fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1),
+    style: const TextStyle(color: AppColors.textTertiary, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1),
   );
 
   String _durationLabel() {

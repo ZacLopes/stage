@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/theme/theme.dart';
 
 class BinaryChoiceWidget extends StatelessWidget {
   final Function(String) onSelect;
@@ -36,7 +37,7 @@ class BinaryChoiceWidget extends StatelessWidget {
           label: 'Não',
           subLabel: noSubLabel,
           icon: Icons.school_outlined,
-          color: const Color(0xFFFF4B4B),
+          color: AppColors.error,
           value: 'Não',
           isSelected: selectedOption == 'Não' || (selectedOption != null && selectedOption!.startsWith('Não')),
         ),
@@ -46,7 +47,7 @@ class BinaryChoiceWidget extends StatelessWidget {
           label: 'Sim',
           subLabel: yesSubLabel,
           icon: Icons.history_edu,
-          color: const Color(0xFF58CC02),
+          color: AppColors.success,
           value: 'Sim',
           isSelected: selectedOption == 'Sim' || (selectedOption != null && selectedOption!.startsWith('Sim')),
         ),
@@ -111,7 +112,7 @@ class BinaryChoiceWidget extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF1F2937),
+                      color: AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -119,14 +120,14 @@ class BinaryChoiceWidget extends StatelessWidget {
                     subLabel,
                     style: const TextStyle(
                       fontSize: 14,
-                      color: Color(0xFF6B7280),
+                      color: AppColors.textTertiary,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: Colors.grey[300], size: 28),
+            Icon(Icons.chevron_right, color: AppColors.borderStrong, size: 28),
           ],
         ),
       ),

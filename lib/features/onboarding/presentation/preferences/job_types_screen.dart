@@ -8,6 +8,7 @@ import '../../../profile/domain/entities/entities.dart';
 import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'onboarding_complete_screen.dart';
+import '../../../../core/theme/theme.dart';
 
 // Audiência entry-level. Ordem: do mais comum (Estágio, alunos ativos) pro
 // menos comum (Temporário). Taxonomia alinhada com job_preferences_screen.
@@ -68,7 +69,7 @@ class _JobTypesScreenState extends State<JobTypesScreen> {
           ? null
           : TextButton(
               onPressed: _next,
-              style: TextButton.styleFrom(foregroundColor: const Color(0xFF6B7280)),
+              style: TextButton.styleFrom(foregroundColor: AppColors.textTertiary),
               child: const Text('Pular etapa'),
             ),
       child: Column(
@@ -100,16 +101,16 @@ Widget _selectableTile(String label, String sub, IconData icon, bool isSelected,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF29B6D2).withValues(alpha: 0.08) : Colors.white,
+          color: isSelected ? AppColors.brandCyan.withValues(alpha: 0.08) : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? const Color(0xFF29B6D2) : const Color(0xFFE5E7EB),
+            color: isSelected ? AppColors.brandCyan : AppColors.border,
             width: isSelected ? 1.5 : 1,
           ),
         ),
         child: Row(
           children: [
-            Icon(icon, color: isSelected ? const Color(0xFF29B6D2) : const Color(0xFF6B7280), size: 22),
+            Icon(icon, color: isSelected ? AppColors.brandCyan : AppColors.textTertiary, size: 22),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -120,11 +121,11 @@ Widget _selectableTile(String label, String sub, IconData icon, bool isSelected,
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
-                      color: isSelected ? const Color(0xFF29B6D2) : Colors.black87,
+                      color: isSelected ? AppColors.brandCyan : Colors.black87,
                     ),
                   ),
                   const SizedBox(height: 2),
-                  Text(sub, style: const TextStyle(color: Color(0xFF6B7280), fontSize: 12)),
+                  Text(sub, style: const TextStyle(color: AppColors.textTertiary, fontSize: 12)),
                 ],
               ),
             ),
@@ -146,9 +147,9 @@ class _Checkbox extends StatelessWidget {
     return Container(
       width: 22, height: 22,
       decoration: BoxDecoration(
-        color: selected ? const Color(0xFF29B6D2) : Colors.white,
+        color: selected ? AppColors.brandCyan : Colors.white,
         border: Border.all(
-          color: selected ? const Color(0xFF29B6D2) : const Color(0xFFD1D5DB),
+          color: selected ? AppColors.brandCyan : AppColors.borderStrong,
           width: 1.5,
         ),
         borderRadius: BorderRadius.circular(6),

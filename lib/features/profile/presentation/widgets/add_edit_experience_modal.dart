@@ -7,14 +7,15 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../gamification/widgets/month_year_picker_sheet.dart';
 import '../../domain/entities/entities.dart';
+import '../../../../core/theme/theme.dart';
 
-const _kBorderColor = Color(0xFFE5E7EB);
-const _kLabelColor = Color(0xFF6B7280);
-const _kHintColor = Color(0xFF9CA3AF);
-const _kTextColor = Color(0xFF111827);
-const _kAccent = Color(0xFF00C27A);
-const _kError = Color(0xFFEF4444);
-const _kErrorBg = Color(0xFFFEE2E2);
+const _kBorderColor = AppColors.border;
+const _kLabelColor = AppColors.textTertiary;
+const _kHintColor = AppColors.textDisabled;
+const _kTextColor = AppColors.textPrimary;
+const _kAccent = AppColors.primary;
+const _kError = AppColors.error;
+const _kErrorBg = AppColors.errorSoft;
 
 class AddEditExperienceModal extends StatefulWidget {
   final Experience? initial;

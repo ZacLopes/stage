@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/analytics/screen_tracking.dart';
-import '../../core/constants/stage_colors.dart';
+import '../../core/theme/theme.dart';
 import '../auth/user_viewmodel.dart';
 import '../auth/onboarding_screen.dart';
 import '../auth/completion_screen.dart';
@@ -89,7 +89,7 @@ class _SplashScreenState extends State<SplashScreen>
         width: double.infinity,
         height: double.infinity,
         decoration: const BoxDecoration(
-          gradient: StageColors.brandGradient,
+          gradient: AppGradients.brand,
         ),
         child: Center(
           child: Column(
@@ -160,7 +160,7 @@ class AuthGate extends StatelessWidget {
           return Scaffold(
             body: Container(
               decoration: const BoxDecoration(
-                gradient: StageColors.brandGradient,
+                gradient: AppGradients.brand,
               ),
             ),
           );

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/theme/theme.dart';
 
 class BalanceSliderWidget extends StatefulWidget {
   final Map<String, dynamic> options; 
@@ -27,7 +28,7 @@ class _BalanceSliderWidgetState extends State<BalanceSliderWidget> {
       'subtitle': 'Foco em Detalhes',
       'desc': 'Prefiro revisar cada detalhe para garantir a precisão máxima.',
       'icon': Icons.center_focus_strong_rounded,
-      'color': const Color(0xFF3B82F6), // Blue
+      'color': AppColors.info, // Blue
     },
     {
       'id': 'balanced',
@@ -35,7 +36,7 @@ class _BalanceSliderWidgetState extends State<BalanceSliderWidget> {
       'subtitle': 'Equilíbrio',
       'desc': 'Busco o meio-termo entre o rigor técnico e a velocidade.',
       'icon': Icons.balance_rounded,
-      'color': const Color(0xFF58CC02), // Duolingo Green
+      'color': AppColors.success, // Duolingo Green
     },
     {
       'id': 'generalist',
@@ -43,7 +44,7 @@ class _BalanceSliderWidgetState extends State<BalanceSliderWidget> {
       'subtitle': 'Visão de Entrega',
       'desc': 'Foco em entender o objetivo macro e fazer o projeto avançar.',
       'icon': Icons.rocket_launch_rounded,
-      'color': const Color(0xFFF59E0B), // Amber
+      'color': AppColors.warning, // Amber
     },
   ];
 
@@ -85,7 +86,7 @@ class _BalanceSliderWidgetState extends State<BalanceSliderWidget> {
                     right: index == _stages.length - 1 ? 0 : 4,
                   ),
                   decoration: BoxDecoration(
-                    color: isPassed ? _stages[index]['color'] : const Color(0xFFE5E7EB),
+                    color: isPassed ? _stages[index]['color'] : AppColors.border,
                     borderRadius: BorderRadius.circular(10),
                     boxShadow: isCurrent ? [
                        BoxShadow(
@@ -124,7 +125,7 @@ class _BalanceSliderWidgetState extends State<BalanceSliderWidget> {
                   color: isSelected ? color.withOpacity(0.1) : Colors.white,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color: isSelected ? color : const Color(0xFFE5E7EB),
+                    color: isSelected ? color : AppColors.border,
                     width: isSelected ? 3 : 2,
                   ),
                   boxShadow: [
@@ -140,12 +141,12 @@ class _BalanceSliderWidgetState extends State<BalanceSliderWidget> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: isSelected ? color : const Color(0xFFF3F4F6),
+                        color: isSelected ? color : AppColors.background,
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
                         stage['icon'],
-                        color: isSelected ? Colors.white : const Color(0xFF9CA3AF),
+                        color: isSelected ? Colors.white : AppColors.textDisabled,
                         size: 30,
                       ),
                     ),
@@ -161,7 +162,7 @@ class _BalanceSliderWidgetState extends State<BalanceSliderWidget> {
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.bold,
-                                  color: isSelected ? color : const Color(0xFF9CA3AF),
+                                  color: isSelected ? color : AppColors.textDisabled,
                                   letterSpacing: 1.2,
                                 ),
                               ),
@@ -191,7 +192,7 @@ class _BalanceSliderWidgetState extends State<BalanceSliderWidget> {
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
-                              color: isSelected ? color : const Color(0xFF374151),
+                              color: isSelected ? color : AppColors.textSecondary,
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -199,7 +200,7 @@ class _BalanceSliderWidgetState extends State<BalanceSliderWidget> {
                             stage['desc'],
                             style: TextStyle(
                               fontSize: 14,
-                              color: isSelected ? color.withOpacity(0.8) : const Color(0xFF6B7280),
+                              color: isSelected ? color.withOpacity(0.8) : AppColors.textTertiary,
                               height: 1.3,
                             ),
                           ),

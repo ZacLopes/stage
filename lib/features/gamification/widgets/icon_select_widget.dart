@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/theme/theme.dart';
 
 class IconSelectWidget extends StatefulWidget {
   final Function(String) onSelect;
@@ -28,10 +29,10 @@ class _IconSelectWidgetState extends State<IconSelectWidget> {
 
   // Study period options used when widget.options is empty
   final List<Map<String, dynamic>> _defaultOptions = [
-    {'id': 'morning', 'label': 'Matutino', 'icon': Icons.wb_sunny_rounded, 'color': const Color(0xFFFFB900)},
+    {'id': 'morning', 'label': 'Matutino', 'icon': Icons.wb_sunny_rounded, 'color': AppColors.warning},
     {'id': 'afternoon', 'label': 'Vespertino', 'icon': Icons.light_mode_rounded, 'color': const Color(0xFFF97316)},
-    {'id': 'night', 'label': 'Noturno', 'icon': Icons.nights_stay_rounded, 'color': const Color(0xFF4F46E5)},
-    {'id': 'flex', 'label': 'EAD / Flex', 'icon': Icons.computer_rounded, 'color': const Color(0xFF06B6D4)},
+    {'id': 'night', 'label': 'Noturno', 'icon': Icons.nights_stay_rounded, 'color': AppColors.primary},
+    {'id': 'flex', 'label': 'EAD / Flex', 'icon': Icons.computer_rounded, 'color': AppColors.info},
   ];
 
   List<Map<String, dynamic>> get _options {
@@ -39,11 +40,11 @@ class _IconSelectWidgetState extends State<IconSelectWidget> {
 
     // Premium Duo color palette
     final colors = [
-      const Color(0xFF58CC02), // Green
-      const Color(0xFF1CB0F6), // Blue
+      AppColors.success, // Green
+      AppColors.secondary, // Blue
       const Color(0xFFA64DFF), // Purple
-      const Color(0xFFFFB900), // Gold
-      const Color(0xFFFF4B4B), // Red
+      AppColors.warning, // Gold
+      AppColors.error, // Red
       const Color(0xFF2B70C9), // Navy
       const Color(0xFFCE82FF), // Pink
     ];
@@ -111,7 +112,7 @@ class _IconSelectWidgetState extends State<IconSelectWidget> {
               color: isSelected ? color.withOpacity(0.08) : Colors.white,
               borderRadius: BorderRadius.circular(24),
               border: Border.all(
-                color: isSelected ? color : const Color(0xFFE5E7EB),
+                color: isSelected ? color : AppColors.border,
                 width: isSelected ? 3.5 : 2.5,
               ),
               boxShadow: [
@@ -130,7 +131,7 @@ class _IconSelectWidgetState extends State<IconSelectWidget> {
                   duration: const Duration(milliseconds: 250),
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: isSelected ? color : const Color(0xFFF3F4F6),
+                    color: isSelected ? color : AppColors.background,
                     shape: BoxShape.circle,
                     boxShadow: isSelected ? [
                       BoxShadow(
@@ -142,7 +143,7 @@ class _IconSelectWidgetState extends State<IconSelectWidget> {
                   ),
                   child: Icon(
                     option['icon'] as IconData,
-                    color: isSelected ? Colors.white : const Color(0xFF9CA3AF),
+                    color: isSelected ? Colors.white : AppColors.textDisabled,
                     size: 36,
                   ),
                 ),
@@ -160,7 +161,7 @@ class _IconSelectWidgetState extends State<IconSelectWidget> {
                       fontWeight: FontWeight.w900,
                       fontSize: 13,
                       letterSpacing: 0.5,
-                      color: isSelected ? color : const Color(0xFF4B5563),
+                      color: isSelected ? color : AppColors.textSecondary,
                     ),
                   ),
                 ),

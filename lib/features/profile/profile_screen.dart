@@ -14,6 +14,7 @@ import 'presentation/widgets/preferences_tab.dart';
 import 'presentation/widgets/profile_section_list.dart';
 import '../../data/models/models.dart';
 import '../../core/widgets/pii_mask.dart';
+import '../../core/theme/theme.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -47,17 +48,17 @@ class _SourceMeta {
 const Map<SavedResumeSource, _SourceMeta> _kSourceMeta = {
   SavedResumeSource.manual: _SourceMeta(
     'Editado',
-    Color(0xFF6366F1), // indigo
+    AppColors.primary, // azul Stage
     Icons.edit_rounded,
   ),
   SavedResumeSource.imported: _SourceMeta(
     'Importado',
-    Color(0xFF0EA5E9), // sky blue
+    AppColors.info, // sky blue
     Icons.cloud_upload_rounded,
   ),
   SavedResumeSource.adapted: _SourceMeta(
     'Adaptado (IA)',
-    Color(0xFF10B981), // emerald (mesmo verde do brand)
+    AppColors.success, // emerald — diferencia o badge "feito por IA"
     Icons.auto_awesome_rounded,
   ),
 };
@@ -115,7 +116,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     super.build(context);
     return PiiMask(
       child: Scaffold(
-        backgroundColor: const Color(0xFFF3F4F6),
+        backgroundColor: AppColors.background,
         body: Column(
           children: [
             _buildModernHeader(context),
@@ -154,7 +155,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   style: TextStyle(fontFamily: 'Outfit',
                     fontSize: 28,
                     fontWeight: FontWeight.w800,
-                    color: const Color(0xFF111827),
+                    color: AppColors.textPrimary,
                     letterSpacing: -0.5,
                   ),
                 ),
@@ -163,7 +164,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   'Gerencie seus currículos e informações',
                   style: TextStyle(
                     fontSize: 14,
-                    color: Colors.grey[600],
+                    color: AppColors.textTertiary,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -181,10 +182,10 @@ class _ProfileScreenState extends State<ProfileScreen>
             icon: Container(
                padding: const EdgeInsets.all(8),
                  decoration: BoxDecoration(
-                  color: const Color(0xFFF3F4F6),
+                  color: AppColors.background,
                   borderRadius: BorderRadius.circular(12),
                 ),
-              child: const Icon(Icons.settings, color: Color(0xFF9CA3AF), size: 20),
+              child: const Icon(Icons.settings, color: AppColors.textDisabled, size: 20),
             ),
           ),
         ],
@@ -194,12 +195,12 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   Widget _buildTabBar() {
     return Container(
-      color: const Color(0xFFF3F4F6),
+      color: AppColors.background,
       child: TabBar(
         controller: _tabController,
-        labelColor: const Color(0xFF00C27A),
-        unselectedLabelColor: const Color(0xFF9CA3AF),
-        indicatorColor: const Color(0xFF00C27A),
+        labelColor: AppColors.primary,
+        unselectedLabelColor: AppColors.textDisabled,
+        indicatorColor: AppColors.primary,
         indicatorWeight: 3,
         labelStyle: const TextStyle(
           fontFamily: 'Outfit',
@@ -300,7 +301,7 @@ class _ResumesTabState extends State<_ResumesTab> {
                         style: TextStyle(fontFamily: 'Outfit',
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
-                          color: const Color(0xFF1F2937),
+                          color: AppColors.textPrimary,
                         ),
                       ),
                     ),
@@ -333,17 +334,17 @@ class _ResumesTabState extends State<_ResumesTab> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.withOpacity(0.1)),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFFF3F4F6),
+              color: AppColors.background,
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.folder_open_rounded, size: 32, color: Color(0xFF9CA3AF)),
+            child: const Icon(Icons.folder_open_rounded, size: 32, color: AppColors.textDisabled),
           ),
           const SizedBox(height: 16),
           Text(
@@ -351,7 +352,7 @@ class _ResumesTabState extends State<_ResumesTab> {
             style: TextStyle(fontFamily: 'Outfit',
               fontSize: 16,
               fontWeight: FontWeight.w600,
-              color: const Color(0xFF374151),
+              color: AppColors.textSecondary,
             ),
           ),
           const SizedBox(height: 8),
@@ -360,7 +361,7 @@ class _ResumesTabState extends State<_ResumesTab> {
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,
-              color: Color(0xFF6B7280),
+              color: AppColors.textTertiary,
               height: 1.5,
             ),
           ),
@@ -406,23 +407,23 @@ class _ResumesTabState extends State<_ResumesTab> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFE5E7EB)),
+            border: Border.all(color: AppColors.border),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(_sort.icon, size: 14, color: const Color(0xFF4B5563)),
+              Icon(_sort.icon, size: 14, color: AppColors.textSecondary),
               const SizedBox(width: 6),
               Text(
                 _sort.label,
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF1F2937),
+                  color: AppColors.textPrimary,
                 ),
               ),
               const SizedBox(width: 4),
-              const Icon(Icons.unfold_more_rounded, size: 14, color: Color(0xFF94A3B8)),
+              const Icon(Icons.unfold_more_rounded, size: 14, color: AppColors.textTertiary),
             ],
           ),
         ),
@@ -447,7 +448,7 @@ class _ResumesTabState extends State<_ResumesTab> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE5E7EB),
+                  color: AppColors.border,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -460,7 +461,7 @@ class _ResumesTabState extends State<_ResumesTab> {
                     style: TextStyle(fontFamily: 'Outfit',
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
-                      color: const Color(0xFF111827),
+                      color: AppColors.textPrimary,
                     ),
                   ),
                 ),
@@ -468,17 +469,17 @@ class _ResumesTabState extends State<_ResumesTab> {
               for (final opt in _ResumeSort.values)
                 ListTile(
                   leading: Icon(opt.icon,
-                      color: opt == _sort ? const Color(0xFF6366F1) : const Color(0xFF6B7280)),
+                      color: opt == _sort ? AppColors.primary : AppColors.textTertiary),
                   title: Text(
                     opt.label,
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: opt == _sort ? FontWeight.w800 : FontWeight.w500,
-                      color: opt == _sort ? const Color(0xFF111827) : const Color(0xFF374151),
+                      color: opt == _sort ? AppColors.textPrimary : AppColors.textSecondary,
                     ),
                   ),
                   trailing: opt == _sort
-                      ? const Icon(Icons.check_rounded, color: Color(0xFF6366F1))
+                      ? const Icon(Icons.check_rounded, color: AppColors.primary)
                       : null,
                   onTap: () => Navigator.of(context).pop(opt),
                 ),
@@ -563,12 +564,12 @@ class _ResumesTabState extends State<_ResumesTab> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFEE2E2),
+                  color: AppColors.errorSoft,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
                   Icons.delete_forever_rounded,
-                  color: Color(0xFFDC2626),
+                  color: AppColors.error,
                   size: 32,
                 ),
               ),
@@ -578,7 +579,7 @@ class _ResumesTabState extends State<_ResumesTab> {
                 style: TextStyle(fontFamily: 'Outfit',
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
-                  color: const Color(0xFF1F2937),
+                  color: AppColors.textPrimary,
                 ),
               ),
               const SizedBox(height: 8),
@@ -587,54 +588,62 @@ class _ResumesTabState extends State<_ResumesTab> {
                 text: TextSpan(
                   style: TextStyle(fontFamily: 'Inter',
                     fontSize: 14,
-                    color: Colors.grey[600],
+                    color: AppColors.textTertiary,
                     height: 1.4,
                   ),
                   children: [
                     const TextSpan(text: 'Deseja realmente excluir '),
                     TextSpan(
                       text: '"${resume.title}"',
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                     ),
                     const TextSpan(text: ' da sua biblioteca? Esta ação não pode ser desfeita.'),
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: AppSpacing.xl),
               Row(
                 children: [
                   Expanded(
                     child: TextButton(
                       onPressed: () => Navigator.pop(context, false),
                       style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: AppSpacing.base,
+                        ),
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: AppRadius.brLg,
+                        ),
                       ),
                       child: Text(
                         'Manter',
-                        style: TextStyle(fontFamily: 'Inter',
+                        style: AppTextStyles.labelLg.copyWith(
+                          color: AppColors.textTertiary,
                           fontWeight: FontWeight.w600,
-                          color: Colors.grey[600],
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: AppSpacing.md),
                   Expanded(
                     child: ElevatedButton(
                       onPressed: () => Navigator.pop(context, true),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFDC2626),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: AppColors.error,
+                        foregroundColor: AppColors.onPrimary,
+                        padding: const EdgeInsets.symmetric(
+                          vertical: AppSpacing.base,
+                        ),
                         elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: AppRadius.brLg,
+                        ),
                       ),
                       child: Text(
                         'Excluir',
-                        style: TextStyle(fontFamily: 'Inter',
+                        style: AppTextStyles.labelLg.copyWith(
+                          color: AppColors.onPrimary,
                           fontWeight: FontWeight.bold,
-                          fontSize: 16,
                         ),
                       ),
                     ),
@@ -671,9 +680,9 @@ class _InfoTabState extends State<_InfoTab> {
   Widget build(BuildContext context) {
     final vm = context.watch<ProfileEditorViewModel>();
     return vm.isLoading
-        ? const Center(child: CircularProgressIndicator(color: Color(0xFF00C27A)))
+        ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
         : RefreshIndicator(
-            color: const Color(0xFF00C27A),
+            color: AppColors.primary,
             onRefresh: () => vm.load(),
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
@@ -702,7 +711,7 @@ class _InfoTabState extends State<_InfoTab> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -712,11 +721,11 @@ class _InfoTabState extends State<_InfoTab> {
             children: [
               CircleAvatar(
                 radius: 28,
-                backgroundColor: const Color(0xFF00C27A).withValues(alpha: 0.15),
+                backgroundColor: AppColors.primary.withValues(alpha: 0.15),
                 child: Text(
                   name.isEmpty ? '?' : name.substring(0, 1).toUpperCase(),
                   style: const TextStyle(
-                    color: Color(0xFF00C27A),
+                    color: AppColors.primary,
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
                   ),
@@ -736,7 +745,7 @@ class _InfoTabState extends State<_InfoTab> {
                         padding: const EdgeInsets.only(top: 2),
                         child: Text(
                           [headline, location].where((s) => s.isNotEmpty).join(' • '),
-                          style: const TextStyle(color: Color(0xFF6B7280), fontSize: 13),
+                          style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
                         ),
                       ),
                   ],
@@ -760,8 +769,8 @@ class _InfoTabState extends State<_InfoTab> {
                   borderRadius: BorderRadius.circular(4),
                   child: LinearProgressIndicator(
                     value: score / 100,
-                    backgroundColor: const Color(0xFFE5E7EB),
-                    color: const Color(0xFF00C27A),
+                    backgroundColor: AppColors.border,
+                    color: AppColors.success,
                     minHeight: 8,
                   ),
                 ),
@@ -771,7 +780,7 @@ class _InfoTabState extends State<_InfoTab> {
                 '$score% completo',
                 style: const TextStyle(
                   fontSize: 12,
-                  color: Color(0xFF6B7280),
+                  color: AppColors.textTertiary,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -789,17 +798,17 @@ class _InfoTabState extends State<_InfoTab> {
     switch (status) {
       case SaveStatus.saving:
         label = 'Salvando';
-        color = const Color(0xFF6B7280);
+        color = AppColors.textTertiary;
         icon = Icons.sync;
         break;
       case SaveStatus.saved:
         label = 'Salvo';
-        color = const Color(0xFF10B981);
+        color = AppColors.success;
         icon = Icons.check_circle_outline;
         break;
       case SaveStatus.error:
         label = 'Erro';
-        color = const Color(0xFFEF4444);
+        color = AppColors.error;
         icon = Icons.error_outline;
         break;
       case SaveStatus.idle:
@@ -829,7 +838,7 @@ class _InfoTabState extends State<_InfoTab> {
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: Color(0xFFE5E7EB)),
+        side: const BorderSide(color: AppColors.border),
       ),
       child: Column(
         children: [
@@ -840,7 +849,7 @@ class _InfoTabState extends State<_InfoTab> {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               child: Row(
                 children: [
-                  const Icon(Icons.person_outline, color: Color(0xFF6B7280)),
+                  const Icon(Icons.person_outline, color: AppColors.textTertiary),
                   const SizedBox(width: 12),
                   const Expanded(
                     child: Text(
@@ -850,7 +859,7 @@ class _InfoTabState extends State<_InfoTab> {
                   ),
                   Icon(
                     _personalExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                    color: const Color(0xFF6B7280),
+                    color: AppColors.textTertiary,
                   ),
                 ],
               ),
@@ -972,7 +981,7 @@ class _ResumeCardState extends State<_ResumeCard>
                   ),
                   if (_glow.value > 0)
                     BoxShadow(
-                      color: const Color(0xFF4F46E5).withOpacity(0.45 * _glow.value),
+                      color: AppColors.primary.withOpacity(0.45 * _glow.value),
                       blurRadius: 24,
                       spreadRadius: 2,
                     ),
@@ -986,7 +995,7 @@ class _ResumeCardState extends State<_ResumeCard>
               child: Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
-                color: const Color(0xFFF9FAFB),
+                color: AppColors.surfaceVariant,
                 child: Stack(
                   children: [
                     Container(
@@ -996,26 +1005,26 @@ class _ResumeCardState extends State<_ResumeCard>
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.grey[200]!),
+                        border: Border.all(color: AppColors.border!),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(width: 40, height: 6, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+                          Container(width: 40, height: 6, decoration: BoxDecoration(color: AppColors.borderStrong, borderRadius: BorderRadius.circular(2))),
                           const SizedBox(height: 8),
-                          Container(width: double.infinity, height: 4, decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(2))),
+                          Container(width: double.infinity, height: 4, decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2))),
                           const SizedBox(height: 4),
-                          Container(width: double.infinity, height: 4, decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(2))),
+                          Container(width: double.infinity, height: 4, decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2))),
                           const SizedBox(height: 12),
                           Row(
                             children: [
-                              Container(width: 12, height: 12, decoration: BoxDecoration(color: Colors.grey[200], shape: BoxShape.circle)),
+                              Container(width: 12, height: 12, decoration: BoxDecoration(color: AppColors.border, shape: BoxShape.circle)),
                               const SizedBox(width: 4),
-                              Expanded(child: Container(height: 4, decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(2)))),
+                              Expanded(child: Container(height: 4, decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2)))),
                             ],
                           ),
                           const SizedBox(height: 4),
-                          Container(width: 60, height: 4, decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(2))),
+                          Container(width: 60, height: 4, decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2))),
                         ],
                       ),
                     ),
@@ -1061,7 +1070,7 @@ class _ResumeCardState extends State<_ResumeCard>
                         child: PopupMenuButton<String>(
                           iconSize: 18,
                           padding: EdgeInsets.zero,
-                          icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF6B7280)),
+                          icon: const Icon(Icons.more_vert_rounded, color: AppColors.textTertiary),
                           onSelected: (value) {
                             if (value == 'delete') {
                               widget.onDelete();
@@ -1076,7 +1085,7 @@ class _ResumeCardState extends State<_ResumeCard>
                               value: 'open',
                               child: Row(
                                 children: [
-                                  Icon(Icons.visibility_outlined, size: 18, color: Color(0xFF4B5563)),
+                                  Icon(Icons.visibility_outlined, size: 18, color: AppColors.textSecondary),
                                   SizedBox(width: 8),
                                   Text('Visualizar'),
                                 ],
@@ -1086,7 +1095,7 @@ class _ResumeCardState extends State<_ResumeCard>
                               value: 'share',
                               child: Row(
                                 children: [
-                                  Icon(Icons.share_outlined, size: 18, color: Color(0xFF4B5563)),
+                                  Icon(Icons.share_outlined, size: 18, color: AppColors.textSecondary),
                                   SizedBox(width: 8),
                                   Text('Compartilhar'),
                                 ],
@@ -1096,9 +1105,9 @@ class _ResumeCardState extends State<_ResumeCard>
                               value: 'delete',
                               child: Row(
                                 children: [
-                                  Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                                  Icon(Icons.delete_outline, size: 18, color: AppColors.error),
                                   SizedBox(width: 8),
-                                  Text('Excluir', style: TextStyle(color: Colors.red)),
+                                  Text('Excluir', style: TextStyle(color: AppColors.error)),
                                 ],
                               ),
                             ),
@@ -1122,19 +1131,19 @@ class _ResumeCardState extends State<_ResumeCard>
                     style: TextStyle(fontFamily: 'Inter',
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
-                      color: const Color(0xFF1F2937),
+                      color: AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      Icon(Icons.calendar_today, size: 10, color: Colors.grey[400]),
+                      Icon(Icons.calendar_today, size: 10, color: AppColors.textDisabled),
                       const SizedBox(width: 4),
                       Text(
                         dateStr,
                         style: TextStyle(
                           fontSize: 11,
-                          color: Colors.grey[500],
+                          color: AppColors.textTertiary,
                           fontWeight: FontWeight.w500,
                         ),
                       ),

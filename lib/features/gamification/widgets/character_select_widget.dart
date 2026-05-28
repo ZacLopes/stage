@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 class CharacterSelectWidget extends StatefulWidget {
   final Map<String, dynamic> options; // List of characters with descriptions
@@ -83,10 +84,10 @@ class _CharacterSelectWidgetState extends State<CharacterSelectWidget> {
               duration: const Duration(milliseconds: 300),
               width: 180,
               decoration: BoxDecoration(
-                color: isSelected ? const Color(0xFFDDF4FF) : Colors.white,
+                color: isSelected ? AppColors.brandSoft : Colors.white,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
-                  color: isSelected ? const Color(0xFF1CB0F6) : const Color(0xFFE5E7EB),
+                  color: isSelected ? AppColors.secondary : AppColors.border,
                   width: isSelected ? 3 : 2,
                 ),
                 boxShadow: [
@@ -105,7 +106,7 @@ class _CharacterSelectWidgetState extends State<CharacterSelectWidget> {
                    Icon(
                      _getIconData(char['icon']), 
                      size: 40, 
-                     color: isSelected ? const Color(0xFF1CB0F6) : const Color(0xFF4B5563)
+                     color: isSelected ? AppColors.secondary : AppColors.textSecondary
                    ),
                    const SizedBox(height: 16),
                    Text(
@@ -114,7 +115,7 @@ class _CharacterSelectWidgetState extends State<CharacterSelectWidget> {
                      style: TextStyle(
                        fontSize: 18,
                        fontWeight: FontWeight.bold,
-                       color: isSelected ? const Color(0xFF1899D6) : const Color(0xFF374151),
+                       color: isSelected ? AppColors.brand : AppColors.textSecondary,
                      ),
                    ),
                    const SizedBox(height: 12),
@@ -125,7 +126,7 @@ class _CharacterSelectWidgetState extends State<CharacterSelectWidget> {
                          textAlign: TextAlign.center,
                          style: const TextStyle(
                            fontSize: 14.5,
-                           color: Color(0xFF6B7280),
+                           color: AppColors.textTertiary,
                            height: 1.3, // Better line height for readability
                          ),
                        ),

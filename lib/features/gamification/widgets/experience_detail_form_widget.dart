@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'month_year_picker_sheet.dart';
+import '../../../core/theme/theme.dart';
 
 /// D1 form: org name, role, start/end dates, city.
 /// [categoryCode] is used for contextual placeholder hints.
@@ -201,15 +202,15 @@ class _ExperienceDetailFormWidgetState
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF0FDF4),
+                  color: AppColors.successSoft,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFF00C27A), width: 2),
+                  border: Border.all(color: AppColors.success, width: 2),
                 ),
                 child: const Column(
                   children: [
                     Text('ATÉ HOJE',
                         style: TextStyle(
-                            color: Color(0xFF9CA3AF),
+                            color: AppColors.textDisabled,
                             fontSize: 11,
                             fontWeight: FontWeight.bold)),
                     SizedBox(height: 6),
@@ -217,7 +218,7 @@ class _ExperienceDetailFormWidgetState
                         style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF00C27A))),
+                            color: AppColors.success)),
                   ],
                 ),
               ),
@@ -239,12 +240,12 @@ class _ExperienceDetailFormWidgetState
                 width: 20,
                 height: 20,
                 decoration: BoxDecoration(
-                  color: _ongoing ? const Color(0xFF00C27A) : Colors.white,
+                  color: _ongoing ? AppColors.success : Colors.white,
                   borderRadius: BorderRadius.circular(6),
                   border: Border.all(
                     color: _ongoing
-                        ? const Color(0xFF00C27A)
-                        : const Color(0xFFD1D5DB),
+                        ? AppColors.success
+                        : AppColors.borderStrong,
                     width: 2,
                   ),
                 ),
@@ -257,7 +258,7 @@ class _ExperienceDetailFormWidgetState
                 'Ainda em andamento',
                 style: TextStyle(
                   fontSize: 14,
-                  color: Color(0xFF4B5563),
+                  color: AppColors.textSecondary,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -284,7 +285,7 @@ class _ExperienceDetailFormWidgetState
   Widget _fieldLabel(String text) => Text(
         text,
         style: const TextStyle(
-          color: Color(0xFF6B7280),
+          color: AppColors.textTertiary,
           fontSize: 12,
           fontWeight: FontWeight.bold,
           letterSpacing: 1,
@@ -300,19 +301,19 @@ class _ExperienceDetailFormWidgetState
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE5E7EB), width: 1.5),
+        border: Border.all(color: AppColors.border, width: 1.5),
       ),
       child: TextField(
         controller: controller,
         style: const TextStyle(
           fontWeight: FontWeight.w500,
           fontSize: 15,
-          color: Color(0xFF1F2937),
+          color: AppColors.textPrimary,
         ),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: const TextStyle(color: Color(0xFFD1D5DB), fontSize: 14),
-          prefixIcon: Icon(icon, color: const Color(0xFF00C27A), size: 20),
+          hintStyle: const TextStyle(color: AppColors.borderStrong, fontSize: 14),
+          prefixIcon: Icon(icon, color: AppColors.success, size: 20),
           border: InputBorder.none,
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
@@ -331,7 +332,7 @@ class _ExperienceDetailFormWidgetState
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: isEmpty ? const Color(0xFFE5E7EB) : const Color(0xFFE5E7EB),
+            color: isEmpty ? AppColors.border : AppColors.border,
             width: 2,
           ),
         ),
@@ -339,7 +340,7 @@ class _ExperienceDetailFormWidgetState
           children: [
             Text(label,
                 style: const TextStyle(
-                    color: Color(0xFF9CA3AF),
+                    color: AppColors.textDisabled,
                     fontSize: 11,
                     fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
@@ -349,12 +350,12 @@ class _ExperienceDetailFormWidgetState
                 fontSize: isEmpty ? 13 : 18,
                 fontWeight: FontWeight.bold,
                 color: isEmpty
-                    ? const Color(0xFFD1D5DB)
-                    : const Color(0xFF1F2937),
+                    ? AppColors.borderStrong
+                    : AppColors.textPrimary,
               ),
             ),
             const SizedBox(height: 4),
-            const Icon(Icons.calendar_today, color: Color(0xFF00C27A), size: 16),
+            const Icon(Icons.calendar_today, color: AppColors.success, size: 16),
           ],
         ),
       ),

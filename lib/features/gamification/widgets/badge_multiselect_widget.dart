@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 class BadgeMultiSelectWidget extends StatefulWidget {
   final Function(List<String>) onSelect;
@@ -120,7 +121,7 @@ class _BadgeMultiSelectWidgetState extends State<BadgeMultiSelectWidget> {
           decoration: InputDecoration(
             hintText: 'Ex: Italiano, Russo...',
             filled: true,
-            fillColor: const Color(0xFFF3F4F6),
+            fillColor: AppColors.background,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(16),
               borderSide: BorderSide.none,
@@ -130,7 +131,7 @@ class _BadgeMultiSelectWidgetState extends State<BadgeMultiSelectWidget> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+            child: const Text('Cancelar', style: TextStyle(color: AppColors.textTertiary)),
           ),
           ElevatedButton(
             onPressed: () {
@@ -144,7 +145,7 @@ class _BadgeMultiSelectWidgetState extends State<BadgeMultiSelectWidget> {
               Navigator.pop(context);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF58CC02),
+              backgroundColor: AppColors.primary,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
             child: const Text('Adicionar', style: TextStyle(color: Colors.white)),
@@ -215,8 +216,8 @@ class _BadgeMultiSelectWidgetState extends State<BadgeMultiSelectWidget> {
         
         // Use a more vibrant purple/blue like Duolingo if selected
         final Color activeColor = isNone 
-            ? const Color(0xFFFF4B4B) 
-            : (isOther ? const Color(0xFF6B7280) : const Color(0xFF6366F1));
+            ? AppColors.error 
+            : (isOther ? AppColors.textTertiary : AppColors.primary);
 
         return GestureDetector(
           onTap: () => _toggleBadge(badge['id']),
@@ -227,13 +228,13 @@ class _BadgeMultiSelectWidgetState extends State<BadgeMultiSelectWidget> {
               color: isSelected ? activeColor : Colors.white,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: isSelected ? activeColor : const Color(0xFFE5E7EB),
+                color: isSelected ? activeColor : AppColors.border,
                 width: 2.5,
               ),
               boxShadow: [
                 if (!isSelected)
                   const BoxShadow(
-                    color: Color(0xFFE5E7EB),
+                    color: AppColors.border,
                     offset: Offset(0, 4),
                     blurRadius: 0,
                   ),
@@ -271,7 +272,7 @@ class _BadgeMultiSelectWidgetState extends State<BadgeMultiSelectWidget> {
                   Icon(
                     badge['icon'],
                     size: 32,
-                    color: isSelected ? Colors.white : const Color(0xFF9CA3AF),
+                    color: isSelected ? Colors.white : AppColors.textDisabled,
                   ),
                 const SizedBox(height: 10),
                 Text(
@@ -281,7 +282,7 @@ class _BadgeMultiSelectWidgetState extends State<BadgeMultiSelectWidget> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    color: isSelected ? Colors.white : const Color(0xFF374151),
+                    color: isSelected ? Colors.white : AppColors.textSecondary,
                     fontSize: 14,
                   ),
                 ),

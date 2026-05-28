@@ -18,6 +18,7 @@ import '../../services/notifications_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/theme/theme.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -52,14 +53,14 @@ class _SettingsScreenState extends State<SettingsScreen>
         displayName.isNotEmpty ? displayName.trim()[0].toUpperCase() : 'U';
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F4F6),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text('Configurações', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
         centerTitle: true,
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: Color(0xFF374151)),
+          icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: AppColors.textSecondary),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -98,10 +99,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                     children: [
                       CircleAvatar(
                         radius: 28,
-                        backgroundColor: const Color(0xFFEEF2FF),
+                        backgroundColor: AppColors.primarySoft,
                         child: Text(
                           displayInitial,
-                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5)),
+                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primary),
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -122,7 +123,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                               const SizedBox(height: 4),
                               Text(
                                 user?.email ?? 'email@exemplo.com',
-                                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                                style: TextStyle(color: AppColors.textTertiary, fontSize: 13),
                               ),
                             ],
                           ],
@@ -208,7 +209,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                   icon: Icons.favorite_rounded,
                   title: 'Falar com os fundadores',
                   subtitle: 'Mande sua opinião, sugestão ou problema',
-                  iconColor: const Color(0xFFEF4444),
+                  iconColor: AppColors.error,
                   onTap: () => _showFoundersContactSheet(context),
                 ),
                 const Divider(height: 1),
@@ -230,7 +231,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                   icon: Icons.info_outline,
                   title: 'Sobre o App',
                   subtitle: 'Versão 1.1.0',
-                  iconColor: Colors.grey,
+                  iconColor: AppColors.textTertiary,
                   onTap: () {},
                 ),
               ],
@@ -292,13 +293,13 @@ class _SettingsScreenState extends State<SettingsScreen>
                   icon: Icons.security_outlined,
                   title: 'Consentimento de IA',
                   subtitle: user?.aiConsent == true ? 'Autorizado' : 'Não autorizado',
-                  iconColor: user?.aiConsent == true ? Colors.green : Colors.grey,
+                  iconColor: user?.aiConsent == true ? Colors.green : AppColors.textTertiary,
                   trailing: user?.aiConsent == true 
                     ? TextButton(
                         onPressed: () => _showRevokeConsentDialog(context, userVM),
-                        child: const Text('Revogar', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                        child: const Text('Revogar', style: TextStyle(color: AppColors.error, fontWeight: FontWeight.bold)),
                       )
-                    : const Icon(Icons.chevron_right, color: Color(0xFF9CA3AF), size: 20),
+                    : const Icon(Icons.chevron_right, color: AppColors.textDisabled, size: 20),
                   onTap: user?.aiConsent == true
                       ? null
                       : () => _showGrantConsentModal(context, userVM),
@@ -324,10 +325,10 @@ class _SettingsScreenState extends State<SettingsScreen>
               },
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
-                backgroundColor: const Color(0xFFFEE2E2), // Red 50
+                backgroundColor: AppColors.errorSoft, // Red 50
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: const Text('Sair da Conta', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 16)),
+              child: const Text('Sair da Conta', style: TextStyle(color: AppColors.error, fontWeight: FontWeight.bold, fontSize: 16)),
             ),
           ),
           
@@ -363,7 +364,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                                   color: Colors.red.withOpacity(0.1),
                                   shape: BoxShape.circle,
                                 ),
-                                child: const Icon(Icons.delete_forever_rounded, color: Colors.red, size: 40),
+                                child: const Icon(Icons.delete_forever_rounded, color: AppColors.error, size: 40),
                               ),
                               const SizedBox(height: 16),
                               const Text(
@@ -371,7 +372,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                                 style: TextStyle(
                                   fontSize: 22,
                                   fontWeight: FontWeight.bold,
-                                  color: Color(0xFF1F2937),
+                                  color: AppColors.textPrimary,
                                 ),
                               ),
                               const SizedBox(height: 12),
@@ -379,7 +380,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                                 'Essa ação é perigosa e irreversível. Todos os seus dados e progresso serão perdidos para sempre.',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  color: Color(0xFF6B7280),
+                                  color: AppColors.textTertiary,
                                   fontSize: 14,
                                   height: 1.5,
                                 ),
@@ -394,10 +395,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                                         padding: const EdgeInsets.symmetric(vertical: 12),
                                         shape: RoundedRectangleBorder(
                                           borderRadius: BorderRadius.circular(12),
-                                          side: BorderSide(color: Colors.grey.shade300),
+                                          side: BorderSide(color: AppColors.borderStrong),
                                         ),
                                       ),
-                                      child: const Text('Cancelar', style: TextStyle(color: Color(0xFF374151), fontWeight: FontWeight.bold)),
+                                      child: const Text('Cancelar', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold)),
                                     ),
                                   ),
                                   const SizedBox(width: 12),
@@ -426,14 +427,14 @@ class _SettingsScreenState extends State<SettingsScreen>
                                                 ScaffoldMessenger.of(context).showSnackBar(
                                                   SnackBar(
                                                     content: Text('Erro ao excluir conta: $e'),
-                                                    backgroundColor: Colors.red,
+                                                    backgroundColor: AppColors.error,
                                                   ),
                                                 );
                                               }
                                             }
                                           },
                                           style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.red,
+                                            backgroundColor: AppColors.error,
                                             foregroundColor: Colors.white,
                                             elevation: 0,
                                             padding: const EdgeInsets.symmetric(vertical: 12),
@@ -460,7 +461,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                   },
                 );
               },
-              child: const Text('Excluir minha conta', style: TextStyle(color: Colors.red, fontSize: 14)),
+              child: const Text('Excluir minha conta', style: TextStyle(color: AppColors.error, fontSize: 14)),
             ),
           ),
           const SizedBox(height: 40),
@@ -481,11 +482,11 @@ class _SettingsScreenState extends State<SettingsScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Manter', style: TextStyle(color: Color(0xFF374151))),
+            child: const Text('Manter', style: TextStyle(color: AppColors.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Revogar', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+            child: const Text('Revogar', style: TextStyle(color: AppColors.error, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -606,7 +607,7 @@ class _FoundersContactSheet extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Não consegui abrir o $label. Tente outro canal.'),
-            backgroundColor: Colors.red.shade600,
+            backgroundColor: AppColors.error,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -618,7 +619,7 @@ class _FoundersContactSheet extends StatelessWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Erro ao abrir o $label.'),
-          backgroundColor: Colors.red.shade600,
+          backgroundColor: AppColors.error,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -645,7 +646,7 @@ class _FoundersContactSheet extends StatelessWidget {
                   width: 44,
                   height: 5,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE2E8F0),
+                    color: AppColors.border,
                     borderRadius: BorderRadius.circular(3),
                   ),
                 ),
@@ -659,14 +660,14 @@ class _FoundersContactSheet extends StatelessWidget {
                     height: 48,
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
-                        colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                        colors: [AppColors.primary, AppColors.primary],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
                       borderRadius: BorderRadius.circular(14),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF4F46E5).withOpacity(0.3),
+                          color: AppColors.primary.withOpacity(0.3),
                           blurRadius: 12,
                           offset: const Offset(0, 4),
                         ),
@@ -684,7 +685,7 @@ class _FoundersContactSheet extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w900,
-                            color: Color(0xFF0F172A),
+                            color: AppColors.textPrimary,
                             letterSpacing: -0.3,
                           ),
                         ),
@@ -693,7 +694,7 @@ class _FoundersContactSheet extends StatelessWidget {
                           'Seu feedback molda o Stage. A gente lê tudo.',
                           style: TextStyle(
                             fontSize: 13,
-                            color: Color(0xFF64748B),
+                            color: AppColors.textTertiary,
                             fontWeight: FontWeight.w500,
                             height: 1.3,
                           ),
@@ -715,7 +716,7 @@ class _FoundersContactSheet extends StatelessWidget {
               const SizedBox(height: 10),
               _ContactOption(
                 icon: Icons.phone_rounded,
-                iconBg: const Color(0xFF0EA5E9),
+                iconBg: AppColors.info,
                 title: 'Ligar',
                 subtitle: 'Bug crítico ou conversa direta',
                 onTap: () => _openPhone(context),
@@ -723,7 +724,7 @@ class _FoundersContactSheet extends StatelessWidget {
               const SizedBox(height: 10),
               _ContactOption(
                 icon: Icons.mail_rounded,
-                iconBg: const Color(0xFFF59E0B),
+                iconBg: AppColors.warning,
                 title: 'Email',
                 subtitle: 'Pra feedback mais elaborado',
                 onTap: () => _openEmail(context),
@@ -733,13 +734,13 @@ class _FoundersContactSheet extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.lock_outline_rounded, size: 13, color: Color(0xFF94A3B8)),
+                    const Icon(Icons.lock_outline_rounded, size: 13, color: AppColors.textTertiary),
                     const SizedBox(width: 6),
                     Text(
                       'Seu contato fica entre você e o time',
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.grey[600],
+                        color: AppColors.textTertiary,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -774,7 +775,7 @@ class _ContactOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: const Color(0xFFF8FAFC),
+      color: AppColors.surfaceVariant,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
@@ -783,7 +784,7 @@ class _ContactOption extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
+            border: Border.all(color: AppColors.border),
           ),
           child: Row(
             children: [
@@ -815,7 +816,7 @@ class _ContactOption extends StatelessWidget {
                           style: const TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
+                            color: AppColors.textPrimary,
                             letterSpacing: -0.2,
                           ),
                         ),
@@ -824,7 +825,7 @@ class _ContactOption extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF10B981).withOpacity(0.15),
+                              color: AppColors.success.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Text(
@@ -845,7 +846,7 @@ class _ContactOption extends StatelessWidget {
                       subtitle,
                       style: const TextStyle(
                         fontSize: 12.5,
-                        color: Color(0xFF64748B),
+                        color: AppColors.textTertiary,
                         height: 1.35,
                         fontWeight: FontWeight.w500,
                       ),
@@ -853,7 +854,7 @@ class _ContactOption extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right, color: Color(0xFF94A3B8)),
+              const Icon(Icons.chevron_right, color: AppColors.textTertiary),
             ],
           ),
         ),
@@ -875,7 +876,7 @@ class _SectionHeader extends StatelessWidget {
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.bold,
-          color: Colors.grey[500],
+          color: AppColors.textTertiary,
           letterSpacing: 1.2,
         ),
       ),
@@ -908,14 +909,14 @@ class _SettingsTile extends StatelessWidget {
       leading: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: (iconColor ?? const Color(0xFF6B7280)).withOpacity(0.1),
+          color: (iconColor ?? AppColors.textTertiary).withOpacity(0.1),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(icon, color: iconColor ?? const Color(0xFF6B7280), size: 20),
+        child: Icon(icon, color: iconColor ?? AppColors.textTertiary, size: 20),
       ),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: Color(0xFF1F2937))),
-      subtitle: subtitle != null ? Text(subtitle!, style: TextStyle(color: Colors.grey[500], fontSize: 13)) : null,
-      trailing: trailing ?? const Icon(Icons.chevron_right, color: Color(0xFF9CA3AF), size: 20),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: AppColors.textPrimary)),
+      subtitle: subtitle != null ? Text(subtitle!, style: TextStyle(color: AppColors.textTertiary, fontSize: 13)) : null,
+      trailing: trailing ?? const Icon(Icons.chevron_right, color: AppColors.textDisabled, size: 20),
     );
   }
 }
@@ -1002,28 +1003,28 @@ class _NotificationsTileState extends State<_NotificationsTile> {
       case 'subscribed':
         return (
           icon: Icons.notifications_active_rounded,
-          color: const Color(0xFF10B981),
+          color: AppColors.success,
           title: 'Notificações',
           subtitle: 'Ativas — você recebe pushes do Stage',
         );
       case 'denied':
         return (
           icon: Icons.notifications_off_rounded,
-          color: const Color(0xFFEF4444),
+          color: AppColors.error,
           title: 'Notificações bloqueadas',
           subtitle: 'Toque pra abrir Ajustes do iPhone e reativar',
         );
       case 'never_prompted':
         return (
           icon: Icons.notifications_paused_rounded,
-          color: const Color(0xFFF59E0B),
+          color: AppColors.warning,
           title: 'Ativar notificações',
           subtitle: 'Vagas que combinam com você chegam direto aqui',
         );
       default:
         return (
           icon: Icons.notifications_none_rounded,
-          color: const Color(0xFF6B7280),
+          color: AppColors.textTertiary,
           title: 'Notificações',
           subtitle: 'Toque pra verificar',
         );
@@ -1049,12 +1050,12 @@ class _NotificationsTileState extends State<_NotificationsTile> {
         style: const TextStyle(
           fontWeight: FontWeight.w600,
           fontSize: 15,
-          color: Color(0xFF1F2937),
+          color: AppColors.textPrimary,
         ),
       ),
       subtitle: Text(
         vm.subtitle,
-        style: TextStyle(color: Colors.grey[500], fontSize: 13),
+        style: TextStyle(color: AppColors.textTertiary, fontSize: 13),
       ),
       trailing: _loading
           ? const SizedBox(
@@ -1063,7 +1064,7 @@ class _NotificationsTileState extends State<_NotificationsTile> {
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           : const Icon(Icons.chevron_right,
-              color: Color(0xFF9CA3AF), size: 20),
+              color: AppColors.textDisabled, size: 20),
     );
   }
 }
@@ -1090,8 +1091,8 @@ class _OAuthMigrationBanner extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFFFEF3C7),
-          border: Border.all(color: const Color(0xFFFCD34D), width: 1.5),
+          color: AppColors.warningSoft,
+          border: Border.all(color: AppColors.xp, width: 1.5),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Row(
@@ -1100,7 +1101,7 @@ class _OAuthMigrationBanner extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: const Color(0xFFB45309),
+                color: AppColors.warning,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Icon(
@@ -1119,7 +1120,7 @@ class _OAuthMigrationBanner extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFF78350F),
+                      color: AppColors.warning,
                     ),
                   ),
                   SizedBox(height: 2),
@@ -1136,7 +1137,7 @@ class _OAuthMigrationBanner extends StatelessWidget {
             ),
             const Icon(
               Icons.chevron_right,
-              color: Color(0xFFB45309),
+              color: AppColors.warning,
               size: 22,
             ),
           ],

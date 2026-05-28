@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'tutorial_controller.dart';
 import 'tutorial_step.dart';
+import '../../core/theme/theme.dart';
 
 /// Full-screen overlay that dims the app, cuts a spotlight hole around
 /// the current step's target widget, and shows a tooltip card explaining
@@ -216,12 +217,12 @@ class _PulsingRingState extends State<_PulsingRing>
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(widget.radius),
             border: Border.all(
-              color: const Color(0xFFFFD700).withOpacity(0.6 + 0.4 * t),
+              color: AppColors.gold.withOpacity(0.6 + 0.4 * t),
               width: 2,
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFFFFD700).withOpacity(0.25 + 0.25 * t),
+                color: AppColors.gold.withOpacity(0.25 + 0.25 * t),
                 blurRadius: 14 + 8 * t,
                 spreadRadius: 1.5,
               ),
@@ -334,14 +335,14 @@ class _TooltipCard extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
         decoration: BoxDecoration(
           gradient: const LinearGradient(
-            colors: [Color(0xFF1E1B4B), Color(0xFF312E81)],
+            colors: [Color(0xFF1E1B4B), AppColors.primary],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF4F46E5).withOpacity(0.35),
+              color: AppColors.primary.withOpacity(0.35),
               blurRadius: 28,
               spreadRadius: 1,
               offset: const Offset(0, 8),
@@ -428,7 +429,7 @@ class _TooltipCard extends StatelessWidget {
                         width: active ? 18 : 6,
                         decoration: BoxDecoration(
                           color: active
-                              ? const Color(0xFFFFD700)
+                              ? AppColors.gold
                               : Colors.white.withOpacity(0.22),
                           borderRadius: BorderRadius.circular(2),
                         ),

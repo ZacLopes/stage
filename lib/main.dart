@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:posthog_flutter/posthog_flutter.dart';
+import 'core/theme/theme.dart';
 import 'data/supabase_repository.dart';
 import 'data/local_storage_repository.dart';
 import 'data/seed_data.dart';
@@ -253,105 +254,11 @@ class CareerGamificationApp extends StatelessWidget {
     return MaterialApp(
       title: 'Stage',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF00C27A),
-          primary: const Color(0xFF00C27A),
-          secondary: const Color(0xFF10B981), // Emerald 500 (similar, maybe keep or adjust?)
-          tertiary: const Color(0xFFF59E0B), // Amber 500
-          background: const Color(0xFFF3F4F6),
-          surface: Colors.white,
-        ),
-        useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFF3F4F6),
-        // Transições de tela iOS-style em ambas as plataformas — slide horizontal
-        // com curva nativa. Material padrão tem fade-up que parecia "pesado".
-        pageTransitionsTheme: const PageTransitionsTheme(
-          builders: {
-            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-            TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-            TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
-          },
-        ),
-        // Ripple mais clean (sparkle do Material 3) em toques de InkWell.
-        splashFactory: InkSparkle.splashFactory,
-        textTheme: Theme.of(context).textTheme.apply(fontFamily: 'Outfit').copyWith(
-          headlineLarge: const TextStyle(
-            fontFamily: 'Outfit',
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF1F2937),
-          ),
-          headlineMedium: const TextStyle(
-            fontFamily: 'Outfit',
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF1F2937),
-          ),
-          titleLarge: const TextStyle(
-            fontFamily: 'Outfit',
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF1F2937),
-          ),
-          bodyLarge: const TextStyle(
-            fontFamily: 'Inter',
-            color: Color(0xFF374151),
-          ),
-          bodyMedium: const TextStyle(
-            fontFamily: 'Inter',
-            color: Color(0xFF4B5563),
-          ),
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          elevation: 0,
-          centerTitle: true,
-          titleTextStyle: TextStyle(
-            color: Color(0xFF1F2937),
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            fontFamily: 'Outfit',
-          ),
-          iconTheme: IconThemeData(color: Color(0xFF6366F1)),
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: Colors.black.withOpacity(0.05)),
-          ),
-          color: Colors.white,
-          margin: const EdgeInsets.only(bottom: 16),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            elevation: 0,
-            backgroundColor: const Color(0xFF6366F1),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            textStyle: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-            ),
-          ),
-        ),
-        snackBarTheme: SnackBarThemeData(
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: const Color(0xFF1F2937),
-          contentTextStyle: const TextStyle(
-            fontFamily: 'Inter',
-            color: Colors.white,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          elevation: 4,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-        ),
-      ),
+      // ThemeData unificado — single source of truth em core/theme/.
+      // Antes esse bloco tinha 100 linhas inline misturando 4 cores
+      // "primárias" diferentes (verde Duolingo, indigo, azul Stage, cyan).
+      // Agora tudo flui do AppColors / AppTheme.
+      theme: AppTheme.light,
       home: const VersionGate(child: SplashScreen()),
       // PosthogObserver: registra screen views automaticamente em cada
       // Navigator.push/pop — sem ele, o session replay vê telas mas não

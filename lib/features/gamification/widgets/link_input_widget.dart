@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 class LinkInputWidget extends StatefulWidget {
   final ValueChanged<String> onSelect;
@@ -55,12 +56,12 @@ class _LinkInputWidgetState extends State<LinkInputWidget> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: _noLinkedinSelected ? const Color(0xFFE5E7EB) : const Color(0xFF58CC02),
+                color: _noLinkedinSelected ? AppColors.border : AppColors.success,
                 width: _noLinkedinSelected ? 2 : 2, 
               ), 
               boxShadow: const [
                 BoxShadow(
-                   color: Color(0xFFE5E7EB),
+                   color: AppColors.border,
                    offset: Offset(0, 4),
                    blurRadius: 0,
                 )
@@ -75,10 +76,10 @@ class _LinkInputWidgetState extends State<LinkInputWidget> {
                 decoration: InputDecoration(
                   border: InputBorder.none,
                   hintText: 'Cole seu link aqui...',
-                  hintStyle: TextStyle(color: Colors.grey[400]),
-                  prefixIcon: Icon(Icons.link, color: _noLinkedinSelected ? Colors.grey : const Color(0xFF58CC02)),
+                  hintStyle: TextStyle(color: AppColors.textDisabled),
+                  prefixIcon: Icon(Icons.link, color: _noLinkedinSelected ? AppColors.textTertiary : AppColors.success),
                 ),
-                style: TextStyle(fontSize: 18, color: _noLinkedinSelected ? Colors.grey : Colors.black),
+                style: TextStyle(fontSize: 18, color: _noLinkedinSelected ? AppColors.textTertiary : Colors.black),
                 onChanged: (val) {
                   // If user types, ensure we are not in 'no linkedin' mode (handled by logic below mostly)
                   if (_noLinkedinSelected) {
@@ -108,10 +109,10 @@ class _LinkInputWidgetState extends State<LinkInputWidget> {
           child: Container(
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
             decoration: BoxDecoration(
-              color: _noLinkedinSelected ? const Color(0xFFFF4B4B) : Colors.transparent,
+              color: _noLinkedinSelected ? AppColors.error : Colors.transparent,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _noLinkedinSelected ? const Color(0xFFFF4B4B) : const Color(0xFFAFAFAF),
+                color: _noLinkedinSelected ? AppColors.error : AppColors.textDisabled,
                 width: 1,
               ),
             ),
@@ -126,7 +127,7 @@ class _LinkInputWidgetState extends State<LinkInputWidget> {
                   'Não tenho LinkedIn ainda',
                   style: TextStyle(
                     fontSize: 16,
-                    color: _noLinkedinSelected ? Colors.white : const Color(0xFFAFAFAF),
+                    color: _noLinkedinSelected ? Colors.white : AppColors.textDisabled,
                     fontWeight: FontWeight.w700,
                   ),
                 ),

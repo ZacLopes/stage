@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../core/theme/theme.dart';
 
 class AIConsentModal extends StatefulWidget {
   final VoidCallback onAccept;
@@ -55,7 +56,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                 style: TextStyle(fontFamily: 'Outfit', 
                   fontSize: 28,
                   fontWeight: FontWeight.w800,
-                  color: const Color(0xFF111827),
+                  color: AppColors.textPrimary,
                   letterSpacing: -0.5,
                 ),
               ),
@@ -69,7 +70,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                         'Para gerar seu currículo personalizado e relatórios com IA, precisamos enviar alguns dos seus dados para processamento.',
                         style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 16,
-                          color: const Color(0xFF4B5563),
+                          color: AppColors.textSecondary,
                           height: 1.6,
                         ),
                       ),
@@ -78,23 +79,23 @@ class _AIConsentModalState extends State<AIConsentModal> {
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF3F4F6),
+                          color: AppColors.background,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFFE5E7EB)),
+                          border: Border.all(color: AppColors.border),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
                               children: [
-                                const Icon(Icons.business, size: 20, color: Color(0xFF4F46E5)),
+                                const Icon(Icons.business, size: 20, color: AppColors.primary),
                                 const SizedBox(width: 8),
                                 Text(
                                   'Terceiro que receberá seus dados:',
                                   style: TextStyle(fontFamily: 'Inter', 
                                     fontSize: 14,
                                     fontWeight: FontWeight.w700,
-                                    color: const Color(0xFF1F2937),
+                                    color: AppColors.textPrimary,
                                   ),
                                 ),
                               ],
@@ -105,7 +106,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                               style: TextStyle(fontFamily: 'Inter', 
                                 fontSize: 18,
                                 fontWeight: FontWeight.w800,
-                                color: const Color(0xFF111827),
+                                color: AppColors.textPrimary,
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -113,7 +114,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                               'Os dados são enviados de forma segura (HTTPS) via API para processamento de linguagem natural. A OpenAI não armazena permanentemente seus dados pessoais.',
                               style: TextStyle(fontFamily: 'Inter', 
                                 fontSize: 13,
-                                color: const Color(0xFF6B7280),
+                                color: AppColors.textTertiary,
                                 height: 1.5,
                               ),
                             ),
@@ -127,7 +128,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                         style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
-                          color: const Color(0xFF1F2937),
+                          color: AppColors.textPrimary,
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -144,7 +145,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                         style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
-                          color: const Color(0xFF1F2937),
+                          color: AppColors.textPrimary,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -152,7 +153,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                         'Esses dados serão utilizados exclusivamente para gerar o conteúdo do seu currículo e relatórios de análise de perfil. Nenhum dado será compartilhado com terceiros além da OpenAI, Inc.',
                         style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 14,
-                          color: const Color(0xFF4B5563),
+                          color: AppColors.textSecondary,
                           height: 1.6,
                         ),
                       ),
@@ -165,7 +166,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                           style: TextStyle(fontFamily: 'Inter', 
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
-                            color: const Color(0xFF4F46E5),
+                            color: AppColors.primary,
                             decoration: TextDecoration.underline,
                           ),
                         ),
@@ -178,7 +179,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                           style: TextStyle(fontFamily: 'Inter', 
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
-                            color: const Color(0xFF4F46E5),
+                            color: AppColors.primary,
                             decoration: TextDecoration.underline,
                           ),
                         ),
@@ -191,7 +192,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                           style: TextStyle(fontFamily: 'Inter', 
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
-                            color: const Color(0xFF4F46E5),
+                            color: AppColors.primary,
                             decoration: TextDecoration.underline,
                           ),
                         ),
@@ -210,7 +211,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                         _isCheckboxMarked = value ?? false;
                       });
                     },
-                    activeColor: const Color(0xFF4F46E5),
+                    activeColor: AppColors.primary,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(4),
                     ),
@@ -226,7 +227,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                         'Eu autorizo o envio dos meus dados pessoais para a OpenAI, Inc. para processamento conforme descrito acima.',
                         style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 13,
-                          color: const Color(0xFF374151),
+                          color: AppColors.textSecondary,
                           height: 1.4,
                         ),
                       ),
@@ -242,7 +243,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                       onPressed: widget.onCancel,
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
-                        side: const BorderSide(color: Color(0xFFE5E7EB)),
+                        side: const BorderSide(color: AppColors.border),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -252,7 +253,7 @@ class _AIConsentModalState extends State<AIConsentModal> {
                         style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
-                          color: const Color(0xFF4B5563),
+                          color: AppColors.textSecondary,
                         ),
                       ),
                     ),
@@ -262,10 +263,10 @@ class _AIConsentModalState extends State<AIConsentModal> {
                     child: ElevatedButton(
                       onPressed: _isCheckboxMarked ? widget.onAccept : null,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF4F46E5),
+                        backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
-                        disabledBackgroundColor: const Color(0xFFE5E7EB),
-                        disabledForegroundColor: const Color(0xFF9CA3AF),
+                        disabledBackgroundColor: AppColors.border,
+                        disabledForegroundColor: AppColors.textDisabled,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         elevation: 0,
                         shape: RoundedRectangleBorder(
@@ -296,13 +297,13 @@ class _AIConsentModalState extends State<AIConsentModal> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('• ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5))),
+          const Text('• ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primary)),
           Expanded(
             child: Text(
               text,
               style: TextStyle(fontFamily: 'Inter', 
                 fontSize: 15,
-                color: const Color(0xFF4B5563),
+                color: AppColors.textSecondary,
               ),
             ),
           ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'month_year_picker_sheet.dart';
+import '../../../core/theme/theme.dart';
 
 class ExperienceTypeSelectWidget extends StatefulWidget {
   final Function(List<String>) onSelect; 
@@ -174,7 +175,7 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Dê um nome para essa vivência e descreva brevemente o que foi.', style: TextStyle(color: Colors.grey)),
+                      const Text('Dê um nome para essa vivência e descreva brevemente o que foi.', style: TextStyle(color: AppColors.textTertiary)),
                       const SizedBox(height: 16),
                       TextField(
                         controller: titleController,
@@ -204,12 +205,12 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
                               onTap: () => pickDate(true),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                                decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
+                                decoration: BoxDecoration(border: Border.all(color: AppColors.borderStrong), borderRadius: BorderRadius.circular(8)),
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Text(startDate ?? 'Início', style: TextStyle(color: startDate != null ? Colors.black : Colors.grey)),
-                                    const Icon(Icons.calendar_today, size: 16, color: Color(0xFF58CC02)),
+                                    Text(startDate ?? 'Início', style: TextStyle(color: startDate != null ? Colors.black : AppColors.textTertiary)),
+                                    const Icon(Icons.calendar_today, size: 16, color: AppColors.success),
                                   ],
                                 ),
                               ),
@@ -222,15 +223,15 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
                               child: Container(
                                 padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
                                 decoration: BoxDecoration(
-                                  border: Border.all(color: Colors.grey.shade300), 
+                                  border: Border.all(color: AppColors.borderStrong), 
                                   borderRadius: BorderRadius.circular(8),
-                                  color: isOngoing ? Colors.grey.shade100 : null,
+                                  color: isOngoing ? AppColors.divider : null,
                                 ),
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Text(isOngoing ? 'Atual' : (endDate ?? 'Fim'), style: TextStyle(color: (endDate != null || isOngoing) ? Colors.black : Colors.grey)),
-                                    if (!isOngoing) const Icon(Icons.calendar_today, size: 16, color: Color(0xFF58CC02)),
+                                    Text(isOngoing ? 'Atual' : (endDate ?? 'Fim'), style: TextStyle(color: (endDate != null || isOngoing) ? Colors.black : AppColors.textTertiary)),
+                                    if (!isOngoing) const Icon(Icons.calendar_today, size: 16, color: AppColors.success),
                                   ],
                                 ),
                               ),
@@ -242,7 +243,7 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
                         children: [
                           Checkbox(
                             value: isOngoing,
-                            activeColor: const Color(0xFF58CC02),
+                            activeColor: AppColors.success,
                             onChanged: (val) {
                               setState(() {
                                 isOngoing = val ?? false;
@@ -262,7 +263,7 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+                child: const Text('Cancelar', style: TextStyle(color: AppColors.textTertiary)),
               ),
               ElevatedButton(
                 onPressed: () {
@@ -278,7 +279,7 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
                     Navigator.pop(ctx);
                   }
                 },
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF58CC02), foregroundColor: Colors.white),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
                 child: const Text('Confirmar'),
               ),
             ],
@@ -295,7 +296,7 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Row(
           children: [
-            Icon(Icons.lightbulb, color: Color(0xFFFFD700)),
+            Icon(Icons.lightbulb, color: AppColors.gold),
             SizedBox(width: 8),
             Expanded(child: Text('Tem certeza?', style: TextStyle(fontWeight: FontWeight.bold))),
           ],
@@ -309,7 +310,7 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Ah, lembrei de algo', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF58CC02))),
+            child: const Text('Ah, lembrei de algo', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.success)),
           ),
           TextButton(
             onPressed: () {
@@ -320,7 +321,7 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
               });
               _emit();
             },
-            child: const Text('Realmente não tenho', style: TextStyle(color: Colors.grey)),
+            child: const Text('Realmente não tenho', style: TextStyle(color: AppColors.textTertiary)),
           ),
         ],
       ),
@@ -337,18 +338,18 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
           margin: const EdgeInsets.only(bottom: 24),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFFEFF6FF), // Light Blue
+            color: AppColors.primarySoft, // Light Blue
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: const Color(0xFFDBEAFE)),
           ),
           child: Row(
             children: [
-              const Icon(Icons.info_outline_rounded, color: Color(0xFF3B82F6), size: 24),
+              const Icon(Icons.info_outline_rounded, color: AppColors.info, size: 24),
               const SizedBox(width: 12),
               Expanded(
                 child: RichText(
                   text: const TextSpan(
-                    style: TextStyle(color: Color(0xFF1E40AF), fontSize: 13, height: 1.4),
+                    style: TextStyle(color: AppColors.primary, fontSize: 13, height: 1.4),
                     children: [
                       TextSpan(text: 'Dica: ', style: TextStyle(fontWeight: FontWeight.bold)),
                       TextSpan(text: 'Se você teve mais de uma experiência do mesmo tipo (ex: duas empresas diferentes), toque na opção novamente para adicionar outra!'),
@@ -366,9 +367,9 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
             margin: const EdgeInsets.only(bottom: 24),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFFF3F4F6),
+              color: AppColors.background,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE5E7EB)),
+              border: Border.all(color: AppColors.border),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -378,7 +379,7 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
                   style: TextStyle(
                     fontSize: 14, 
                     fontWeight: FontWeight.bold, 
-                    color: Color(0xFF6B7280)
+                    color: AppColors.textTertiary
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -416,7 +417,7 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
                       surfaceTintColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(20),
-                        side: const BorderSide(color: Color(0xFFE5E7EB)),
+                        side: const BorderSide(color: AppColors.border),
                       ),
                       elevation: 2,
                     );
@@ -446,8 +447,8 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
             final isNone = id == 'none';
             final isNoneSelected = _selectedIds.contains('none');
             
-            Color baseColor = const Color(0xFF58CC02);
-            if (isNone) baseColor = const Color(0xFFFF4B4B);
+            Color baseColor = AppColors.success;
+            if (isNone) baseColor = AppColors.error;
 
             return GestureDetector(
               onTap: () => _handleSelect(option),
@@ -458,7 +459,7 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
                   color: (isSelected && !isNone) ? baseColor.withOpacity(0.05) : (isNoneSelected && isNone ? baseColor.withOpacity(0.1) : Colors.white),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: (isSelected || (isNoneSelected && isNone)) ? baseColor : const Color(0xFFE5E7EB),
+                    color: (isSelected || (isNoneSelected && isNone)) ? baseColor : AppColors.border,
                     width: 2,
                   ),
                   boxShadow: [
@@ -474,12 +475,12 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: (isSelected || (isNoneSelected && isNone)) ? baseColor : const Color(0xFFF3F4F6),
+                        color: (isSelected || (isNoneSelected && isNone)) ? baseColor : AppColors.background,
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
                         _getIcon(option['icon']),
-                        color: (isSelected || (isNoneSelected && isNone)) ? Colors.white : (isNone ? const Color(0xFFFF4B4B) : const Color(0xFF4B5563)),
+                        color: (isSelected || (isNoneSelected && isNone)) ? Colors.white : (isNone ? AppColors.error : AppColors.textSecondary),
                         size: 24,
                       ),
                     ),
@@ -496,7 +497,7 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
-                                    color: (isSelected || (isNoneSelected && isNone)) ? baseColor : const Color(0xFF1F2937),
+                                    color: (isSelected || (isNoneSelected && isNone)) ? baseColor : AppColors.textPrimary,
                                   ),
                                 ),
                               ),
@@ -524,7 +525,7 @@ class _ExperienceTypeSelectWidgetState extends State<ExperienceTypeSelectWidget>
                               option['description'],
                               style: TextStyle(
                                 fontSize: 15.5,
-                                color: (isSelected || (isNoneSelected && isNone)) ? baseColor.withOpacity(0.8) : const Color(0xFF6B7280),
+                                color: (isSelected || (isNoneSelected && isNone)) ? baseColor.withOpacity(0.8) : AppColors.textTertiary,
                                 height: 1.3,
                               ),
                             ),

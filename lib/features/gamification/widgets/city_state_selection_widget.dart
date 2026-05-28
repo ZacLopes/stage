@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'dart:io';
+import '../../../core/theme/theme.dart';
 
 class CityStateSelectionWidget extends StatefulWidget {
   final ValueChanged<String> onSelect;
@@ -165,7 +166,7 @@ class _CityStateSelectionWidgetState extends State<CityStateSelectionWidget> {
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w900,
-              color: Color(0xFF9CA3AF),
+              color: AppColors.textDisabled,
               letterSpacing: 1.2,
             ),
           ),
@@ -194,10 +195,10 @@ class _CityStateSelectionWidgetState extends State<CityStateSelectionWidget> {
 
             return Container(
               decoration: BoxDecoration(
-                color: isEnabled ? Colors.white : const Color(0xFFF3F4F6),
+                color: isEnabled ? Colors.white : AppColors.background,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
-                  color: isSelected ? const Color(0xFF1CB0F6) : (isEnabled ? const Color(0xFFE5E7EB) : const Color(0xFFF3F4F6)),
+                  color: isSelected ? AppColors.secondary : (isEnabled ? AppColors.border : AppColors.background),
                   width: 2.5,
                 ),
                 boxShadow: isEnabled ? [
@@ -212,7 +213,7 @@ class _CityStateSelectionWidgetState extends State<CityStateSelectionWidget> {
                 controller: fieldTextEditingController,
                 focusNode: focusNode,
                 enabled: isEnabled,
-                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF374151)),
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
                 onChanged: (val) {
                   // If manual type matches exactly, trigger selection logic
                   if (options.contains(val.trim())) {
@@ -221,24 +222,24 @@ class _CityStateSelectionWidgetState extends State<CityStateSelectionWidget> {
                 },
                 decoration: InputDecoration(
                   hintText: hint,
-                  hintStyle: TextStyle(color: Colors.grey[400], fontWeight: FontWeight.normal),
+                  hintStyle: TextStyle(color: AppColors.textDisabled, fontWeight: FontWeight.normal),
                   prefixIcon: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Icon(icon, color: isEnabled ? const Color(0xFF1CB0F6) : Colors.grey[400], size: 24),
+                    child: Icon(icon, color: isEnabled ? AppColors.secondary : AppColors.textDisabled, size: 24),
                   ),
                   suffixIcon: isLoading 
                     ? const Padding(
                         padding: EdgeInsets.all(12),
-                        child: SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2.5, color: Color(0xFF1CB0F6))),
+                        child: SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.secondary)),
                       )
                     : (isSelected 
                         ? IconButton(
-                            icon: const Icon(Icons.check_circle_rounded, color: Color(0xFF58CC02)),
+                            icon: const Icon(Icons.check_circle_rounded, color: AppColors.success),
                             onPressed: () {
                               // Optional: Allow clearing?
                             },
                           )
-                        : Icon(Icons.search_rounded, color: isEnabled ? Colors.grey[300] : Colors.transparent, size: 22)),
+                        : Icon(Icons.search_rounded, color: isEnabled ? AppColors.borderStrong : Colors.transparent, size: 22)),
                   border: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
                 ),
@@ -258,14 +259,14 @@ class _CityStateSelectionWidgetState extends State<CityStateSelectionWidget> {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFFE5E7EB), width: 2),
+                    border: Border.all(color: AppColors.border, width: 2),
                   ),
                   constraints: const BoxConstraints(maxHeight: 280),
                   child: ListView.separated(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     shrinkWrap: true,
                     itemCount: options.length,
-                    separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFFF3F4F6)),
+                    separatorBuilder: (context, index) => const Divider(height: 1, color: AppColors.background),
                     itemBuilder: (context, index) {
                       final option = options.elementAt(index);
                       return InkWell(
@@ -277,7 +278,7 @@ class _CityStateSelectionWidgetState extends State<CityStateSelectionWidget> {
                               Icon(
                                 label == 'ESTADO' ? Icons.map_outlined : Icons.location_on_outlined, 
                                 size: 18, 
-                                color: const Color(0xFF6B7280)
+                                color: AppColors.textTertiary
                               ),
                               const SizedBox(width: 14),
                               Expanded(
@@ -286,11 +287,11 @@ class _CityStateSelectionWidgetState extends State<CityStateSelectionWidget> {
                                   style: const TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w600,
-                                    color: Color(0xFF374151),
+                                    color: AppColors.textSecondary,
                                   ),
                                 ),
                               ),
-                              const Icon(Icons.add_rounded, size: 18, color: Color(0xFF1CB0F6)),
+                              const Icon(Icons.add_rounded, size: 18, color: AppColors.secondary),
                             ],
                           ),
                         ),

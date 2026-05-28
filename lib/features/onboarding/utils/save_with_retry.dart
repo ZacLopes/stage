@@ -20,6 +20,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 /// Executa [operation] com 1 retry silencioso (~800ms depois). Se ambas
 /// tentativas falharem, mostra SnackBar pro user e retorna false.
@@ -58,7 +59,7 @@ Future<bool> saveWithRetry({
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: const Color(0xFFEF4444),
+        backgroundColor: AppColors.error,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
       ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/theme/theme.dart';
 
 class VisionCardsWidget extends StatefulWidget {
   final Function(String) onSelect;
@@ -27,7 +28,7 @@ class _VisionCardsWidgetState extends State<VisionCardsWidget> {
       'desc': 'Criar, Inovar e Escalar',
       'detail': 'Quero criar minha própria startup do zero e transformar ideias em negócios de alto crescimento.',
       'icon': Icons.rocket_launch_rounded,
-      'color': const Color(0xFF58CC02), // Green
+      'color': AppColors.success, // Green
     },
     {
       'id': 'ceo',
@@ -35,7 +36,7 @@ class _VisionCardsWidgetState extends State<VisionCardsWidget> {
       'desc': 'Gerir, Liderar e Decidir',
       'detail': 'Quero subir na hierarquia de grandes empresas, gerir pessoas e tomar decisões estratégicas.',
       'icon': Icons.account_balance_rounded,
-      'color': const Color(0xFF1CB0F6), // Blue
+      'color': AppColors.secondary, // Blue
     },
     {
       'id': 'master',
@@ -43,7 +44,7 @@ class _VisionCardsWidgetState extends State<VisionCardsWidget> {
       'desc': 'Dominar e Referenciar',
       'detail': 'Quero dominar profundamente uma área técnica e ser a maior referência do mercado.',
       'icon': Icons.workspace_premium_rounded,
-      'color': const Color(0xFFFFB900), // Gold
+      'color': AppColors.warning, // Gold
     },
     {
       'id': 'strategist',
@@ -115,7 +116,7 @@ class _VisionCardsWidgetState extends State<VisionCardsWidget> {
                     color: isSelected ? color.withOpacity(0.05) : Colors.white,
                     borderRadius: BorderRadius.circular(32),
                     border: Border.all(
-                      color: isSelected ? color : const Color(0xFFE5E7EB),
+                      color: isSelected ? color : AppColors.border,
                       width: isSelected ? 3.5 : 2.5,
                     ),
                     boxShadow: [
@@ -150,7 +151,7 @@ class _VisionCardsWidgetState extends State<VisionCardsWidget> {
                         style: const TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.w900,
-                          color: Color(0xFF374151),
+                          color: AppColors.textSecondary,
                           letterSpacing: -0.5,
                         ),
                         textAlign: TextAlign.center,
@@ -184,7 +185,7 @@ class _VisionCardsWidgetState extends State<VisionCardsWidget> {
                           vision['detail']!,
                           style: TextStyle(
                             fontSize: 15,
-                            color: const Color(0xFF6B7280),
+                            color: AppColors.textTertiary,
                             height: 1.4,
                             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                           ),
@@ -200,7 +201,7 @@ class _VisionCardsWidgetState extends State<VisionCardsWidget> {
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         decoration: BoxDecoration(
-                          color: isSelected ? color : const Color(0xFFF3F4F6),
+                          color: isSelected ? color : AppColors.background,
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: isSelected ? [
                             BoxShadow(
@@ -210,7 +211,7 @@ class _VisionCardsWidgetState extends State<VisionCardsWidget> {
                             )
                           ] : [
                             const BoxShadow(
-                              color: Color(0xFFE5E7EB),
+                              color: AppColors.border,
                               offset: Offset(0, 4),
                               blurRadius: 0,
                             )
@@ -221,7 +222,7 @@ class _VisionCardsWidgetState extends State<VisionCardsWidget> {
                           children: [
                             Icon(
                               isSelected ? Icons.check_circle_rounded : Icons.radio_button_off_rounded,
-                              color: isSelected ? Colors.white : const Color(0xFF9CA3AF),
+                              color: isSelected ? Colors.white : AppColors.textDisabled,
                               size: 20,
                             ),
                             const SizedBox(width: 8),
@@ -230,7 +231,7 @@ class _VisionCardsWidgetState extends State<VisionCardsWidget> {
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w900,
-                                color: isSelected ? Colors.white : const Color(0xFF9CA3AF),
+                                color: isSelected ? Colors.white : AppColors.textDisabled,
                                 letterSpacing: 1,
                               ),
                             ),
@@ -258,7 +259,7 @@ class _VisionCardsWidgetState extends State<VisionCardsWidget> {
               height: 10,
               width: isCurrent ? 24 : 10,
               decoration: BoxDecoration(
-                color: isCurrent ? color : const Color(0xFFE5E7EB),
+                color: isCurrent ? color : AppColors.border,
                 borderRadius: BorderRadius.circular(5),
               ),
             );

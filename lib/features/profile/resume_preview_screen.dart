@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import '../../core/widgets/pii_mask.dart';
+import '../../core/theme/theme.dart';
 
 class ResumePreviewScreen extends StatelessWidget {
   final String title;
@@ -16,7 +17,7 @@ class ResumePreviewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return PiiMask(child: Scaffold(
-      backgroundColor: const Color(0xFFF3F4F6),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         centerTitle: true,
         title: Text(
@@ -24,11 +25,11 @@ class ResumePreviewScreen extends StatelessWidget {
           style: TextStyle(fontFamily: 'Outfit', 
             fontWeight: FontWeight.bold,
             fontSize: 18,
-            color: const Color(0xFF1F2937),
+            color: AppColors.textPrimary,
           ),
         ),
         backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1F2937),
+        foregroundColor: AppColors.textPrimary,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
@@ -85,7 +86,7 @@ class ResumePreviewScreen extends StatelessWidget {
                 horizontal: horizontalPadding
               ),
               scrollViewDecoration: const BoxDecoration(
-                color: Color(0xFFF3F4F6),
+                color: AppColors.background,
               ),
               pdfPreviewPageDecoration: BoxDecoration(
                 color: Colors.white,
@@ -99,7 +100,7 @@ class ResumePreviewScreen extends StatelessWidget {
                 ],
               ),
               loadingWidget: const Center(
-                child: CircularProgressIndicator(color: Color(0xFF2E7D32)),
+                child: CircularProgressIndicator(color: AppColors.primary),
               ),
             ),
           );

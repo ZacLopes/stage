@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/theme/theme.dart';
 
 /// Overlay celebratório exibido na PRIMEIRA vez que o usuário salva uma vaga
 /// (swipe à direita). Educa que vagas salvas vão pra outra aba e é lá que ele
@@ -44,11 +45,11 @@ class _FirstSaveCelebration extends StatefulWidget {
 
 class _FirstSaveCelebrationState extends State<_FirstSaveCelebration>
     with TickerProviderStateMixin {
-  static const _indigo = Color(0xFF4F46E5);
-  static const _purple = Color(0xFF7C3AED);
-  static const _emerald = Color(0xFF10B981);
-  static const _textPrimary = Color(0xFF0F172A);
-  static const _textSecondary = Color(0xFF475569);
+  static const _indigo = AppColors.primary;
+  static const _purple = AppColors.primary;
+  static const _emerald = AppColors.success;
+  static const _textPrimary = AppColors.textPrimary;
+  static const _textSecondary = AppColors.textSecondary;
 
   late final AnimationController _heartCtrl;
   late final AnimationController _glowCtrl;

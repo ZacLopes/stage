@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/analytics/screen_tracking.dart';
 import 'user_viewmodel.dart';
+import '../../core/theme/theme.dart';
 
 class AccountMigrationScreen extends StatefulWidget {
   const AccountMigrationScreen({super.key});
@@ -74,7 +75,7 @@ class _AccountMigrationScreenState extends State<AccountMigrationScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Conta vinculada com $providerLabel!'),
-        backgroundColor: const Color(0xFF10B981),
+        backgroundColor: AppColors.primary,
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -84,7 +85,7 @@ class _AccountMigrationScreenState extends State<AccountMigrationScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Não foi possível vincular: $reason'),
-        backgroundColor: Colors.red.shade600,
+        backgroundColor: AppColors.error,
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -111,7 +112,7 @@ class _AccountMigrationScreenState extends State<AccountMigrationScreen>
   Widget build(BuildContext context) {
     final isBusy = _isLinkingApple || _isLinkingGoogle;
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F4F6),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text(
           'Conectar conta',
@@ -121,7 +122,7 @@ class _AccountMigrationScreenState extends State<AccountMigrationScreen>
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: Color(0xFF374151)),
+          icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: AppColors.textSecondary),
           onPressed: isBusy ? null : () => Navigator.pop(context),
         ),
       ),
@@ -149,13 +150,13 @@ class _AccountMigrationScreenState extends State<AccountMigrationScreen>
                     width: 64,
                     height: 64,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFEF3C7),
+                      color: AppColors.warningSoft,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: const Icon(
                       Icons.shield_outlined,
                       size: 32,
-                      color: Color(0xFFB45309),
+                      color: AppColors.warning,
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -164,7 +165,7 @@ class _AccountMigrationScreenState extends State<AccountMigrationScreen>
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w900,
-                      color: Color(0xFF111827),
+                      color: AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -173,7 +174,7 @@ class _AccountMigrationScreenState extends State<AccountMigrationScreen>
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 13,
-                      color: Color(0xFF6B7280),
+                      color: AppColors.textTertiary,
                       height: 1.5,
                     ),
                   ),
@@ -207,7 +208,7 @@ class _AccountMigrationScreenState extends State<AccountMigrationScreen>
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 11,
-                  color: Color(0xFF9CA3AF),
+                  color: AppColors.textDisabled,
                   height: 1.4,
                 ),
               ),
@@ -241,22 +242,22 @@ class _ProviderButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bg = isPrimary ? Colors.black : Colors.white;
-    final fg = isPrimary ? Colors.white : const Color(0xFF111827);
+    final fg = isPrimary ? Colors.white : AppColors.textPrimary;
     return ElevatedButton(
       onPressed: isDisabled ? null : onPressed,
       style: ElevatedButton.styleFrom(
         backgroundColor: bg,
         foregroundColor: fg,
         disabledBackgroundColor: isPrimary
-            ? const Color(0xFF6B7280)
-            : const Color(0xFFE5E7EB),
+            ? AppColors.textTertiary
+            : AppColors.border,
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
           side: isPrimary
               ? BorderSide.none
-              : const BorderSide(color: Color(0xFFE5E7EB), width: 1.5),
+              : const BorderSide(color: AppColors.border, width: 1.5),
         ),
       ),
       child: SizedBox(

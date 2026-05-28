@@ -15,6 +15,8 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/theme/theme.dart';
+import '../../../core/widgets/widgets.dart';
 import '../../../data/models/models.dart' show SavedResumeSource;
 import '../../../services/pending_resume_upload_service.dart';
 import '../../auth/user_viewmodel.dart';
@@ -89,13 +91,7 @@ class _PendingUploadBannerState extends State<PendingUploadBanner> {
       await svc.clear(userId);
       if (!mounted) return;
       HapticFeedback.lightImpact();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Currículo salvo com sucesso!'),
-          backgroundColor: Color(0xFF10B981),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      AppSnackBar.success(context, 'Currículo salvo com sucesso!');
       setState(() {
         _info = null;
         _retrying = false;
@@ -103,12 +99,9 @@ class _PendingUploadBannerState extends State<PendingUploadBanner> {
     } catch (e) {
       await svc.recordFailure(userId: userId, error: e.toString());
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Não consegui salvar. Tenta de novo daqui a pouco.'),
-          backgroundColor: const Color(0xFFEF4444),
-          behavior: SnackBarBehavior.floating,
-        ),
+      AppSnackBar.error(
+        context,
+        'Não consegui salvar. Tenta de novo daqui a pouco.',
       );
       _refresh(); // recarrega contador de tentativas
       setState(() => _retrying = false);
@@ -131,12 +124,17 @@ class _PendingUploadBannerState extends State<PendingUploadBanner> {
     }
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      margin: const EdgeInsets.fromLTRB(
+        AppSpacing.base,
+        AppSpacing.md,
+        AppSpacing.base,
+        0,
+      ),
       padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF7ED), // âmbar claro
+        color: AppColors.warningSoft,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFFDBA74)),
+        border: Border.all(color: AppColors.warning),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -146,29 +144,26 @@ class _PendingUploadBannerState extends State<PendingUploadBanner> {
             children: [
               const Icon(
                 Icons.warning_amber_rounded,
-                color: Color(0xFFD97706),
+                color: AppColors.warning,
                 size: 22,
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: AppSpacing.sm + 2),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
+                  children: [
                     Text(
                       'Não conseguimos salvar seu currículo',
-                      style: TextStyle(
-                        fontSize: 14,
+                      style: AppTextStyles.labelLg.copyWith(
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF7C2D12),
+                        color: AppColors.textPrimary,
                       ),
                     ),
-                    SizedBox(height: 2),
+                    const SizedBox(height: 2),
                     Text(
                       'A análise foi feita, mas o PDF original ainda não está na sua biblioteca.',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFF9A3412),
-                        height: 1.3,
+                      style: AppTextStyles.bodySm.copyWith(
+                        color: AppColors.textSecondary,
                       ),
                     ),
                   ],
@@ -181,7 +176,7 @@ class _PendingUploadBannerState extends State<PendingUploadBanner> {
                 icon: const Icon(
                   Icons.close_rounded,
                   size: 18,
-                  color: Color(0xFF9A3412),
+                  color: AppColors.textSecondary,
                 ),
                 tooltip: 'Dispensar',
                 visualDensity: VisualDensity.compact,
@@ -193,7 +188,7 @@ class _PendingUploadBannerState extends State<PendingUploadBanner> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: AppSpacing.sm + 2),
           Padding(
             padding: const EdgeInsets.only(left: 32),
             child: Align(
@@ -201,15 +196,15 @@ class _PendingUploadBannerState extends State<PendingUploadBanner> {
               child: ElevatedButton(
                 onPressed: _retrying ? null : _retry,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD97706),
-                  foregroundColor: Colors.white,
+                  backgroundColor: AppColors.warning,
+                  foregroundColor: AppColors.textOnDark,
                   elevation: 0,
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 10,
+                    horizontal: AppSpacing.base + 2,
+                    vertical: AppSpacing.sm + 2,
                   ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: AppRadius.brPill,
                   ),
                 ),
                 child: _retrying
@@ -218,14 +213,14 @@ class _PendingUploadBannerState extends State<PendingUploadBanner> {
                         height: 16,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: AppColors.textOnDark,
                         ),
                       )
-                    : const Text(
+                    : Text(
                         'Tentar agora',
-                        style: TextStyle(
-                          fontSize: 14,
+                        style: AppTextStyles.labelMd.copyWith(
                           fontWeight: FontWeight.w700,
+                          color: AppColors.textOnDark,
                         ),
                       ),
               ),

@@ -15,6 +15,7 @@ import 'add_experience_wizard.dart';
 import 'edit_experience_screen.dart';
 import 'resume_viewmodel.dart';
 import '../../core/widgets/pii_mask.dart';
+import '../../core/theme/theme.dart';
 
 /// Edit mode for the user's CV. Each card persists changes directly to the
 /// source-of-truth (user_answers / target_jobs / section_versions) so that
@@ -388,7 +389,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
               child: const Text('Cancelar')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
             child: const Text('Remover'),
           ),
         ],
@@ -426,30 +427,30 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
   Widget build(BuildContext context) {
     final vm = context.watch<ResumeViewModel>();
     return PiiMask(child: Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
+      backgroundColor: AppColors.surfaceVariant,
       appBar: AppBar(
         title: Text(
           'Editar Currículo',
           style: TextStyle(fontFamily: 'Inter', 
             fontWeight: FontWeight.bold,
-            color: const Color(0xFF111827),
+            color: AppColors.textPrimary,
           ),
         ),
         backgroundColor: Colors.white,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Color(0xFF111827)),
+        iconTheme: const IconThemeData(color: AppColors.textPrimary),
         actions: [
           TextButton.icon(
             onPressed: () {
               _save();
               Navigator.pop(context);
             },
-            icon: const Icon(Icons.check_circle, color: Color(0xFF10B981)),
+            icon: const Icon(Icons.check_circle, color: AppColors.success),
             label: Text(
               'Concluir',
               style: TextStyle(fontFamily: 'Inter', 
                 fontWeight: FontWeight.bold,
-                color: const Color(0xFF10B981),
+                color: AppColors.success,
               ),
             ),
           ),
@@ -519,7 +520,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
             width: 3,
             height: 14,
             decoration: BoxDecoration(
-              color: const Color(0xFF00C27A),
+              color: AppColors.success,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -530,7 +531,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
               fontSize: 11,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.8,
-              color: const Color(0xFF6B7280),
+              color: AppColors.textTertiary,
             ),
           ),
         ],
@@ -551,10 +552,10 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: isEn ? const Color(0xFFFFF7ED) : const Color(0xFFEFF6FF),
+        color: isEn ? AppColors.warningSoft : AppColors.primarySoft,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: isEn ? const Color(0xFFFED7AA) : const Color(0xFFDBEAFE),
+          color: isEn ? AppColors.warningSoft : const Color(0xFFDBEAFE),
         ),
       ),
       child: Row(
@@ -570,7 +571,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                   style: TextStyle(fontFamily: 'Inter', 
                     fontWeight: FontWeight.w600,
                     fontSize: 13,
-                    color: const Color(0xFF111827),
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -578,7 +579,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                   hint,
                   style: TextStyle(fontFamily: 'Inter', 
                     fontSize: 11,
-                    color: const Color(0xFF6B7280),
+                    color: AppColors.textTertiary,
                   ),
                 ),
               ],
@@ -594,7 +595,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+          colors: [AppColors.primary, AppColors.primary],
         ),
         borderRadius: BorderRadius.circular(12),
       ),
@@ -710,7 +711,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                     style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
-                      color: const Color(0xFF111827),
+                      color: AppColors.textPrimary,
                     ),
                   ),
                   Text(
@@ -719,7 +720,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                         : 'Toque em Regerar para atualizar o CV.',
                     style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 11,
-                      color: const Color(0xFF6B7280),
+                      color: AppColors.textTertiary,
                     ),
                   ),
                 ],
@@ -736,7 +737,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('CV regerado com sucesso!'),
-                            backgroundColor: Color(0xFF10B981),
+                            backgroundColor: AppColors.primary,
                           ),
                         );
                       }
@@ -759,7 +760,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                 ),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF4F46E5),
+                backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -793,8 +794,8 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
               fontSize: 14,
               fontWeight: FontWeight.w600,
               color: (title == null || title.isEmpty)
-                  ? Colors.grey
-                  : const Color(0xFF111827),
+                  ? AppColors.textTertiary
+                  : AppColors.textPrimary,
             ),
           ),
           if (desc != null && desc.isNotEmpty) ...[
@@ -803,7 +804,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
               desc,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.grey[700]),
+              style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppColors.textSecondary),
             ),
           ],
           const SizedBox(height: 12),
@@ -812,8 +813,8 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
             icon: const Icon(Icons.edit, size: 16),
             label: const Text('Editar vaga-alvo'),
             style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF4F46E5),
-              side: const BorderSide(color: Color(0xFF4F46E5)),
+              foregroundColor: AppColors.primary,
+              side: const BorderSide(color: AppColors.primary),
             ),
           ),
         ],
@@ -834,7 +835,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
             children: [
               const Text(
                 'Defina o tipo de vaga ou cargo que você quer aplicar. Isso ajuda a IA a focar o tom e os bullets do CV.',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -865,7 +866,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5)),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
             child: const Text('Salvar'),
           ),
         ],
@@ -918,8 +919,8 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                   icon: const Icon(Icons.auto_awesome, size: 16),
                   label: const Text('Refazer com IA'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF4F46E5),
-                    side: const BorderSide(color: Color(0xFF4F46E5)),
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
                   ),
                 ),
               ),
@@ -930,7 +931,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                   icon: const Icon(Icons.save, size: 16),
                   label: const Text('Salvar texto'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
+                    backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
                   ),
                 ),
@@ -945,7 +946,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
               icon: const Icon(Icons.history, size: 16),
               label: const Text('Versões anteriores'),
               style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF6B7280),
+                foregroundColor: AppColors.textTertiary,
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
                 visualDensity: VisualDensity.compact,
               ),
@@ -953,7 +954,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
           ),
           Text(
             'Salvar texto persiste o resumo. Refazer com IA gera uma nova versão e abre a tela de aprovação.',
-            style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Colors.grey[600]),
+            style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: AppColors.textTertiary),
           ),
         ],
       ),
@@ -1024,12 +1025,12 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: v.wasChosen
-                            ? const Color(0xFFEEF2FF)
-                            : const Color(0xFFF9FAFB),
+                            ? AppColors.primarySoft
+                            : AppColors.surfaceVariant,
                         border: Border.all(
                           color: v.wasChosen
-                              ? const Color(0xFF4F46E5)
-                              : Colors.grey[300]!,
+                              ? AppColors.primary
+                              : AppColors.borderStrong!,
                         ),
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -1043,7 +1044,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                                 style: TextStyle(fontFamily: 'Inter', 
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF111827),
+                                  color: AppColors.textPrimary,
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -1052,7 +1053,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 6, vertical: 2),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF4F46E5),
+                                    color: AppColors.primary,
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: Text(
@@ -1069,7 +1070,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                                 _formatTimestamp(v.createdAt),
                                 style: TextStyle(fontFamily: 'Inter', 
                                   fontSize: 11,
-                                  color: Colors.grey[600],
+                                  color: AppColors.textTertiary,
                                 ),
                               ),
                             ],
@@ -1079,7 +1080,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                             preview,
                             style: TextStyle(fontFamily: 'Inter', 
                               fontSize: 12,
-                              color: const Color(0xFF374151),
+                              color: AppColors.textSecondary,
                               height: 1.4,
                             ),
                           ),
@@ -1089,7 +1090,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                               'Editado manualmente',
                               style: TextStyle(fontFamily: 'Inter', 
                                 fontSize: 10,
-                                color: Colors.grey[500],
+                                color: AppColors.textTertiary,
                                 fontStyle: FontStyle.italic,
                               ),
                             ),
@@ -1188,7 +1189,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
           if (empty)
             const Text(
               'Nenhum dado de contato. Toque em Editar para preencher.',
-              style: TextStyle(fontSize: 13, color: Colors.grey),
+              style: TextStyle(fontSize: 13, color: AppColors.textTertiary),
             )
           else ...[
             if (email.isNotEmpty) _kv('E-mail', email),
@@ -1202,8 +1203,8 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
             icon: const Icon(Icons.edit, size: 16),
             label: const Text('Editar contato'),
             style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF4F46E5),
-              side: const BorderSide(color: Color(0xFF4F46E5)),
+              foregroundColor: AppColors.primary,
+              side: const BorderSide(color: AppColors.primary),
             ),
           ),
         ],
@@ -1256,7 +1257,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                       ScaffoldMessenger.of(ctx).showSnackBar(
                         const SnackBar(
                           content: Text('Preencha email válido e telefone com no mínimo 10 dígitos.'),
-                          backgroundColor: Color(0xFFEF4444),
+                          backgroundColor: AppColors.error,
                           behavior: SnackBarBehavior.floating,
                         ),
                       );
@@ -1267,7 +1268,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                   icon: const Icon(Icons.check),
                   label: const Text('Salvar'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF4F46E5),
+                    backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
                     minimumSize: const Size.fromHeight(48),
                   ),
@@ -1323,7 +1324,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
           if (empty)
             const Text(
               'Nenhum destaque informado. Toque em Editar para incluir GPA, distinções, cargos e disciplinas.',
-              style: TextStyle(fontSize: 13, color: Colors.grey),
+              style: TextStyle(fontSize: 13, color: AppColors.textTertiary),
             )
           else ...[
             if (gpa.isNotEmpty) _kv('CR / GPA', gpa),
@@ -1337,8 +1338,8 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
             icon: const Icon(Icons.edit, size: 16),
             label: const Text('Editar destaques'),
             style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF4F46E5),
-              side: const BorderSide(color: Color(0xFF4F46E5)),
+              foregroundColor: AppColors.primary,
+              side: const BorderSide(color: AppColors.primary),
             ),
           ),
         ],
@@ -1383,7 +1384,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                   icon: const Icon(Icons.check),
                   label: const Text('Salvar'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF4F46E5),
+                    backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
                     minimumSize: const Size.fromHeight(48),
                   ),
@@ -1429,7 +1430,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
         children: [
           const Text(
             'Conceitos / áreas de domínio (NÃO inclua softwares aqui — esses vão em Ferramentas).',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
+            style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
           ),
           const SizedBox(height: 12),
           if (_skillsList.isEmpty)
@@ -1437,7 +1438,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
               padding: EdgeInsets.symmetric(vertical: 4),
               child: Text(
                 'Nenhuma habilidade adicionada.',
-                style: TextStyle(color: Colors.grey, fontSize: 13),
+                style: TextStyle(color: AppColors.textTertiary, fontSize: 13),
               ),
             )
           else
@@ -1449,7 +1450,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                 final s = entry.value;
                 return Chip(
                   label: Text(s, style: const TextStyle(fontSize: 13)),
-                  backgroundColor: const Color(0xFFEEF2FF),
+                  backgroundColor: AppColors.primarySoft,
                   side: const BorderSide(color: Color(0xFFC7D2FE)),
                   deleteIcon: const Icon(Icons.close, size: 16),
                   onDeleted: () {
@@ -1479,7 +1480,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
               ElevatedButton(
                 onPressed: _addSkillFromInput,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF4F46E5),
+                  backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
@@ -1525,7 +1526,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
               padding: EdgeInsets.symmetric(vertical: 8),
               child: Text(
                 'Nenhuma ferramenta adicionada.',
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(color: AppColors.textTertiary),
               ),
             )
           else
@@ -1604,7 +1605,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx, true),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5)),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
               child: const Text('Salvar'),
             ),
           ],
@@ -1642,7 +1643,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
               padding: EdgeInsets.symmetric(vertical: 8),
               child: Text(
                 'Nenhum idioma adicionado.',
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(color: AppColors.textTertiary),
               ),
             )
           else
@@ -1723,7 +1724,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx, true),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5)),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
               child: const Text('Salvar'),
             ),
           ],
@@ -1759,7 +1760,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
               padding: EdgeInsets.symmetric(vertical: 8),
               child: Text(
                 'Nenhuma certificação adicionada.',
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(color: AppColors.textTertiary),
               ),
             )
           else
@@ -1847,7 +1848,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5)),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
             child: const Text('Salvar'),
           ),
         ],
@@ -2179,17 +2180,17 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFEEF2FF),
+                    color: AppColors.primarySoft,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Icon(icon, color: const Color(0xFF4F46E5), size: 20),
+                  child: Icon(icon, color: AppColors.primary, size: 20),
                 ),
                 title: Text(
                   title,
                   style: TextStyle(fontFamily: 'Inter', 
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: const Color(0xFF111827),
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 trailing: trailingAction,
@@ -2207,10 +2208,10 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEEF2FF),
+                          color: AppColors.primarySoft,
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Icon(icon, color: const Color(0xFF4F46E5), size: 20),
+                        child: Icon(icon, color: AppColors.primary, size: 20),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -2219,7 +2220,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                           style: TextStyle(fontFamily: 'Inter', 
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
-                            color: const Color(0xFF111827),
+                            color: AppColors.textPrimary,
                           ),
                         ),
                       ),
@@ -2245,9 +2246,9 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
       maxLines: maxLines,
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: TextStyle(color: Colors.grey[400], fontSize: 13),
+        hintStyle: TextStyle(color: AppColors.textDisabled, fontSize: 13),
         filled: true,
-        fillColor: const Color(0xFFF9FAFB),
+        fillColor: AppColors.surfaceVariant,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide.none,
@@ -2268,9 +2269,9 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
     final card = Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey[200]!),
+        border: Border.all(color: AppColors.border!),
         borderRadius: BorderRadius.circular(8),
-        color: const Color(0xFFF9FAFB),
+        color: AppColors.surfaceVariant,
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -2282,7 +2283,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                   child: Icon(
                     Icons.drag_indicator,
                     size: 20,
-                    color: Color(0xFF9CA3AF),
+                    color: AppColors.textDisabled,
                   ),
                 ),
               )
@@ -2297,7 +2298,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
                 subtitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Colors.grey[600]),
+                style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppColors.textTertiary),
               ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
@@ -2343,7 +2344,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
         alignment: Alignment.center,
         decoration: BoxDecoration(
           gradient: const LinearGradient(
-            colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+            colors: [AppColors.primary, AppColors.primary],
           ),
           borderRadius: BorderRadius.circular(8),
         ),
@@ -2418,10 +2419,10 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
       leading: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: const Color(0xFFEEF2FF),
+          color: AppColors.primarySoft,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(icon, color: const Color(0xFF4F46E5), size: 20),
+        child: Icon(icon, color: AppColors.primary, size: 20),
       ),
       title: Text(label, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
       subtitle: Text(hint, style: TextStyle(fontFamily: 'Inter', fontSize: 12)),
@@ -2451,7 +2452,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
         alignment: Alignment.center,
         decoration: BoxDecoration(
           border: Border.all(
-            color: const Color(0xFF4F46E5),
+            color: AppColors.primary,
             style: BorderStyle.solid,
           ),
           borderRadius: BorderRadius.circular(8),
@@ -2459,12 +2460,12 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.add, size: 16, color: Color(0xFF4F46E5)),
+            const Icon(Icons.add, size: 16, color: AppColors.primary),
             const SizedBox(width: 8),
             Text(
               label,
               style: TextStyle(fontFamily: 'Inter', 
-                color: const Color(0xFF4F46E5),
+                color: AppColors.primary,
                 fontWeight: FontWeight.bold,
                 fontSize: 13,
               ),
@@ -2480,7 +2481,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
       padding: const EdgeInsets.only(bottom: 4),
       child: RichText(
         text: TextSpan(
-          style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: const Color(0xFF374151)),
+          style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: AppColors.textSecondary),
           children: [
             TextSpan(
               text: '$label: ',
@@ -2538,7 +2539,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
           ),
           TextButton(
             onPressed: () => Navigator.pop(dctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
             child: const Text('Descartar'),
           ),
         ],
@@ -2574,7 +2575,7 @@ class _ResumeEditScreenState extends State<ResumeEditScreen>
               onSave();
               Navigator.pop(context);
             },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5)),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
             child: const Text('Salvar'),
           ),
         ],

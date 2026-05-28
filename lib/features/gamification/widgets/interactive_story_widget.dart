@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 class InteractiveStoryWidget extends StatefulWidget {
   final Map<String, dynamic> options; 
@@ -64,19 +65,19 @@ class _InteractiveStoryWidgetState extends State<InteractiveStoryWidget> {
                 color: isSelected ? const Color(0xFFFFF3CD) : Colors.white, // Warning tint
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: isSelected ? const Color(0xFFFFC107) : const Color(0xFFE5E7EB),
+                  color: isSelected ? AppColors.warning : AppColors.border,
                   width: 2,
                 ),
                 boxShadow: [
                   if (isSelected)
                     const BoxShadow(
-                      color: Color(0xFFFFC107),
+                      color: AppColors.warning,
                       offset: Offset(0, 0),
                       blurRadius: 0,
                     )
                   else
                     const BoxShadow(
-                      color: Color(0xFFE5E7EB),
+                      color: AppColors.border,
                       offset: Offset(0, 4),
                       blurRadius: 0,
                     ),
@@ -90,7 +91,7 @@ class _InteractiveStoryWidgetState extends State<InteractiveStoryWidget> {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                        color: const Color(0xFF374151),
+                        color: AppColors.textSecondary,
                       ),
                     ),
                   ),

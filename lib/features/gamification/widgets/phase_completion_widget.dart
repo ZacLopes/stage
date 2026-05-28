@@ -9,6 +9,7 @@ import 'package:career_gamification/features/profile/profile_viewmodel.dart';
 import 'package:career_gamification/features/resume/resume_viewmodel.dart';
 import 'package:career_gamification/features/resume/widgets/ai_consent_modal.dart';
 import 'package:career_gamification/data/models/models.dart';
+import '../../../core/theme/theme.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Particle model for confetti effects
@@ -41,10 +42,10 @@ class _Particle {
 // Track color map
 // ─────────────────────────────────────────────────────────────────────────────
 const Map<String, Color> _trackColors = {
-  'track_1': Color(0xFF4F46E5),
-  'track_2': Color(0xFF06B6D4),
+  'track_1': AppColors.primary,
+  'track_2': AppColors.info,
   'track_3': Color(0xFFF97316),
-  'track_4': Color(0xFF10B981),
+  'track_4': AppColors.success,
   'track_5': Color(0xFF8B5CF6),
 };
 
@@ -88,7 +89,7 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
   bool _isSaving = false;
 
   Color get _trackColor =>
-      _trackColors[widget.phase.trackId] ?? const Color(0xFF00C27A);
+      _trackColors[widget.phase.trackId] ?? AppColors.success;
 
   int get _phaseNumber {
     final sorted = List<Phase>.from(widget.viewModel.phases)
@@ -184,7 +185,7 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao salvar: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Erro ao salvar: $e'), backgroundColor: AppColors.error),
         );
         setState(() => _isSaving = false);
       }
@@ -390,7 +391,7 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
                           height: 110 + _pulseCtrl.value * 10,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: const Color(0xFF58CC02)
+                            color: AppColors.success
                                 .withOpacity(0.08 + _pulseCtrl.value * 0.06),
                           ),
                         ),
@@ -402,11 +403,11 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
                           width: 120,
                           height: 120,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF58CC02),
+                            color: AppColors.success,
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFF58CC02).withOpacity(0.45),
+                                color: AppColors.success.withOpacity(0.45),
                                 blurRadius: 24,
                                 spreadRadius: 4,
                                 offset: const Offset(0, 8),
@@ -443,7 +444,7 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
                               style: TextStyle(
                                 fontSize: 32,
                                 fontWeight: FontWeight.w900,
-                                color: Color(0xFF1F2937),
+                                color: AppColors.textPrimary,
                                 letterSpacing: 0.3,
                               ),
                             ),
@@ -453,7 +454,7 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
                               textAlign: TextAlign.center,
                               style: const TextStyle(
                                 fontSize: 16,
-                                color: Color(0xFF6B7280),
+                                color: AppColors.textTertiary,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -463,7 +464,7 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
                                 'Fase $_phaseNumber de $_totalPhases nesta trilha',
                                 style: const TextStyle(
                                   fontSize: 13,
-                                  color: Color(0xFF9CA3AF),
+                                  color: AppColors.textDisabled,
                                 ),
                               ),
                           ],
@@ -488,11 +489,11 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
                         child: ElevatedButton(
                           onPressed: _isSaving ? null : _handleContinue,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF58CC02),
+                            backgroundColor: AppColors.primary,
                             foregroundColor: Colors.white,
-                            disabledBackgroundColor: const Color(0xFFE5E7EB),
+                            disabledBackgroundColor: AppColors.border,
                             elevation: 4,
-                            shadowColor: const Color(0xFF46A302),
+                            shadowColor: AppColors.primary,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
                             ),
@@ -554,7 +555,7 @@ class _TrackCompletionDialogState extends State<_TrackCompletionDialog>
   late List<_Particle> _particles;
 
   Color get _trackColor =>
-      _trackColors[widget.trackId] ?? const Color(0xFF00C27A);
+      _trackColors[widget.trackId] ?? AppColors.success;
 
   @override
   void initState() {
@@ -578,7 +579,7 @@ class _TrackCompletionDialogState extends State<_TrackCompletionDialog>
       _trackColor,
       _trackColor.withOpacity(0.6),
       Colors.white,
-      const Color(0xFFFFD700),
+      AppColors.gold,
       const Color(0xFFFF6B6B),
     ];
     _particles = List.generate(16, (i) {
@@ -726,22 +727,22 @@ class _TrackCompletionDialogState extends State<_TrackCompletionDialog>
                       padding: const EdgeInsets.symmetric(
                           horizontal: 16, vertical: 8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF22C55E).withOpacity(0.25),
+                        color: AppColors.success.withOpacity(0.25),
                         borderRadius: BorderRadius.circular(30),
                         border: Border.all(
-                          color: const Color(0xFF22C55E).withOpacity(0.6),
+                          color: AppColors.success.withOpacity(0.6),
                         ),
                       ),
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.lock_open_rounded,
-                              color: Color(0xFF86EFAC), size: 15),
+                              color: AppColors.success, size: 15),
                           SizedBox(width: 6),
                           Text(
                             'Próxima trilha desbloqueada!',
                             style: TextStyle(
-                              color: Color(0xFF86EFAC),
+                              color: AppColors.success,
                               fontWeight: FontWeight.bold,
                               fontSize: 12,
                             ),
@@ -847,8 +848,8 @@ class _CurriculumReadyDialogState extends State<_CurriculumReadyDialog>
   void _buildParticles() {
     final rng = math.Random(99);
     const palette = [
-      Color(0xFFFFD700),
-      Color(0xFFFFC107),
+      AppColors.gold,
+      AppColors.warning,
       Color(0xFF00E5FF),
       Color(0xFFFF4081),
       Color(0xFF69F0AE),
@@ -904,7 +905,7 @@ class _CurriculumReadyDialogState extends State<_CurriculumReadyDialog>
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF7C3AED).withOpacity(0.5),
+                color: AppColors.primary.withOpacity(0.5),
                 blurRadius: 40,
                 spreadRadius: 2,
                 offset: const Offset(0, 12),
@@ -969,8 +970,8 @@ class _CurriculumReadyDialogState extends State<_CurriculumReadyDialog>
                                         _shimmerCtrl.value * 2 * math.pi +
                                             math.pi,
                                     colors: const [
-                                      Color(0xFFFFD700),
-                                      Color(0xFFFFA500),
+                                      AppColors.gold,
+                                      AppColors.warning,
                                       Colors.transparent,
                                       Colors.transparent,
                                     ],
@@ -983,7 +984,7 @@ class _CurriculumReadyDialogState extends State<_CurriculumReadyDialog>
                                 height: 122 + _pulseCtrl.value * 10,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: const Color(0xFFFFD700).withOpacity(
+                                  color: AppColors.gold.withOpacity(
                                       0.08 + _pulseCtrl.value * 0.06),
                                 ),
                               ),
@@ -995,18 +996,18 @@ class _CurriculumReadyDialogState extends State<_CurriculumReadyDialog>
                                   shape: BoxShape.circle,
                                   gradient: const RadialGradient(
                                     colors: [
-                                      Color(0xFF4338CA),
+                                      AppColors.primary,
                                       Color(0xFF2D1B69),
                                     ],
                                   ),
                                   border: Border.all(
-                                    color: const Color(0xFFFFD700)
+                                    color: AppColors.gold
                                         .withOpacity(0.7),
                                     width: 2,
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: const Color(0xFFFFD700)
+                                      color: AppColors.gold
                                           .withOpacity(
                                               0.3 + _pulseCtrl.value * 0.2),
                                       blurRadius: 25,
@@ -1031,9 +1032,9 @@ class _CurriculumReadyDialogState extends State<_CurriculumReadyDialog>
                     ShaderMask(
                       shaderCallback: (bounds) => const LinearGradient(
                         colors: [
-                          Color(0xFFFFD700),
-                          Color(0xFFFFA500),
-                          Color(0xFFFFD700),
+                          AppColors.gold,
+                          AppColors.warning,
+                          AppColors.gold,
                         ],
                       ).createShader(bounds),
                       child: const Text(
@@ -1082,7 +1083,7 @@ class _CurriculumReadyDialogState extends State<_CurriculumReadyDialog>
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFFFFD700).withOpacity(
+                              color: AppColors.gold.withOpacity(
                                   0.3 + _buttonGlowCtrl.value * 0.35),
                               blurRadius: 18 + _buttonGlowCtrl.value * 14,
                               spreadRadius: 1,
@@ -1107,9 +1108,9 @@ class _CurriculumReadyDialogState extends State<_CurriculumReadyDialog>
                             child: Ink(
                               decoration: BoxDecoration(
                                 gradient: const LinearGradient(colors: [
-                                  Color(0xFFFFD700),
-                                  Color(0xFFF59E0B),
-                                  Color(0xFFFFD700),
+                                  AppColors.gold,
+                                  AppColors.warning,
+                                  AppColors.gold,
                                 ]),
                                 borderRadius: BorderRadius.circular(16),
                               ),
@@ -1283,7 +1284,7 @@ class _GeneratingOverlayContent extends StatelessWidget {
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF4F46E5).withOpacity(0.4),
+                color: AppColors.primary.withOpacity(0.4),
                 blurRadius: 30,
                 spreadRadius: 2,
               ),
@@ -1297,7 +1298,7 @@ class _GeneratingOverlayContent extends StatelessWidget {
                 height: 42,
                 child: CircularProgressIndicator(
                   strokeWidth: 3.5,
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFFD700)),
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.gold),
                 ),
               ),
               const SizedBox(height: 18),

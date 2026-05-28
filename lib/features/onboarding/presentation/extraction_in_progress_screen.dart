@@ -13,6 +13,7 @@ import 'package:provider/provider.dart';
 import '../../profile/application/extraction_status_view_model.dart';
 import 'onboarding_scaffold.dart';
 import 'masking_questions/attribution_screen.dart';
+import '../../../core/theme/theme.dart';
 
 class ExtractionInProgressScreen extends StatefulWidget {
   const ExtractionInProgressScreen({super.key});
@@ -152,18 +153,18 @@ class _ExtractionInProgressScreenState extends State<ExtractionInProgressScreen>
                   width: 110,
                   height: 110,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF29B6D2).withValues(alpha: 0.1),
+                    color: AppColors.brandCyan.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
                   child: isReady
                       ? const Icon(
                           Icons.check_circle,
-                          color: Color(0xFF29B6D2),
+                          color: AppColors.brandCyan,
                           size: 60,
                         )
                       : const Icon(
                           Icons.auto_awesome_rounded,
-                          color: Color(0xFF29B6D2),
+                          color: AppColors.brandCyan,
                           size: 52,
                         ),
                 ),
@@ -179,7 +180,7 @@ class _ExtractionInProgressScreenState extends State<ExtractionInProgressScreen>
                     ? 'Encontramos suas informações.'
                     : 'A IA tá lendo seu currículo…',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Color(0xFF6B7280), fontSize: 14),
+                style: const TextStyle(color: AppColors.textTertiary, fontSize: 14),
               ),
               const SizedBox(height: 28),
               // Card de dica — só durante o processamento. Quando IA termina,
@@ -192,7 +193,7 @@ class _ExtractionInProgressScreenState extends State<ExtractionInProgressScreen>
                   height: 20,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: Color(0xFF29B6D2),
+                    color: AppColors.brandCyan,
                   ),
                 ),
               ],
@@ -234,7 +235,7 @@ class _TipCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
+          border: Border.all(color: AppColors.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -246,7 +247,7 @@ class _TipCard extends StatelessWidget {
                 Text(
                   'Dica enquanto a IA trabalha',
                   style: TextStyle(
-                    color: const Color(0xFF29B6D2).withValues(alpha: 0.9),
+                    color: AppColors.brandCyan.withValues(alpha: 0.9),
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.3,
@@ -259,7 +260,7 @@ class _TipCard extends StatelessWidget {
               tip.text,
               style: const TextStyle(
                 fontSize: 15,
-                color: Color(0xFF111827),
+                color: AppColors.textPrimary,
                 height: 1.4,
                 fontWeight: FontWeight.w500,
               ),

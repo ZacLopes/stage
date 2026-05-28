@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/theme/theme.dart';
 
 class MonthYearPickerSheet extends StatefulWidget {
   final DateTime initialDate;
@@ -119,7 +120,7 @@ class _MonthYearPickerSheetState extends State<MonthYearPickerSheet> {
                   Navigator.pop(context, DateTime(_selectedYear, _selectedMonth));
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF58CC02),
+                  backgroundColor: AppColors.primary,
                   minimumSize: const Size(double.infinity, 54),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   elevation: 0,
@@ -147,11 +148,11 @@ class _MonthYearPickerSheetState extends State<MonthYearPickerSheet> {
         children: [
           const Text(
             'Selecionar Data',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
           ),
           IconButton(
             onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.close, color: Color(0xFF4B5563)),
+            icon: const Icon(Icons.close, color: AppColors.textSecondary),
           ),
         ],
       ),

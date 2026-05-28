@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'month_year_picker_sheet.dart';
+import '../../../core/theme/theme.dart';
 
 class FreelanceFormWidget extends StatefulWidget {
   final Function(Map<String, dynamic>) onSave;
@@ -242,7 +243,7 @@ class _FreelanceFormWidgetState extends State<FreelanceFormWidget> {
       decoration: InputDecoration(
         labelText: label,
         helperText: helper,
-        prefixIcon: Icon(icon, color: const Color(0xFF9CA3AF)),
+        prefixIcon: Icon(icon, color: AppColors.textDisabled),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         filled: true,
         fillColor: Colors.white,
@@ -278,21 +279,21 @@ class _FreelanceFormWidgetState extends State<FreelanceFormWidget> {
         decoration: BoxDecoration(
           color: isSelected ? Colors.orange.withOpacity(0.1) : Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: isSelected ? Colors.orange : const Color(0xFFE5E7EB), width: 2),
+          border: Border.all(color: isSelected ? Colors.orange : AppColors.border, width: 2),
         ),
         child: Row(
           children: [
             Icon(
               isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-              color: isSelected ? Colors.orange : Colors.grey,
+              color: isSelected ? Colors.orange : AppColors.textTertiary,
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: isSelected ? Colors.orange[800] : const Color(0xFF374151))),
-                  Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                  Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: isSelected ? Colors.orange[800] : AppColors.textSecondary)),
+                  Text(subtitle, style: TextStyle(fontSize: 12, color: AppColors.textTertiary)),
                 ],
               ),
             ),
@@ -310,17 +311,17 @@ class _FreelanceFormWidgetState extends State<FreelanceFormWidget> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
+          border: Border.all(color: AppColors.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+            Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textTertiary)),
             const SizedBox(height: 4),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(value ?? 'MM/AAAA', style: TextStyle(fontWeight: FontWeight.bold, color: value != null ? Colors.black87 : const Color(0xFFAFAFAF))),
+                Text(value ?? 'MM/AAAA', style: TextStyle(fontWeight: FontWeight.bold, color: value != null ? Colors.black87 : AppColors.textDisabled)),
                 const Icon(Icons.calendar_today, size: 16, color: Colors.orange),
               ],
             ),

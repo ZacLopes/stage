@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
 import 'dart:convert';
+import '../../../core/theme/theme.dart';
 
 class ContactFormWidget extends StatefulWidget {
   final Function(String) onSelect;
@@ -197,10 +198,10 @@ class ContactFormWidgetState extends State<ContactFormWidget> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(_iconFor(platform), size: 32, color: const Color(0xFF1CB0F6)),
+                    Icon(_iconFor(platform), size: 32, color: AppColors.secondary),
                     const SizedBox(height: 12),
                     Text('Link do $platform',
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF374151))),
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
                     const SizedBox(height: 20),
                     TextField(
                       autofocus: true,
@@ -208,7 +209,7 @@ class ContactFormWidgetState extends State<ContactFormWidget> {
                       decoration: InputDecoration(
                         hintText: 'https://...',
                         filled: true,
-                        fillColor: const Color(0xFFF3F4F6),
+                        fillColor: AppColors.background,
                         border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -220,14 +221,14 @@ class ContactFormWidgetState extends State<ContactFormWidget> {
                       Expanded(
                         child: TextButton(
                           onPressed: () => Navigator.pop(ctx),
-                          child: const Text('Cancelar', style: TextStyle(color: Color(0xFF9CA3AF))),
+                          child: const Text('Cancelar', style: TextStyle(color: AppColors.textDisabled)),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF58CC02), foregroundColor: Colors.white,
+                              backgroundColor: AppColors.primary, foregroundColor: Colors.white,
                               elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                           onPressed: () {
                             setState(() {
@@ -286,13 +287,13 @@ class ContactFormWidgetState extends State<ContactFormWidget> {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? (isNone ? const Color(0xFFFEF2F2) : const Color(0xFFDDF4FF))
+                      ? (isNone ? AppColors.errorSoft : AppColors.brandSoft)
                       : Colors.white,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: isSelected
-                        ? (isNone ? const Color(0xFFFF4B4B) : const Color(0xFF1CB0F6))
-                        : const Color(0xFFE5E7EB),
+                        ? (isNone ? AppColors.error : AppColors.secondary)
+                        : AppColors.border,
                     width: 2,
                   ),
                 ),
@@ -300,21 +301,21 @@ class ContactFormWidgetState extends State<ContactFormWidget> {
                   Icon(_iconFor(p),
                       size: 16,
                       color: isSelected
-                          ? (isNone ? const Color(0xFFFF4B4B) : const Color(0xFF1CB0F6))
-                          : const Color(0xFF6B7280)),
+                          ? (isNone ? AppColors.error : AppColors.secondary)
+                          : AppColors.textTertiary),
                   const SizedBox(width: 6),
                   Text(p,
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
                         color: isSelected
-                            ? (isNone ? const Color(0xFFFF4B4B) : const Color(0xFF1CB0F6))
-                            : const Color(0xFF374151),
+                            ? (isNone ? AppColors.error : AppColors.secondary)
+                            : AppColors.textSecondary,
                       )),
                   if (isSelected && !isNone)
                     const Padding(
                       padding: EdgeInsets.only(left: 4),
-                      child: Icon(Icons.check_circle, size: 14, color: Color(0xFF58CC02)),
+                      child: Icon(Icons.check_circle, size: 14, color: AppColors.success),
                     ),
                 ]),
               ),
@@ -363,7 +364,7 @@ class ContactFormWidgetState extends State<ContactFormWidget> {
         const SizedBox(height: 6),
         const Text(
           'Adicione rua e bairro se quiser o formato internacional. Ex: "Rua Joaquim Floriano, 152 – Itaim Bibi"',
-          style: TextStyle(color: Color(0xFF6B7280), fontSize: 12),
+          style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
         ),
         const SizedBox(height: 8),
         _textField(
@@ -374,7 +375,7 @@ class ContactFormWidgetState extends State<ContactFormWidget> {
         ),
 
         const SizedBox(height: 8),
-        const Text('* campos obrigatórios', style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12)),
+        const Text('* campos obrigatórios', style: TextStyle(color: AppColors.textDisabled, fontSize: 12)),
         const SizedBox(height: 8),
       ],
     );
@@ -394,26 +395,26 @@ class ContactFormWidgetState extends State<ContactFormWidget> {
         style: const TextStyle(fontSize: 16),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: const TextStyle(color: Color(0xFFD1D5DB)),
-          prefixIcon: Icon(icon, color: const Color(0xFF9CA3AF), size: 20),
+          hintStyle: const TextStyle(color: AppColors.borderStrong),
+          prefixIcon: Icon(icon, color: AppColors.textDisabled, size: 20),
           filled: true,
-          fillColor: const Color(0xFFF9FAFB),
+          fillColor: AppColors.surfaceVariant,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
           focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Color(0xFF58CC02), width: 2)),
+              borderSide: const BorderSide(color: AppColors.success, width: 2)),
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         ),
       );
 
   Widget _sectionLabel(String text) => Text(
     text,
-    style: const TextStyle(color: Color(0xFF6B7280), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1),
+    style: const TextStyle(color: AppColors.textTertiary, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1),
   );
 
   /// Inline validation row shown below email/phone fields.
   Widget _validationMessage(String text, {required bool isError}) {
-    final color = isError ? const Color(0xFFEF4444) : const Color(0xFF10B981);
+    final color = isError ? AppColors.error : AppColors.success;
     final icon = isError ? Icons.error_outline : Icons.check_circle_outline;
     return Padding(
       padding: const EdgeInsets.only(top: 6, left: 4),

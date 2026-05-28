@@ -18,6 +18,7 @@ import '../models/adapted_resume.dart';
 import '../models/job.dart';
 import '../pending_adapted_cv_tracker.dart';
 import 'adapted_resume_preview_screen.dart';
+import '../../../core/theme/theme.dart';
 
 /// Feature flag da F1 (preview visual + edição inline). Default ON. Para
 /// rollback rápido: trocar para `false` e rebuild — a sheet volta a usar
@@ -56,19 +57,19 @@ class ResumeAdaptationSheet extends StatefulWidget {
 class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
     with TickerProviderStateMixin {
   // ── Cores (alinhadas com jobs_swipe_screen + job_preferences_screen) ─
-  static const _indigo = Color(0xFF4F46E5);
-  static const _purple = Color(0xFF7C3AED);
+  static const _indigo = AppColors.primary;
+  static const _purple = AppColors.primary;
   static const _gradient = LinearGradient(
     colors: [_indigo, _purple],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
-  static const _emerald = Color(0xFF10B981);
-  static const _textPrimary = Color(0xFF0F172A);
-  static const _textSecondary = Color(0xFF475569);
-  static const _textMuted = Color(0xFF94A3B8);
-  static const _border = Color(0xFFE2E8F0);
-  static const _surface = Color(0xFFF8FAFC);
+  static const _emerald = AppColors.success;
+  static const _textPrimary = AppColors.textPrimary;
+  static const _textSecondary = AppColors.textSecondary;
+  static const _textMuted = AppColors.textTertiary;
+  static const _border = AppColors.border;
+  static const _surface = AppColors.surfaceVariant;
 
   // ── State ──────────────────────────────────────────────────────────
   // AIService instanciado direto aqui (sem Provider) — segue mesmo padrão
@@ -341,7 +342,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Erro ao gerar PDF: $e'),
-          backgroundColor: Colors.red.shade600,
+          backgroundColor: AppColors.error,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -598,9 +599,9 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
           height: 80,
           margin: const EdgeInsets.symmetric(horizontal: 100),
           decoration: BoxDecoration(
-            color: const Color(0xFFFEF2F2),
+            color: AppColors.errorSoft,
             shape: BoxShape.circle,
-            border: Border.all(color: const Color(0xFFFECACA), width: 2),
+            border: Border.all(color: AppColors.errorSoft, width: 2),
           ),
           child: Icon(
             isProfileIncomplete
@@ -609,7 +610,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
                     ? Icons.timer_off_rounded
                     : Icons.error_outline_rounded,
             size: 36,
-            color: const Color(0xFFEF4444),
+            color: AppColors.error,
           ),
         ),
         const SizedBox(height: 24),
@@ -722,7 +723,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF1E1B4B), Color(0xFF312E81)],
+          colors: [Color(0xFF1E1B4B), AppColors.primary],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -1165,7 +1166,7 @@ class _PulsingOrbState extends State<_PulsingOrb>
                   height: 96 * (0.8 + 0.4 * t),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: const Color(0xFF4F46E5).withOpacity(0.12),
+                    color: AppColors.primary.withOpacity(0.12),
                   ),
                 ),
               ),
@@ -1176,7 +1177,7 @@ class _PulsingOrbState extends State<_PulsingOrb>
                 decoration: const BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: LinearGradient(
-                    colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                    colors: [AppColors.primary, AppColors.primary],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
@@ -1219,7 +1220,7 @@ class _ChangeCardState extends State<_ChangeCard> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: AppColors.border),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.03),
@@ -1251,7 +1252,7 @@ class _ChangeCardState extends State<_ChangeCard> {
                             style: const TextStyle(
                               fontSize: 13.5,
                               fontWeight: FontWeight.w800,
-                              color: Color(0xFF0F172A),
+                              color: AppColors.textPrimary,
                               letterSpacing: -0.2,
                             ),
                           ),
@@ -1262,7 +1263,7 @@ class _ChangeCardState extends State<_ChangeCard> {
                                 c.reason,
                                 style: const TextStyle(
                                   fontSize: 12,
-                                  color: Color(0xFF64748B),
+                                  color: AppColors.textTertiary,
                                   fontWeight: FontWeight.w500,
                                   height: 1.3,
                                 ),
@@ -1276,7 +1277,7 @@ class _ChangeCardState extends State<_ChangeCard> {
                       duration: const Duration(milliseconds: 200),
                       child: const Icon(
                         Icons.expand_more_rounded,
-                        color: Color(0xFF94A3B8),
+                        color: AppColors.textTertiary,
                         size: 20,
                       ),
                     ),
@@ -1309,9 +1310,9 @@ class _ChangeCardState extends State<_ChangeCard> {
           _buildDiffLine(
             tag: 'Antes',
             text: c.before,
-            color: const Color(0xFF94A3B8),
+            color: AppColors.textTertiary,
             strikethrough: true,
-            bgColor: const Color(0xFFF1F5F9),
+            bgColor: AppColors.surfaceMuted,
           ),
         if (c.before.isNotEmpty && c.after.isNotEmpty)
           const SizedBox(height: 6),
@@ -1319,9 +1320,9 @@ class _ChangeCardState extends State<_ChangeCard> {
           _buildDiffLine(
             tag: 'Depois',
             text: c.after,
-            color: const Color(0xFF065F46),
+            color: AppColors.success,
             strikethrough: false,
-            bgColor: const Color(0xFFECFDF5),
+            bgColor: AppColors.successSoft,
           ),
       ],
     );
@@ -1358,7 +1359,7 @@ class _ChangeCardState extends State<_ChangeCard> {
             text,
             style: TextStyle(
               fontSize: 12.5,
-              color: strikethrough ? color : const Color(0xFF0F172A),
+              color: strikethrough ? color : AppColors.textPrimary,
               fontWeight: strikethrough ? FontWeight.w500 : FontWeight.w600,
               decoration: strikethrough
                   ? TextDecoration.lineThrough
@@ -1388,17 +1389,17 @@ class _ChangeCardState extends State<_ChangeCard> {
   static (IconData, Color) _categoryStyle(ChangeCategory cat) {
     switch (cat) {
       case ChangeCategory.summary:
-        return (Icons.description_rounded, const Color(0xFF4F46E5));
+        return (Icons.description_rounded, AppColors.primary);
       case ChangeCategory.skills:
-        return (Icons.bolt_rounded, const Color(0xFF7C3AED));
+        return (Icons.bolt_rounded, AppColors.primary);
       case ChangeCategory.experience:
-        return (Icons.work_outline_rounded, const Color(0xFF0EA5E9));
+        return (Icons.work_outline_rounded, AppColors.info);
       case ChangeCategory.education:
-        return (Icons.school_outlined, const Color(0xFFF59E0B));
+        return (Icons.school_outlined, AppColors.warning);
       case ChangeCategory.achievements:
-        return (Icons.emoji_events_outlined, const Color(0xFFF59E0B));
+        return (Icons.emoji_events_outlined, AppColors.warning);
       case ChangeCategory.other:
-        return (Icons.tune_rounded, const Color(0xFF64748B));
+        return (Icons.tune_rounded, AppColors.textTertiary);
     }
   }
 

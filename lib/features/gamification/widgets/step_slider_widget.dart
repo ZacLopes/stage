@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/theme/theme.dart';
 
 class StepSliderWidget extends StatefulWidget {
   final Function(String) onSelect;
@@ -93,11 +94,11 @@ class _StepSliderWidgetState extends State<StepSliderWidget> with SingleTickerPr
 
   Color _getColorForValue(String value) {
     final v = value.toLowerCase();
-    if (v.contains('básico')) return const Color(0xFF58CC02);
-    if (v.contains('intermediário')) return const Color(0xFF1CB0F6);
-    if (v.contains('avançado')) return const Color(0xFFFF9600);
+    if (v.contains('básico')) return AppColors.success;
+    if (v.contains('intermediário')) return AppColors.secondary;
+    if (v.contains('avançado')) return AppColors.warning;
     if (v.contains('fluente')) return const Color(0xFFCE82FF);
-    return const Color(0xFF58CC02);
+    return AppColors.success;
   }
 
   @override
@@ -177,7 +178,7 @@ class _StepSliderWidgetState extends State<StepSliderWidget> with SingleTickerPr
               SliderTheme(
                 data: SliderTheme.of(context).copyWith(
                   activeTrackColor: activeColor,
-                  inactiveTrackColor: const Color(0xFFE5E7EB),
+                  inactiveTrackColor: AppColors.border,
                   trackHeight: 16.0,
                   thumbColor: Colors.white,
                   thumbShape: _CustomThumbShape(color: activeColor),
@@ -185,7 +186,7 @@ class _StepSliderWidgetState extends State<StepSliderWidget> with SingleTickerPr
                   overlayShape: const RoundSliderOverlayShape(overlayRadius: 32.0),
                   tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 3),
                   activeTickMarkColor: Colors.white.withOpacity(0.8),
-                  inactiveTickMarkColor: const Color(0xFFD1D5DB),
+                  inactiveTickMarkColor: AppColors.borderStrong,
                 ),
                 child: Slider(
                   value: _currentSliderValue,
@@ -216,7 +217,7 @@ class _StepSliderWidgetState extends State<StepSliderWidget> with SingleTickerPr
                      style: TextStyle(
                        fontSize: 12, 
                        fontWeight: FontWeight.bold,
-                       color: _currentSliderValue == 1 ? activeColor : Colors.grey[400]
+                       color: _currentSliderValue == 1 ? activeColor : AppColors.textDisabled
                      ),
                    ),
                    Text(
@@ -224,7 +225,7 @@ class _StepSliderWidgetState extends State<StepSliderWidget> with SingleTickerPr
                      style: TextStyle(
                        fontSize: 12, 
                        fontWeight: FontWeight.bold,
-                       color: _currentSliderValue == maxSteps ? activeColor : Colors.grey[400]
+                       color: _currentSliderValue == maxSteps ? activeColor : AppColors.textDisabled
                      ),
                    ),
                 ],

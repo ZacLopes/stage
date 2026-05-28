@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'month_year_picker_sheet.dart';
+import '../../../core/theme/theme.dart';
 
 class SocialFormWidget extends StatefulWidget {
   final Function(Map<String, dynamic>) onSave;
@@ -204,7 +205,7 @@ class _SocialFormWidgetState extends State<SocialFormWidget> {
         labelText: label,
         helperText: helper,
         helperMaxLines: 2,
-        prefixIcon: Icon(icon, color: const Color(0xFF9CA3AF)),
+        prefixIcon: Icon(icon, color: AppColors.textDisabled),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         filled: true,
         fillColor: Colors.white,
@@ -219,20 +220,20 @@ class _SocialFormWidgetState extends State<SocialFormWidget> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         decoration: BoxDecoration(
-          color: isDisabled ? const Color(0xFFF3F4F6) : Colors.white,
+          color: isDisabled ? AppColors.background : Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
+          border: Border.all(color: AppColors.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+            Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textTertiary)),
             const SizedBox(height: 4),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(value ?? 'MM/AAAA', style: TextStyle(fontWeight: FontWeight.bold, color: value != null ? Colors.black87 : const Color(0xFFAFAFAF))),
-                Icon(Icons.calendar_today, size: 16, color: isDisabled ? const Color(0xFFAFAFAF) : Colors.pink),
+                Text(value ?? 'MM/AAAA', style: TextStyle(fontWeight: FontWeight.bold, color: value != null ? Colors.black87 : AppColors.textDisabled)),
+                Icon(Icons.calendar_today, size: 16, color: isDisabled ? AppColors.textDisabled : Colors.pink),
               ],
             ),
           ],

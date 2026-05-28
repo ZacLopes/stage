@@ -28,6 +28,7 @@ import '../widgets/resume_adaptation_sheet.dart';
 import '../widgets/skills_confirmation_sheet.dart';
 import 'job_details_sheet.dart';
 import 'job_preferences_screen.dart';
+import '../../../core/theme/theme.dart';
 
 class JobsSwipeScreen extends StatefulWidget {
   const JobsSwipeScreen({super.key});
@@ -300,7 +301,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Não consegui compartilhar: $e'),
-          backgroundColor: Colors.red.shade600,
+          backgroundColor: AppColors.error,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -710,7 +711,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF1F5F9),
+      backgroundColor: AppColors.surfaceMuted,
       extendBodyBehindAppBar: true,
       appBar: _buildAppBar(),
       body: Container(
@@ -719,8 +720,8 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Color(0xFFEEF2FF),
-              Color(0xFFF1F5F9),
+              AppColors.primarySoft,
+              AppColors.surfaceMuted,
             ],
           ),
         ),
@@ -759,7 +760,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       child: AppBar(
         title: ShaderMask(
           shaderCallback: (bounds) => const LinearGradient(
-            colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+            colors: [AppColors.primary, AppColors.primary],
           ).createShader(bounds),
           child: const Text(
             'Vagas',
@@ -809,12 +810,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
             height: 56,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                colors: [AppColors.primary, AppColors.primary],
               ),
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF4F46E5).withOpacity(0.25),
+                  color: AppColors.primary.withOpacity(0.25),
                   blurRadius: 16,
                   offset: const Offset(0, 6),
                 ),
@@ -836,7 +837,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
             'Buscando mais vagas…',
             style: TextStyle(
               fontSize: 14,
-              color: Color(0xFF475569),
+              color: AppColors.textSecondary,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -857,12 +858,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
               height: 72,
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                  colors: [AppColors.primary, AppColors.primary],
                 ),
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF4F46E5).withOpacity(0.3),
+                    color: AppColors.primary.withOpacity(0.3),
                     blurRadius: 20,
                     offset: const Offset(0, 8),
                   ),
@@ -880,7 +881,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
               'Buscando as melhores vagas\npara o seu perfil...',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: Color(0xFF475569),
+                color: AppColors.textSecondary,
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
                 height: 1.5,
@@ -903,11 +904,11 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                 width: 80,
                 height: 80,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFEF2F2),
+                  color: AppColors.errorSoft,
                   shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFFFECACA), width: 2),
+                  border: Border.all(color: AppColors.errorSoft, width: 2),
                 ),
-                child: const Icon(Icons.wifi_off_rounded, size: 36, color: Color(0xFFEF4444)),
+                child: const Icon(Icons.wifi_off_rounded, size: 36, color: AppColors.error),
               ),
               const SizedBox(height: 20),
               Text(
@@ -915,7 +916,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 15,
-                  color: Color(0xFF475569),
+                  color: AppColors.textSecondary,
                   fontWeight: FontWeight.w500,
                   height: 1.5,
                 ),
@@ -972,8 +973,8 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      const Color(0xFF4F46E5).withOpacity(0.08),
-                      const Color(0xFF7C3AED).withOpacity(0.08),
+                      AppColors.primary.withOpacity(0.08),
+                      AppColors.primary.withOpacity(0.08),
                     ],
                   ),
                   shape: BoxShape.circle,
@@ -981,7 +982,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                 child: Icon(
                   iconData,
                   size: 48,
-                  color: const Color(0xFF4F46E5),
+                  color: AppColors.primary,
                 ),
               ),
               const SizedBox(height: 24),
@@ -991,7 +992,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                 style: const TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w900,
-                  color: Color(0xFF0F172A),
+                  color: AppColors.textPrimary,
                   letterSpacing: -0.5,
                 ),
               ),
@@ -1001,7 +1002,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 15,
-                  color: Color(0xFF64748B),
+                  color: AppColors.textTertiary,
                   height: 1.5,
                 ),
               ),
@@ -1134,7 +1135,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
                     colors: [
-                      const Color(0xFF10B981).withOpacity(likeT * 0.18),
+                      AppColors.success.withOpacity(likeT * 0.18),
                       Colors.transparent,
                     ],
                   ),
@@ -1151,7 +1152,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                     begin: Alignment.centerRight,
                     end: Alignment.centerLeft,
                     colors: [
-                      const Color(0xFFEF4444).withOpacity(rejectT * 0.18),
+                      AppColors.error.withOpacity(rejectT * 0.18),
                       Colors.transparent,
                     ],
                   ),
@@ -1171,7 +1172,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                     child: _SwipeStamp(
                       icon: Icons.favorite_rounded,
                       label: 'APLICAR',
-                      color: const Color(0xFF10B981),
+                      color: AppColors.success,
                       t: likeT,
                       flipSign: -1,
                     ),
@@ -1183,7 +1184,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                     child: _SwipeStamp(
                       icon: Icons.arrow_back_rounded,
                       label: 'PULAR',
-                      color: const Color(0xFFEF4444),
+                      color: AppColors.error,
                       t: rejectT,
                       flipSign: 1,
                     ),
@@ -1210,7 +1211,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
             size: 50,
             iconSize: 22,
             bgColor: Colors.white,
-            fgColor: const Color(0xFF94A3B8),
+            fgColor: AppColors.textTertiary,
             shadowColor: Colors.black.withOpacity(0.08),
             onTap: () async {
               final vm = context.read<JobsViewModel>();
@@ -1227,9 +1228,9 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
             icon: Icons.close_rounded,
             size: 62,
             iconSize: 28,
-            bgColor: const Color(0xFFFEF2F2),
-            fgColor: const Color(0xFFEF4444),
-            shadowColor: const Color(0xFFEF4444).withOpacity(0.2),
+            bgColor: AppColors.errorSoft,
+            fgColor: AppColors.error,
+            shadowColor: AppColors.error.withOpacity(0.2),
             onTap: () => _swiperController.swipe(CardSwiperDirection.left),
           ),
 
@@ -1241,8 +1242,8 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
               icon: Icons.auto_awesome_rounded,
               size: 70,
               iconSize: 30,
-              colors: [const Color(0xFF4F46E5), const Color(0xFF7C3AED)],
-              shadowColor: const Color(0xFF4F46E5).withOpacity(0.45),
+              colors: [AppColors.primary, AppColors.primary],
+              shadowColor: AppColors.primary.withOpacity(0.45),
               onTap: _openAdaptationSheet,
             ),
           ),
@@ -1253,9 +1254,9 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
             icon: Icons.favorite_rounded,
             size: 62,
             iconSize: 28,
-            bgColor: const Color(0xFFF0FDF4),
-            fgColor: const Color(0xFF10B981),
-            shadowColor: const Color(0xFF10B981).withOpacity(0.2),
+            bgColor: AppColors.successSoft,
+            fgColor: AppColors.success,
+            shadowColor: AppColors.success.withOpacity(0.2),
             onTap: () => _swiperController.swipe(CardSwiperDirection.right),
           ),
 
@@ -1266,7 +1267,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
             size: 50,
             iconSize: 22,
             bgColor: Colors.white,
-            fgColor: const Color(0xFF94A3B8),
+            fgColor: AppColors.textTertiary,
             shadowColor: Colors.black.withOpacity(0.08),
             onTap: _shareCurrentJob,
           ),
@@ -1369,12 +1370,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: BoxDecoration(
           gradient: const LinearGradient(
-            colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+            colors: [AppColors.primary, AppColors.primary],
           ),
           borderRadius: BorderRadius.circular(14),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF4F46E5).withOpacity(0.3),
+              color: AppColors.primary.withOpacity(0.3),
               blurRadius: 12,
               offset: const Offset(0, 4),
             ),
@@ -1411,7 +1412,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
+          border: Border.all(color: AppColors.border, width: 1.5),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.05),
@@ -1423,12 +1424,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: const Color(0xFF475569), size: 18),
+            Icon(icon, color: AppColors.textSecondary, size: 18),
             const SizedBox(width: 8),
             Text(
               label,
               style: const TextStyle(
-                color: Color(0xFF475569),
+                color: AppColors.textSecondary,
                 fontWeight: FontWeight.w700,
                 fontSize: 15,
               ),
@@ -1561,14 +1562,14 @@ class _FilterButtonWithBadge extends StatelessWidget {
           height: 38,
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+              colors: [AppColors.primary, AppColors.primary],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF4F46E5).withOpacity(0.35),
+                color: AppColors.primary.withOpacity(0.35),
                 blurRadius: 10,
                 offset: const Offset(0, 3),
               ),
@@ -1584,12 +1585,12 @@ class _FilterButtonWithBadge extends StatelessWidget {
               constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
               padding: const EdgeInsets.symmetric(horizontal: 5),
               decoration: BoxDecoration(
-                color: const Color(0xFFF59E0B), // âmbar — contrasta com roxo, comunica "atenção" sem ser alarme
+                color: AppColors.warning, // âmbar — contrasta com roxo, comunica "atenção" sem ser alarme
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: Colors.white, width: 2),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFFF59E0B).withOpacity(0.4),
+                    color: AppColors.warning.withOpacity(0.4),
                     blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),

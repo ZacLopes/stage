@@ -13,13 +13,14 @@ import 'add_edit_education_modal.dart';
 import 'add_edit_language_modal.dart';
 import 'add_edit_project_modal.dart';
 import 'edit_list_modal.dart';
+import '../../../../core/theme/theme.dart';
 
-const _kBorderColor = Color(0xFFE5E7EB);
-const _kCardBg = Color(0xFFF9FAFB);
-const _kChipBg = Color(0xFFF3F4F6);
-const _kTextColor = Color(0xFF111827);
-const _kMutedText = Color(0xFF6B7280);
-const _kAccent = Color(0xFF00C27A);
+const _kBorderColor = AppColors.border;
+const _kCardBg = AppColors.surfaceVariant;
+const _kChipBg = AppColors.background;
+const _kTextColor = AppColors.textPrimary;
+const _kMutedText = AppColors.textTertiary;
+const _kAccent = AppColors.primary;
 
 class ProfileSectionList extends StatefulWidget {
   /// Se true, destaca campos com confidence < 0.7 com borda amarela. Usado no
@@ -575,7 +576,7 @@ class _ItemCardState extends State<_ItemCard> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: widget.lowConfidence ? Colors.amber.shade600 : _kBorderColor,
+          color: widget.lowConfidence ? AppColors.warning : _kBorderColor,
           width: widget.lowConfidence ? 1.5 : 1,
         ),
       ),
@@ -713,13 +714,13 @@ class _ItemCardState extends State<_ItemCard> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: Colors.amber.shade100,
+                    color: AppColors.warningSoft,
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
                     'Confirme',
                     style: TextStyle(
-                      color: Colors.amber.shade900,
+                      color: AppColors.warning,
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                     ),
@@ -766,9 +767,9 @@ class _ItemMenuButton extends StatelessWidget {
           value: 'delete',
           child: Row(
             children: [
-              Icon(Icons.delete_outline_rounded, size: 18, color: Colors.red.shade600),
+              Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.error),
               const SizedBox(width: 10),
-              Text('Excluir', style: TextStyle(color: Colors.red.shade600)),
+              Text('Excluir', style: TextStyle(color: AppColors.error)),
             ],
           ),
         ),

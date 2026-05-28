@@ -6,6 +6,7 @@ import '../gamification/question_screen.dart';
 import 'gamification_viewmodel.dart';
 import '../../core/utils/app_notifications.dart';
 import '../auth/user_viewmodel.dart';
+import '../../core/theme/theme.dart';
 
 class GamifiedPhaseList extends StatelessWidget {
   final List<Phase> phases;
@@ -35,7 +36,7 @@ class GamifiedPhaseList extends StatelessWidget {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Color(0xFFE0F7FA), // Light Cyan
+                      AppColors.secondarySoft, // Light Cyan
                       Color(0xFFF3E5F5), // Light Purple
                       Colors.white,
                     ],
@@ -61,14 +62,14 @@ class GamifiedPhaseList extends StatelessWidget {
                           margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFFEF3C7), // âmbar suave
+                            color: AppColors.warningSoft, // âmbar suave
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFF59E0B), width: 1),
+                            border: Border.all(color: AppColors.warning, width: 1),
                           ),
                           child: Row(
                             children: [
                               const Icon(Icons.auto_awesome_rounded,
-                                  color: Color(0xFFF59E0B), size: 20),
+                                  color: AppColors.warning, size: 20),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
@@ -84,7 +85,7 @@ class GamifiedPhaseList extends StatelessWidget {
                               GestureDetector(
                                 onTap: () => userVm.clearM1ResetNotice(),
                                 child: const Icon(Icons.close_rounded,
-                                    size: 18, color: Color(0xFFF59E0B)),
+                                    size: 18, color: AppColors.warning),
                               ),
                             ],
                           ),
@@ -235,11 +236,11 @@ class _PhaseNodeState extends State<_PhaseNode> with TickerProviderStateMixin {
   // ... (Color helper)
   Color _getPhaseColor(int index) {
       final colors = [
-        const Color(0xFF58CC02), // Green
+        AppColors.success, // Green
         const Color(0xFFCE82FF), // Purple
-        const Color(0xFF1CB0F6), // Blue
-        const Color(0xFFFF4B4B), // Red
-        const Color(0xFFFF9600), // Orange
+        AppColors.secondary, // Blue
+        AppColors.error, // Red
+        AppColors.warning, // Orange
         const Color(0xFF00CD9C), // Teal
         const Color(0xFFEB5757), // Salmon
         const Color(0xFF2D9CDB), // Light Blue
@@ -254,7 +255,7 @@ class _PhaseNodeState extends State<_PhaseNode> with TickerProviderStateMixin {
 
     // Effective states
     final bool effectiveLocked = widget.isLocked;
-    final Color effectiveBaseColor = effectiveLocked ? const Color(0xFFE5E7EB) : _getPhaseColor(widget.index);
+    final Color effectiveBaseColor = effectiveLocked ? AppColors.border : _getPhaseColor(widget.index);
     
     // Scale Logic
     final double scale = widget.isCurrent ? _scaleAnimation.value : 1.0;
@@ -271,7 +272,7 @@ class _PhaseNodeState extends State<_PhaseNode> with TickerProviderStateMixin {
     );
 
     final Color activeShadowColor = effectiveLocked 
-        ? const Color(0xFF9CA3AF) 
+        ? AppColors.textDisabled 
         : Color.alphaBlend(Colors.black.withOpacity(0.3), effectiveBaseColor);
 
     return Column(
@@ -325,7 +326,7 @@ class _PhaseNodeState extends State<_PhaseNode> with TickerProviderStateMixin {
                             child: widget.isCompleted
                                 ? const Icon(Icons.check_rounded, color: Colors.white, size: 48)
                                 : effectiveLocked 
-                                  ? Icon(Icons.lock_rounded, color: Colors.grey.shade400, size: 32)
+                                  ? Icon(Icons.lock_rounded, color: AppColors.textDisabled, size: 32)
                                   : _getPhaseIcon(widget.phase.title),
                           ),
                         ),
@@ -370,7 +371,7 @@ class _PhaseNodeState extends State<_PhaseNode> with TickerProviderStateMixin {
             textAlign: TextAlign.center,
             style: TextStyle(
               fontWeight: FontWeight.bold,
-              color: widget.isLocked ? const Color(0xFF9CA3AF) : const Color(0xFF4B5563),
+              color: widget.isLocked ? AppColors.textDisabled : AppColors.textSecondary,
               fontSize: 14,
             ),
             maxLines: 2,
@@ -412,11 +413,11 @@ class _PhaseNodeState extends State<_PhaseNode> with TickerProviderStateMixin {
 // Helper for phase colors (moved to top level or static access if needed, but for now we keep here and pass to painter)
 Color _getPhaseColor(int index) {
   final colors = [
-    const Color(0xFF58CC02), // Green
+    AppColors.success, // Green
     const Color(0xFFCE82FF), // Purple
-    const Color(0xFF1CB0F6), // Blue
-    const Color(0xFFFF4B4B), // Red
-    const Color(0xFFFF9600), // Orange
+    AppColors.secondary, // Blue
+    AppColors.error, // Red
+    AppColors.warning, // Orange
     const Color(0xFF00CD9C), // Teal
     const Color(0xFFEB5757), // Salmon
     const Color(0xFF2D9CDB), // Light Blue
@@ -604,7 +605,7 @@ class _WorldHeader extends StatelessWidget {
                                  const SizedBox(height: 16),
                                  const Text("O que vamos coletar:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                                  const SizedBox(height: 4),
-                                 Text(collectionText, style: TextStyle(fontSize: 14, color: Colors.grey[700])),
+                                 Text(collectionText, style: TextStyle(fontSize: 14, color: AppColors.textSecondary)),
                                ],
                              ),
                              actions: [
@@ -717,7 +718,7 @@ class _CelebrationParticlesState extends State<_CelebrationParticles> with Singl
 
   _Particle _createParticle() {
     final color = [
-      Colors.amber, Colors.orange, Colors.red, Colors.blue, Colors.purple, Colors.green
+      Colors.amber, Colors.orange, AppColors.error, Colors.blue, Colors.purple, Colors.green
     ][_random.nextInt(6)];
     
     return _Particle(

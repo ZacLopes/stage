@@ -6,7 +6,7 @@ import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/analytics/screen_tracking.dart';
-import '../../core/constants/stage_colors.dart';
+
 import '../../data/models/models.dart';
 import '../../services/analytics_service.dart';
 import '../auth/user_viewmodel.dart';
@@ -19,6 +19,7 @@ import '../resume/widgets/ai_consent_modal.dart';
 import '../resume/widgets/resume_template_selector.dart';
 import 'profile_viewmodel.dart';
 import '../../core/widgets/pii_mask.dart';
+import '../../core/theme/theme.dart';
 
 /// Metadata dos 5 templates exibidos no seletor inline da biblioteca.
 /// Espelha `_kAdaptedTemplates` em adapted_resume_preview_screen.dart —
@@ -193,7 +194,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
             'Modelo trocado pra "${_kLibraryTemplates.firstWhere((t) => t.id == newTemplateId, orElse: () => _kLibraryTemplates.first).label}"',
           ),
           behavior: SnackBarBehavior.floating,
-          backgroundColor: StageColors.brandCyan,
+          backgroundColor: AppColors.primary,
           duration: const Duration(seconds: 2),
         ),
       );
@@ -204,7 +205,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
         SnackBar(
           content: Text('Erro ao trocar modelo: $e'),
           behavior: SnackBarBehavior.floating,
-          backgroundColor: Colors.red.shade600,
+          backgroundColor: AppColors.error,
         ),
       );
     }
@@ -236,7 +237,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                     height: 4,
                     margin: const EdgeInsets.only(bottom: 12),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE5E7EB),
+                      color: AppColors.border,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -248,7 +249,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFF111827),
+                      color: AppColors.textPrimary,
                     ),
                   ),
                 ),
@@ -257,7 +258,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                   padding: EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
                     'O PDF será regerado com o modelo novo e substituído na biblioteca.',
-                    style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                    style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -275,13 +276,13 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: isSelected
-                              ? StageColors.brandCyan.withOpacity(0.06)
-                              : const Color(0xFFF9FAFB),
+                              ? AppColors.brandCyan.withOpacity(0.06)
+                              : AppColors.surfaceVariant,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: isSelected
-                                ? StageColors.brandCyan
-                                : const Color(0xFFE5E7EB),
+                                ? AppColors.brandCyan
+                                : AppColors.border,
                             width: isSelected ? 1.5 : 1,
                           ),
                         ),
@@ -297,10 +298,10 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                                 errorBuilder: (_, __, ___) => Container(
                                   width: 56,
                                   height: 72,
-                                  color: const Color(0xFFE5E7EB),
+                                  color: AppColors.border,
                                   child: const Icon(
                                     Icons.description_outlined,
-                                    color: Color(0xFF9CA3AF),
+                                    color: AppColors.textDisabled,
                                   ),
                                 ),
                               ),
@@ -319,8 +320,8 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                                             fontSize: 14,
                                             fontWeight: FontWeight.w700,
                                             color: isSelected
-                                                ? StageColors.brandCyan
-                                                : const Color(0xFF111827),
+                                                ? AppColors.brandCyan
+                                                : AppColors.textPrimary,
                                           ),
                                         ),
                                       ),
@@ -328,7 +329,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                                         const Icon(
                                           Icons.check_circle_rounded,
                                           size: 18,
-                                          color: StageColors.brandCyan,
+                                          color: AppColors.brandCyan,
                                         ),
                                     ],
                                   ),
@@ -337,7 +338,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                                     t.description,
                                     style: const TextStyle(
                                       fontSize: 12,
-                                      color: Color(0xFF6B7280),
+                                      color: AppColors.textTertiary,
                                       height: 1.3,
                                     ),
                                   ),
@@ -382,7 +383,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Erro ao gerar PDF: $e'),
-            backgroundColor: Colors.red,
+            backgroundColor: AppColors.error,
           ),
         );
       }
@@ -431,7 +432,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
             child: const Text('Excluir'),
           ),
         ],
@@ -454,11 +455,11 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
   @override
   Widget build(BuildContext context) {
     return PiiMask(child: Scaffold(
-      backgroundColor: const Color(0xFFF3F4F6),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         centerTitle: true,
         backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1F2937),
+        foregroundColor: AppColors.textPrimary,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
@@ -469,7 +470,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
           style: TextStyle(fontFamily: 'Outfit', 
             fontWeight: FontWeight.bold,
             fontSize: 17,
-            color: const Color(0xFF1F2937),
+            color: AppColors.textPrimary,
           ),
         ),
         actions: [
@@ -534,19 +535,19 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFFF3F4F6),
+                color: AppColors.background,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.style_outlined, color: Color(0xFF4F46E5), size: 18),
+                  const Icon(Icons.style_outlined, color: AppColors.primary, size: 18),
                   const SizedBox(width: 6),
                   Text(
                     'Modelo',
                     style: TextStyle(fontFamily: 'Inter', 
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
-                      color: const Color(0xFF4F46E5),
+                      color: AppColors.primary,
                     ),
                   ),
                 ],
@@ -606,9 +607,9 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
       width: double.infinity,
       height: 550,
       decoration: BoxDecoration(
-        color: const Color(0xFFF3F4F6),
+        color: AppColors.background,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey[300]!),
+        border: Border.all(color: AppColors.borderStrong),
       ),
       child: Stack(
         children: [
@@ -622,7 +623,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
               maxPageWidth: 600,
               padding: const EdgeInsets.all(12),
               scrollViewDecoration: const BoxDecoration(
-                color: Color(0xFFF3F4F6),
+                color: AppColors.background,
               ),
               pdfPreviewPageDecoration: BoxDecoration(
                 color: Colors.white,
@@ -636,12 +637,12 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                 ],
               ),
               loadingWidget: const Center(
-                child: CircularProgressIndicator(color: Color(0xFF4F46E5)),
+                child: CircularProgressIndicator(color: AppColors.primary),
               ),
             )
           else
             const Center(
-              child: CircularProgressIndicator(color: Color(0xFF4F46E5)),
+              child: CircularProgressIndicator(color: AppColors.primary),
             ),
           // Sutil indicação de "regerando" quando o user trocou template
           // e ainda estamos compondo o novo PDF — sem bloquear a visualização
@@ -694,7 +695,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
+        color: AppColors.textPrimary,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
@@ -723,7 +724,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                   },
             icon: Icon(
               Icons.edit_rounded,
-              color: vm.resumeContent == null ? Colors.grey : Colors.white,
+              color: vm.resumeContent == null ? AppColors.textTertiary : Colors.white,
             ),
           ),
           IconButton(
@@ -770,7 +771,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
   Widget _buildViewOnlyBody() {
     if (_isLoadingPdf || _viewOnlyPdfBytes == null) {
       return const Center(
-        child: CircularProgressIndicator(color: Color(0xFF4F46E5)),
+        child: CircularProgressIndicator(color: AppColors.primary),
       );
     }
     return Stack(
@@ -805,7 +806,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                         horizontal: horizontalPadding,
                       ),
                       scrollViewDecoration:
-                          const BoxDecoration(color: Color(0xFFF3F4F6)),
+                          const BoxDecoration(color: AppColors.background),
                       pdfPreviewPageDecoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(4),
@@ -818,7 +819,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                         ],
                       ),
                       loadingWidget: const Center(
-                        child: CircularProgressIndicator(color: Color(0xFF4F46E5)),
+                        child: CircularProgressIndicator(color: AppColors.primary),
                       ),
                     ),
                   );
@@ -837,8 +838,8 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                         icon: const Icon(Icons.share_rounded, size: 18),
                         label: const Text('Compartilhar'),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF4F46E5),
-                          side: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
+                          foregroundColor: AppColors.primary,
+                          side: const BorderSide(color: AppColors.border, width: 1.5),
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14)),
@@ -908,7 +909,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
             'Modelo:',
             style: TextStyle(
               fontSize: 13,
-              color: Color(0xFF6B7280),
+              color: AppColors.textTertiary,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -919,7 +920,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF3F4F6),
+                  color: AppColors.background,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(
@@ -927,7 +928,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                     const Icon(
                       Icons.dashboard_customize_rounded,
                       size: 16,
-                      color: Color(0xFF374151),
+                      color: AppColors.textSecondary,
                     ),
                     const SizedBox(width: 6),
                     Expanded(
@@ -937,7 +938,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF111827),
+                          color: AppColors.textPrimary,
                         ),
                       ),
                     ),
@@ -945,7 +946,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                     const Icon(
                       Icons.expand_more_rounded,
                       size: 16,
-                      color: Color(0xFF6B7280),
+                      color: AppColors.textTertiary,
                     ),
                   ],
                 ),
@@ -985,7 +986,7 @@ class _LanguagePill extends StatelessWidget {
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF4F46E5),
+              backgroundColor: AppColors.primary,
               foregroundColor: Colors.white,
             ),
             child: Text(next == 'en' ? 'Gerar em inglês' : 'Gerar em português'),
@@ -1003,7 +1004,7 @@ class _LanguagePill extends StatelessWidget {
     return Container(
       height: _segHeight,
       decoration: BoxDecoration(
-        color: const Color(0xFFF3F4F6),
+        color: AppColors.background,
         borderRadius: BorderRadius.circular(_segHeight / 2),
       ),
       child: Stack(
@@ -1018,7 +1019,7 @@ class _LanguagePill extends StatelessWidget {
               width: _segWidth,
               margin: const EdgeInsets.all(2),
               decoration: BoxDecoration(
-                color: const Color(0xFF4F46E5),
+                color: AppColors.primary,
                 borderRadius: BorderRadius.circular(_segHeight / 2),
               ),
             ),
@@ -1051,7 +1052,7 @@ class _LanguagePill extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
-              color: selected ? Colors.white : const Color(0xFF6B7280),
+              color: selected ? Colors.white : AppColors.textTertiary,
               fontWeight: FontWeight.bold,
               fontSize: 12,
               letterSpacing: 0.5,

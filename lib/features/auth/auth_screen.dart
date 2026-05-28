@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/analytics/screen_tracking.dart';
-import '../../core/constants/stage_colors.dart';
+import '../../core/theme/theme.dart';
 import '../../core/utils/auth_error_formatter.dart';
 import '../splash/splash_screen.dart' show AuthGate;
 import 'phone_signup_screen.dart';
@@ -124,7 +124,7 @@ class _AuthScreenState extends State<AuthScreen>
   @override
   Widget build(BuildContext context) {
     return PiiMask(child: Scaffold(
-      backgroundColor: StageColors.offWhite,
+      backgroundColor: AppColors.surfaceVariant,
       body: SafeArea(
         child: SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
@@ -148,11 +148,11 @@ class _AuthScreenState extends State<AuthScreen>
                         width: 64,
                         height: 64,
                         decoration: BoxDecoration(
-                          gradient: StageColors.brandGradient,
+                          gradient: AppGradients.brand,
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: [
                             BoxShadow(
-                              color: StageColors.brandBlue.withOpacity(0.2),
+                              color: AppColors.brandBlue.withOpacity(0.2),
                               blurRadius: 16,
                               offset: const Offset(0, 8),
                             )
@@ -172,7 +172,7 @@ class _AuthScreenState extends State<AuthScreen>
                         style: TextStyle(fontFamily: 'Outfit', 
                           fontSize: 32,
                           fontWeight: FontWeight.bold,
-                          color: StageColors.titleText,
+                          color: AppColors.textPrimary,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -181,7 +181,7 @@ class _AuthScreenState extends State<AuthScreen>
                         'Sua jornada começa em segundos.',
                         style: TextStyle(fontFamily: 'Inter', 
                           fontSize: 16,
-                          color: StageColors.subtitleGray,
+                          color: AppColors.textTertiary,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -211,9 +211,9 @@ class _AuthScreenState extends State<AuthScreen>
                           height: 22,
                         ),
                         text: 'Continuar com Google',
-                        textColor: StageColors.darkText,
+                        textColor: AppColors.textPrimary,
                         backgroundColor: Colors.white,
-                        borderColor: StageColors.chipBorder,
+                        borderColor: AppColors.borderStrong,
                         onPressed: () async {
                           try {
                             await context.read<UserViewModel>().signInWithOAuth(OAuthProvider.google);
@@ -221,7 +221,7 @@ class _AuthScreenState extends State<AuthScreen>
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  backgroundColor: StageColors.error,
+                                  backgroundColor: AppColors.error,
                                   content: Text(AuthErrorFormatter.format(e)),
                                 ),
                               );
@@ -245,7 +245,7 @@ class _AuthScreenState extends State<AuthScreen>
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  backgroundColor: StageColors.error,
+                                  backgroundColor: AppColors.error,
                                   content: Text(AuthErrorFormatter.format(e)),
                                 ),
                               );
@@ -257,18 +257,18 @@ class _AuthScreenState extends State<AuthScreen>
                       const SizedBox(height: 24),
                       Row(
                         children: [
-                          Expanded(child: Divider(color: Colors.grey[300])),
+                          Expanded(child: Divider(color: AppColors.borderStrong)),
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             child: Text(
                               'ou',
                               style: TextStyle(fontFamily: 'Inter', 
-                                color: StageColors.subtitleGray,
+                                color: AppColors.textTertiary,
                                 fontSize: 14,
                               ),
                             ),
                           ),
-                          Expanded(child: Divider(color: Colors.grey[300])),
+                          Expanded(child: Divider(color: AppColors.borderStrong)),
                         ],
                       ),
                       const SizedBox(height: 24),
@@ -278,9 +278,9 @@ class _AuthScreenState extends State<AuthScreen>
                       _SocialButton(
                         icon: Icons.phone_iphone_outlined,
                         text: 'Continuar com telefone',
-                        textColor: StageColors.brandBlue,
+                        textColor: AppColors.brandBlue,
                         backgroundColor: Colors.transparent,
-                        borderColor: StageColors.brandBlue,
+                        borderColor: AppColors.brandBlue,
                         onPressed: _navigateToPhoneSignup,
                       ),
                       

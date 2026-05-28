@@ -4,6 +4,7 @@ import '../../core/analytics/screen_tracking.dart';
 import '../../data/supabase_repository.dart';
 import '../../services/ai_service.dart';
 import 'gamification_viewmodel.dart';
+import '../../core/theme/theme.dart';
 
 enum _SummaryState { initial, loading, result, editing }
 
@@ -120,7 +121,7 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
               onPressed: _state == _SummaryState.loading ? null : _skip,
               child: const Text(
                 'Pular',
-                style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 16),
+                style: TextStyle(color: AppColors.textDisabled, fontSize: 16),
               ),
             ),
             const SizedBox(width: 8),
@@ -140,11 +141,11 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CircularProgressIndicator(color: Color(0xFF58CC02)),
+              CircularProgressIndicator(color: AppColors.success),
               SizedBox(height: 16),
               Text(
                 'Gerando seu resumo profissional...',
-                style: TextStyle(color: Color(0xFF6B7280), fontSize: 15),
+                style: TextStyle(color: AppColors.textTertiary, fontSize: 15),
               ),
             ],
           ),
@@ -172,10 +173,10 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              color: const Color(0xFFECFDF5),
+              color: AppColors.successSoft,
               borderRadius: BorderRadius.circular(16),
             ),
-            child: const Icon(Icons.auto_awesome, color: Color(0xFF00C27A), size: 32),
+            child: const Icon(Icons.auto_awesome, color: AppColors.success, size: 32),
           ),
           const SizedBox(height: 24),
           const Text(
@@ -183,31 +184,31 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
             style: TextStyle(
               fontSize: 26,
               fontWeight: FontWeight.bold,
-              color: Color(0xFF111827),
+              color: AppColors.textPrimary,
               height: 1.2,
             ),
           ),
           const SizedBox(height: 12),
           const Text(
             'A IA vai criar um parágrafo curto (3-4 linhas) destacando suas experiências, habilidades e o que você busca — pronto para o topo do seu currículo.',
-            style: TextStyle(fontSize: 15, color: Color(0xFF6B7280), height: 1.5),
+            style: TextStyle(fontSize: 15, color: AppColors.textTertiary, height: 1.5),
           ),
           if (_error != null) ...[
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFFFEF2F2),
+                color: AppColors.errorSoft,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.error_outline, color: Color(0xFFEF4444), size: 20),
+                  const Icon(Icons.error_outline, color: AppColors.error, size: 20),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       _error!,
-                      style: const TextStyle(color: Color(0xFFEF4444), fontSize: 14),
+                      style: const TextStyle(color: AppColors.error, fontSize: 14),
                     ),
                   ),
                 ],
@@ -221,7 +222,7 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
             child: ElevatedButton(
               onPressed: _generate,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF58CC02),
+                backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 elevation: 0,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -242,8 +243,8 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
                 setState(() => _state = _SummaryState.editing);
               },
               style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF6B7280),
-                side: const BorderSide(color: Color(0xFFE5E7EB), width: 2),
+                foregroundColor: AppColors.textTertiary,
+                side: const BorderSide(color: AppColors.border, width: 2),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               ),
               child: const Text('Escrever do zero', style: TextStyle(fontSize: 15)),
@@ -269,28 +270,28 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF111827),
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   'Versão $_versionCount',
-                  style: const TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
+                  style: const TextStyle(fontSize: 13, color: AppColors.textDisabled),
                 ),
                 const SizedBox(height: 20),
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF9FAFB),
+                    color: AppColors.surfaceVariant,
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                    border: Border.all(color: AppColors.border),
                   ),
                   child: Text(
                     _summaryText ?? '',
                     style: const TextStyle(
                       fontSize: 15,
-                      color: Color(0xFF374151),
+                      color: AppColors.textSecondary,
                       height: 1.6,
                     ),
                   ),
@@ -310,7 +311,7 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 1)),
+        border: Border(top: BorderSide(color: AppColors.border, width: 1)),
       ),
       child: SafeArea(
         child: Column(
@@ -322,7 +323,7 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
               child: ElevatedButton(
                 onPressed: () => _approve(),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF58CC02),
+                  backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   elevation: 0,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -342,8 +343,8 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
                     child: OutlinedButton(
                       onPressed: _generate,
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF374151),
-                        side: const BorderSide(color: Color(0xFFE5E7EB), width: 2),
+                        foregroundColor: AppColors.textSecondary,
+                        side: const BorderSide(color: AppColors.border, width: 2),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       child: const Text('Gerar outro', style: TextStyle(fontSize: 14)),
@@ -360,8 +361,8 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
                         setState(() => _state = _SummaryState.editing);
                       },
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF374151),
-                        side: const BorderSide(color: Color(0xFFE5E7EB), width: 2),
+                        foregroundColor: AppColors.textSecondary,
+                        side: const BorderSide(color: AppColors.border, width: 2),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       child: const Text('Editar', style: TextStyle(fontSize: 14)),
@@ -391,13 +392,13 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
                   style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF111827),
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),
                 const Text(
                   '3 a 4 linhas destacando sua experiência e objetivos.',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
+                  style: TextStyle(fontSize: 13, color: AppColors.textDisabled),
                 ),
                 const SizedBox(height: 16),
                 Expanded(
@@ -406,19 +407,19 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
                     maxLines: null,
                     expands: true,
                     textAlignVertical: TextAlignVertical.top,
-                    style: const TextStyle(fontSize: 15, color: Color(0xFF374151), height: 1.6),
+                    style: const TextStyle(fontSize: 15, color: AppColors.textSecondary, height: 1.6),
                     decoration: InputDecoration(
                       hintText: 'Ex: Estudante de Administração com experiência em estágios corporativos...',
-                      hintStyle: const TextStyle(color: Color(0xFF9CA3AF)),
+                      hintStyle: const TextStyle(color: AppColors.textDisabled),
                       filled: true,
-                      fillColor: const Color(0xFFF9FAFB),
+                      fillColor: AppColors.surfaceVariant,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                        borderSide: const BorderSide(color: AppColors.border),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(color: Color(0xFF58CC02), width: 2),
+                        borderSide: const BorderSide(color: AppColors.success, width: 2),
                       ),
                       contentPadding: const EdgeInsets.all(16),
                     ),
@@ -432,7 +433,7 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
           decoration: const BoxDecoration(
             color: Colors.white,
-            border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 1)),
+            border: Border(top: BorderSide(color: AppColors.border, width: 1)),
           ),
           child: SafeArea(
             child: Row(
@@ -443,8 +444,8 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
                     child: OutlinedButton(
                       onPressed: () => setState(() => _state = _SummaryState.result),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF6B7280),
-                        side: const BorderSide(color: Color(0xFFE5E7EB), width: 2),
+                        foregroundColor: AppColors.textTertiary,
+                        side: const BorderSide(color: AppColors.border, width: 2),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                       ),
@@ -467,7 +468,7 @@ class _SummaryGenerationScreenState extends State<SummaryGenerationScreen>
                         }
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF58CC02),
+                        backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
                         elevation: 0,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),

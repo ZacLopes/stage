@@ -7,12 +7,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/analytics/screen_tracking.dart';
-import '../../../core/constants/stage_colors.dart';
+
 import '../../../services/analytics_service.dart';
 import '../../../services/facebook_events_service.dart';
 import '../data/swipe_repository.dart';
 import '../jobs_viewmodel.dart';
 import 'job_details_sheet.dart';
+import '../../../core/theme/theme.dart';
 
 class LikedJobsScreen extends StatefulWidget {
   const LikedJobsScreen({super.key});
@@ -79,21 +80,19 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
     );
   }
 
-  Future<void> _openExternalUrl(String url, String jobId) async {
-    final uri = Uri.tryParse(url);
-    if (uri == null) return;
+  Future<void> _openApplication(_ApplyAction action, String jobId) async {
     HapticFeedback.lightImpact();
     Analytics.shared.jobApplyClicked(jobId: jobId);
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final ok = await launchUrl(action.uri, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Não consegui abrir o link da vaga.')),
+        SnackBar(content: Text(action.failureMessage)),
       );
       return;
     }
     // Facebook SubmittedApplication — dispara APENAS quando o launchUrl
-    // retornou true (site externo abriu de fato, intent confirmada). Se a
-    // URL é inválida ou launch falhou, evento NÃO sobe pra Meta Ads.
+    // retornou true (cliente externo abriu de fato, intent confirmada). Vale
+    // tanto pra site quanto pra cliente de email — em ambos houve ação real.
     // ignore: unawaited_futures
     FacebookEventsService.shared.logSubmittedApplication(jobId: jobId);
   }
@@ -114,14 +113,14 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
           style: TextStyle(fontFamily: 'Outfit', 
             fontSize: 18,
             fontWeight: FontWeight.w700,
-            color: StageColors.titleText,
+            color: AppColors.textPrimary,
           ),
         ),
         content: Text(
           '"${liked.job.title}" sai daqui e volta a aparecer no feed de vagas.',
           style: TextStyle(fontFamily: 'Inter', 
             fontSize: 14,
-            color: StageColors.bodyGray,
+            color: AppColors.textSecondary,
             height: 1.4,
           ),
         ),
@@ -133,7 +132,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
               style: TextStyle(fontFamily: 'Inter', 
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: StageColors.subtitleGray,
+                color: AppColors.textTertiary,
               ),
             ),
           ),
@@ -144,7 +143,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
               style: TextStyle(fontFamily: 'Inter', 
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: const Color(0xFFDC2626),
+                color: AppColors.error,
               ),
             ),
           ),
@@ -173,7 +172,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
           behavior: SnackBarBehavior.floating,
           action: SnackBarAction(
             label: 'Desfazer',
-            textColor: StageColors.brandCyan,
+            textColor: AppColors.brandCyan,
             onPressed: () => vm.restoreLikedJob(liked),
           ),
         ),
@@ -183,7 +182,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: StageColors.scaffoldGray,
+      backgroundColor: AppColors.background,
       body: SafeArea(
         child: Consumer<JobsViewModel>(
           builder: (context, vm, _) {
@@ -197,7 +196,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
                   _FirstSaveBanner(onDismiss: _dismissFirstSaveBanner),
                 Expanded(
                   child: RefreshIndicator(
-                    color: StageColors.brandBlue,
+                    color: AppColors.brandBlue,
                     onRefresh: _refresh,
                     child: _buildBody(vm),
                   ),
@@ -213,7 +212,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
   Widget _buildBody(JobsViewModel vm) {
     if (vm.likedJobsLoading && vm.likedJobs.isEmpty) {
       return const Center(
-        child: CircularProgressIndicator(color: StageColors.brandBlue),
+        child: CircularProgressIndicator(color: AppColors.brandBlue),
       );
     }
     if (vm.likedJobs.isEmpty) {
@@ -252,7 +251,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
       items.add(_SectionHeaderItem(
         title: 'Ainda não apliquei',
         count: pending.length,
-        color: StageColors.brandBlue,
+        color: AppColors.brandBlue,
         icon: Icons.pending_outlined,
       ));
       for (final l in pending) {
@@ -263,7 +262,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
       items.add(_SectionHeaderItem(
         title: 'Já apliquei',
         count: applied.length,
-        color: StageColors.ctaGreen,
+        color: AppColors.primary,
         icon: Icons.check_circle_outline_rounded,
       ));
       for (final l in applied) {
@@ -274,7 +273,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
       items.add(_SectionHeaderItem(
         title: 'Prazo expirado',
         count: expired.length,
-        color: StageColors.hintGray,
+        color: AppColors.textDisabled,
         icon: Icons.event_busy_outlined,
       ));
       for (final l in expired) {
@@ -304,15 +303,16 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
         }
         if (item is _JobCardItem) {
           final liked = item.liked;
-          final url = _resolveExternalUrl(liked);
+          final action = _resolveApplyAction(liked);
           return _LikedJobCard(
             liked: liked,
             isExpired: item.isExpired,
             onTap: () => _openJobDetails(liked),
             onToggleApplied: () => _toggleApplied(liked),
-            onOpenLink:
-                url != null ? () => _openExternalUrl(url, liked.job.id) : null,
-            externalUrl: url,
+            onOpenLink: action != null
+                ? () => _openApplication(action, liked.job.id)
+                : null,
+            applyAction: action,
             onRemove: () => _confirmAndRemove(liked),
           );
         }
@@ -321,14 +321,61 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
     );
   }
 
-  /// Preferência: URL específica da vaga (external_url do ATS) → fallback no
-  /// site da empresa. Se ambos vazios, botão de link some.
-  String? _resolveExternalUrl(LikedJob liked) {
-    final ext = liked.job.externalUrl;
-    if (ext != null && ext.isNotEmpty) return ext;
-    final web = liked.job.company?.website;
-    if (web != null && web.isNotEmpty) return web;
+  /// Resolve como o user vai aplicar pra essa vaga:
+  ///   • application_method='email' → abre mailto com assunto pré-preenchido
+  ///   • application_method='url' (default) → URL específica do ATS, ou
+  ///     fallback no site da empresa
+  /// Retorna null se não há ação possível (botão "Aplicar" some do card).
+  _ApplyAction? _resolveApplyAction(LikedJob liked) {
+    final job = liked.job;
+    if (job.applicationMethod == 'email') {
+      final email = job.applicationEmail;
+      if (email == null || email.isEmpty) return null;
+      return _ApplyAction.email(email: email, subject: job.applicationSubject);
+    }
+    final ext = job.externalUrl;
+    if (ext != null && ext.isNotEmpty) return _ApplyAction.url(ext);
+    final web = job.company?.website;
+    if (web != null && web.isNotEmpty) return _ApplyAction.url(web);
     return null;
+  }
+}
+
+/// Como o usuário aplica numa vaga. Encapsula URL (Greenhouse/Lever/etc) e
+/// candidatura por email (Polifinance) num único tipo pra simplificar a UI.
+class _ApplyAction {
+  final Uri uri;
+  final String label;
+  final IconData icon;
+  final String failureMessage;
+
+  const _ApplyAction._({
+    required this.uri,
+    required this.label,
+    required this.icon,
+    required this.failureMessage,
+  });
+
+  factory _ApplyAction.url(String url) {
+    return _ApplyAction._(
+      uri: Uri.parse(url),
+      label: 'Aplicar no site',
+      icon: Icons.open_in_new_rounded,
+      failureMessage: 'Não consegui abrir o link da vaga.',
+    );
+  }
+
+  factory _ApplyAction.email({required String email, String? subject}) {
+    final params = <String, String>{};
+    if (subject != null && subject.trim().isNotEmpty) {
+      params['subject'] = subject.trim();
+    }
+    return _ApplyAction._(
+      uri: Uri(scheme: 'mailto', path: email, queryParameters: params.isEmpty ? null : params),
+      label: 'Enviar CV por email',
+      icon: Icons.mail_outline_rounded,
+      failureMessage: 'Não consegui abrir o app de email.',
+    );
   }
 }
 
@@ -354,7 +401,7 @@ class _Header extends StatelessWidget {
                   style: TextStyle(fontFamily: 'Outfit', 
                     fontSize: 26,
                     fontWeight: FontWeight.w700,
-                    color: StageColors.titleText,
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -364,7 +411,7 @@ class _Header extends StatelessWidget {
                       : '$applied aplicada${applied == 1 ? '' : 's'} de $liked salva${liked == 1 ? '' : 's'}',
                   style: TextStyle(fontFamily: 'Inter', 
                     fontSize: 13,
-                    color: StageColors.subtitleGray,
+                    color: AppColors.textTertiary,
                   ),
                 ),
               ],
@@ -374,7 +421,7 @@ class _Header extends StatelessWidget {
             _StatChip(
               label: 'Pendentes',
               value: '${liked - applied}',
-              color: StageColors.brandBlue,
+              color: AppColors.brandBlue,
             ),
         ],
       ),
@@ -433,13 +480,13 @@ class _EmptyState extends StatelessWidget {
             width: 88,
             height: 88,
             decoration: BoxDecoration(
-              color: StageColors.brandCyan.withValues(alpha: 0.1),
+              color: AppColors.brandCyan.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
             child: const Icon(
               Icons.bookmark_outline,
               size: 44,
-              color: StageColors.brandBlue,
+              color: AppColors.brandBlue,
             ),
           ),
           const SizedBox(height: 16),
@@ -449,7 +496,7 @@ class _EmptyState extends StatelessWidget {
             style: TextStyle(fontFamily: 'Outfit', 
               fontSize: 18,
               fontWeight: FontWeight.w600,
-              color: StageColors.titleText,
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(height: 8),
@@ -458,7 +505,7 @@ class _EmptyState extends StatelessWidget {
             textAlign: TextAlign.center,
             style: TextStyle(fontFamily: 'Inter', 
               fontSize: 14,
-              color: StageColors.subtitleGray,
+              color: AppColors.textTertiary,
               height: 1.4,
             ),
           ),
@@ -474,7 +521,9 @@ class _LikedJobCard extends StatelessWidget {
   final VoidCallback onToggleApplied;
   final VoidCallback? onOpenLink;
   final VoidCallback onRemove;
-  final String? externalUrl;
+  /// Ação de candidatura (URL externa ou mailto). null = vaga sem aplicação
+  /// possível pelo app → botão "Aplicar" some.
+  final _ApplyAction? applyAction;
   /// True quando a vaga já passou do prazo. Card renderiza com style sutil
   /// (opacity reduzida, borda neutra, badge "Prazo expirado") indicando que
   /// é histórico, não ação possível.
@@ -485,7 +534,7 @@ class _LikedJobCard extends StatelessWidget {
     required this.onTap,
     required this.onToggleApplied,
     required this.onOpenLink,
-    required this.externalUrl,
+    required this.applyAction,
     required this.onRemove,
     this.isExpired = false,
   });
@@ -494,18 +543,18 @@ class _LikedJobCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final job = liked.job;
     final applied = liked.applied;
-    final hasUrl = externalUrl != null && externalUrl!.isNotEmpty;
+    final hasApply = applyAction != null;
 
     // Expired = card desbotado, sem hover effects fortes. Continua clicável
     // (user pode ver detalhes do que perdeu / marcar como aplicada manualmente
     // caso tenha aplicado mesmo no prazo).
     final Color borderColor;
     if (isExpired) {
-      borderColor = const Color(0xFFE5E7EB);
+      borderColor = AppColors.border;
     } else if (applied) {
-      borderColor = StageColors.ctaGreen.withValues(alpha: 0.4);
+      borderColor = AppColors.primary.withValues(alpha: 0.4);
     } else {
-      borderColor = const Color(0xFFE5E7EB);
+      borderColor = AppColors.border;
     }
 
     final card = Material(
@@ -550,7 +599,7 @@ class _LikedJobCard extends StatelessWidget {
                           style: TextStyle(fontFamily: 'Outfit', 
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
-                            color: StageColors.titleText,
+                            color: AppColors.textPrimary,
                             height: 1.2,
                           ),
                         ),
@@ -561,7 +610,7 @@ class _LikedJobCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(fontFamily: 'Inter', 
                             fontSize: 12,
-                            color: StageColors.subtitleGray,
+                            color: AppColors.textTertiary,
                           ),
                         ),
                         const SizedBox(height: 6),
@@ -593,16 +642,16 @@ class _LikedJobCard extends StatelessWidget {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  if (hasUrl)
+                  if (hasApply)
                     Expanded(
                       child: _ActionBtn(
-                        icon: Icons.open_in_new_rounded,
-                        label: 'Aplicar no site',
+                        icon: applyAction!.icon,
+                        label: applyAction!.label,
                         onTap: onOpenLink,
                         primary: true,
                       ),
                     ),
-                  if (hasUrl) const SizedBox(width: 8),
+                  if (hasApply) const SizedBox(width: 8),
                   Expanded(
                     child: _ActionBtn(
                       icon: applied
@@ -643,7 +692,7 @@ class _Logo extends StatelessWidget {
       width: 48,
       height: 48,
       decoration: BoxDecoration(
-        color: const Color(0xFFF3F4F6),
+        color: AppColors.background,
         borderRadius: BorderRadius.circular(10),
       ),
       clipBehavior: Clip.antiAlias,
@@ -672,7 +721,7 @@ class _LogoFallback extends StatelessWidget {
         style: TextStyle(fontFamily: 'Outfit', 
           fontSize: 20,
           fontWeight: FontWeight.w700,
-          color: StageColors.brandBlue,
+          color: AppColors.brandBlue,
         ),
       ),
     );
@@ -689,7 +738,7 @@ class _MetaChip extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 12, color: StageColors.subtitleGray),
+        Icon(icon, size: 12, color: AppColors.textTertiary),
         const SizedBox(width: 2),
         Flexible(
           child: Text(
@@ -698,7 +747,7 @@ class _MetaChip extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(fontFamily: 'Inter', 
               fontSize: 11,
-              color: StageColors.subtitleGray,
+              color: AppColors.textTertiary,
             ),
           ),
         ),
@@ -732,17 +781,17 @@ class _ActionBtn extends StatelessWidget {
     final Color fg;
     final Color border;
     if (primary) {
-      bg = StageColors.brandBlue;
+      bg = AppColors.brandBlue;
       fg = Colors.white;
-      border = StageColors.brandBlue;
+      border = AppColors.brandBlue;
     } else if (active) {
-      bg = StageColors.ctaGreen.withValues(alpha: 0.12);
-      fg = StageColors.ctaGreen;
-      border = StageColors.ctaGreen.withValues(alpha: 0.4);
+      bg = AppColors.primary.withValues(alpha: 0.12);
+      fg = AppColors.primary;
+      border = AppColors.primary.withValues(alpha: 0.4);
     } else {
       bg = Colors.white;
-      fg = StageColors.bodyGray;
-      border = const Color(0xFFD1D5DB);
+      fg = AppColors.textSecondary;
+      border = AppColors.borderStrong;
     }
 
     return Material(
@@ -801,7 +850,7 @@ class _CardMenu extends StatelessWidget {
         icon: const Icon(
           Icons.more_vert_rounded,
           size: 20,
-          color: StageColors.subtitleGray,
+          color: AppColors.textTertiary,
         ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         onSelected: (value) {
@@ -815,7 +864,7 @@ class _CardMenu extends StatelessWidget {
                 const Icon(
                   Icons.bookmark_remove_outlined,
                   size: 18,
-                  color: Color(0xFFDC2626),
+                  color: AppColors.error,
                 ),
                 const SizedBox(width: 10),
                 Text(
@@ -823,7 +872,7 @@ class _CardMenu extends StatelessWidget {
                   style: TextStyle(fontFamily: 'Inter', 
                     fontSize: 13.5,
                     fontWeight: FontWeight.w600,
-                    color: const Color(0xFFDC2626),
+                    color: AppColors.error,
                   ),
                 ),
               ],
@@ -901,7 +950,7 @@ class _SectionHeader extends StatelessWidget {
             style: TextStyle(fontFamily: 'Outfit', 
               fontSize: 15,
               fontWeight: FontWeight.w700,
-              color: StageColors.titleText,
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(width: 8),
@@ -933,8 +982,8 @@ class _FirstSaveBanner extends StatelessWidget {
   final VoidCallback onDismiss;
   const _FirstSaveBanner({required this.onDismiss});
 
-  static const _indigo = Color(0xFF4F46E5);
-  static const _purple = Color(0xFF7C3AED);
+  static const _indigo = AppColors.primary;
+  static const _purple = AppColors.primary;
 
   @override
   Widget build(BuildContext context) {

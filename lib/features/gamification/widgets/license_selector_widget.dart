@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 class LicenseSelectorWidget extends StatefulWidget {
   final ValueChanged<String> onSelect;
@@ -59,16 +60,16 @@ class _LicenseSelectorWidgetState extends State<LicenseSelectorWidget> {
               duration: const Duration(milliseconds: 200),
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: isSelected ? (id == 'NONE' ? const Color(0xFFFEF2F2) : const Color(0xFFDDF4FF)) : Colors.white,
+                color: isSelected ? (id == 'NONE' ? AppColors.errorSoft : AppColors.brandSoft) : Colors.white,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: isSelected ? (id == 'NONE' ? const Color(0xFFFF4B4B) : const Color(0xFF1CB0F6)) : const Color(0xFFE5E7EB),
+                  color: isSelected ? (id == 'NONE' ? AppColors.error : AppColors.secondary) : AppColors.border,
                   width: 2,
                 ),
                 boxShadow: [
                   if (!isSelected)
                   const BoxShadow(
-                    color: Color(0xFFE5E7EB),
+                    color: AppColors.border,
                     offset: Offset(0, 4),
                     blurRadius: 0,
                   )
@@ -80,12 +81,12 @@ class _LicenseSelectorWidgetState extends State<LicenseSelectorWidget> {
                     width: 48, 
                     height: 48,
                     decoration: BoxDecoration(
-                      color: isSelected ? Colors.white : const Color(0xFFF3F4F6),
+                      color: isSelected ? Colors.white : AppColors.background,
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
                       option['icon'] as IconData,
-                      color: isSelected ? (id == 'NONE' ? const Color(0xFFFF4B4B) : const Color(0xFF1CB0F6)) : const Color(0xFF9CA3AF),
+                      color: isSelected ? (id == 'NONE' ? AppColors.error : AppColors.secondary) : AppColors.textDisabled,
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -98,7 +99,7 @@ class _LicenseSelectorWidgetState extends State<LicenseSelectorWidget> {
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: isSelected ? (id == 'NONE' ? const Color(0xFFFF4B4B) : const Color(0xFF1F2937)) : const Color(0xFF4B5563),
+                            color: isSelected ? (id == 'NONE' ? AppColors.error : AppColors.textPrimary) : AppColors.textSecondary,
                           ),
                         ),
                         if ((option['desc'] as String).isNotEmpty)
@@ -106,14 +107,14 @@ class _LicenseSelectorWidgetState extends State<LicenseSelectorWidget> {
                             option['desc'] as String,
                             style: TextStyle(
                               fontSize: 14,
-                              color: isSelected ? const Color(0xFF1899D6) : const Color(0xFF9CA3AF),
+                              color: isSelected ? AppColors.brand : AppColors.textDisabled,
                             ),
                           ),
                       ],
                     ),
                   ),
                   if (isSelected)
-                    Icon(Icons.check_circle, color: id == 'NONE' ? const Color(0xFFFF4B4B) : const Color(0xFF58CC02)),
+                    Icon(Icons.check_circle, color: id == 'NONE' ? AppColors.error : AppColors.success),
                 ],
               ),
             ),

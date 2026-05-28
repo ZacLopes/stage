@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'month_year_picker_sheet.dart';
+import '../../../core/theme/theme.dart';
 
 class RetroIdCardWidget extends StatefulWidget {
   final Function(String) onSave;
@@ -176,9 +177,9 @@ class _RetroIdCardWidgetState extends State<RetroIdCardWidget> with SingleTicker
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Expanded(child: _buildStamp('Concluído', const Color(0xFF15803D))),
+                  Expanded(child: _buildStamp('Concluído', AppColors.success)),
                   const SizedBox(width: 8),
-                  Expanded(child: _buildStamp('Interrompido', const Color(0xFFB45309))),
+                  Expanded(child: _buildStamp('Interrompido', AppColors.warning)),
                 ],
               ),
               const SizedBox(height: 32),
@@ -189,7 +190,7 @@ class _RetroIdCardWidgetState extends State<RetroIdCardWidget> with SingleTicker
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF5D4037),
                     foregroundColor: const Color(0xFFF3EAD3),
-                    disabledBackgroundColor: Colors.grey[400],
+                    disabledBackgroundColor: AppColors.textDisabled,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
@@ -213,9 +214,9 @@ class _RetroIdCardWidgetState extends State<RetroIdCardWidget> with SingleTicker
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                         decoration: BoxDecoration(
-                          border: Border.all(color: const Color(0xFF15803D).withOpacity(0.8), width: 4),
+                          border: Border.all(color: AppColors.success.withOpacity(0.8), width: 4),
                           borderRadius: BorderRadius.circular(12),
-                          color: const Color(0xFF15803D).withOpacity(0.1),
+                          color: AppColors.success.withOpacity(0.1),
                         ),
                         child: const Text(
                           'VALIDADO',
@@ -223,7 +224,7 @@ class _RetroIdCardWidgetState extends State<RetroIdCardWidget> with SingleTicker
                             fontFamily: 'Courier',
                             fontSize: 32,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF15803D),
+                            color: AppColors.success,
                             letterSpacing: 4,
                           ),
                         ),

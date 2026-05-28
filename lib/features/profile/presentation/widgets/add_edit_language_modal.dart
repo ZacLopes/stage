@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/entities/entities.dart';
+import '../../../../core/theme/theme.dart';
 
 class AddEditLanguageModal extends StatefulWidget {
   final Language? initial;
@@ -87,7 +88,7 @@ class _AddEditLanguageModalState extends State<AddEditLanguageModal> {
             child: Container(
               width: 36, height: 4,
               decoration: BoxDecoration(
-                color: const Color(0xFFD1D5DB),
+                color: AppColors.borderStrong,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -103,7 +104,7 @@ class _AddEditLanguageModalState extends State<AddEditLanguageModal> {
               ),
               if (widget.onDelete != null)
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Color(0xFFEF4444)),
+                  icon: const Icon(Icons.delete_outline, color: AppColors.error),
                   onPressed: () {
                     widget.onDelete!();
                     Navigator.of(context).pop();
@@ -122,10 +123,10 @@ class _AddEditLanguageModalState extends State<AddEditLanguageModal> {
               labelText: 'Idioma',
               hintText: 'Ex: Inglês',
               filled: true,
-              fillColor: const Color(0xFFF9FAFB),
+              fillColor: AppColors.surfaceVariant,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                borderSide: const BorderSide(color: AppColors.border),
               ),
             ),
             textCapitalization: TextCapitalization.words,
@@ -145,15 +146,15 @@ class _AddEditLanguageModalState extends State<AddEditLanguageModal> {
                 label: Text(_proficiencyLabel(p)),
                 selected: selected,
                 onSelected: (v) => setState(() => _proficiency = v ? p : null),
-                selectedColor: const Color(0xFF00C27A).withValues(alpha: 0.15),
+                selectedColor: AppColors.primary.withValues(alpha: 0.15),
                 labelStyle: TextStyle(
-                  color: selected ? const Color(0xFF00C27A) : Colors.black87,
+                  color: selected ? AppColors.primary : AppColors.textPrimary,
                   fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                 ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                   side: BorderSide(
-                    color: selected ? const Color(0xFF00C27A) : const Color(0xFFE5E7EB),
+                    color: selected ? AppColors.primary : AppColors.border,
                   ),
                 ),
               );
@@ -165,9 +166,9 @@ class _AddEditLanguageModalState extends State<AddEditLanguageModal> {
             child: ElevatedButton(
               onPressed: _canSave ? _handleSave : null,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF00C27A),
+                backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
-                disabledBackgroundColor: const Color(0xFFD1D5DB),
+                disabledBackgroundColor: AppColors.borderStrong,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
               child: const Text(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
+import '../../../core/theme/theme.dart';
 
 class YesNoDetailWidget extends StatefulWidget {
   final Function(Map<String, dynamic>) onSelect;
@@ -86,7 +87,7 @@ class _YesNoDetailWidgetState extends State<YesNoDetailWidget> {
               fillColor: Colors.white,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                borderSide: const BorderSide(color: AppColors.border),
               ),
             ),
           ),
@@ -110,16 +111,16 @@ class _YesNoDetailWidgetState extends State<YesNoDetailWidget> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 24),
         decoration: BoxDecoration(
-          color: isSelected ? (value ? const Color(0xFF4F46E5) : const Color(0xFFFF4B4B)) : Colors.white,
+          color: isSelected ? (value ? AppColors.primary : AppColors.error) : Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? Colors.transparent : const Color(0xFFE5E7EB),
+            color: isSelected ? Colors.transparent : AppColors.border,
             width: 2,
           ),
           boxShadow: [
              if (isSelected) 
                BoxShadow(
-                 color: (value ? Colors.indigo : Colors.red).withOpacity(0.3),
+                 color: (value ? Colors.indigo : AppColors.error).withOpacity(0.3),
                  blurRadius: 8,
                  offset: const Offset(0, 4),
                )
@@ -130,7 +131,7 @@ class _YesNoDetailWidgetState extends State<YesNoDetailWidget> {
             Icon(
               icon, 
               size: 32, 
-              color: isSelected ? Colors.white : Colors.grey,
+              color: isSelected ? Colors.white : AppColors.textTertiary,
             ),
             const SizedBox(height: 8),
             Text(
@@ -138,7 +139,7 @@ class _YesNoDetailWidgetState extends State<YesNoDetailWidget> {
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: isSelected ? Colors.white : Colors.grey,
+                color: isSelected ? Colors.white : AppColors.textTertiary,
               ),
             ),
           ],

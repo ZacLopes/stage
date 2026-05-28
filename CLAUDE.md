@@ -65,6 +65,10 @@ To navigate to a specific tab from deep in the navigation stack (e.g., after com
 
 ## Theme & Localization
 
-- Primary color: `#00C27A` (emerald green). Accent/XP: `#F59E0B` (amber). Constants in `core/constants/stage_colors.dart`.
-- Fonts: Outfit (headings) + Inter (body) via `google_fonts`.
+- **Design system**: all tokens live in `lib/core/theme/`. Import via `import 'core/theme/theme.dart';` (barrel). Components in `lib/core/widgets/` (barrel: `widgets.dart`). **Never hardcode `Color(0xFF...)`, `EdgeInsets.all(N)`, or `TextStyle(...)` in feature code** — use `AppColors.*`, `AppSpacing.*`, `AppRadius.*`, `AppTextStyles.*`, `AppShadows.*`, `AppGradients.*`.
+- **Identity**: brand primary is **azul Stage** (`AppColors.primary` = `#1565A8`, gradient cyan→blue from the logo). Verde (`AppColors.success` = `#16A34A`) is **only** for success states — phase completion, "salvo", "aplicada". Indigo (`#6366F1`/`#4F46E5`) was removed across the app in 2026-05-27 design system unification.
+- **`AppTheme.light`** (`lib/core/theme/app_theme.dart`) is the single ThemeData — passed to `MaterialApp.theme`. Don't redefine `ThemeData` inline.
+- **Base components**: `PrimaryButton`, `SecondaryButton`, `GhostButton`, `AppCard` (flat/elevated/gradient), `SectionCard`, `AppChip`, `SemanticBadge`, `AppTextField`, `AppSnackBar` (success/error/warning/info), `EmptyState`. Prefer these to ad-hoc `Container + BoxDecoration`.
+- **Mass migration script**: `tools/migrate_colors.py` maps hex codes → tokens deterministically (used for the 2026-05-27 migration). Don't run on `core/theme/` or `core/constants/` (excluded).
+- Fonts: Outfit (headings) + Inter (body) — bundled as native fonts. Wrap with `AppTextStyles.*` instead of inline `TextStyle(...)`.
 - App is Portuguese (Brazil) only (`pt_BR`). No i18n infrastructure — strings are hardcoded in Dart files.

@@ -17,6 +17,7 @@ import '../../services/analytics_service.dart';
 import '../../services/facebook_events_service.dart';
 import '../../services/notifications_service.dart';
 import 'home_viewmodel.dart';
+import '../../core/theme/theme.dart';
 import 'widgets/pending_upload_banner.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -288,7 +289,7 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
     ];
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F4F6),
+      backgroundColor: AppColors.background,
       body: SafeArea(
         child: Column(
           children: [
@@ -320,13 +321,13 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
         ),
       ),
       bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Color(0x0D000000),
               blurRadius: 10,
-              offset: const Offset(0, -4),
+              offset: Offset(0, -4),
             ),
           ],
         ),
@@ -339,9 +340,9 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
             }
             _navigateToPage(index);
           },
-          backgroundColor: Colors.white,
-          selectedItemColor: const Color(0xFF4F46E5),
-          unselectedItemColor: const Color(0xFF9CA3AF),
+          backgroundColor: AppColors.surface,
+          selectedItemColor: AppColors.primary,
+          unselectedItemColor: AppColors.textDisabled,
           showUnselectedLabels: true,
           type: BottomNavigationBarType.fixed,
           elevation: 0,
@@ -429,16 +430,17 @@ class _PendingBadgeIcon extends StatelessWidget {
             constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
             decoration: BoxDecoration(
-              color: const Color(0xFFEF4444),
+              color: AppColors.error,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white, width: 1.5),
+              border: Border.all(color: AppColors.surface, width: 1.5),
             ),
             child: Center(
               child: Text(
                 count > 99 ? '99+' : '$count',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontFamily: 'Inter', 
-                  color: Colors.white,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  color: AppColors.textOnDark,
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
                   height: 1.0,

@@ -10,6 +10,7 @@ import '../../../profile/domain/entities/entities.dart';
 import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'age_range_screen.dart';
+import '../../../../core/theme/theme.dart';
 
 const _options = <(Gender, String)>[
   (Gender.male, 'Masculino'),
@@ -75,10 +76,10 @@ class _GenderScreenState extends State<GenderScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
-                  color: isSelected ? const Color(0xFF29B6D2).withValues(alpha: 0.08) : Colors.white,
+                  color: isSelected ? AppColors.brandCyan.withValues(alpha: 0.08) : Colors.white,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: isSelected ? const Color(0xFF29B6D2) : const Color(0xFFE5E7EB),
+                    color: isSelected ? AppColors.brandCyan : AppColors.border,
                     width: isSelected ? 1.5 : 1,
                   ),
                 ),
@@ -89,11 +90,11 @@ class _GenderScreenState extends State<GenderScreen> {
                         label,
                         style: TextStyle(
                           fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                          color: isSelected ? const Color(0xFF29B6D2) : Colors.black87,
+                          color: isSelected ? AppColors.brandCyan : Colors.black87,
                         ),
                       ),
                     ),
-                    if (isSelected) const Icon(Icons.check_circle, color: Color(0xFF29B6D2)),
+                    if (isSelected) const Icon(Icons.check_circle, color: AppColors.brandCyan),
                   ],
                 ),
               ),

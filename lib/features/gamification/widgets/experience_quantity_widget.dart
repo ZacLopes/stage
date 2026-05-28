@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/theme/theme.dart';
 
 /// Receives a JSON-encoded map of {categoryCode: count} as [initialValue].
 /// Emits a JSON-encoded map via [onSelect].
@@ -82,8 +83,8 @@ class _ExperienceQuantityWidgetState extends State<ExperienceQuantityWidget> {
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: count > 0
-                  ? const Color(0xFF00C27A)
-                  : const Color(0xFFE5E7EB),
+                  ? AppColors.success
+                  : AppColors.border,
               width: count > 0 ? 2 : 1.5,
             ),
           ),
@@ -95,7 +96,7 @@ class _ExperienceQuantityWidgetState extends State<ExperienceQuantityWidget> {
                 style: const TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF1F2937),
+                  color: AppColors.textPrimary,
                 ),
               ),
               const SizedBox(height: 4),
@@ -103,7 +104,7 @@ class _ExperienceQuantityWidgetState extends State<ExperienceQuantityWidget> {
                 'Quantas experiências você teve?',
                 style: TextStyle(
                   fontSize: 12,
-                  color: Color(0xFF9CA3AF),
+                  color: AppColors.textDisabled,
                 ),
               ),
               const SizedBox(height: 12),
@@ -121,13 +122,13 @@ class _ExperienceQuantityWidgetState extends State<ExperienceQuantityWidget> {
                           height: 40,
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? const Color(0xFF00C27A)
-                                : const Color(0xFFF3F4F6),
+                                ? AppColors.success
+                                : AppColors.background,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
                               color: isSelected
-                                  ? const Color(0xFF00C27A)
-                                  : const Color(0xFFE5E7EB),
+                                  ? AppColors.success
+                                  : AppColors.border,
                             ),
                           ),
                           alignment: Alignment.center,
@@ -138,7 +139,7 @@ class _ExperienceQuantityWidgetState extends State<ExperienceQuantityWidget> {
                               fontWeight: FontWeight.w700,
                               color: isSelected
                                   ? Colors.white
-                                  : const Color(0xFF6B7280),
+                                  : AppColors.textTertiary,
                             ),
                           ),
                         ),

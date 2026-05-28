@@ -7,6 +7,7 @@ import '../../../core/analytics/screen_tracking.dart';
 import '../../../core/constants/job_areas.dart';
 import '../jobs_viewmodel.dart';
 import '../models/user_preferences.dart';
+import '../../../core/theme/theme.dart';
 
 /// Tela de preferências de vagas. Bottom sheet em altura ~92% da tela.
 ///
@@ -37,18 +38,18 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
   bool _saving = false;
 
   // ── Cores unificadas com jobs_swipe_screen ─────────────────────────
-  static const _indigo = Color(0xFF4F46E5);
-  static const _purple = Color(0xFF7C3AED);
+  static const _indigo = AppColors.primary;
+  static const _purple = AppColors.primary;
   static const _gradient = LinearGradient(
     colors: [_indigo, _purple],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
-  static const _textPrimary = Color(0xFF0F172A);
-  static const _textSecondary = Color(0xFF475569);
-  static const _textMuted = Color(0xFF94A3B8);
-  static const _border = Color(0xFFE2E8F0);
+  static const _textPrimary = AppColors.textPrimary;
+  static const _textSecondary = AppColors.textSecondary;
+  static const _textMuted = AppColors.textTertiary;
+  static const _border = AppColors.border;
 
   // ── Catálogo de opções ─────────────────────────────────────────────
   // Lista importada de `lib/core/constants/job_areas.dart` (single source
@@ -234,7 +235,7 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
     return Container(
       constraints: BoxConstraints(maxHeight: maxHeight),
       decoration: const BoxDecoration(
-        color: Color(0xFFF1F5F9),
+        color: AppColors.surfaceMuted,
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Column(
@@ -508,10 +509,10 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
     final accent = !hasValue
         ? _textMuted
         : value >= 80
-            ? const Color(0xFF10B981)
+            ? AppColors.success
             : value >= 60
-                ? const Color(0xFF3B82F6)
-                : const Color(0xFFF59E0B);
+                ? AppColors.info
+                : AppColors.warning;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
@@ -924,8 +925,8 @@ class _GradientChip extends StatelessWidget {
     this.onTap,
   });
 
-  static const _indigo = Color(0xFF4F46E5);
-  static const _purple = Color(0xFF7C3AED);
+  static const _indigo = AppColors.primary;
+  static const _purple = AppColors.primary;
 
   @override
   Widget build(BuildContext context) {
@@ -949,9 +950,9 @@ class _GradientChip extends StatelessWidget {
                     end: Alignment.bottomRight,
                   )
                 : null,
-            color: selected ? null : const Color(0xFFF1F5F9),
+            color: selected ? null : AppColors.surfaceMuted,
             border: Border.all(
-              color: selected ? Colors.transparent : const Color(0xFFE2E8F0),
+              color: selected ? Colors.transparent : AppColors.border,
               width: 1.2,
             ),
             borderRadius: BorderRadius.circular(14),
@@ -972,7 +973,7 @@ class _GradientChip extends StatelessWidget {
                 Icon(
                   icon,
                   size: 15,
-                  color: selected ? Colors.white : const Color(0xFF475569),
+                  color: selected ? Colors.white : AppColors.textSecondary,
                 ),
                 const SizedBox(width: 6),
               ],
@@ -981,7 +982,7 @@ class _GradientChip extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                  color: selected ? Colors.white : const Color(0xFF334155),
+                  color: selected ? Colors.white : AppColors.textPrimary,
                   letterSpacing: -0.1,
                 ),
               ),

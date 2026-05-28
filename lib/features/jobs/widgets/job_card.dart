@@ -3,6 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/job.dart';
 import '../utils/match_score.dart';
+import '../../../core/theme/theme.dart';
 
 // ────────────────────────────────────────────────────────────
 // Pendente = IA ainda calculando. Renderiza placeholder no lugar do
@@ -86,8 +87,8 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
   // Paleta monocromática brand — header e acentos não mudam com a faixa de
   // match. Diferenciação visual fica só no número do ring (e nos estados
   // isNoResume/isPending via conteúdo do ring, não cor).
-  static const Color _accent = Color(0xFF29B6D2);     // StageColors.brandCyan
-  static const Color _accentDark = Color(0xFF1565A8); // StageColors.brandBlue
+  static const Color _accent = AppColors.brandCyan;     // AppColors.brandCyan
+  static const Color _accentDark = AppColors.brandBlue; // AppColors.brandBlue
 
   @override
   Widget build(BuildContext context) {
@@ -143,7 +144,7 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                                 fontSize: 21,
                                 fontWeight: FontWeight.w800,
                                 height: 1.2,
-                                color: Color(0xFF0F172A),
+                                color: AppColors.textPrimary,
                                 letterSpacing: -0.5,
                               ),
                             ),
@@ -152,7 +153,7 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                             // Company and Location
                             Row(
                               children: [
-                                const Icon(Icons.business_rounded, size: 14, color: Color(0xFF94A3B8)),
+                                const Icon(Icons.business_rounded, size: 14, color: AppColors.textTertiary),
                                 const SizedBox(width: 4),
                                 Expanded(
                                   child: Text(
@@ -160,13 +161,13 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                       fontSize: 14,
-                                      color: Color(0xFF475569),
+                                      color: AppColors.textSecondary,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ),
                                 const SizedBox(width: 8),
-                                const Icon(Icons.location_on_rounded, size: 14, color: Color(0xFF94A3B8)),
+                                const Icon(Icons.location_on_rounded, size: 14, color: AppColors.textTertiary),
                                 const SizedBox(width: 2),
                                 Flexible(
                                   child: Text(
@@ -174,7 +175,7 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                       fontSize: 13,
-                                      color: Color(0xFF94A3B8),
+                                      color: AppColors.textTertiary,
                                     ),
                                   ),
                                 ),
@@ -229,7 +230,7 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,
-                                color: Color(0xFF94A3B8),
+                                color: AppColors.textTertiary,
                                 letterSpacing: 1.2,
                               ),
                             ),
@@ -257,7 +258,7 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                             widget.job.description,
                             style: const TextStyle(
                               fontSize: 14,
-                              color: Color(0xFF64748B),
+                              color: AppColors.textTertiary,
                               height: 1.5,
                             ),
                           ),
@@ -505,21 +506,21 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
+        color: AppColors.surfaceVariant,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
+        border: Border.all(color: AppColors.border, width: 1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 13, color: const Color(0xFF64748B)),
+          Icon(icon, size: 13, color: AppColors.textTertiary),
           const SizedBox(width: 6),
           Text(
             label,
             style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF334155),
+              color: AppColors.textPrimary,
             ),
           ),
         ],
@@ -604,10 +605,10 @@ class _MissingDimensionsCta extends StatelessWidget {
 
     if (_isMedium) {
       return _buildChip(
-        bg: const Color(0xFFEFF6FF),         // azul muito claro
+        bg: AppColors.primarySoft,         // azul muito claro
         border: const Color(0xFFBFDBFE),
         iconColor: const Color(0xFF1D4ED8),  // azul médio
-        textColor: const Color(0xFF1E40AF),
+        textColor: AppColors.primary,
         // Pra medium menciona só a primeira dimensão (tom suave).
         text: 'Match estimado — declare ${actionable.first} pra refinar',
       );
@@ -617,8 +618,8 @@ class _MissingDimensionsCta extends StatelessWidget {
     final visible = actionable.take(2).join(', ');
     final overflow = actionable.length > 2 ? '…' : '';
     return _buildChip(
-      bg: const Color(0xFFFFF7ED),           // âmbar muito claro
-      border: const Color(0xFFFED7AA),
+      bg: AppColors.warningSoft,           // âmbar muito claro
+      border: AppColors.warningSoft,
       iconColor: const Color(0xFFC2410C),    // âmbar escuro
       textColor: const Color(0xFF9A3412),
       text: 'Pra match completo, declare: $visible$overflow',

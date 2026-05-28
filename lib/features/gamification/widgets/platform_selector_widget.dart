@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 class PlatformSelectorWidget extends StatefulWidget {
   final ValueChanged<List<String>> onSelect;
@@ -99,13 +100,13 @@ class _PlatformSelectorWidgetState extends State<PlatformSelectorWidget> {
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFDDF4FF),
+                            color: AppColors.brandSoft,
                             shape: BoxShape.circle,
                           ),
                           child: Icon(
                             _getIconForPlatform(platform),
                             size: 32,
-                            color: const Color(0xFF1CB0F6),
+                            color: AppColors.secondary,
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -115,7 +116,7 @@ class _PlatformSelectorWidgetState extends State<PlatformSelectorWidget> {
                           style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF4B5563),
+                            color: AppColors.textSecondary,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -124,7 +125,7 @@ class _PlatformSelectorWidgetState extends State<PlatformSelectorWidget> {
                             ? 'Cole o link do seu portfólio ou projeto abaixo.' 
                             : 'Cole o link do seu perfil no $platform.',
                           textAlign: TextAlign.center,
-                          style: const TextStyle(fontSize: 14, color: Color(0xFF9CA3AF)),
+                          style: const TextStyle(fontSize: 14, color: AppColors.textDisabled),
                         ),
                         const SizedBox(height: 24),
                         TextField(
@@ -133,14 +134,14 @@ class _PlatformSelectorWidgetState extends State<PlatformSelectorWidget> {
                           decoration: InputDecoration(
                             hintText: 'https://...',
                             filled: true,
-                            fillColor: const Color(0xFFF3F4F6),
+                            fillColor: AppColors.background,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide: BorderSide.none,
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFF1CB0F6), width: 2),
+                              borderSide: const BorderSide(color: AppColors.secondary, width: 2),
                             ),
                             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                           ),
@@ -156,7 +157,7 @@ class _PlatformSelectorWidgetState extends State<PlatformSelectorWidget> {
                                   padding: const EdgeInsets.symmetric(vertical: 16),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                 ),
-                                child: const Text('Cancelar', style: TextStyle(color: Color(0xFF9CA3AF), fontWeight: FontWeight.bold)),
+                                child: const Text('Cancelar', style: TextStyle(color: AppColors.textDisabled, fontWeight: FontWeight.bold)),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -174,7 +175,7 @@ class _PlatformSelectorWidgetState extends State<PlatformSelectorWidget> {
                                   Navigator.pop(context);
                                 },
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF58CC02),
+                                  backgroundColor: AppColors.primary,
                                   foregroundColor: Colors.white,
                                   padding: const EdgeInsets.symmetric(vertical: 16),
                                   elevation: 0,
@@ -231,16 +232,16 @@ class _PlatformSelectorWidgetState extends State<PlatformSelectorWidget> {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             decoration: BoxDecoration(
-              color: isSelected ? (isNone ? const Color(0xFFFEF2F2) : const Color(0xFFDDF4FF)) : Colors.white,
+              color: isSelected ? (isNone ? AppColors.errorSoft : AppColors.brandSoft) : Colors.white,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: isSelected ? (isNone ? const Color(0xFFFF4B4B) : const Color(0xFF1CB0F6)) : const Color(0xFFE5E7EB),
+                color: isSelected ? (isNone ? AppColors.error : AppColors.secondary) : AppColors.border,
                 width: 2,
               ),
               boxShadow: [
                 if (!isSelected)
                   const BoxShadow(
-                    color: Color(0xFFE5E7EB),
+                    color: AppColors.border,
                     offset: Offset(0, 4),
                     blurRadius: 0,
                   )
@@ -251,7 +252,7 @@ class _PlatformSelectorWidgetState extends State<PlatformSelectorWidget> {
               children: [
                 Icon(
                   _getIconForPlatform(option),
-                  color: isSelected ? (isNone ? const Color(0xFFFF4B4B) : const Color(0xFF1CB0F6)) : const Color(0xFF4B5563),
+                  color: isSelected ? (isNone ? AppColors.error : AppColors.secondary) : AppColors.textSecondary,
                   size: 32,
                 ),
                 const SizedBox(height: 8),
@@ -263,11 +264,11 @@ class _PlatformSelectorWidgetState extends State<PlatformSelectorWidget> {
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
-                    color: isSelected ? (isNone ? const Color(0xFFFF4B4B) : const Color(0xFF1899D6)) : const Color(0xFF4B5563),
+                    color: isSelected ? (isNone ? AppColors.error : AppColors.brand) : AppColors.textSecondary,
                   ),
                 ),
                 if (isSelected)
-                  Icon(Icons.check_circle, color: isNone ? const Color(0xFFFF4B4B) : const Color(0xFF58CC02), size: 16),
+                  Icon(Icons.check_circle, color: isNone ? AppColors.error : AppColors.success, size: 16),
               ],
             ),
           ),

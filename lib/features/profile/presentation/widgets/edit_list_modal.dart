@@ -5,13 +5,14 @@
 // "Adicionar novo" + botão + circular, chips com X pra remover, "Salvar" pill.
 
 import 'package:flutter/material.dart';
+import '../../../../core/theme/theme.dart';
 
-const _kBorderColor = Color(0xFFE5E7EB);
-const _kLabelColor = Color(0xFF6B7280);
-const _kHintColor = Color(0xFF9CA3AF);
-const _kTextColor = Color(0xFF111827);
-const _kAccent = Color(0xFF00C27A);
-const _kChipBg = Color(0xFFF3F4F6);
+const _kBorderColor = AppColors.border;
+const _kLabelColor = AppColors.textTertiary;
+const _kHintColor = AppColors.textDisabled;
+const _kTextColor = AppColors.textPrimary;
+const _kAccent = AppColors.primary;
+const _kChipBg = AppColors.background;
 
 class EditListModal extends StatefulWidget {
   final String title;

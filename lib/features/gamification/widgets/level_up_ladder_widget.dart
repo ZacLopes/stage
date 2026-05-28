@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 class LevelUpLadderWidget extends StatefulWidget {
   final Function(String) onSelect;
@@ -49,15 +50,15 @@ class _LevelUpLadderWidgetState extends State<LevelUpLadderWidget> {
         margin: const EdgeInsets.only(bottom: 16),
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFDDF4FF) : Colors.white,
+          color: isSelected ? AppColors.brandSoft : Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? const Color(0xFF1CB0F6) : const Color(0xFFE5E7EB),
+            color: isSelected ? AppColors.secondary : AppColors.border,
             width: isSelected ? 3 : 2,
           ),
           boxShadow: [
              BoxShadow(
-               color: isSelected ? const Color(0xFF1CB0F6).withOpacity(0.2) : Colors.black.withOpacity(0.05),
+               color: isSelected ? AppColors.secondary.withOpacity(0.2) : Colors.black.withOpacity(0.05),
                offset: const Offset(0, 4),
                blurRadius: isSelected ? 8 : 4,
              )
@@ -68,12 +69,12 @@ class _LevelUpLadderWidgetState extends State<LevelUpLadderWidget> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: isSelected ? const Color(0xFF1CB0F6) : const Color(0xFFF3F4F6),
+                color: isSelected ? AppColors.secondary : AppColors.background,
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 Icons.school,
-                color: isSelected ? Colors.white : const Color(0xFF9CA3AF),
+                color: isSelected ? Colors.white : AppColors.textDisabled,
                 size: 24,
               ),
             ),
@@ -84,12 +85,12 @@ class _LevelUpLadderWidgetState extends State<LevelUpLadderWidget> {
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: isSelected ? const Color(0xFF1CB0F6) : const Color(0xFF374151),
+                  color: isSelected ? AppColors.secondary : AppColors.textSecondary,
                 ),
               ),
             ),
             if (isSelected)
-              const Icon(Icons.check_circle, color: Color(0xFF1CB0F6), size: 28),
+              const Icon(Icons.check_circle, color: AppColors.secondary, size: 28),
           ],
         ),
       ),

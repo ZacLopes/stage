@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/theme/theme.dart';
 
 class PhoneInputWidget extends StatefulWidget {
   final ValueChanged<String> onSelect;
@@ -61,11 +62,11 @@ class _PhoneInputWidgetState extends State<PhoneInputWidget> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFF58CC02), width: 2), // Focus color style
+            border: Border.all(color: AppColors.success, width: 2), // Focus color style
           ),
           child: Row(
             children: [
-              const Icon(Icons.phone, color: Color(0xFF58CC02)),
+              const Icon(Icons.phone, color: AppColors.success),
               const SizedBox(width: 12),
               Expanded(
                 child: TextField(
@@ -76,7 +77,7 @@ class _PhoneInputWidgetState extends State<PhoneInputWidget> {
                   decoration: const InputDecoration(
                     border: InputBorder.none,
                     hintText: '(11) 99999-9999',
-                    hintStyle: TextStyle(color: Color(0xFFD1D5DB)),
+                    hintStyle: TextStyle(color: AppColors.borderStrong),
                   ),
                   style: const TextStyle(fontSize: 20, letterSpacing: 1.2),
                 ),

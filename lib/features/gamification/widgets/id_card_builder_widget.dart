@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
+import '../../../core/theme/theme.dart';
 
 class IdCardBuilderWidget extends StatefulWidget {
   final Function(Map<String, String>) onSelect;
@@ -84,7 +85,7 @@ class _IdCardBuilderWidgetState extends State<IdCardBuilderWidget> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: widget.cardTitle.contains('ESTUDANTIL') 
-              ? [const Color(0xFF4F46E5), const Color(0xFF06B6D4)]
+              ? [AppColors.primary, AppColors.info]
               : [const Color(0xFFF97316), const Color(0xFFEC4899)], // Orange/Pink for Work
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -174,11 +175,11 @@ class _IdCardBuilderWidgetState extends State<IdCardBuilderWidget> {
           ),
           child: TextField(
             controller: controller,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1F2937)),
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textPrimary),
             decoration: InputDecoration(
               hintText: 'Digite aqui...',
-              hintStyle: TextStyle(color: Colors.grey[400]),
-              prefixIcon: Icon(icon, color: const Color(0xFF4F46E5)),
+              hintStyle: TextStyle(color: AppColors.textDisabled),
+              prefixIcon: Icon(icon, color: AppColors.primary),
               border: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             ),
@@ -209,13 +210,13 @@ class _IdCardBuilderWidgetState extends State<IdCardBuilderWidget> {
             Icon(
               icon,
               size: 16,
-              color: isSelected ? const Color(0xFF4F46E5) : Colors.white,
+              color: isSelected ? AppColors.primary : Colors.white,
             ),
             const SizedBox(width: 8),
             Text(
               label,
               style: TextStyle(
-                color: isSelected ? const Color(0xFF4F46E5) : Colors.white,
+                color: isSelected ? AppColors.primary : Colors.white,
                 fontWeight: FontWeight.bold,
               ),
             ),

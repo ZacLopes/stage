@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/theme/theme.dart';
 
 class DynamicListInputWidget extends StatefulWidget {
   final Function(List<String>) onSelect;
@@ -49,7 +50,7 @@ class _DynamicListInputWidgetState extends State<DynamicListInputWidget> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Você só pode selecionar até ${widget.maxSelections} opções.'),
-          backgroundColor: const Color(0xFFFF4B4B),
+          backgroundColor: AppColors.error,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
@@ -108,7 +109,7 @@ class _DynamicListInputWidgetState extends State<DynamicListInputWidget> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFE5E7EB), width: 2.5),
+                  border: Border.all(color: AppColors.border, width: 2.5),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.04),
@@ -125,7 +126,7 @@ class _DynamicListInputWidgetState extends State<DynamicListInputWidget> {
                         hintText: widget.hintText ?? 'Digite aqui...',
                         hintStyle: const TextStyle(color: Color(0xFFABB2B9)),
                         border: InputBorder.none,
-                        prefixIcon: const Icon(Icons.add_circle_outline, color: Color(0xFF1CB0F6)),
+                        prefixIcon: const Icon(Icons.add_circle_outline, color: AppColors.secondary),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                       ),
                       onSubmitted: (val) => _addItem(val),
@@ -156,7 +157,7 @@ class _DynamicListInputWidgetState extends State<DynamicListInputWidget> {
                             hintText: widget.hintText ?? 'Digite ou selecione...',
                             hintStyle: const TextStyle(color: Color(0xFFABB2B9)),
                             border: InputBorder.none,
-                            prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF1CB0F6)),
+                            prefixIcon: const Icon(Icons.search_rounded, color: AppColors.secondary),
                             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                           ),
                           onSubmitted: (val) {
@@ -178,14 +179,14 @@ class _DynamicListInputWidgetState extends State<DynamicListInputWidget> {
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: const Color(0xFFE5E7EB), width: 2),
+                                border: Border.all(color: AppColors.border, width: 2),
                               ),
                               constraints: const BoxConstraints(maxHeight: 250),
                               child: ListView.separated(
                                 padding: const EdgeInsets.symmetric(vertical: 8),
                                 shrinkWrap: true,
                                 itemCount: options.length,
-                                separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFFF3F4F6)),
+                                separatorBuilder: (context, index) => const Divider(height: 1, color: AppColors.background),
                                 itemBuilder: (BuildContext context, int index) {
                                   final String option = options.elementAt(index);
                                   final bool isSelected = _items.contains(option);
@@ -201,7 +202,7 @@ class _DynamicListInputWidgetState extends State<DynamicListInputWidget> {
                                           Icon(
                                             _getIconForOption(option), 
                                             size: 20, 
-                                            color: isSelected ? const Color(0xFF58CC02) : const Color(0xFF6B7280)
+                                            color: isSelected ? AppColors.success : AppColors.textTertiary
                                           ),
                                           const SizedBox(width: 12),
                                           Expanded(
@@ -210,14 +211,14 @@ class _DynamicListInputWidgetState extends State<DynamicListInputWidget> {
                                               style: TextStyle(
                                                 fontSize: 15,
                                                 fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
-                                                color: isSelected ? const Color(0xFF58CC02) : const Color(0xFF374151),
+                                                color: isSelected ? AppColors.success : AppColors.textSecondary,
                                               ),
                                             ),
                                           ),
                                           Icon(
                                             isSelected ? Icons.check_circle_rounded : Icons.add_rounded, 
                                             size: 18, 
-                                            color: isSelected ? const Color(0xFF58CC02) : const Color(0xFF1CB0F6)
+                                            color: isSelected ? AppColors.success : AppColors.secondary
                                           ),
                                         ],
                                       ),
@@ -242,11 +243,11 @@ class _DynamicListInputWidgetState extends State<DynamicListInputWidget> {
               child: Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1CB0F6),
+                  color: AppColors.secondary,
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF1899D6),
+                      color: AppColors.brand,
                       offset: const Offset(0, 4),
                       blurRadius: 0,
                     ),
@@ -265,18 +266,18 @@ class _DynamicListInputWidgetState extends State<DynamicListInputWidget> {
           Container(
             padding: const EdgeInsets.symmetric(vertical: 40),
             decoration: BoxDecoration(
-              color: const Color(0xFFF9FAFB),
+              color: AppColors.surfaceVariant,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFF3F4F6), width: 2, style: BorderStyle.solid),
+              border: Border.all(color: AppColors.background, width: 2, style: BorderStyle.solid),
             ),
             child: Column(
               children: [
-                Icon(Icons.inventory_2_outlined, size: 48, color: Colors.grey[300]),
+                Icon(Icons.inventory_2_outlined, size: 48, color: AppColors.borderStrong),
                 const SizedBox(height: 12),
                 Text(
                   'Nenhuma área selecionada',
                   style: TextStyle(
-                    color: Colors.grey[400],
+                    color: AppColors.textDisabled,
                     fontSize: 15,
                     fontWeight: FontWeight.w500,
                   ),
@@ -293,7 +294,7 @@ class _DynamicListInputWidgetState extends State<DynamicListInputWidget> {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w900,
-                  color: Color(0xFF9CA3AF),
+                  color: AppColors.textDisabled,
                   letterSpacing: 1.5,
                 ),
               ),
@@ -305,12 +306,12 @@ class _DynamicListInputWidgetState extends State<DynamicListInputWidget> {
                   return Container(
                     padding: const EdgeInsets.fromLTRB(16, 10, 10, 10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFDDF4FF),
+                      color: AppColors.brandSoft,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFF1CB0F6), width: 2),
+                      border: Border.all(color: AppColors.secondary, width: 2),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF1899D6).withOpacity(0.2),
+                          color: AppColors.brand.withOpacity(0.2),
                           offset: const Offset(0, 3),
                           blurRadius: 0,
                         ),
@@ -325,7 +326,7 @@ class _DynamicListInputWidgetState extends State<DynamicListInputWidget> {
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 15,
-                              color: Color(0xFF1899D6),
+                              color: AppColors.brand,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
@@ -336,7 +337,7 @@ class _DynamicListInputWidgetState extends State<DynamicListInputWidget> {
                           child: Container(
                             padding: const EdgeInsets.all(4),
                             decoration: const BoxDecoration(
-                              color: Color(0xFF1CB0F6),
+                              color: AppColors.secondary,
                               shape: BoxShape.circle,
                             ),
                             child: const Icon(Icons.close_rounded, size: 14, color: Colors.white),

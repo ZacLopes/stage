@@ -53,6 +53,7 @@ import 'widgets/experience_quantity_widget.dart';
 import 'widgets/experience_detail_form_widget.dart';
 import 'bullet_review_screen.dart';
 import 'summary_generation_screen.dart';
+import '../../core/theme/theme.dart';
 
 class QuestionScreen extends StatefulWidget {
   final Phase phase;
@@ -341,7 +342,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                WidgetsBinding.instance.addPostFrameCallback((_) {
                  viewModel.answerQuestion('skipped');
                });
-               return const Scaffold(body: Center(child: CircularProgressIndicator(color: Color(0xFF58CC02))));
+               return const Scaffold(body: Center(child: CircularProgressIndicator(color: AppColors.success)));
            }
         }
 
@@ -353,7 +354,7 @@ class _QuestionScreenState extends State<QuestionScreen>
             backgroundColor: Colors.white,
             elevation: 0,
             leading: IconButton(
-              icon: const Icon(Icons.close, color: Color(0xFFE5E7EB), size: 32),
+              icon: const Icon(Icons.close, color: AppColors.border, size: 32),
               onPressed: () => Navigator.pop(context),
             ),
             title: ClipRRect(
@@ -361,8 +362,8 @@ class _QuestionScreenState extends State<QuestionScreen>
               child: LinearProgressIndicator(
                 value: viewModel.progress,
                 minHeight: 16,
-                backgroundColor: const Color(0xFFE5E7EB),
-                color: const Color(0xFF58CC02), // Duolingo Green
+                backgroundColor: AppColors.border,
+                color: AppColors.success, // Duolingo Green
               ),
             ),
           ),
@@ -424,7 +425,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                           style: const TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF374151),
+                            color: AppColors.textSecondary,
                             height: 1.3,
                           ),
                         ),
@@ -435,7 +436,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                             question.options[0],
                             style: const TextStyle(
                               fontSize: 14,
-                              color: Color(0xFF9CA3AF),
+                              color: AppColors.textDisabled,
                               height: 1.4,
                             ),
                           ),
@@ -475,22 +476,22 @@ class _QuestionScreenState extends State<QuestionScreen>
                 duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: isSelected ? const Color(0xFFDDF4FF) : Colors.white,
+                  color: isSelected ? AppColors.brandSoft : Colors.white,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: isSelected ? const Color(0xFF1CB0F6) : const Color(0xFFE5E7EB),
+                    color: isSelected ? AppColors.secondary : AppColors.border,
                     width: 2, // Thicker border
                   ),
                   boxShadow: [
                     if (!isSelected)
                       const BoxShadow(
-                        color: Color(0xFFE5E7EB),
+                        color: AppColors.border,
                         offset: Offset(0, 4),
                         blurRadius: 0,
                       ),
                     if (isSelected)
                       const BoxShadow(
-                        color: Color(0xFF1899D6), // Darker blue for "pressed" look
+                        color: AppColors.brand, // Darker blue for "pressed" look
                         offset: Offset(0, 0),
                         blurRadius: 0,
                       ),
@@ -503,13 +504,13 @@ class _QuestionScreenState extends State<QuestionScreen>
                         option,
                         style: TextStyle(
                           fontSize: 18,
-                          color: isSelected ? const Color(0xFF1899D6) : const Color(0xFF4B5563),
+                          color: isSelected ? AppColors.brand : AppColors.textSecondary,
                           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                         ),
                       ),
                     ),
                     if (isSelected)
-                      const Icon(Icons.check_circle, color: Color(0xFF1CB0F6)),
+                      const Icon(Icons.check_circle, color: AppColors.secondary),
                   ],
                 ),
               ),
@@ -528,10 +529,10 @@ class _QuestionScreenState extends State<QuestionScreen>
                 child: Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: isSelected ? const Color(0xFFDDF4FF) : Colors.white,
+                    color: isSelected ? AppColors.brandSoft : Colors.white,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: isSelected ? const Color(0xFF1CB0F6) : const Color(0xFFE5E7EB),
+                      color: isSelected ? AppColors.secondary : AppColors.border,
                       width: 2,
                     ),
                   ),
@@ -558,15 +559,15 @@ class _QuestionScreenState extends State<QuestionScreen>
             decoration: InputDecoration(
               hintText: 'exemplo@email.com',
               filled: true,
-              fillColor: const Color(0xFFF3F4F6),
-              prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFF9CA3AF)),
+              fillColor: AppColors.background,
+              prefixIcon: const Icon(Icons.email_outlined, color: AppColors.textDisabled),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide.none,
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(color: Color(0xFF58CC02), width: 2),
+                borderSide: const BorderSide(color: AppColors.success, width: 2),
               ),
               // Simple validation feedback can be added here if needed
             ),
@@ -592,14 +593,14 @@ class _QuestionScreenState extends State<QuestionScreen>
           decoration: InputDecoration(
             hintText: textPlaceholder,
             filled: true,
-            fillColor: const Color(0xFFF3F4F6),
+            fillColor: AppColors.background,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(16),
               borderSide: BorderSide.none,
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: Color(0xFF58CC02), width: 2),
+              borderSide: const BorderSide(color: AppColors.success, width: 2),
             ),
           ),
           style: const TextStyle(fontSize: 18),
@@ -1148,7 +1149,7 @@ class _QuestionScreenState extends State<QuestionScreen>
       padding: const EdgeInsets.all(24),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 2)),
+        border: Border(top: BorderSide(color: AppColors.border, width: 2)),
       ),
       child: SafeArea(
         child: Row(
@@ -1164,16 +1165,16 @@ class _QuestionScreenState extends State<QuestionScreen>
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
-                    foregroundColor: const Color(0xFFE5E7EB), // Gray border/icon
+                    foregroundColor: AppColors.border, // Gray border/icon
                     elevation: 0,
-                    side: const BorderSide(color: Color(0xFFE5E7EB), width: 2),
+                    side: const BorderSide(color: AppColors.border, width: 2),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                     minimumSize: const Size(56, 56), // Square-ish
                   ),
-                  child: const Icon(Icons.arrow_back, color: Color(0xFFAFAFAF), size: 24),
+                  child: const Icon(Icons.arrow_back, color: AppColors.textDisabled, size: 24),
                 ),
               ),
 
@@ -1183,10 +1184,10 @@ class _QuestionScreenState extends State<QuestionScreen>
                 child: ElevatedButton(
                   onPressed: (isEnabled && !_isSaving) ? () => _handleContinue(viewModel) : null,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF58CC02), // Green
+                    backgroundColor: AppColors.primary, // Green
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor: const Color(0xFFE5E7EB),
-                    disabledForegroundColor: const Color(0xFFAFAFAF),
+                    disabledBackgroundColor: AppColors.border,
+                    disabledForegroundColor: AppColors.textDisabled,
                     elevation: 0,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),

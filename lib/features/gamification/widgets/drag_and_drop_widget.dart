@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui';
+import '../../../core/theme/theme.dart';
 
 class DragAndDropWidget extends StatefulWidget {
   final List<String> options;
@@ -47,20 +48,20 @@ class _DragAndDropWidgetState extends State<DragAndDropWidget> {
           margin: const EdgeInsets.only(bottom: 16),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
-            color: const Color(0xFFF3F4F6),
+            color: AppColors.background,
             borderRadius: BorderRadius.circular(12),
           ),
           child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.touch_app, size: 16, color: Color(0xFF6B7280)),
+              Icon(Icons.touch_app, size: 16, color: AppColors.textTertiary),
               SizedBox(width: 8),
               Text(
                 'Arraste para reordenar sua ordem de preferência',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF6B7280),
+                  color: AppColors.textTertiary,
                 ),
               ),
             ],
@@ -123,7 +124,7 @@ class _DragAndDropWidgetState extends State<DragAndDropWidget> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE5E7EB), width: 2.5),
+        border: Border.all(color: AppColors.border, width: 2.5),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
@@ -174,7 +175,7 @@ class _DragAndDropWidgetState extends State<DragAndDropWidget> {
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF374151),
+                      color: AppColors.textSecondary,
                       height: 1.2,
                     ),
                   ),
@@ -200,19 +201,19 @@ class _DragAndDropWidgetState extends State<DragAndDropWidget> {
 
   Color _getThemeColor(String text) {
     final lower = text.toLowerCase();
-    if (lower.contains('falando')) return const Color(0xFF1CB0F6); // Blue
-    if (lower.contains('escrevendo')) return const Color(0xFFFFB900); // Yellow/Gold
+    if (lower.contains('falando')) return AppColors.secondary; // Blue
+    if (lower.contains('escrevendo')) return AppColors.warning; // Yellow/Gold
     if (lower.contains('visualizando')) return const Color(0xFFA64DFF); // Purple
-    if (lower.contains('ouvindo')) return const Color(0xFF58CC02); // Green
+    if (lower.contains('ouvindo')) return AppColors.success; // Green
     
     // Career Success values
-    if (lower.contains('mestria')) return const Color(0xFF1CB0F6);
-    if (lower.contains('impacto')) return const Color(0xFFFF4B4B); // Red
-    if (lower.contains('ascensão')) return const Color(0xFFFFB900);
-    if (lower.contains('estabilidade')) return const Color(0xFF58CC02);
+    if (lower.contains('mestria')) return AppColors.secondary;
+    if (lower.contains('impacto')) return AppColors.error; // Red
+    if (lower.contains('ascensão')) return AppColors.warning;
+    if (lower.contains('estabilidade')) return AppColors.success;
     if (lower.contains('autonomia')) return const Color(0xFFA64DFF);
     
-    return const Color(0xFF58CC02); // Default green
+    return AppColors.success; // Default green
   }
 
   IconData _getIconData(String text) {

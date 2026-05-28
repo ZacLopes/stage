@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
+import '../../../core/theme/theme.dart';
 
 class RewardCardWidget extends StatefulWidget {
   final Function(dynamic) onSelect;
@@ -43,21 +44,21 @@ class _RewardCardWidgetState extends State<RewardCardWidget> {
       'label': 'Sim, bolsa integral (100%)',
       'icon': Icons.stars,
       'isPremium': true,
-      'color': Color(0xFFFFD700) // Gold
+      'color': AppColors.gold // Gold
     },
     {
       'id': 'partial',
       'label': 'Sim, bolsa parcial',
       'icon': Icons.star_half,
       'isPremium': true,
-      'color': Color(0xFFC0C0C0) // Silver
+      'color': AppColors.silver // Silver
     },
     {
       'id': 'none',
       'label': 'Não, sem bolsa',
       'icon': Icons.money_off,
       'isPremium': false,
-      'color': Color(0xFFFF4B4B) // Red
+      'color': AppColors.error // Red
     },
   ];
 
@@ -66,9 +67,9 @@ class _RewardCardWidgetState extends State<RewardCardWidget> {
 
      return widget.options.map((label) {
        final isPremium = _isPremium(label);
-       Color color = isPremium ? const Color(0xFFFFD700) : const Color(0xFF9CA3AF);
+       Color color = isPremium ? AppColors.gold : AppColors.textDisabled;
        if (label.toLowerCase().contains('não') || label.toLowerCase().contains('sem')) {
-         color = const Color(0xFFFF4B4B);
+         color = AppColors.error;
        }
        
        return <String, dynamic>{
@@ -157,7 +158,7 @@ class _RewardCardWidgetState extends State<RewardCardWidget> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? color : const Color(0xFFE5E7EB),
+            color: isSelected ? color : AppColors.border,
             width: isSelected ? 3 : 1,
           ),
           boxShadow: [
@@ -182,12 +183,12 @@ class _RewardCardWidgetState extends State<RewardCardWidget> {
                  Container(
                    padding: const EdgeInsets.all(12),
                    decoration: BoxDecoration(
-                     color: isSelected ? color.withOpacity(0.1) : const Color(0xFFF3F4F6),
+                     color: isSelected ? color.withOpacity(0.1) : AppColors.background,
                      shape: BoxShape.circle,
                    ),
                    child: Icon(
                      option['icon'],
-                     color: isSelected ? color : const Color(0xFF9CA3AF),
+                     color: isSelected ? color : AppColors.textDisabled,
                      size: 28,
                    ),
                  ),
@@ -198,7 +199,7 @@ class _RewardCardWidgetState extends State<RewardCardWidget> {
                      style: TextStyle(
                        fontSize: 18,
                        fontWeight: FontWeight.bold,
-                       color: isSelected ? Colors.black87 : const Color(0xFF4B5563),
+                       color: isSelected ? Colors.black87 : AppColors.textSecondary,
                      ),
                    ),
                  ),
@@ -214,7 +215,7 @@ class _RewardCardWidgetState extends State<RewardCardWidget> {
                 decoration: InputDecoration(
                   hintText: 'Qual bolsa e instituição?',
                   filled: true,
-                  fillColor: const Color(0xFFF9FAFB),
+                  fillColor: AppColors.surfaceVariant,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide.none,

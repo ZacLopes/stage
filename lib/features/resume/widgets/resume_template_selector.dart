@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../services/analytics_service.dart';
 import '../resume_viewmodel.dart';
+import '../../../core/theme/theme.dart';
 
 class ResumeTemplateSelector extends StatefulWidget {
   const ResumeTemplateSelector({super.key});
@@ -36,7 +37,7 @@ class _ResumeTemplateSelectorState extends State<ResumeTemplateSelector> {
           'Padrão de tech e engenharia inspirado no clássico LaTeX. Aprovado em Big Techs, FAANG e startups.',
       ats: 'Alta',
       style: 'Serif clássico, denso e elegante',
-      color: Color(0xFF1F2937),
+      color: AppColors.textPrimary,
     ),
     _TemplateMeta(
       id: 'forte_foundation',
@@ -56,7 +57,7 @@ class _ResumeTemplateSelectorState extends State<ResumeTemplateSelector> {
           'Garantido em 1 página, sans-serif moderno. Otimizado para estudantes com 1-3 experiências.',
       ats: 'Alta',
       style: 'Sans-serif moderno, compacto',
-      color: Color(0xFF0F172A),
+      color: AppColors.textPrimary,
     ),
     _TemplateMeta(
       id: 'cobalt_modern',
@@ -66,7 +67,7 @@ class _ResumeTemplateSelectorState extends State<ResumeTemplateSelector> {
           'Layout 2 colunas com sidebar de contato/skills, cor de destaque azul cobalt. Ideal pra design, marketing, tech e candidatos que querem se diferenciar visualmente.',
       ats: 'Média-Alta',
       style: 'Sans-serif moderno (Inter), 2 colunas, accent azul',
-      color: Color(0xFF1E40AF),
+      color: AppColors.primary,
     ),
   ];
 
@@ -108,14 +109,14 @@ class _ResumeTemplateSelectorState extends State<ResumeTemplateSelector> {
                   style: TextStyle(fontFamily: 'Outfit', 
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
-                    color: const Color(0xFF111827),
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 IconButton(
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.close),
                   style: IconButton.styleFrom(
-                    backgroundColor: Colors.grey[100],
+                    backgroundColor: AppColors.divider,
                   ),
                 ),
               ],
@@ -177,7 +178,7 @@ class _TemplateCard extends StatelessWidget {
           color: isSelected ? template.color.withOpacity(0.05) : Colors.white,
           borderRadius: BorderRadius.circular(24),
           border: Border.all(
-            color: isSelected ? template.color : Colors.grey[200]!,
+            color: isSelected ? template.color : AppColors.border!,
             width: isSelected ? 2 : 1,
           ),
           boxShadow: isSelected
@@ -204,19 +205,19 @@ class _TemplateCard extends StatelessWidget {
                   cacheWidth: 600, // ~2x retina pra cards de ~268px
                   errorBuilder: (context, error, stackTrace) {
                     return Container(
-                      color: Colors.grey[100],
+                      color: AppColors.divider,
                       child: Center(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(Icons.image_outlined,
-                                size: 32, color: Colors.grey[400]),
+                                size: 32, color: AppColors.textDisabled),
                             const SizedBox(height: 8),
                             Text(
                               'Preview indisponível',
                               style: TextStyle(fontFamily: 'Inter', 
                                 fontSize: 11,
-                                color: Colors.grey[500],
+                                color: AppColors.textTertiary,
                               ),
                             ),
                           ],
@@ -237,7 +238,7 @@ class _TemplateCard extends StatelessWidget {
                     style: TextStyle(fontFamily: 'Outfit', 
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: const Color(0xFF111827),
+                      color: AppColors.textPrimary,
                     ),
                   ),
                 ),
@@ -251,7 +252,7 @@ class _TemplateCard extends StatelessWidget {
               template.description,
               style: TextStyle(fontFamily: 'Inter', 
                 fontSize: 12,
-                color: Colors.grey[600],
+                color: AppColors.textTertiary,
                 height: 1.4,
               ),
               maxLines: 2,
@@ -264,7 +265,7 @@ class _TemplateCard extends StatelessWidget {
                 onPressed: onUseTap,
                 style: ElevatedButton.styleFrom(
                   backgroundColor:
-                      isSelected ? template.color : Colors.grey[100],
+                      isSelected ? template.color : AppColors.divider,
                   foregroundColor:
                       isSelected ? Colors.white : Colors.black87,
                   elevation: 0,

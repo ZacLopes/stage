@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import '../../../services/ai_service.dart';
+import '../../../core/theme/theme.dart';
 
 enum _SuggestState { idle, loading, loaded, error }
 
@@ -37,9 +38,9 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
   static const _levels = ['Básico', 'Intermediário', 'Avançado'];
 
   static const _levelColors = {
-    'Básico': Color(0xFF10B981),
-    'Intermediário': Color(0xFFF59E0B),
-    'Avançado': Color(0xFFEF4444),
+    'Básico': AppColors.success,
+    'Intermediário': AppColors.warning,
+    'Avançado': AppColors.error,
   };
 
   @override
@@ -141,7 +142,7 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE5E7EB), width: 1.5),
+            border: Border.all(color: AppColors.border, width: 1.5),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -155,11 +156,11 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
                 style: const TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w500,
-                  color: Color(0xFF1F2937),
+                  color: AppColors.textPrimary,
                 ),
                 decoration: const InputDecoration(
                   hintText: 'Ex: Figma, Python, Excel…',
-                  hintStyle: TextStyle(color: Color(0xFFD1D5DB), fontSize: 14),
+                  hintStyle: TextStyle(color: AppColors.borderStrong, fontSize: 14),
                   border: InputBorder.none,
                   isDense: true,
                   contentPadding: EdgeInsets.zero,
@@ -171,7 +172,7 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF9CA3AF),
+                  color: AppColors.textDisabled,
                   letterSpacing: 1,
                 ),
               ),
@@ -193,10 +194,10 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
                         ),
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         decoration: BoxDecoration(
-                          color: isChosen ? color : const Color(0xFFF9FAFB),
+                          color: isChosen ? color : AppColors.surfaceVariant,
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: isChosen ? color : const Color(0xFFE5E7EB),
+                            color: isChosen ? color : AppColors.border,
                             width: 1.5,
                           ),
                         ),
@@ -206,7 +207,7 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
-                            color: isChosen ? Colors.white : const Color(0xFF6B7280),
+                            color: isChosen ? Colors.white : AppColors.textTertiary,
                           ),
                         ),
                       ),
@@ -225,7 +226,7 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF6366F1),
+                        color: AppColors.primary,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: const Row(
@@ -265,7 +266,7 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.bold,
-              color: Color(0xFF9CA3AF),
+              color: AppColors.textDisabled,
               letterSpacing: 1,
             ),
           ),
@@ -282,7 +283,7 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE5E7EB), width: 1.5),
+                border: Border.all(color: AppColors.border, width: 1.5),
               ),
               child: Row(
                 children: [
@@ -292,7 +293,7 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFF1F2937),
+                        color: AppColors.textPrimary,
                       ),
                     ),
                   ),
@@ -314,7 +315,7 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
                   const SizedBox(width: 8),
                   GestureDetector(
                     onTap: () => _remove(index),
-                    child: const Icon(Icons.close, size: 18, color: Color(0xFFD1D5DB)),
+                    child: const Icon(Icons.close, size: 18, color: AppColors.borderStrong),
                   ),
                 ],
               ),
@@ -336,9 +337,9 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
         return Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: const Color(0xFFF5F3FF),
+            color: AppColors.primarySoft,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE0E7FF), width: 1.5),
+            border: Border.all(color: AppColors.primarySoft, width: 1.5),
           ),
           child: const Row(
             children: [
@@ -347,7 +348,7 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
                 height: 20,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.5,
-                  color: Color(0xFF6366F1),
+                  color: AppColors.primary,
                 ),
               ),
               SizedBox(width: 14),
@@ -356,7 +357,7 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
                   'Pesquisando ferramentas para a sua vaga…',
                   style: TextStyle(
                     fontSize: 14,
-                    color: Color(0xFF4338CA),
+                    color: AppColors.primary,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -374,13 +375,13 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
-              color: const Color(0xFFFFF7ED),
+              color: AppColors.warningSoft,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFFED7AA), width: 1.5),
+              border: Border.all(color: AppColors.warningSoft, width: 1.5),
             ),
             child: const Row(
               children: [
-                Icon(Icons.wifi_off_rounded, color: Color(0xFFF59E0B), size: 20),
+                Icon(Icons.wifi_off_rounded, color: AppColors.warning, size: 20),
                 SizedBox(width: 12),
                 Expanded(
                   child: Text(
@@ -403,9 +404,9 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F3FF),
+        color: AppColors.primarySoft,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE0E7FF), width: 1.5),
+        border: Border.all(color: AppColors.primarySoft, width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -420,7 +421,7 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF4338CA),
+                    color: AppColors.primary,
                   ),
                 ),
               ),
@@ -429,7 +430,7 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
           const SizedBox(height: 4),
           const Text(
             'Toque para preencher o campo — depois escolha o nível e adicione.',
-            style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+            style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
           ),
           const SizedBox(height: 14),
           Wrap(
@@ -443,10 +444,10 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
                   duration: const Duration(milliseconds: 150),
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                   decoration: BoxDecoration(
-                    color: added ? const Color(0xFFE0E7FF) : Colors.white,
+                    color: added ? AppColors.primarySoft : Colors.white,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: added ? const Color(0xFF6366F1) : const Color(0xFFD1D5DB),
+                      color: added ? AppColors.primary : AppColors.borderStrong,
                       width: 1.5,
                     ),
                   ),
@@ -454,7 +455,7 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (added) ...[
-                        const Icon(Icons.check, size: 13, color: Color(0xFF6366F1)),
+                        const Icon(Icons.check, size: 13, color: AppColors.primary),
                         const SizedBox(width: 4),
                       ],
                       Text(
@@ -463,8 +464,8 @@ class _ToolsCatalogWidgetState extends State<ToolsCatalogWidget> {
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
                           color: added
-                              ? const Color(0xFF6366F1)
-                              : const Color(0xFF374151),
+                              ? AppColors.primary
+                              : AppColors.textSecondary,
                         ),
                       ),
                     ],
@@ -488,9 +489,9 @@ class _SuggestionBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F3FF),
+        color: AppColors.primarySoft,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE0E7FF), width: 1.5),
+        border: Border.all(color: AppColors.primarySoft, width: 1.5),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -512,7 +513,7 @@ class _SuggestionBanner extends StatelessWidget {
                 const SizedBox(height: 4),
                 const Text(
                   'Reunimos as ferramentas mais cobradas nas seleções hoje. Quer dar uma olhada?',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF4B5563)),
+                  style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 12),
                 GestureDetector(
@@ -520,7 +521,7 @@ class _SuggestionBanner extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF6366F1),
+                      color: AppColors.primary,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Text(

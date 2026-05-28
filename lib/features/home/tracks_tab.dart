@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/theme/theme.dart';
 import '../auth/user_viewmodel.dart';
 import 'home_viewmodel.dart';
 import 'open_trail_view.dart';
@@ -45,17 +46,11 @@ class TracksTab extends StatelessWidget {
         final percentage = (progress * 100).toInt();
         
         return Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.vertical(bottom: Radius.circular(AppRadius.xl)),
+            boxShadow: AppShadows.sm,
           ),
           child: Column(
             children: [
@@ -70,43 +65,42 @@ class TracksTab extends StatelessWidget {
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF3F4F6),
-                          borderRadius: BorderRadius.circular(12),
+                          color: AppColors.background,
+                          borderRadius: BorderRadius.circular(AppRadius.md),
                         ),
                         child: const Icon(
                           Icons.arrow_back_rounded,
-                          color: Color(0xFF4F46E5),
+                          color: AppColors.primary,
                           size: 22,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: AppSpacing.md),
                   ],
                   Expanded(
                     child: Text(
                       'Vamos construir seu currículo?',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: const Color(0xFF111827),
-                          ),
+                      style: AppTextStyles.titleLg,
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                      vertical: AppSpacing.xs + 2,
+                    ),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFDCFCE7), // Light green
-                      borderRadius: BorderRadius.circular(20),
+                      color: AppColors.successSoft,
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.check_circle, color: Color(0xFF16A34A), size: 16),
-                        const SizedBox(width: 4),
+                        const Icon(Icons.check_circle, color: AppColors.success, size: 16),
+                        const SizedBox(width: AppSpacing.xs),
                         Text(
                           '$percentage% Pronto',
-                          style: const TextStyle(
-                            color: Color(0xFF15803D),
+                          style: AppTextStyles.labelSm.copyWith(
+                            color: AppColors.success,
                             fontWeight: FontWeight.bold,
-                            fontSize: 12,
                           ),
                         ),
                       ],
@@ -114,26 +108,24 @@ class TracksTab extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: AppSpacing.xl),
               // Career Completion Progress Bar
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
                     child: LinearProgressIndicator(
                       value: progress,
-                      backgroundColor: Colors.grey[200],
-                      color: const Color(0xFF00C27A), // Duolingo Green
+                      backgroundColor: AppColors.border,
+                      color: AppColors.success,
                       minHeight: 12,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: AppSpacing.sm),
                   Text(
                     'Complete as fases para gerar seu currículo profissional.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
+                    style: AppTextStyles.caption.copyWith(
                       fontStyle: FontStyle.italic,
                     ),
                   ),

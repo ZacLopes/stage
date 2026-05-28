@@ -13,10 +13,11 @@
 // validação), continua inline — esta função não tenta cobrir todo caso.
 
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
-const _kBorderColor = Color(0xFFE5E7EB);
-const _kHintColor = Color(0xFF9CA3AF);
-const _kAccent = Color(0xFF29B6D2);
+const _kBorderColor = AppColors.border;
+const _kHintColor = AppColors.textDisabled;
+const _kAccent = AppColors.primary;
 
 /// Retorna a `InputDecoration` padrão das telas do onboarding.
 /// Aparência consistente: fundo branco, borda cinza clara fina, borda

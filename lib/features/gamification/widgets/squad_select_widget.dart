@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/theme.dart';
 
 class SquadSelectWidget extends StatefulWidget {
   final Function(List<String>) onSelect;
@@ -60,7 +61,7 @@ class _SquadSelectWidgetState extends State<SquadSelectWidget> {
             'Selecionado: ${_selectedIds.length}/2',
             style: const TextStyle(
               fontWeight: FontWeight.bold,
-              color: Color(0xFF6B7280),
+              color: AppColors.textTertiary,
             ),
           ),
         ),
@@ -91,10 +92,10 @@ class _SquadSelectWidgetState extends State<SquadSelectWidget> {
                   duration: const Duration(milliseconds: 200),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: isSelected ? const Color(0xFFDDF4FF) : Colors.white,
+                    color: isSelected ? AppColors.brandSoft : Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: isSelected ? const Color(0xFF1CB0F6) : const Color(0xFFE5E7EB),
+                      color: isSelected ? AppColors.secondary : AppColors.border,
                       width: isSelected ? 2 : 1,
                     ),
                   ),
@@ -105,13 +106,13 @@ class _SquadSelectWidgetState extends State<SquadSelectWidget> {
                         width: 32,
                         height: 32,
                         decoration: BoxDecoration(
-                          color: isSelected ? const Color(0xFF1899D6) : const Color(0xFFF3F4F6),
+                          color: isSelected ? AppColors.brand : AppColors.background,
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
                           squad['icon'], 
                           size: 16, 
-                          color: isSelected ? Colors.white : const Color(0xFF9CA3AF)
+                          color: isSelected ? Colors.white : AppColors.textDisabled
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -120,7 +121,7 @@ class _SquadSelectWidgetState extends State<SquadSelectWidget> {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
-                          color: isSelected ? const Color(0xFF1899D6) : const Color(0xFF374151),
+                          color: isSelected ? AppColors.brand : AppColors.textSecondary,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -129,7 +130,7 @@ class _SquadSelectWidgetState extends State<SquadSelectWidget> {
                           squad['desc']!,
                           style: const TextStyle(
                             fontSize: 11,
-                            color: Color(0xFF6B7280),
+                            color: AppColors.textTertiary,
                             height: 1.2,
                           ),
                         ),
@@ -137,7 +138,7 @@ class _SquadSelectWidgetState extends State<SquadSelectWidget> {
                       if(isSelected)
                         const Align(
                           alignment: Alignment.centerRight,
-                          child: Icon(Icons.check_circle, size: 20, color: Color(0xFF1CB0F6)),
+                          child: Icon(Icons.check_circle, size: 20, color: AppColors.secondary),
                         )
                     ],
                   ),

@@ -13,12 +13,13 @@ import '../../../profile/domain/entities/entities.dart';
 import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'location_screen.dart';
+import '../../../../core/theme/theme.dart';
 
-const _kBorderColor = Color(0xFFE5E7EB);
-const _kLabelColor = Color(0xFF6B7280);
-const _kTextColor = Color(0xFF111827);
-const _kAccent = Color(0xFF29B6D2);
-const _kChipBg = Color(0xFFF3F4F6);
+const _kBorderColor = AppColors.border;
+const _kLabelColor = AppColors.textTertiary;
+const _kTextColor = AppColors.textPrimary;
+const _kAccent = AppColors.primary;
+const _kChipBg = AppColors.background;
 
 class DesiredTitlesScreen extends StatefulWidget {
   const DesiredTitlesScreen({super.key});

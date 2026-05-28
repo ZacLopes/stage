@@ -17,6 +17,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../core/analytics/screen_tracking.dart';
 import '../auth/user_viewmodel.dart';
+import '../../core/theme/theme.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key});
@@ -138,7 +139,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Senha atualizada com sucesso!'),
-          backgroundColor: Color(0xFF10B981),
+          backgroundColor: AppColors.primary,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -163,7 +164,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F4F6),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text(
           'Trocar senha',
@@ -173,7 +174,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: Color(0xFF374151)),
+          icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: AppColors.textSecondary),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -241,19 +242,19 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFEF2F2),
+                    color: AppColors.errorSoft,
                     border: Border.all(color: const Color(0xFFFCA5A5)),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 18),
+                      const Icon(Icons.error_outline, color: AppColors.error, size: 18),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           _serverError!,
                           style: const TextStyle(
-                            color: Color(0xFFB91C1C),
+                            color: AppColors.error,
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
                           ),
@@ -267,9 +268,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
               ElevatedButton(
                 onPressed: (_isLoading || !_allRequirementsMet) ? null : _save,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF58CC02),
+                  backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
-                  disabledBackgroundColor: const Color(0xFFD1D5DB),
+                  disabledBackgroundColor: AppColors.borderStrong,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   elevation: 0,
                   shape: RoundedRectangleBorder(
@@ -312,12 +313,12 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
       style: const TextStyle(fontWeight: FontWeight.w500),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: TextStyle(color: Colors.grey[600]),
-        prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF6B7280)),
+        labelStyle: TextStyle(color: AppColors.textTertiary),
+        prefixIcon: const Icon(Icons.lock_outline, color: AppColors.textTertiary),
         suffixIcon: IconButton(
           icon: Icon(
             obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-            color: const Color(0xFF6B7280),
+            color: AppColors.textTertiary,
           ),
           onPressed: onToggle,
         ),
@@ -331,10 +332,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF58CC02), width: 2),
+          borderSide: const BorderSide(color: AppColors.success, width: 2),
         ),
         filled: true,
-        fillColor: const Color(0xFFF3F4F6),
+        fillColor: AppColors.background,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       ),
     );
@@ -376,14 +377,14 @@ class _RequirementsChecklist extends StatelessWidget {
           Icon(
             met ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
             size: 16,
-            color: met ? const Color(0xFF10B981) : const Color(0xFFD1D5DB),
+            color: met ? AppColors.success : AppColors.borderStrong,
           ),
           const SizedBox(width: 8),
           Text(
             label,
             style: TextStyle(
               fontSize: 12,
-              color: met ? const Color(0xFF065F46) : const Color(0xFF6B7280),
+              color: met ? AppColors.success : AppColors.textTertiary,
               fontWeight: met ? FontWeight.w600 : FontWeight.w500,
             ),
           ),

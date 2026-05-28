@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/theme/theme.dart';
 import '../../core/utils/app_notifications.dart';
 import '../../data/models/models.dart';
 import '../auth/user_viewmodel.dart';
@@ -164,33 +165,39 @@ class _M1ResetBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      margin: const EdgeInsets.fromLTRB(
+        AppSpacing.base,
+        AppSpacing.base,
+        AppSpacing.base,
+        0,
+      ),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.base,
+        vertical: AppSpacing.md,
+      ),
       decoration: BoxDecoration(
-        color: const Color(0xFFFEF3C7),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFF59E0B), width: 1),
+        color: AppColors.warningSoft,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.warning, width: 1),
       ),
       child: Row(
         children: [
           const Icon(Icons.auto_awesome_rounded,
-              color: Color(0xFFF59E0B), size: 20),
-          const SizedBox(width: 10),
+              color: AppColors.warning, size: 20),
+          const SizedBox(width: AppSpacing.sm + 2),
           Expanded(
             child: Text(
               'Atualizamos algumas perguntas para deixar seu CV ainda melhor — vamos refinar juntos.',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.brown.shade800,
-                height: 1.4,
+              style: AppTextStyles.bodySm.copyWith(
+                color: AppColors.textPrimary,
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: AppSpacing.sm),
           GestureDetector(
             onTap: () => onDismiss(),
             child: const Icon(Icons.close_rounded,
-                size: 18, color: Color(0xFFF59E0B)),
+                size: 18, color: AppColors.warning),
           ),
         ],
       ),
@@ -218,7 +225,12 @@ class _WorldSeparator extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = Color(track.color);
     return Padding(
-      padding: EdgeInsets.fromLTRB(20, isFirst ? 16 : 32, 20, 16),
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        isFirst ? AppSpacing.base : AppSpacing.xl2,
+        AppSpacing.lg,
+        AppSpacing.base,
+      ),
       child: Column(
         children: [
           // Linha decorativa com gradient + pílula central "MUNDO N"
@@ -229,22 +241,25 @@ class _WorldSeparator extends StatelessWidget {
                   height: 2,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [color.withOpacity(0), color.withOpacity(0.55)],
+                      colors: [
+                        color.withValues(alpha: 0),
+                        color.withValues(alpha: 0.55),
+                      ],
                     ),
                   ),
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm + 2),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 14, vertical: 6),
                   decoration: BoxDecoration(
                     color: color,
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
                     boxShadow: [
                       BoxShadow(
-                        color: color.withOpacity(0.3),
+                        color: color.withValues(alpha: 0.3),
                         blurRadius: 8,
                         offset: const Offset(0, 3),
                       ),
@@ -252,12 +267,10 @@ class _WorldSeparator extends StatelessWidget {
                   ),
                   child: Text(
                     'MUNDO ${worldIndex + 1}',
-                    style: const TextStyle(
-                      fontFamily: 'Outfit',
+                    style: AppTextStyles.overline.copyWith(
                       letterSpacing: 2.5,
                       fontWeight: FontWeight.w800,
-                      fontSize: 11,
-                      color: Colors.white,
+                      color: AppColors.textOnDark,
                     ),
                   ),
                 ),
@@ -267,40 +280,38 @@ class _WorldSeparator extends StatelessWidget {
                   height: 2,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [color.withOpacity(0.55), color.withOpacity(0)],
+                      colors: [
+                        color.withValues(alpha: 0.55),
+                        color.withValues(alpha: 0),
+                      ],
                     ),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           // Título do mundo
           Semantics(
             header: true,
             child: Text(
               track.title.toUpperCase(),
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontFamily: 'Outfit',
+              style: AppTextStyles.titleMd.copyWith(
                 letterSpacing: 1.5,
                 fontWeight: FontWeight.w900,
-                fontSize: 18,
-                color: Color(0xFF1F2937),
               ),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: AppSpacing.xs),
           // Subtítulo
           Text(
             track.description,
             textAlign: TextAlign.center,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 13,
-              color: Color(0xFF6B7280),
-              height: 1.35,
+            style: AppTextStyles.bodySm.copyWith(
+              color: AppColors.textTertiary,
             ),
           ),
         ],
@@ -464,18 +475,21 @@ class _PhaseNodeState extends State<_PhaseNode>
   Widget build(BuildContext context) {
     const double size = 100.0;
     final bool locked = widget.isLocked;
-    final Color baseColor = locked ? const Color(0xFFE5E7EB) : widget.color;
+    final Color baseColor = locked ? AppColors.border : widget.color;
     final double scale = widget.isCurrent ? _scaleAnimation.value : 1.0;
 
     final Color shadowColor = locked
-        ? const Color(0xFF9CA3AF)
-        : Color.alphaBlend(Colors.black.withOpacity(0.3), baseColor);
+        ? AppColors.textDisabled
+        : Color.alphaBlend(
+            Colors.black.withValues(alpha: 0.3),
+            baseColor,
+          );
 
     final activeDeco = BoxDecoration(
       color: baseColor,
       shape: BoxShape.circle,
       border: widget.isCurrent
-          ? Border.all(color: Colors.white, width: 4)
+          ? Border.all(color: AppColors.surface, width: 4)
           : null,
     );
 
@@ -533,10 +547,10 @@ class _PhaseNodeState extends State<_PhaseNode>
                       child: Center(
                         child: widget.isCompleted
                             ? const Icon(Icons.check_rounded,
-                                color: Colors.white, size: 48)
+                                color: AppColors.textOnDark, size: 48)
                             : locked
-                                ? Icon(Icons.lock_rounded,
-                                    color: Colors.grey.shade400, size: 32)
+                                ? const Icon(Icons.lock_rounded,
+                                    color: AppColors.textDisabled, size: 32)
                                 : _phaseIcon(widget.phase.title),
                       ),
                     ),
@@ -550,8 +564,8 @@ class _PhaseNodeState extends State<_PhaseNode>
                         width: 24,
                         height: 12,
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(12),
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(AppRadius.md),
                         ),
                       ),
                     ),
@@ -560,29 +574,24 @@ class _PhaseNodeState extends State<_PhaseNode>
             ),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppSpacing.md),
         // Label da fase
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.base,
+            vertical: AppSpacing.xs + 2,
+          ),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            boxShadow: AppShadows.sm,
           ),
           child: Text(
             widget.phase.title,
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: AppTextStyles.bodyMd.copyWith(
               fontWeight: FontWeight.bold,
-              color:
-                  locked ? const Color(0xFF9CA3AF) : const Color(0xFF4B5563),
-              fontSize: 14,
+              color: locked ? AppColors.textDisabled : AppColors.textSecondary,
             ),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
@@ -620,7 +629,7 @@ class _PhaseNodeState extends State<_PhaseNode>
         t.contains('faculdade')) {
       iconData = Icons.school_rounded;
     }
-    return Icon(iconData, color: Colors.white, size: 40);
+    return Icon(iconData, color: AppColors.textOnDark, size: 40);
   }
 }
 
@@ -651,13 +660,13 @@ class _PhasePathPainter extends CustomPainter {
     if (itemCount < 2) return; // 1 fase = sem segmento
 
     final borderPaint = Paint()
-      ..color = Colors.black.withOpacity(0.05)
+      ..color = Colors.black.withValues(alpha: 0.05)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 24.0
       ..strokeCap = StrokeCap.round;
 
     final inactivePaint = Paint()
-      ..color = Colors.white.withOpacity(0.6)
+      ..color = Colors.white.withValues(alpha: 0.6)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 16.0
       ..strokeCap = StrokeCap.round;
@@ -680,7 +689,10 @@ class _PhasePathPainter extends CustomPainter {
           ..shader = LinearGradient(
             colors: [
               baseColor,
-              Color.alphaBlend(Colors.black.withOpacity(0.15), baseColor),
+              Color.alphaBlend(
+                Colors.black.withValues(alpha: 0.15),
+                baseColor,
+              ),
             ],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,

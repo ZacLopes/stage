@@ -8,6 +8,7 @@ import 'resume_viewmodel.dart';
 import 'widgets/import_cv_button.dart';
 import '../../services/cv_import_service.dart';
 import '../../core/widgets/pii_mask.dart';
+import '../../core/theme/theme.dart';
 
 /// Entry-point da aba Currículo (após a unificação Trilha + Currículo).
 ///
@@ -111,7 +112,7 @@ class _ResumeTabState extends State<ResumeTab> {
                 builder: (context, resumeVM, profileVM, _) {
                   return PiiMask(
                     child: Scaffold(
-                      backgroundColor: const Color(0xFFF3F4F6),
+                      backgroundColor: AppColors.background,
                       body: SafeArea(
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
@@ -132,8 +133,8 @@ class _ResumeTabState extends State<ResumeTab> {
     ResumeViewModel resumeVM,
     ProfileViewModel profileVM,
   ) {
-    const indigo = Color(0xFF4F46E5);
-    const purple = Color(0xFF7C3AED);
+    const indigo = AppColors.primary;
+    const purple = AppColors.primary;
 
     final isCourseCompleted = resumeVM.isCourseCompleted;
     final hasImportedBefore = profileVM.savedResumes
@@ -228,7 +229,7 @@ class _ResumeTabState extends State<ResumeTab> {
           key: TutorialKeys.trailCard,
           child: _buildPathCard(
             badge: isCourseCompleted ? 'JORNADA CONCLUÍDA' : 'RECOMENDADO',
-            badgeColor: const Color(0xFF10B981),
+            badgeColor: AppColors.success,
             icon: Icons.route_rounded,
             iconBg: indigo,
             title: isCourseCompleted
@@ -259,10 +260,10 @@ class _ResumeTabState extends State<ResumeTab> {
           child: _buildPathCard(
             badge: hasImportedBefore ? 'JÁ IMPORTADO' : 'MAIS RÁPIDO',
           badgeColor: hasImportedBefore
-              ? const Color(0xFF6366F1)
-              : const Color(0xFFF59E0B),
+              ? AppColors.primary
+              : AppColors.warning,
           icon: Icons.upload_file_rounded,
-          iconBg: const Color(0xFF0EA5E9),
+          iconBg: AppColors.info,
           title: hasImportedBefore
               ? 'Importar outro CV'
               : 'Importar CV em PDF',
@@ -308,7 +309,7 @@ class _ResumeTabState extends State<ResumeTab> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: AppColors.border),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
@@ -360,7 +361,7 @@ class _ResumeTabState extends State<ResumeTab> {
                       style: const TextStyle(
                         fontSize: 15.5,
                         fontWeight: FontWeight.w900,
-                        color: Color(0xFF0F172A),
+                        color: AppColors.textPrimary,
                         letterSpacing: -0.3,
                         fontFamily: 'Outfit',
                       ),
@@ -376,7 +377,7 @@ class _ResumeTabState extends State<ResumeTab> {
             description,
             style: TextStyle(
               fontSize: 12.5,
-              color: Colors.grey[700],
+              color: AppColors.textSecondary,
               height: 1.35,
               fontWeight: FontWeight.w500,
             ),
@@ -395,7 +396,7 @@ class _ResumeTabState extends State<ResumeTab> {
                         h,
                         style: const TextStyle(
                           fontSize: 12,
-                          color: Color(0xFF334155),
+                          color: AppColors.textPrimary,
                           fontWeight: FontWeight.w600,
                           height: 1.3,
                         ),
@@ -431,14 +432,14 @@ class _ResumeTabState extends State<ResumeTab> {
           child: Ink(
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                colors: [AppColors.primary, AppColors.primary],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF4F46E5).withOpacity(0.3),
+                  color: AppColors.primary.withOpacity(0.3),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),

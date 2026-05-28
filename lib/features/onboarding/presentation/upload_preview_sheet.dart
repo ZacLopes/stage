@@ -19,6 +19,7 @@ import '../../../services/pending_resume_upload_service.dart';
 import '../../profile/application/extraction_status_view_model.dart';
 import '../../profile/profile_viewmodel.dart';
 import 'extraction_in_progress_screen.dart';
+import '../../../core/theme/theme.dart';
 
 class UploadPreviewSheet extends StatefulWidget {
   final Uint8List pdfBytes;
@@ -197,7 +198,7 @@ class _UploadPreviewSheetState extends State<UploadPreviewSheet> {
       expand: false,
       builder: (context, scrollController) => Container(
         decoration: const BoxDecoration(
-          color: Color(0xFFF9FAFB),
+          color: AppColors.surfaceVariant,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: Column(
@@ -214,7 +215,7 @@ class _UploadPreviewSheetState extends State<UploadPreviewSheet> {
                   ),
                   IconButton(
                     onPressed: _confirming ? null : () => Navigator.pop(context),
-                    icon: const Icon(Icons.close, color: Color(0xFF6B7280)),
+                    icon: const Icon(Icons.close, color: AppColors.textTertiary),
                     splashRadius: 20,
                   ),
                 ],
@@ -262,9 +263,9 @@ class _UploadPreviewSheetState extends State<UploadPreviewSheet> {
                 child: ElevatedButton(
                   onPressed: _confirming ? null : _confirm,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF29B6D2),
+                    backgroundColor: AppColors.brandCyan,
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor: const Color(0xFFD1D5DB),
+                    disabledBackgroundColor: AppColors.borderStrong,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                   child: Text(
@@ -352,12 +353,12 @@ class _PreviewCard extends StatelessWidget {
               Positioned.fill(
                 child: previewPng == null
                     ? Container(
-                        color: const Color(0xFFF3F4F6),
+                        color: AppColors.background,
                         alignment: Alignment.center,
                         child: const SizedBox(
                           width: 24,
                           height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF29B6D2)),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.brandCyan),
                         ),
                       )
                     : Image.memory(
@@ -411,7 +412,7 @@ class _FileInfoCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.attach_file_rounded, color: Color(0xFF6B7280), size: 22),
+          const Icon(Icons.attach_file_rounded, color: AppColors.textTertiary, size: 22),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -423,15 +424,15 @@ class _FileInfoCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                 ),
-                Text(sizeLabel, style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12)),
+                Text(sizeLabel, style: const TextStyle(color: AppColors.textDisabled, fontSize: 12)),
               ],
             ),
           ),
           const SizedBox(width: 8),
-          const Icon(Icons.check_rounded, color: Color(0xFF10B981), size: 24),
+          const Icon(Icons.check_rounded, color: AppColors.success, size: 24),
           IconButton(
             onPressed: onDelete,
-            icon: const Icon(Icons.delete_outline, color: Color(0xFF6B7280)),
+            icon: const Icon(Icons.delete_outline, color: AppColors.textTertiary),
             splashRadius: 20,
           ),
         ],

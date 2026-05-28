@@ -12,6 +12,7 @@ import '../../profile/application/profile_editor_view_model.dart';
 import '../../profile/presentation/widgets/profile_section_list.dart';
 import 'onboarding_scaffold.dart';
 import 'preferences/desired_titles_screen.dart';
+import '../../../core/theme/theme.dart';
 
 class ReviewResumeScreen extends StatefulWidget {
   /// Se true, mostra badges de "Confirme isso?" em campos low-confidence.
@@ -56,7 +57,7 @@ class _ReviewResumeScreenState extends State<ReviewResumeScreen> {
         onContinue: null,
         child: const Padding(
           padding: EdgeInsets.symmetric(vertical: 80),
-          child: Center(child: CircularProgressIndicator(color: Color(0xFF29B6D2))),
+          child: Center(child: CircularProgressIndicator(color: AppColors.brandCyan)),
         ),
       );
     }
