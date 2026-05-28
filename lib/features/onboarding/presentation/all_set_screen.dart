@@ -63,7 +63,7 @@ class _AllSetScreenState extends State<AllSetScreen>
       progress: 0.53,
       showBack: false,
       onContinue: _continue,
-      continueLabel: 'Continuar',
+      continueLabel: 'Revisar',
       child: Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 40),
@@ -79,9 +79,9 @@ class _AllSetScreenState extends State<AllSetScreen>
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
-                    Icons.check_circle_outline,
+                    Icons.search_rounded,
                     color: Color(0xFF29B6D2),
-                    size: 64,
+                    size: 60,
                   ),
                 ),
               ),
@@ -89,17 +89,25 @@ class _AllSetScreenState extends State<AllSetScreen>
               FadeTransition(
                 opacity: _fade,
                 child: const Text(
-                  'Tudo pronto!',
+                  'Tudo pronto pra revisar!',
+                  textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
                 ),
               ),
               const SizedBox(height: 8),
               FadeTransition(
                 opacity: _fade,
-                child: const Text(
-                  'Agora é só conferir se ficou tudo certinho.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Color(0xFF6B7280), fontSize: 15),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    'Encontramos suas experiências, formação e habilidades. Confere se está tudo certo.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFF6B7280),
+                      fontSize: 15,
+                      height: 1.4,
+                    ),
+                  ),
                 ),
               ),
             ],

@@ -7,6 +7,7 @@ import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   BENEFIT_KEYWORDS,
   REQ_KEYWORDS,
+  decodeEntities,
   extractSection,
   fetchWithTimeout,
   getOrCreateCompany,
@@ -92,8 +93,12 @@ export async function sync(
         company_id: companyId,
         title: job.title,
         description: description || job.title,
-        // job.content é o HTML cru do Greenhouse — preserva pra render rico no app.
-        description_html: job.content ? job.content.slice(0, 16000) : null,
+        // job.content vem HTML-escapado da API do Greenhouse
+        // (`&lt;div&gt;`, `&quot;`, etc) — precisa decodificar antes de salvar,
+        // senão o flutter_html renderiza como texto literal no app.
+        description_html: job.content
+          ? decodeEntities(job.content).slice(0, 16000)
+          : null,
         requirements,
         benefits,
         location_city: city,
