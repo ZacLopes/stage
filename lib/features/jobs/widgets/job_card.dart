@@ -202,10 +202,12 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                               ],
                             ),
 
-                            // CTA discreto quando confidence == low — orienta
-                            // o user a completar perfil pra desbloquear match
-                            // real (Passo 5 do plano match-score, 2026-05-27).
-                            if (widget.confidence == MatchConfidence.low &&
+                            // CTA discreto quando confidence != high — orienta
+                            // o user a completar perfil. Variante diferente
+                            // pra low (âmbar forte) vs medium (azul suave).
+                            // Vide _MissingDimensionsCta.
+                            if ((widget.confidence == MatchConfidence.low ||
+                                    widget.confidence == MatchConfidence.medium) &&
                                 widget.missingDimensions.isNotEmpty &&
                                 !widget.isPending &&
                                 !widget.isNoResume)
@@ -213,6 +215,7 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                                 padding: const EdgeInsets.only(top: 10),
                                 child: _MissingDimensionsCta(
                                   missing: widget.missingDimensions,
+                                  confidence: widget.confidence,
                                 ),
                               ),
 
@@ -443,11 +446,11 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
-                                      // confidence medium: adiciona asterisco
-                                      // discreto pra sinalizar "estimativa parcial".
-                                      // Detalhamento aparece no card body / sheet.
-                                      '${(_score * _ringAnimation.value).toInt()}%'
-                                      '${widget.confidence == MatchConfidence.medium ? '*' : ''}',
+                                      // Ring mostra score limpo (sem asterisco).
+                                      // Diferenciação medium/high agora vive no
+                                      // chip _MissingDimensionsCta no body do card
+                                      // (mais autoexplicativo que asterisco).
+                                      '${(_score * _ringAnimation.value).toInt()}%',
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 14,
@@ -570,41 +573,88 @@ class _NoResumeBadge extends StatelessWidget {
   }
 }
 
-/// CTA inline no body do card quando `confidence == low` (Passo 5).
-/// Mostra as 2 primeiras dimensões faltantes em destaque com ícone âmbar.
-/// Toque no card abre o JobDetailsSheet (que pode listar todas as faltantes).
+/// CTA inline no body do card quando `confidence != high` (Passo 5).
+/// Tem 2 variantes:
+/// - LOW (âmbar forte): "Pra match completo, declare: X, Y" — convida o
+///   user a preencher múltiplas dimensões. Aparece junto com badge
+///   "análise limitada" no header.
+/// - MEDIUM (azul suave): "Match estimado — declare X pra refinar" —
+///   ressalta que o score é confiável mas pode melhorar. Aparece junto
+///   com o ring normal.
+///
+/// Filtra "salário mínimo" do display porque a coluna não existe no
+/// relacional ainda (decisão founder 2026-05-27) — declarar não funciona,
+/// então não pedir.
 class _MissingDimensionsCta extends StatelessWidget {
   final List<String> missing;
-  const _MissingDimensionsCta({required this.missing});
+  final MatchConfidence confidence;
+  const _MissingDimensionsCta({
+    required this.missing,
+    required this.confidence,
+  });
+
+  bool get _isMedium => confidence == MatchConfidence.medium;
 
   @override
   Widget build(BuildContext context) {
-    // Mostra até 2 dimensões pra não poluir o card. Se há mais, sufixa "...".
-    final visible = missing.take(2).join(', ');
-    final overflow = missing.length > 2 ? '…' : '';
+    // Filtra dimensões não-acionáveis (salário mínimo não tem coluna no
+    // relacional ainda — user não consegue declarar, então não pedir).
+    final actionable = missing.where((m) => m != 'salário mínimo').toList();
+    if (actionable.isEmpty) return const SizedBox.shrink();
+
+    if (_isMedium) {
+      return _buildChip(
+        bg: const Color(0xFFEFF6FF),         // azul muito claro
+        border: const Color(0xFFBFDBFE),
+        iconColor: const Color(0xFF1D4ED8),  // azul médio
+        textColor: const Color(0xFF1E40AF),
+        // Pra medium menciona só a primeira dimensão (tom suave).
+        text: 'Match estimado — declare ${actionable.first} pra refinar',
+      );
+    }
+
+    // LOW: lista até 2 dimensões + reticências se há mais.
+    final visible = actionable.take(2).join(', ');
+    final overflow = actionable.length > 2 ? '…' : '';
+    return _buildChip(
+      bg: const Color(0xFFFFF7ED),           // âmbar muito claro
+      border: const Color(0xFFFED7AA),
+      iconColor: const Color(0xFFC2410C),    // âmbar escuro
+      textColor: const Color(0xFF9A3412),
+      text: 'Pra match completo, declare: $visible$overflow',
+    );
+  }
+
+  Widget _buildChip({
+    required Color bg,
+    required Color border,
+    required Color iconColor,
+    required Color textColor,
+    required String text,
+  }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF7ED), // âmbar muito claro
+        color: bg,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFFED7AA), width: 1),
+        border: Border.all(color: border, width: 1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
+          Icon(
             Icons.info_outline_rounded,
             size: 14,
-            color: Color(0xFFC2410C), // âmbar escuro pro contraste
+            color: iconColor,
           ),
           const SizedBox(width: 7),
           Flexible(
             child: Text(
-              'Pra match completo, declare: $visible$overflow',
-              style: const TextStyle(
+              text,
+              style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF9A3412),
+                color: textColor,
                 height: 1.3,
               ),
               maxLines: 2,

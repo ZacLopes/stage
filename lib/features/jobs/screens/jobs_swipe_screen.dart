@@ -522,6 +522,13 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     if (_matchVariant == 'deterministic_v1') {
       final vm = context.read<JobsViewModel>();
       final userVm = context.read<UserViewModel>();
+      // Garante profilePrefs carregado do banco antes de calcular — sem
+      // isso há race condition após ProfileEvents.changes (cache foi
+      // invalidado mas reload assíncrono ainda não terminou). Sintoma
+      // observado: user edita Perfil → vaga mostra "Configure suas
+      // preferências" mesmo com tudo declarado, até hot restart.
+      await vm.ensureProfilePrefsLoaded();
+      if (!mounted) return;
       // Pós Passo 3 (2026-05-27): match score lê IDENTIDADE do Perfil
       // (`profilePrefs`, tabelas relacionais), NÃO os filtros temporários
       // do feed (`preferences`). Filtros só escondem/mostram vagas.
@@ -569,6 +576,10 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         try {
           final vm = context.read<JobsViewModel>();
           final userVm = context.read<UserViewModel>();
+          // Garante profilePrefs carregado (evita race com ProfileEvents,
+          // mesmo motivo do caminho determinístico acima).
+          await vm.ensureProfilePrefsLoaded();
+          if (!mounted) return;
           // Mesmo princípio do caminho determinístico acima: fallback
           // lê IDENTIDADE do Perfil (profilePrefs), não filtros (preferences).
           final fallback = MatchScoreCalculator.calculate(

@@ -429,6 +429,17 @@ class JobsViewModel extends ChangeNotifier {
   /// ainda deixam keyword overlap muito ruidoso pra ser sinal).
   int _cachedProfileSkillsCount = 0;
   int get profileSkillsCount => _cachedProfileSkillsCount;
+
+  /// Garante que `profilePrefs` está carregado do banco antes do caller
+  /// chamar `MatchScoreCalculator.calculate` (que precisa de prefs sync via
+  /// [profilePrefs] getter). Sem isso, há race condition após
+  /// `ProfileEvents.changes`: cache é invalidado mas o caller pode ler
+  /// `profilePrefs` antes do reload terminar → null → calculator retorna
+  /// `MatchResult.unknown` e a vaga fica "travada" como sem perfil.
+  ///
+  /// Idempotente. Após retornar, [profilePrefs] está populado (ou null
+  /// confirmado, se user de fato não tem nenhuma pref no relacional).
+  Future<void> ensureProfilePrefsLoaded() => _loadProfilePrefs();
   Future<UserJobPreferences?> _loadProfilePrefs() async {
     if (_profilePrefsLoaded) return _cachedProfilePrefs;
     try {
