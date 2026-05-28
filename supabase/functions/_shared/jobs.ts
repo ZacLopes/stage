@@ -53,19 +53,46 @@ export async function safeJson<T = Record<string, unknown>>(req: Request): Promi
 /**
  * Decodifica entidades HTML comuns. Greenhouse e outros ATSs entregam content
  * com `&lt;`, `&gt;` etc — precisa decodificar antes de aplicar regex.
+ *
+ * Loop até estabilizar: cobre double-encoding (ex: `&amp;nbsp;` que vira
+ * `&nbsp;` no primeiro pass e precisa de segundo pass pra virar espaço).
+ * 94/94 vagas Greenhouse tinham `&nbsp;` literal no description antes deste
+ * fix porque o input do ATS vem double-escaped.
  */
 export function decodeEntities(s: string): string {
-  return s
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&ndash;/g, "–")
-    .replace(/&mdash;/g, "—")
-    .replace(/&hellip;/g, "…")
-    .replace(/&amp;/g, "&"); // por último pra não dupla-decodificar
+  let prev: string;
+  let result = s;
+  do {
+    prev = result;
+    result = result
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&ndash;/g, "–")
+      .replace(/&mdash;/g, "—")
+      .replace(/&hellip;/g, "…")
+      .replace(/&aacute;/g, "á")
+      .replace(/&eacute;/g, "é")
+      .replace(/&iacute;/g, "í")
+      .replace(/&oacute;/g, "ó")
+      .replace(/&uacute;/g, "ú")
+      .replace(/&atilde;/g, "ã")
+      .replace(/&otilde;/g, "õ")
+      .replace(/&ccedil;/g, "ç")
+      .replace(/&Aacute;/g, "Á")
+      .replace(/&Eacute;/g, "É")
+      .replace(/&Iacute;/g, "Í")
+      .replace(/&Oacute;/g, "Ó")
+      .replace(/&Uacute;/g, "Ú")
+      .replace(/&Atilde;/g, "Ã")
+      .replace(/&Otilde;/g, "Õ")
+      .replace(/&Ccedil;/g, "Ç")
+      .replace(/&amp;/g, "&"); // por último pra não dupla-decodificar
+  } while (result !== prev);
+  return result;
 }
 
 /**

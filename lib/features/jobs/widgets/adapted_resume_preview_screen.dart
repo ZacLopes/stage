@@ -1852,9 +1852,6 @@ class _SavedConfirmationDialogState extends State<_SavedConfirmationDialog>
     _checkCtrl.forward();
     await Future<void>.delayed(const Duration(milliseconds: 240));
     _textCtrl.forward();
-    // Auto-close em 4s se user não interagir.
-    await Future<void>.delayed(const Duration(milliseconds: 4000));
-    if (mounted) Navigator.of(context).maybePop();
   }
 
   @override

@@ -829,8 +829,53 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
   /// ao restante da sheet (mesma fonte, mesma cor base que o antigo Text).
   /// Se [html] estiver vazio (vagas em cache antes do campo HTML existir),
   /// cai pro [fallbackPlain] num Text comum.
+  /// Sanitiza HTML cru de vagas (Greenhouse, Lever, Gupy, Brazil Jobs) antes
+  /// de passar pro flutter_html. ATS retornam HTML cheio de:
+  /// - `<iframe>` (vídeos institucionais) → buracos verticais gigantes
+  /// - `<img>`, `<table>` blockados pelo whitelist mas com margem fantasma
+  /// - `style="color: #f1c40f"` em h3 (template Greenhouse) → amarelo berrante
+  /// - `style="font-family: helvetica..."` em cada <li>/<span> → quebra Inter base
+  /// - `<br>` em cascata → espaços inconsistentes
+  /// - `class=""`, `data-teams="true"` → lixo do editor
+  ///
+  /// Estratégia: remover blocks pesados ANTES de qualquer renderização,
+  /// strippar attrs visuais (style/class/data-*), colapsar quebras.
+  static String _sanitizeJobHtml(String html) {
+    if (html.isEmpty) return '';
+    var s = html;
+
+    // Remove blocks inteiros (tag + conteúdo) — ordem importa: aninhamento.
+    final blockTags = ['script', 'style', 'iframe', 'video', 'audio', 'table', 'figure', 'svg'];
+    for (final tag in blockTags) {
+      final re = RegExp('<$tag\\b[^>]*>[\\s\\S]*?</$tag>', caseSensitive: false);
+      s = s.replaceAll(re, '');
+    }
+
+    // Self-closing / void elements que viram placeholders visuais.
+    s = s.replaceAll(RegExp(r'<img\b[^>]*/?>', caseSensitive: false), '');
+    s = s.replaceAll(RegExp(r'<source\b[^>]*/?>', caseSensitive: false), '');
+
+    // Strip de atributos visuais — style, class, data-*, on* (handlers JS).
+    s = s.replaceAll(RegExp(r'''\s+style\s*=\s*"[^"]*"''', caseSensitive: false), '');
+    s = s.replaceAll(RegExp(r"""\s+style\s*=\s*'[^']*'""", caseSensitive: false), '');
+    s = s.replaceAll(RegExp(r'''\s+class\s*=\s*"[^"]*"''', caseSensitive: false), '');
+    s = s.replaceAll(RegExp(r"""\s+class\s*=\s*'[^']*'""", caseSensitive: false), '');
+    s = s.replaceAll(RegExp(r'''\s+data-[a-z\-]+\s*=\s*"[^"]*"''', caseSensitive: false), '');
+    s = s.replaceAll(RegExp(r"""\s+data-[a-z\-]+\s*=\s*'[^']*'""", caseSensitive: false), '');
+    s = s.replaceAll(RegExp(r'''\s+on[a-z]+\s*=\s*"[^"]*"''', caseSensitive: false), '');
+
+    // 3+ <br> seguidos viram 2 (preserva separação intencional sem buraco).
+    s = s.replaceAll(RegExp(r'(\s*<br\s*/?>\s*){3,}', caseSensitive: false), '<br><br>');
+
+    // <p></p> e <span></span> vazios — colapsa.
+    s = s.replaceAll(RegExp(r'<p>\s*</p>', caseSensitive: false), '');
+    s = s.replaceAll(RegExp(r'<span>\s*</span>', caseSensitive: false), '');
+
+    return s.trim();
+  }
+
   Widget _buildJobHtml({required String html, required String fallbackPlain}) {
-    final trimmed = html.trim();
+    final trimmed = _sanitizeJobHtml(html);
     if (trimmed.isEmpty) {
       return Text(
         fallbackPlain,
@@ -913,6 +958,15 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
         'a': Style(
           color: accent,
           textDecoration: TextDecoration.underline,
+        ),
+        // Separador horizontal — linha fina cinza com margin curto.
+        // Sem isso, flutter_html renderiza barra preta grossa.
+        'hr': Style(
+          border: const Border(
+            top: BorderSide(color: Color(0xFFE5E7EB), width: 1),
+          ),
+          margin: Margins.symmetric(vertical: 12),
+          height: Height(0),
         ),
         // Hardcoded reset pra tags que podem quebrar layout — flutter_html
         // ignora os blockeds via onlyRenderTheseTags abaixo, mas zerar
