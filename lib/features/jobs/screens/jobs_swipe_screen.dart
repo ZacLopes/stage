@@ -711,7 +711,10 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     }
 
     return Scaffold(
-      backgroundColor: AppColors.surfaceMuted,
+      // primarySoft = mesma cor do topo do gradient. Sem isso, o cinza
+      // surfaceMuted do background do Scaffold vazava nas bordas do
+      // device (cantos arredondados / status bar inset) acima do gradient.
+      backgroundColor: AppColors.primarySoft,
       extendBodyBehindAppBar: true,
       appBar: _buildAppBar(),
       body: Container(

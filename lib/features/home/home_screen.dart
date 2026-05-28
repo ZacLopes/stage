@@ -314,7 +314,14 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
     ];
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      // Cor da status bar muda com a tab ativa: o SafeArea pinta o top inset
+      // com a cor do Scaffold pai, então cada tab "pede" a cor que combina
+      // com seu corpo. Vagas usa primarySoft (azul claro, topo do gradient).
+      // Salvas/Currículo/Perfil usam background (cinza neutro) — mesmo do
+      // body delas, sem faixa fora de tom.
+      backgroundColor: _currentIndex == HomeTabs.jobs
+          ? AppColors.primarySoft
+          : AppColors.background,
       body: SafeArea(
         child: Column(
           children: [

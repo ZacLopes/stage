@@ -87,6 +87,8 @@ interface ExtractedJob {
   company_name: string;
   company_description?: string | null;
   location?: string | null;
+  location_city?: string | null;
+  location_state?: string | null;
   work_model?: "presencial" | "hibrido" | "remoto" | null;
   description: string;          // texto plano, com seções (Responsabilidades, Pré-requisitos, etc)
   description_html?: string | null; // HTML pra renderização rica (opcional)
@@ -191,6 +193,26 @@ async function listAttachments(emailId: string): Promise<ResendAttachmentFull[]>
   return items as ResendAttachmentFull[];
 }
 
+interface ResendEmailFull {
+  id: string;
+  from: string;
+  to: string[];
+  subject: string;
+  html?: string | null;
+  text?: string | null;
+}
+
+async function fetchEmailFull(emailId: string): Promise<ResendEmailFull> {
+  const res = await fetch(
+    `https://api.resend.com/emails/receiving/${emailId}`,
+    { headers: { Authorization: `Bearer ${RESEND_API_KEY}` } },
+  );
+  if (!res.ok) {
+    throw new Error(`Resend get email failed: ${res.status} ${await res.text()}`);
+  }
+  return await res.json() as ResendEmailFull;
+}
+
 async function downloadAsBase64(url: string): Promise<string> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -206,6 +228,111 @@ async function downloadAsBase64(url: string): Promise<string> {
   return btoa(bin);
 }
 
+// ── Extração de imagem da vaga do HTML ──────────────────────────────────────
+//
+// Newsletters de vaga (Polifinance via GetResponse + Wix, e similares) raramente
+// anexam a imagem da vaga ao email — usam um CDN público (Wix, Mailchimp,
+// SendGrid, etc) e referenciam via <img src="https://...">. Precisamos extrair
+// essas URLs e escolher a que provavelmente é a imagem da vaga (não tracking
+// pixel, não logo, não banner decorativo).
+
+// Padrões a EXCLUIR — tracking pixels, logos pequenos, ícones de redes sociais,
+// banners de footer da plataforma de envio.
+const IMG_URL_BLACKLIST: RegExp[] = [
+  /\/open\.html/i,                      // GetResponse tracking pixel
+  /\btracking\b|\bpixel\b|\bopen\b/i,
+  /\bbeacon\b/i,
+  /getresponse.*logo/i,                 // logo "Powered by GetResponse"
+  /mailchimp.*track/i,
+  /\bfb-logo\b|\bfacebook\b/i,
+  /\binstagram\b/i,
+  /\blinkedin\b.*\blogo\b/i,
+  /\btwitter\b|\bx-logo\b/i,
+  /\bunsubscribe\b/i,
+];
+
+function isLikelyJobImage(url: string): boolean {
+  if (!/^https?:/i.test(url)) return false;
+  for (const re of IMG_URL_BLACKLIST) if (re.test(url)) return false;
+  return true;
+}
+
+function extractImageUrls(html: string): string[] {
+  const re = /<img[^>]+src=["']([^"']+)["']/gi;
+  const urls: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    urls.push(m[1].replace(/&amp;/g, "&"));
+  }
+  return urls;
+}
+
+/**
+ * Wix CDN serve imagens com transformações (`/v1/fit/w_660,h_244`) que reduzem
+ * qualidade. Removemos a transformação pra pegar o original em alta resolução
+ * — crítico pra OCR confiável via GPT-4o vision.
+ */
+function upscaleWixUrl(url: string): string {
+  if (!/images\.wixstatic\.com/i.test(url)) return url;
+  // ex: /media/<id>.png/v1/fit/h_244,q_100,w_660,al_c,lg_0/<id>.png
+  // queremos: /media/<id>.png
+  return url.replace(/\.(png|jpg|jpeg|webp)\/v1\/[^/]+\/[^/]+$/i, ".$1");
+}
+
+/**
+ * Faz HEAD na URL pra descobrir content-length sem baixar a imagem inteira.
+ * Retorna null em qualquer erro — chamador filtra esses casos.
+ */
+async function getImageSize(url: string): Promise<number | null> {
+  try {
+    const res = await fetch(url, { method: "HEAD" });
+    if (!res.ok) return null;
+    const len = res.headers.get("content-length");
+    if (!len) return null;
+    const n = parseInt(len, 10);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Escolhe a URL da imagem da VAGA (não do logo da empresa nem banner decorativo).
+ *
+ * Estratégia: a imagem da vaga renderizada em alta resolução pesa muito mais
+ * que logos pequenos (geralmente 200-500KB vs 30-60KB de logo). Fazemos HEAD
+ * em paralelo em todas as candidatas e pegamos a maior por content-length.
+ *
+ * Filtros prévios eliminam tracking pixels, ícones de social media, e logos
+ * conhecidos (ver IMG_URL_BLACKLIST).
+ */
+async function pickJobImageUrl(html: string): Promise<string | null> {
+  const candidates = extractImageUrls(html)
+    .filter(isLikelyJobImage)
+    .map(upscaleWixUrl);
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  // Dedup — mesma URL pode aparecer múltiplas vezes (ex: logo no header E footer)
+  const unique = Array.from(new Set(candidates));
+
+  const sizes = await Promise.all(unique.map((url) => getImageSize(url)));
+  let bestUrl: string | null = null;
+  let bestSize = 0;
+  for (let i = 0; i < unique.length; i++) {
+    const size = sizes[i];
+    if (size !== null && size > bestSize) {
+      bestSize = size;
+      bestUrl = unique[i];
+    }
+  }
+
+  // Imagens < 50KB são quase certamente logos/ícones — descartar pra evitar
+  // falso positivo (vision não vai ler nada útil).
+  if (bestSize < 50_000) return null;
+  return bestUrl;
+}
+
 // ── OpenAI Vision ────────────────────────────────────────────────────────────
 
 const EXTRACTION_PROMPT = `Você está extraindo dados de uma vaga de emprego brasileira que veio como imagem em uma newsletter de finanças.
@@ -216,7 +343,9 @@ Retorne APENAS JSON válido (sem markdown, sem texto antes/depois), no formato:
   "title": "Cargo exato como aparece no topo",
   "company_name": "Nome da empresa que está contratando",
   "company_description": "Descrição 'Sobre a empresa' se houver, senão null",
-  "location": "Endereço/cidade/estado como aparece, ex: 'São Paulo - SP' ou 'Vila Olímpia, São Paulo - SP'",
+  "location": "Endereço completo como aparece, ex: 'Alameda Vicente Pinzon, 51 - Vila Olímpia, São Paulo - SP' (mantém literal)",
+  "location_city": "APENAS a cidade, ex: 'São Paulo' (ignora rua, número, bairro). null se não identificar",
+  "location_state": "APENAS a sigla de estado em 2 letras maiúsculas, ex: 'SP', 'RJ'. null se não identificar",
   "work_model": "presencial" | "hibrido" | "remoto" | null,
   "description": "Texto plano completo da vaga incluindo seções (Responsabilidades, Pré-requisitos, Diferenciais) com quebras de linha entre seções. Cada bullet em linha separada começando com '• '.",
   "description_html": "Mesmo conteúdo em HTML simples: <h3>Responsabilidades</h3><ul><li>...</li></ul><h3>Pré-requisitos</h3>... etc. Use h3/ul/li/p/strong apenas.",
@@ -236,11 +365,12 @@ REGRAS:
 - Não traduza nada.`;
 
 async function extractFromImage(
-  imageBase64: string,
-  contentType: string,
+  imageUrl: string,
 ): Promise<ExtractedJob> {
-  const dataUrl = `data:${contentType};base64,${imageBase64}`;
-
+  // OpenAI vision aceita URL pública direto OU data: URL (base64). Vagas vêm
+  // de CDN público (Wix), então passar URL é mais barato (OpenAI baixa lá).
+  // Pra attachments do Resend (pre-signed URLs), também funciona — sao URLs
+  // públicas com TTL curto, mas válidas durante o request.
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -257,7 +387,7 @@ async function extractFromImage(
           role: "user",
           content: [
             { type: "text", text: EXTRACTION_PROMPT },
-            { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
+            { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
           ],
         },
       ],
@@ -331,37 +461,59 @@ serve(async (req: Request) => {
     return jsonResponse({ skipped: "sender_not_allowed", from });
   }
 
-  // 4. Pega 1ª imagem dos anexos. Polifinance manda 1 imagem; outras fontes
-  //    podem ter múltiplas — pegamos a maior heurística futura, MVP usa a 1ª.
-  let attachments: ResendAttachmentFull[];
+  // 4. Resolve a URL da imagem da vaga.
+  //
+  // Newsletters tipo Polifinance (GetResponse + Wix CDN) NÃO anexam a imagem
+  // ao email — referenciam via <img src="https://images.wixstatic.com/...">.
+  // Por isso buscamos o HTML completo via API quando attachments[] vier vazio
+  // ou só tiver tracking pixels.
+  //
+  // Estratégia: attachments primeiro (caso raro), fallback pra parsing do HTML.
+  let imageUrl: string | null = null;
+  let imageSource = "unknown";
+
   try {
-    attachments = await listAttachments(payload.data.email_id);
+    const attachments = await listAttachments(payload.data.email_id);
+    const imageAtt = attachments.find((a) => isImage(a.content_type));
+    if (imageAtt) {
+      imageUrl = imageAtt.download_url;
+      imageSource = "attachment";
+    }
   } catch (e) {
-    console.error("List attachments failed:", e);
-    return jsonResponse({ error: "list_attachments_failed", message: String(e) }, 502);
+    console.error("List attachments failed (non-fatal, tentando HTML):", e);
   }
 
-  const imageAtt = attachments.find((a) => isImage(a.content_type));
-  if (!imageAtt) {
+  if (!imageUrl) {
+    try {
+      const email = await fetchEmailFull(payload.data.email_id);
+      if (email.html) {
+        imageUrl = await pickJobImageUrl(email.html);
+        if (imageUrl) imageSource = "html_img_src";
+      }
+    } catch (e) {
+      console.error("Fetch email body failed:", e);
+      return jsonResponse({ error: "fetch_email_failed", message: String(e) }, 502);
+    }
+  }
+
+  if (!imageUrl) {
     return jsonResponse({
-      skipped: "no_image_attachment",
-      attachments_count: attachments.length,
+      skipped: "no_image_found",
+      reason: "no attachment image and no usable <img> in html",
     });
   }
 
-  // 5. Baixa imagem
-  let imageBase64: string;
-  try {
-    imageBase64 = await downloadAsBase64(imageAtt.download_url);
-  } catch (e) {
-    console.error("Download attachment failed:", e);
-    return jsonResponse({ error: "download_failed", message: String(e) }, 502);
-  }
+  console.log(JSON.stringify({
+    event: "image_resolved",
+    source: imageSource,
+    url: imageUrl,
+    email_id: payload.data.email_id,
+  }));
 
-  // 6. Extrai vaga via GPT-4o vision
+  // 5. Extrai vaga via GPT-4o vision (OpenAI baixa a URL pública direto)
   let extracted: ExtractedJob;
   try {
-    extracted = await extractFromImage(imageBase64, imageAtt.content_type);
+    extracted = await extractFromImage(imageUrl);
   } catch (e) {
     console.error("Extraction failed:", e);
     return jsonResponse({ error: "extraction_failed", message: String(e) }, 500);
@@ -396,7 +548,16 @@ serve(async (req: Request) => {
     return jsonResponse({ error: "company_upsert_failed" }, 500);
   }
 
-  const { city, state } = parseLocation(extracted.location ?? "");
+  // Prefere city/state que o GPT já normalizou (campos novos no prompt).
+  // Fallback pro parseLocation se vier vazio (compat com prompts antigos
+  // ou edge cases onde o GPT só retorna location bruto).
+  let city = extracted.location_city?.trim() || "";
+  let state = extracted.location_state?.trim().toUpperCase() || "";
+  if (!city || !state) {
+    const parsed = parseLocation(extracted.location ?? "");
+    if (!city) city = parsed.city;
+    if (!state) state = parsed.state;
+  }
   const area = extracted.area_hint?.trim() ||
     inferArea(extracted.title, extracted.description);
   const jobType = extracted.seniority_hint?.trim() ||
@@ -433,7 +594,8 @@ serve(async (req: Request) => {
       resend_email_id: payload.data.email_id,
       resend_subject: payload.data.subject,
       resend_from: from,
-      attachment_filename: imageAtt.filename,
+      image_source: imageSource,
+      image_url: imageUrl,
       extracted_at: now,
     },
   };

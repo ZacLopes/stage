@@ -7,9 +7,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/analytics/screen_tracking.dart';
-
+import '../../../core/utils/display_name.dart';
 import '../../../services/analytics_service.dart';
 import '../../../services/facebook_events_service.dart';
+import '../../auth/user_viewmodel.dart';
+import '../../profile/application/profile_editor_view_model.dart';
 import '../data/swipe_repository.dart';
 import '../jobs_viewmodel.dart';
 import 'job_details_sheet.dart';
@@ -331,7 +333,17 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
     if (job.applicationMethod == 'email') {
       final email = job.applicationEmail;
       if (email == null || email.isEmpty) return null;
-      return _ApplyAction.email(email: email, subject: job.applicationSubject);
+      // Polifinance e similares usam placeholders tipo "[SEU NOME]" no
+      // assunto sugerido. Substituímos pelo nome real do user (mesma fonte
+      // canônica das outras telas — profile_personal com fallback no legacy).
+      final user = context.read<UserViewModel>().user;
+      final editorVM = context.read<ProfileEditorViewModel>();
+      final userName = resolveDisplayName(editorVM, user?.name);
+      return _ApplyAction.email(
+        email: email,
+        subject: job.applicationSubject,
+        userName: userName,
+      );
     }
     final ext = job.externalUrl;
     if (ext != null && ext.isNotEmpty) return _ApplyAction.url(ext);
@@ -365,13 +377,31 @@ class _ApplyAction {
     );
   }
 
-  factory _ApplyAction.email({required String email, String? subject}) {
-    final params = <String, String>{};
-    if (subject != null && subject.trim().isNotEmpty) {
-      params['subject'] = subject.trim();
+  factory _ApplyAction.email({
+    required String email,
+    String? subject,
+    String? userName,
+  }) {
+    // RFC 6068 (mailto): parâmetros devem usar percent-encoding (%20 pra
+    // espaço). Uri(queryParameters: ...) aplica form-urlencoded (+ pra
+    // espaço), que clientes de email iOS/Android interpretam literalmente
+    // como "+" — saída fica "Vaga+Investimentos+...". Montamos a string
+    // manualmente com Uri.encodeComponent pra garantir %20.
+    var subj = subject?.trim() ?? '';
+    // Substitui placeholders típicos dos templates Polifinance/etc se o
+    // user tem nome configurado. Casos cobertos: "[SEU NOME]", "(SEU NOME)",
+    // "[Seu Nome]" — todas variações case-insensitive de colchete ou
+    // parênteses ao redor de "seu nome".
+    final name = userName?.trim() ?? '';
+    if (name.isNotEmpty && name.toLowerCase() != 'usuário') {
+      subj = subj.replaceAll(
+        RegExp(r'[\[\(]\s*seu\s+nome\s*[\]\)]', caseSensitive: false),
+        name,
+      );
     }
+    final query = subj.isEmpty ? '' : '?subject=${Uri.encodeComponent(subj)}';
     return _ApplyAction._(
-      uri: Uri(scheme: 'mailto', path: email, queryParameters: params.isEmpty ? null : params),
+      uri: Uri.parse('mailto:$email$query'),
       label: 'Enviar CV por email',
       icon: Icons.mail_outline_rounded,
       failureMessage: 'Não consegui abrir o app de email.',
@@ -640,10 +670,16 @@ class _LikedJobCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 12),
-              Row(
+              // Botões empilhados — labels longos ("Enviar CV por email",
+              // "Marcar como aplicada") não cabiam em Row 50/50, ellipsis
+              // cortava em "Enviar CV por e..." e "Marcar como apl...".
+              // Full-width preserva o texto completo, dá área de toque maior
+              // e mantém hierarquia clara (CTA primário em cima).
+              Column(
                 children: [
-                  if (hasApply)
-                    Expanded(
+                  if (hasApply) ...[
+                    SizedBox(
+                      width: double.infinity,
                       child: _ActionBtn(
                         icon: applyAction!.icon,
                         label: applyAction!.label,
@@ -651,8 +687,10 @@ class _LikedJobCard extends StatelessWidget {
                         primary: true,
                       ),
                     ),
-                  if (hasApply) const SizedBox(width: 8),
-                  Expanded(
+                    const SizedBox(height: 8),
+                  ],
+                  SizedBox(
+                    width: double.infinity,
                     child: _ActionBtn(
                       icon: applied
                           ? Icons.check_circle_rounded
@@ -801,7 +839,7 @@ class _ActionBtn extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
             border: Border.all(color: border, width: 1),
@@ -810,15 +848,16 @@ class _ActionBtn extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 16, color: fg),
-              const SizedBox(width: 6),
+              Icon(icon, size: 17, color: fg),
+              const SizedBox(width: 8),
               Flexible(
                 child: Text(
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontFamily: 'Inter', 
-                    fontSize: 12.5,
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13.5,
                     fontWeight: FontWeight.w600,
                     color: fg,
                   ),
@@ -1048,7 +1087,7 @@ class _FirstSaveBanner extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Toque numa vaga abaixo, leia os detalhes e use o botão "Aplicar no site" pra ir direto pro recrutador. Quando aplicar, marque como "Já apliquei" pra organizar.',
+                    'Toque numa vaga abaixo pra ver os detalhes. Use "Aplicar no site" pra ir direto pro recrutador, ou "Enviar CV por email" quando a vaga aceitar candidatura por email — vai abrir seu app de email com o destinatário já preenchido. Depois, marque como "Já apliquei" pra organizar.',
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.92),
                       fontSize: 12.5,
