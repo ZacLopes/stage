@@ -115,8 +115,9 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
       TutorialStep(
         title: 'Aba Vagas',
         description:
-            'Aqui você descobre estágios. Deslize o card pra DIREITA pra salvar '
-            'a vaga, ou pra ESQUERDA pra pular.',
+            'Aqui você descobre vagas e estágios. Deslize → pra salvar, ← pra '
+            'pular. O número no canto do card é o match com seu perfil — '
+            'quanto mais alto, mais combina.',
         targetKey: TutorialKeys.jobsTab,
         onEnter: () => goTo(HomeTabs.jobs),
       ),
@@ -133,8 +134,8 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
       TutorialStep(
         title: 'Vagas Salvas',
         description:
-            'Suas curtidas ficam aqui. Marque "aplicada" quando se candidatar '
-            'pra não perder o controle.',
+            'Suas vagas salvas ficam aqui. Marque "aplicada" quando se '
+            'candidatar pra acompanhar o status.',
         targetKey: TutorialKeys.savedTab,
         onEnter: () => goTo(HomeTabs.saved),
       ),
@@ -165,17 +166,41 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
       TutorialStep(
         title: 'Aba Perfil',
         description:
-            'Seus currículos gerados ou importados ficam aqui na biblioteca. '
-            'Toque em qualquer um pra ver, editar e exportar em PDF.',
+            'Aqui estão suas informações, preferências de vaga e a biblioteca '
+            'de CVs. As preferências alimentam o match — ajuste quando seu '
+            'objetivo mudar.',
         targetKey: TutorialKeys.profileTab,
         onEnter: () => goTo(HomeTabs.profile),
       ),
-      const TutorialStep(
-        title: 'Pronto, bora! 🚀',
+      TutorialStep(
+        title: 'Pronto! Por onde quer começar?',
         description:
-            'Pode rever esse tutorial a qualquer momento em '
-            'Perfil → Configurações → Tutorial.',
+            'Pode rever esse tutorial em Perfil → Configurações → Tutorial.',
         anchor: TutorialTooltipAnchor.center,
+        finalChoices: [
+          TutorialFinalChoice(
+            label: 'Ver vagas',
+            icon: Icons.work_rounded,
+            onTap: () async {
+              Analytics.shared.track(
+                'tutorial_completed',
+                props: const {'next_action': 'jobs'},
+              );
+              goTo(HomeTabs.jobs);
+            },
+          ),
+          TutorialFinalChoice(
+            label: 'Cuidar do CV',
+            icon: Icons.description_rounded,
+            onTap: () async {
+              Analytics.shared.track(
+                'tutorial_completed',
+                props: const {'next_action': 'resume'},
+              );
+              goTo(HomeTabs.resume);
+            },
+          ),
+        ],
       ),
     ];
   }

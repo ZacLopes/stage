@@ -11,6 +11,26 @@ enum TutorialTooltipAnchor {
   center,
 }
 
+/// CTA branch on the final step. The overlay renders one button per
+/// choice in place of the default "Bora começar" — used to fork users
+/// into measurable starting paths (ver vagas vs cuidar do CV) for
+/// post-onboarding analytics.
+class TutorialFinalChoice {
+  final String label;
+  final IconData icon;
+
+  /// Invoked AFTER the controller marks the tutorial as finished. Use
+  /// it to navigate + track analytics. Don't call `controller.finish()`
+  /// from here — the overlay already does it.
+  final Future<void> Function() onTap;
+
+  const TutorialFinalChoice({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+}
+
 /// One step of the tutorial. The overlay renders these one at a time,
 /// advancing via the "Próximo" button.
 class TutorialStep {
@@ -39,6 +59,12 @@ class TutorialStep {
   /// Forces a specific tooltip placement. Default `auto`.
   final TutorialTooltipAnchor anchor;
 
+  /// Multi-CTA outro: if this step is the LAST one and the list is
+  /// non-empty, the tooltip swaps "Bora começar" for one button per
+  /// choice. Empty list (default) preserves the legacy single-button
+  /// behavior.
+  final List<TutorialFinalChoice> finalChoices;
+
   const TutorialStep({
     required this.title,
     required this.description,
@@ -47,5 +73,6 @@ class TutorialStep {
     this.padding = 8,
     this.radius = 12,
     this.anchor = TutorialTooltipAnchor.auto,
+    this.finalChoices = const [],
   });
 }

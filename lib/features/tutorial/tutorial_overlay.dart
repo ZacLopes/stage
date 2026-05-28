@@ -415,63 +415,132 @@ class _TooltipCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 14),
-            // Progress dots + next button
-            Row(
-              children: [
-                Expanded(
-                  child: Row(
-                    children: List.generate(controller.totalSteps, (i) {
-                      final active = i == controller.currentIndex;
-                      return AnimatedContainer(
-                        duration: const Duration(milliseconds: 240),
-                        margin: const EdgeInsets.only(right: 4),
-                        height: 4,
-                        width: active ? 18 : 6,
-                        decoration: BoxDecoration(
-                          color: active
-                              ? AppColors.gold
-                              : Colors.white.withOpacity(0.22),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      );
-                    }),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: controller.next,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: const Color(0xFF1E1B4B),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+            // Último step com finalChoices → 2 CTAs empilhados (em vez do
+            // botão "Bora começar" único). Cada um finaliza o tutorial e
+            // dispara o callback (navegação + analytics) configurado no
+            // step. Os progress dots somem porque o user já chegou no fim.
+            if (isLast && step.finalChoices.isNotEmpty)
+              _FinalChoicesActions(step: step, controller: controller)
+            else
+              Row(
+                children: [
+                  Expanded(
+                    child: Row(
+                      children: List.generate(controller.totalSteps, (i) {
+                        final active = i == controller.currentIndex;
+                        return AnimatedContainer(
+                          duration: const Duration(milliseconds: 240),
+                          margin: const EdgeInsets.only(right: 4),
+                          height: 4,
+                          width: active ? 18 : 6,
+                          decoration: BoxDecoration(
+                            color: active
+                                ? AppColors.gold
+                                : Colors.white.withOpacity(0.22),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        );
+                      }),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                    elevation: 0,
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        isLast ? 'Bora começar' : 'Próximo',
-                        style: TextStyle(fontFamily: 'Inter', 
-                          fontWeight: FontWeight.w800,
-                          fontSize: 13.5,
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: controller.next,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: const Color(0xFF1E1B4B),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                      elevation: 0,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          isLast ? 'Bora começar' : 'Próximo',
+                          style: TextStyle(fontFamily: 'Inter',
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13.5,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(
-                        isLast ? Icons.check_rounded : Icons.arrow_forward_rounded,
-                        size: 16,
-                      ),
-                    ],
+                        const SizedBox(width: 4),
+                        Icon(
+                          isLast ? Icons.check_rounded : Icons.arrow_forward_rounded,
+                          size: 16,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// CTAs empilhados pro último step quando `step.finalChoices` está
+/// preenchido. Cada botão finaliza o tutorial (marca seen + fecha
+/// overlay) ANTES de chamar o callback do choice, então a navegação
+/// acontece com a UI já limpa.
+class _FinalChoicesActions extends StatelessWidget {
+  final TutorialStep step;
+  final TutorialController controller;
+  const _FinalChoicesActions({required this.step, required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    final choices = step.finalChoices;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < choices.length; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () async {
+                await controller.finish();
+                await choices[i].onTap();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: i == 0
+                    ? Colors.white
+                    : Colors.white.withOpacity(0.12),
+                foregroundColor: i == 0
+                    ? const Color(0xFF1E1B4B)
+                    : Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: i == 0
+                      ? BorderSide.none
+                      : BorderSide(color: Colors.white.withOpacity(0.3)),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                elevation: 0,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(choices[i].icon, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    choices[i].label,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

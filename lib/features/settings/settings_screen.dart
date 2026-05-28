@@ -226,14 +226,6 @@ class _SettingsScreenState extends State<SettingsScreen>
                   },
                 ),
 
-                const Divider(height: 1),
-                _SettingsTile(
-                  icon: Icons.info_outline,
-                  title: 'Sobre o App',
-                  subtitle: 'Versão 1.1.0',
-                  iconColor: AppColors.textTertiary,
-                  onTap: () {},
-                ),
               ],
             ),
           ),
