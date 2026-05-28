@@ -2,7 +2,27 @@ import '../models/job.dart';
 import '../models/user_preferences.dart';
 import 'filter_helpers.dart';
 
-/// Resultado de um cálculo de match: score 0-100 + razões explicáveis.
+/// Nível de confiança do match score, baseado em QUANTAS dimensões o user
+/// declarou pra alimentar o cálculo (Passo 5 do plano match-score, 2026-05-27).
+///
+/// Não é confiança "do score em si" — é "quanto dado o sistema tem pra avaliar".
+/// User com 5+ dimensões declaradas → o score reflete bem o fit real (high).
+/// User com < 3 → o score é estimativa parcial, UI esconde o número e mostra
+/// CTA pra completar o perfil (low).
+enum MatchConfidence {
+  /// < 3 dimensões declaradas. UI mostra "Análise limitada" + CTA com
+  /// `missingDimensions`. Score interno ainda é calculado pra ordenar feed.
+  low,
+
+  /// 3-4 dimensões declaradas. UI mostra score + label "Estimativa parcial".
+  medium,
+
+  /// 5+ dimensões declaradas. UI mostra score numérico normal.
+  high,
+}
+
+/// Resultado de um cálculo de match: score 0-100 + razões explicáveis +
+/// confiança (Passo 5).
 ///
 /// Estados especiais:
 /// - [isNoResume]: user não tem CV importado nem trilha preenchida. UI mostra
@@ -18,16 +38,29 @@ class MatchResult {
   final bool isUnknown;
   final bool isPending;
   final bool isNoResume;
+
+  /// Nível de confiança do score (Passo 5). UI usa pra decidir se exibe
+  /// número (high), número + ressalva (medium), ou esconde número
+  /// substituindo por CTA (low).
+  final MatchConfidence confidence;
+
+  /// Dimensões que o user AINDA NÃO declarou (ex: ['cidade', 'tipo de vaga']).
+  /// Usado no CTA "Falta declarar [X, Y]" em cards com `confidence == low`.
+  final List<String> missingDimensions;
+
   const MatchResult({
     required this.score,
     required this.reasons,
     this.isUnknown = false,
     this.isPending = false,
     this.isNoResume = false,
+    this.confidence = MatchConfidence.high,
+    this.missingDimensions = const [],
   });
 
   /// Estado especial: sem dado suficiente pra avaliar. Score 0 + flag.
   /// UI deve renderizar como "Sem análise — configure seu perfil".
+  /// Confidence sempre `low` aqui — sinaliza que falta dado de origem.
   const MatchResult.unknown()
       : score = 0,
         reasons = const [
@@ -41,7 +74,9 @@ class MatchResult {
         ],
         isUnknown = true,
         isPending = false,
-        isNoResume = false;
+        isNoResume = false,
+        confidence = MatchConfidence.low,
+        missingDimensions = const [];
 
   /// Estado especial: IA está calculando. UI deve renderizar placeholder
   /// (skeleton/dots) em vez de número. Evita flash de score determinístico
@@ -51,7 +86,9 @@ class MatchResult {
         reasons = const [],
         isUnknown = false,
         isPending = true,
-        isNoResume = false;
+        isNoResume = false,
+        confidence = MatchConfidence.high,
+        missingDimensions = const [];
 
   /// Estado especial: user não tem currículo no app (nem importado, nem
   /// trilha). Score não faz sentido sem dado do candidato — UI substitui o
@@ -61,7 +98,25 @@ class MatchResult {
         reasons = const [],
         isUnknown = false,
         isPending = false,
-        isNoResume = true;
+        isNoResume = true,
+        confidence = MatchConfidence.high,
+        missingDimensions = const [];
+
+  /// Cria cópia com `confidence` e `missingDimensions` setados. Usado depois
+  /// que `MatchScoreCalculator.calculate` já produziu o score base — confidence
+  /// é função das prefs do user, não do par (user, vaga), então é calculado
+  /// uma vez por sessão e mesclado nos MatchResults.
+  MatchResult withConfidence(MatchConfidence c, List<String> missing) {
+    return MatchResult(
+      score: score,
+      reasons: reasons,
+      isUnknown: isUnknown,
+      isPending: isPending,
+      isNoResume: isNoResume,
+      confidence: c,
+      missingDimensions: missing,
+    );
+  }
 }
 
 class MatchReason {
@@ -229,6 +284,85 @@ class MatchScoreCalculator {
     final clamped = normalized.clamp(0, 100);
 
     return MatchResult(score: clamped, reasons: reasons);
+  }
+
+  /// Calcula nível de confiança do match score baseado em QUANTAS dimensões
+  /// o user declarou (Passo 5 do plano match-score, 2026-05-27).
+  ///
+  /// - ≥ 5 dimensões → `high`: UI mostra score numérico normal.
+  /// - 3-4 dimensões → `medium`: UI mostra score + label "Estimativa parcial".
+  /// - < 3 dimensões → `low`: UI esconde número, mostra "Análise limitada"
+  ///   + CTA com as dimensões faltantes.
+  ///
+  /// Dimensões consideradas:
+  ///   - Área (`prefs.areas`)
+  ///   - Tipo de vaga (`prefs.jobTypes`)
+  ///   - Cidade (`prefs.locations`)
+  ///   - Modelo de trabalho (`prefs.workModels`)
+  ///   - Salário (`prefs.minSalary > 0`)
+  ///   - Skills (`skillsCount >= 3` — 1 ou 2 skills isoladas não bastam pra
+  ///     considerar "dimensão preenchida" porque keyword overlap fica ruidoso)
+  ///
+  /// Retorna o nível + lista de labels das dimensões NÃO declaradas pra CTA.
+  static ({MatchConfidence level, List<String> missing}) computeConfidence({
+    UserJobPreferences? prefs,
+    int skillsCount = 0,
+  }) {
+    final missing = <String>[];
+    int filled = 0;
+
+    final hasAreas = prefs != null && prefs.areas.isNotEmpty;
+    if (hasAreas) {
+      filled++;
+    } else {
+      missing.add('área de interesse');
+    }
+
+    final hasJobTypes = prefs != null && prefs.jobTypes.isNotEmpty;
+    if (hasJobTypes) {
+      filled++;
+    } else {
+      missing.add('tipo de vaga');
+    }
+
+    final hasLocations = prefs != null && prefs.locations.isNotEmpty;
+    if (hasLocations) {
+      filled++;
+    } else {
+      missing.add('cidade');
+    }
+
+    final hasWorkModels = prefs != null && prefs.workModels.isNotEmpty;
+    if (hasWorkModels) {
+      filled++;
+    } else {
+      missing.add('modelo de trabalho');
+    }
+
+    final hasSalary = prefs != null && prefs.minSalary != null && prefs.minSalary! > 0;
+    if (hasSalary) {
+      filled++;
+    } else {
+      missing.add('salário mínimo');
+    }
+
+    final hasSkills = skillsCount >= 3;
+    if (hasSkills) {
+      filled++;
+    } else {
+      missing.add('skills');
+    }
+
+    final MatchConfidence level;
+    if (filled >= 5) {
+      level = MatchConfidence.high;
+    } else if (filled >= 3) {
+      level = MatchConfidence.medium;
+    } else {
+      level = MatchConfidence.low;
+    }
+
+    return (level: level, missing: missing);
   }
 
   // ── Helpers ─────────────────────────────────────────────────────

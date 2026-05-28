@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/job.dart';
+import '../utils/match_score.dart';
 
 // ────────────────────────────────────────────────────────────
 // Pendente = IA ainda calculando. Renderiza placeholder no lugar do
@@ -23,12 +24,26 @@ class JobCard extends StatefulWidget {
   /// como calcular match honesto.
   final bool isNoResume;
 
+  /// Confiança da análise (Passo 5 do plano match-score, 2026-05-27).
+  /// Função de quantas dimensões o user declarou. Default `high` mantém
+  /// retrocompat — quando não passado, comporta como antes (score sempre
+  /// visível). Quando `low`, ring é substituído por badge "Análise limitada"
+  /// + CTA com [missingDimensions]. Quando `medium`, ring normal + ressalva.
+  final MatchConfidence confidence;
+
+  /// Labels das dimensões que o user ainda NÃO declarou (ex:
+  /// `['cidade', 'salário mínimo']`). Renderizado como CTA no card quando
+  /// `confidence == low`. Default lista vazia.
+  final List<String> missingDimensions;
+
   const JobCard({
     super.key,
     required this.job,
     this.matchScore,
     this.isPending = false,
     this.isNoResume = false,
+    this.confidence = MatchConfidence.high,
+    this.missingDimensions = const [],
   });
 
   @override
@@ -186,6 +201,21 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                                 ),
                               ],
                             ),
+
+                            // CTA discreto quando confidence == low — orienta
+                            // o user a completar perfil pra desbloquear match
+                            // real (Passo 5 do plano match-score, 2026-05-27).
+                            if (widget.confidence == MatchConfidence.low &&
+                                widget.missingDimensions.isNotEmpty &&
+                                !widget.isPending &&
+                                !widget.isNoResume)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 10),
+                                child: _MissingDimensionsCta(
+                                  missing: widget.missingDimensions,
+                                ),
+                              ),
+
                             const SizedBox(height: 14),
 
                             // Description section header — overline minúsculo,
@@ -381,11 +411,17 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                   ),
                 ),
 
-                // Match ring — 3 estados: noResume (CTA criar CV) > pending (dots) > score real
+                // Match ring — 4 estados (precedência de cima pra baixo):
+                //   1. noResume       → CTA "crie seu CV"
+                //   2. pending        → dots animados
+                //   3. confidence low → badge "Análise limitada" (Passo 5)
+                //   4. score real     → ring com %match (com asterisco se medium)
                 widget.isNoResume
                     ? const _NoResumeBadge()
                     : widget.isPending
                     ? _MatchPendingRing()
+                    : widget.confidence == MatchConfidence.low
+                    ? const _LimitedAnalysisBadge()
                     : AnimatedBuilder(
                         animation: _ringAnimation,
                         builder: (context, _) {
@@ -407,7 +443,11 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
-                                      '${(_score * _ringAnimation.value).toInt()}%',
+                                      // confidence medium: adiciona asterisco
+                                      // discreto pra sinalizar "estimativa parcial".
+                                      // Detalhamento aparece no card body / sheet.
+                                      '${(_score * _ringAnimation.value).toInt()}%'
+                                      '${widget.confidence == MatchConfidence.medium ? '*' : ''}',
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 14,
@@ -516,6 +556,97 @@ class _NoResumeBadge extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             'crie\nseu CV',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.95),
+              fontSize: 8,
+              fontWeight: FontWeight.w700,
+              height: 1.1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// CTA inline no body do card quando `confidence == low` (Passo 5).
+/// Mostra as 2 primeiras dimensões faltantes em destaque com ícone âmbar.
+/// Toque no card abre o JobDetailsSheet (que pode listar todas as faltantes).
+class _MissingDimensionsCta extends StatelessWidget {
+  final List<String> missing;
+  const _MissingDimensionsCta({required this.missing});
+
+  @override
+  Widget build(BuildContext context) {
+    // Mostra até 2 dimensões pra não poluir o card. Se há mais, sufixa "...".
+    final visible = missing.take(2).join(', ');
+    final overflow = missing.length > 2 ? '…' : '';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7ED), // âmbar muito claro
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFFED7AA), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.info_outline_rounded,
+            size: 14,
+            color: Color(0xFFC2410C), // âmbar escuro pro contraste
+          ),
+          const SizedBox(width: 7),
+          Flexible(
+            child: Text(
+              'Pra match completo, declare: $visible$overflow',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF9A3412),
+                height: 1.3,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Badge mostrado no header do card quando `confidence == low` (Passo 5 do
+/// plano match-score, 2026-05-27). User tem perfil mas declarou < 3 dimensões
+/// — score interno é calculado pra ordenar feed, mas a UI esconde o número
+/// pra não "mentir" e mostra CTA pra completar perfil. Ocupa o mesmo slot
+/// 60×60 do ring real. Detalhamento de "quais dimensões faltam" aparece no
+/// JobDetailsSheet.
+class _LimitedAnalysisBadge extends StatelessWidget {
+  const _LimitedAnalysisBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 60,
+      height: 60,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.white.withOpacity(0.18),
+        border: Border.all(color: Colors.white.withOpacity(0.4), width: 1.5),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(
+            Icons.help_outline_rounded,
+            color: Colors.white,
+            size: 22,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'análise\nlimitada',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Colors.white.withOpacity(0.95),

@@ -484,8 +484,24 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       return const MatchResult.noResume();
     }
 
+    // Pós Passo 5 (2026-05-27): aplica confidence baseado em quantas
+    // dimensões o user declarou. Função do USER (não do par user×vaga),
+    // então é constante na sessão. computeConfidence é puro/barato — sem
+    // necessidade de cachear.
+    final vm = context.read<JobsViewModel>();
+    final conf = MatchScoreCalculator.computeConfidence(
+      prefs: vm.profilePrefs,
+      skillsCount: vm.profileSkillsCount,
+    );
+
     final cached = _matchCache[job.id];
-    if (cached != null) return cached;
+    if (cached != null) {
+      // Mescla confidence no MatchResult sem alterar score/reasons que
+      // vieram da IA (ou do fallback determinístico). UI usa o confidence
+      // pra decidir se exibe número, label "Estimativa parcial", ou
+      // "Análise limitada" + CTA.
+      return cached.withConfidence(conf.level, conf.missing);
+    }
 
     // Sem cache → dispara IA em background e marca como pending.
     if (!_matchInflight.contains(job.id)) {
@@ -1072,6 +1088,8 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
               matchScore: match.score,
               isPending: match.isPending,
               isNoResume: match.isNoResume,
+              confidence: match.confidence,
+              missingDimensions: match.missingDimensions,
             ),
           );
         },

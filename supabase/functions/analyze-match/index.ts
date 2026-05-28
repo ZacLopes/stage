@@ -769,7 +769,60 @@ serve(async (req) => {
       })
     }
 
-    // 6. Call OpenAI
+    // 6a. BYPASS M3.4 (Passo 5 do plano match-score, 2026-05-27):
+    // Quando o user é 100% fantasma (zero prefs E zero perfil), pula a
+    // chamada de IA (que custaria $ e latência) e retorna direto o Cenário C.
+    // Cliente já mapeia esse retorno pra MatchResult.unknown() — UX idêntica
+    // ao fluxo anterior, sem custo extra. Economiza ~5-15% das chamadas
+    // pra users novos antes de preencher o perfil.
+    //
+    // O check é mais estrito que `hasNoPrefs`: também exige que profileText
+    // (snapshot relacional) E whoIAm (legacy) E raw_text (CV importado)
+    // estejam vazios. Se houver QUALQUER sinal — incluindo 1 skill solta no
+    // relacional ou um CV importado — IA é chamada normalmente.
+    const whoIAm = gamificationData?.whoIAm?.derived ?? {}
+    const rawCv = gamificationData?.imported_resume?.raw_text ?? ''
+    const hasAnyProfile =
+      profileText.length > 0 ||
+      rawCv.length > 0 ||
+      !!whoIAm.skills ||
+      !!whoIAm.summary ||
+      !!whoIAm.interests
+    if (hasNoPrefs(prefs) && !hasAnyProfile) {
+      const scenarioCPayload: MatchPayload = {
+        score: 50,
+        reasons: [
+          {
+            label: 'Sem perfil',
+            matched: false,
+            weight: 0,
+            detail: 'Configure suas preferências ou suba seu CV para um match preciso.',
+          },
+        ],
+      }
+      // Persiste cache pra evitar nova chamada na próxima abertura do feed.
+      await supabaseClient.from('match_analyses').upsert({
+        user_id: user.id,
+        job_id: jobId,
+        score: scenarioCPayload.score,
+        reasons: scenarioCPayload.reasons,
+        model_used: 'bypass_scenario_c',
+        prompt_version: PROMPT_VERSION,
+        profile_hash: profileHash,
+        computed_at: new Date().toISOString(),
+      }, { onConflict: 'user_id,job_id' })
+
+      console.log(`[analyze-match] bypass scenario_c user=${user.id} (zero prefs + zero profile)`)
+
+      return jsonResponse({
+        score: scenarioCPayload.score,
+        reasons: scenarioCPayload.reasons,
+        cached: false,
+        model_used: 'bypass_scenario_c',
+      })
+    }
+
+    // 6b. Call OpenAI (fluxo normal — user tem ao menos 1 sinal)
     const userPrompt = buildUserPrompt({ job, prefs, gamificationData, profileText })
     const aiStart = Date.now()
     const ai = await callOpenAI(SYSTEM_PROMPT, userPrompt)

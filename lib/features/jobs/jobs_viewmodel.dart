@@ -49,6 +49,7 @@ class JobsViewModel extends ChangeNotifier {
       _cachedProfileText = null;
       _profilePrefsLoaded = false;
       _cachedProfilePrefs = null;
+      _cachedProfileSkillsCount = 0;
       notifyListeners();
       // Recarrega profilePrefs em background e re-aplica filtros do feed
       // se o user ainda não setou filtros locais (caso típico: terminou
@@ -86,6 +87,7 @@ class JobsViewModel extends ChangeNotifier {
           _cachedProfileText = null;
           _profilePrefsLoaded = false;
           _cachedProfilePrefs = null;
+          _cachedProfileSkillsCount = 0;
           _totalAvailable = 0;
           _totalAfterFilters = 0;
           notifyListeners();
@@ -421,12 +423,19 @@ class JobsViewModel extends ChangeNotifier {
   /// invalida em [ProfileEvents.changes] e [signOut].
   UserJobPreferences? _cachedProfilePrefs;
   bool _profilePrefsLoaded = false;
+  /// Contagem de skills do user em `profile_skills`. Carregada junto com
+  /// profilePrefs (1 query extra). Usada pelo Passo 5 (confidence) — skills
+  /// só "conta como dimensão preenchida" se >= 3 (1 ou 2 skills isoladas
+  /// ainda deixam keyword overlap muito ruidoso pra ser sinal).
+  int _cachedProfileSkillsCount = 0;
+  int get profileSkillsCount => _cachedProfileSkillsCount;
   Future<UserJobPreferences?> _loadProfilePrefs() async {
     if (_profilePrefsLoaded) return _cachedProfilePrefs;
     try {
       final uid = userId;
       if (uid == null) {
         _cachedProfilePrefs = null;
+        _cachedProfileSkillsCount = 0;
       } else {
         final client = Supabase.instance.client;
         // Future.wait não infere tipo comum entre maybeSingle (Map?) e
@@ -435,11 +444,13 @@ class JobsViewModel extends ChangeNotifier {
           client.from('profile_job_preferences').select('*').eq('user_id', uid).maybeSingle(),
           client.from('profile_desired_titles').select('title').eq('user_id', uid),
           client.from('profile_other_locations').select('city').eq('user_id', uid),
+          client.from('profile_skills').select('user_id').eq('user_id', uid),
         ]);
 
         final jp = results[0] as Map<String, dynamic>?;
         final dtList = (results[1] as List).cast<dynamic>();
         final olList = (results[2] as List).cast<dynamic>();
+        _cachedProfileSkillsCount = (results[3] as List).length;
 
         final areas = dtList
             .map((row) => (row as Map)['title']?.toString() ?? '')
@@ -589,6 +600,7 @@ class JobsViewModel extends ChangeNotifier {
     _cachedProfileText = null;
     _profilePrefsLoaded = false;
     _cachedProfilePrefs = null;
+    _cachedProfileSkillsCount = 0;
     notifyListeners();
 
     try {
