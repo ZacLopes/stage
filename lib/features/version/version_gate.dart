@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/theme.dart';
+import '../../services/analytics_service.dart';
 import '../../services/version_service.dart';
 
 /// Envolve o app e bloqueia o uso quando a versão instalada é menor que a
@@ -16,6 +17,9 @@ class VersionGate extends StatefulWidget {
 
 class _VersionGateState extends State<VersionGate> {
   late Future<VersionCheckResult> _future;
+  // Guarda contra re-emissão em rebuilds. `app_version_outdated` é estado,
+  // não evento repetível — dispara 1x por sessão de gate ativo.
+  bool _outdatedTracked = false;
 
   @override
   void initState() {
@@ -26,6 +30,7 @@ class _VersionGateState extends State<VersionGate> {
   void _retry() {
     setState(() {
       _future = VersionService().check();
+      _outdatedTracked = false;
     });
   }
 
@@ -39,6 +44,14 @@ class _VersionGateState extends State<VersionGate> {
         }
         final result = snapshot.data;
         if (result != null && result.updateRequired && result.config != null) {
+          if (!_outdatedTracked) {
+            _outdatedTracked = true;
+            // ignore: unawaited_futures
+            Analytics.shared.appVersionOutdated(
+              currentVersion: result.currentVersion,
+              requiredVersion: result.config!.minSupportedVersion,
+            );
+          }
           return _ForceUpdateScreen(
             config: result.config!,
             currentVersion: result.currentVersion,

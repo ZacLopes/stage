@@ -27,7 +27,7 @@ import {
   markStaleJobsInactive,
   safeJson,
 } from "../_shared/jobs.ts";
-import { captureEvent } from "../_shared/posthog.ts";
+import { captureEvent, withEdgeAnalytics } from "../_shared/posthog.ts";
 import type { SourceAdapter, SourceRow, SyncStats } from "./sources/types.ts";
 import * as greenhouse from "./sources/greenhouse.ts";
 import * as lever from "./sources/lever.ts";
@@ -46,7 +46,7 @@ const SOURCE_ADAPTERS: Record<string, { name: string; sync: SourceAdapter }> = {
   lever: { name: lever.SOURCE_NAME, sync: lever.sync },
 };
 
-serve(async (req: Request) => {
+serve(withEdgeAnalytics('sync-jobs-ats', async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -173,4 +173,4 @@ serve(async (req: Request) => {
     durationMs: Date.now() - startedAt,
     detail: summary,
   });
-});
+}));

@@ -35,9 +35,15 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
   late final TextEditingController _phoneNumber;
   late final TextEditingController _dateOfBirth;
   late final TextEditingController _summary;
-  String _phoneCountryCode = '+55';
+  // DDI editável — guarda só os dígitos; o '+' é renderizado fixo via
+  // prefixText. Default '55' (Brasil), mas user pode digitar qualquer código.
+  late final TextEditingController _phoneCountryCodeCtrl;
   DateTime? _parsedDob;
   String? _dobError;
+
+  /// Código completo (com '+') usado pra salvar e pra detectar BR (e ativar
+  /// a máscara de telefone brasileira).
+  String get _phoneCountryCode => '+${_phoneCountryCodeCtrl.text.trim()}';
 
   @override
   void initState() {
@@ -54,7 +60,9 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
           : initialPhone,
     );
     _summary = TextEditingController(text: i?.summary ?? '');
-    _phoneCountryCode = i?.phoneCountryCode ?? '+55';
+    _phoneCountryCodeCtrl = TextEditingController(
+      text: initialCountry.replaceAll('+', ''),
+    );
 
     _parsedDob = i?.dateOfBirth;
     _dateOfBirth = TextEditingController(
@@ -152,6 +160,7 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
     _phoneNumber.dispose();
     _dateOfBirth.dispose();
     _summary.dispose();
+    _phoneCountryCodeCtrl.dispose();
     super.dispose();
   }
 
@@ -212,23 +221,22 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
         Row(
           children: [
             SizedBox(
-              width: 124,
-              child: DropdownButtonFormField<String>(
-                isExpanded: true,
-                initialValue: _phoneCountryCode,
-                decoration: _decoration('País'),
-                items: const [
-                  DropdownMenuItem(value: '+55', child: Text('🇧🇷 +55', overflow: TextOverflow.ellipsis)),
-                  DropdownMenuItem(value: '+1', child: Text('🇺🇸 +1', overflow: TextOverflow.ellipsis)),
-                  DropdownMenuItem(value: '+351', child: Text('🇵🇹 +351', overflow: TextOverflow.ellipsis)),
-                  DropdownMenuItem(value: '+44', child: Text('🇬🇧 +44', overflow: TextOverflow.ellipsis)),
+              width: 104,
+              child: TextField(
+                controller: _phoneCountryCodeCtrl,
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.center,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(4),
                 ],
-                onChanged: (v) {
-                  if (v == null) return;
-                  setState(() {
-                    _phoneCountryCode = v;
-                    _phoneNumber.clear();
-                  });
+                decoration: _decoration('DDI').copyWith(
+                  prefixText: '+',
+                ),
+                onChanged: (_) {
+                  // Limpa o número quando o DDI muda — a máscara BR só vale
+                  // pra +55 e formatos de outros países podem conflitar.
+                  setState(() => _phoneNumber.clear());
                   _emitChange();
                 },
               ),

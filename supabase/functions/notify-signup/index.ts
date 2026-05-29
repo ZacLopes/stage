@@ -1,4 +1,5 @@
 import { serve } from 'std/http/server'
+import { withEdgeAnalytics } from '../_shared/posthog.ts'
 
 /**
  * notify-signup Edge Function
@@ -16,7 +17,7 @@ import { serve } from 'std/http/server'
  * Falhas no ntfy nunca propagam — webhook é fire-and-forget. Se quebrar,
  * loga e retorna 200 pra Supabase não retentar.
  */
-serve(async (req) => {
+serve(withEdgeAnalytics('notify-signup', async (req) => {
   if (req.method !== 'POST') {
     return new Response('Method not allowed', { status: 405 })
   }
@@ -78,4 +79,4 @@ serve(async (req) => {
       headers: { 'Content-Type': 'application/json' },
     })
   }
-})
+}))

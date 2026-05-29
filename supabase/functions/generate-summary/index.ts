@@ -1,6 +1,6 @@
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
-import { trackAIGeneration } from '../_shared/posthog.ts'
+import { trackAIGeneration, withEdgeAnalytics } from '../_shared/posthog.ts'
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -17,7 +17,7 @@ const corsHeaders = {
  * Request: { campaign_id: string }
  * Response: { summary: string, version_id: string }
  */
-serve(async (req) => {
+serve(withEdgeAnalytics('generate-summary', async (req) => {
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders })
     }

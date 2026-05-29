@@ -1,6 +1,6 @@
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
-import { trackAIGeneration } from '../_shared/posthog.ts'
+import { trackAIGeneration, withEdgeAnalytics } from '../_shared/posthog.ts'
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -17,7 +17,7 @@ const corsHeaders = {
  * experience_phase_id format: 'm3.stage.0', 'm3.emp.1', etc.
  * D1-D5 raw_responses have phase_id like 'm3.stage.0.d1' ... 'm3.stage.0.d5'
  */
-serve(async (req) => {
+serve(withEdgeAnalytics('generate-bullets', async (req) => {
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders })
     }

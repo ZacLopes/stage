@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../auth/auth_session.dart';
 import '../../../gamification/widgets/month_year_picker_sheet.dart';
 import '../../domain/entities/entities.dart';
 import '../../../../core/theme/theme.dart';
@@ -145,7 +145,12 @@ class _AddEditEducationModalState extends State<AddEditEducationModal> {
   }
 
   void _handleSave() {
-    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    final userId = currentUserIdOrNull();
+    if (userId == null) {
+      // ignore: unawaited_futures
+      handleSessionLost(context);
+      return;
+    }
     final edu = (widget.initial ??
             Education(id: '', userId: userId, institution: ''))
         .copyWith(

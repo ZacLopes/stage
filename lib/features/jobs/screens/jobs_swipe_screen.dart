@@ -12,12 +12,14 @@ import '../../../core/constants/stage_app_links.dart';
 import 'dart:async';
 
 import '../../../services/ai_service.dart';
+import '../../../services/analytics_events.dart';
 import '../../../services/analytics_service.dart';
 import '../../../services/profile_events.dart';
 import '../../../services/profile_snapshot_service.dart';
 import '../../auth/user_viewmodel.dart';
 import '../../home/home_viewmodel.dart';
 import '../../tutorial/tutorial_keys.dart';
+import '../job_swipe_context.dart';
 import '../jobs_viewmodel.dart';
 import '../models/job.dart';
 import '../pending_adapted_cv_tracker.dart';
@@ -99,6 +101,13 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   /// Lock pra evitar disparar `showModalBottomSheet` duas vezes pelo mesmo
   /// pending — o build pode rodar várias vezes enquanto a sheet abre.
   bool _openingPendingSheet = false;
+
+  /// Lock pra `_openAdaptationSheet`. Sem isso, double-tap no botão de
+  /// adaptar (QA Dia 8) abria 2 SkillsConfirmationSheet → 2 ResumeAdaptationSheet
+  /// → 2x chamada de IA (dobra custo OpenAI) + `adapt_failed` fantasma
+  /// disparando do widget disposto. O guard é síncrono pra cortar antes
+  /// do showModalBottomSheet começar a animar.
+  bool _openingAdaptSheet = false;
 
   /// Snapshot do `prefsVersion` do JobsViewModel — usado pra detectar quando
   /// o user salva preferências novas ENQUANTO o feed está aberto. Quando muda,
@@ -201,7 +210,10 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
 
   void _openJobDetails(Job job, [MatchResult? match]) {
     HapticFeedback.lightImpact();
-    Analytics.shared.jobDetailsOpened(jobId: job.id);
+    Analytics.shared.jobDetailsOpened(
+      jobId: job.id,
+      matchScore: match?.score ?? job.matchScore,
+    );
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -312,6 +324,21 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   /// Usa `_currentIndex` (mantido em sincronia pelo onSwipe do CardSwiper).
   /// Não-op se ainda não há vagas carregadas ou índice fora dos limites.
   Future<void> _openAdaptationSheet() async {
+    // Fix QA Dia 8: guard contra double-tap. Sem isso, dois taps rápidos
+    // no botão de adaptar abriam 2x SkillsConfirmationSheet → 2x chamada
+    // de extract-job-skills → 2x adaptResume (cada uma custa $0,01-0,03 OpenAI)
+    // e disparavam `adapt_started` duplicado + `adapt_failed` fantasma do
+    // widget já disposed. Reset no finally garante reabertura legítima depois.
+    if (_openingAdaptSheet) return;
+    _openingAdaptSheet = true;
+    try {
+      await _openAdaptationSheetInner();
+    } finally {
+      if (mounted) _openingAdaptSheet = false;
+    }
+  }
+
+  Future<void> _openAdaptationSheetInner() async {
     final vm = context.read<JobsViewModel>();
     if (vm.jobs.isEmpty) return;
     final idx = _currentIndex.clamp(0, vm.jobs.length - 1);
@@ -386,7 +413,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       final int? matchScore;
       if (cached == null) {
         matchSource = 'fallback_deterministic';
-        matchScore = null; // UI tava mostrando determinístico — não sabemos qual número exato sem recalcular
+        // Fix QA Dia 8 (Bug 2): em swipes rápidos o cache IA pode não ter
+        // chegado, mas o `Job.matchScore` carregado do feed traz o baseline
+        // determinístico computado no fetch. Sem esse fallback, 14 de 15
+        // swipes consecutivos vinham com match_score=null e os gráficos do
+        // pitch ficavam capados.
+        matchScore = (job.matchScore > 0) ? job.matchScore : null;
       } else if (cached.isUnknown) {
         matchSource = 'unknown';
         matchScore = null;
@@ -400,17 +432,43 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
             : 'ai';
         matchScore = cached.score;
       }
+      // Activation milestone — idempotente (1x por device).
+      // ignore: unawaited_futures
+      Analytics.shared.activationMilestoneHit(milestone: 'first_swipe');
+      // B.14 do plano v2 — enriquecer com position_in_feed (revealed
+      // preference), company_id, modality, salary_bucket, location_bucket.
+      // Sem isso, "match converte por área/empresa/range salarial?" é cego.
       Analytics.shared.jobSwiped(
         jobId: job.id,
         action: action == 'liked' ? 'like' : 'reject',
         matchScore: matchScore,
         matchSource: matchSource,
+        positionInFeed: previousIndex,
+        companyId: job.companyId,
+        modality: job.workModelRaw ?? job.workModel,
+        salaryBucket: _bucketSalary(job.salaryMin, job.salaryMax),
+        locationBucket: _bucketLocation(job.locationCity, job.locationState),
       );
+      // Fix QA Dia 8 (Bug 3): persiste o `matchScore` por job_id pra que a
+      // aba Curtidas leia o número correto depois (sem isso `match_score=0`
+      // chegava no apply, quebrando a correlação match × conversão).
+      // ignore: unawaited_futures
+      JobSwipeContext.shared.recordSwipe(job.id, matchScore);
     }
 
     // Atualiza posição interna e dispara IA pras próximas vagas (buffer ahead)
     _currentIndex = currentIndex ?? (previousIndex + 1);
     _ensureBufferAhead(vm.jobs);
+
+    // B.17 do plano v2 — feed_exhausted quando o último card foi swipado.
+    // Sinal pra próxima ação do user (ir pra trilha? curtidas? sair?).
+    if (_currentIndex >= vm.jobs.length) {
+      Analytics.shared.feedExhausted(
+        subTab: 'para_voce',
+        jobsSeenInSession: vm.jobs.length,
+        jobsSwipedInSession: _currentIndex,
+      );
+    }
 
     // Reset overlay immediately (no setState needed — Listener already stopped)
     if (mounted) setState(() => _swipeFraction = 0.0);
@@ -442,13 +500,13 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     await prefs.setBool(key, true);
     if (!mounted) return;
 
-    Analytics.shared.track('first_save_celebration_shown');
+    Analytics.shared.track(evFirstSaveCelebrationShown);
 
     await showFirstSaveCelebration(
       context,
       onSeeSaved: () {
         if (!mounted) return;
-        Analytics.shared.track('first_save_celebration_continued');
+        Analytics.shared.track(evFirstSaveCelebrationContinued);
         // Troca pra aba "Salvas" (index 1) via HomeViewModel.
         context.read<HomeViewModel>().requestTabChange(1);
       },
@@ -1441,6 +1499,36 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         ),
       ),
     );
+  }
+
+  // ── Buckets pra analytics B.14 ─────────────────────────────
+  /// Discretiza salário em buckets pra agregação no PostHog.
+  /// Boa prática: cohorts de salário em 4-5 bins. Granular demais polui.
+  String? _bucketSalary(int? min, int? max) {
+    final v = min ?? max;
+    if (v == null || v <= 0) return null;
+    if (v < 2000) return 'lt_2k';
+    if (v < 4000) return '2k_4k';
+    if (v < 6000) return '4k_6k';
+    if (v < 10000) return '6k_10k';
+    return 'gte_10k';
+  }
+
+  /// Discretiza localização em buckets úteis: maiores capitais SP/RJ/BH/POA,
+  /// outras (Brasil), remoto. Cobre 80%+ do feed sem cardinalidade alta.
+  String? _bucketLocation(String? city, String? state) {
+    final c = city?.toLowerCase().trim() ?? '';
+    final s = state?.toLowerCase().trim() ?? '';
+    if (c.contains('são paulo') || c == 'sao paulo' || c == 'sp') return 'sp_capital';
+    if (c.contains('rio de janeiro') || c == 'rj') return 'rj_capital';
+    if (c.contains('belo horizonte') || c == 'bh') return 'bh_capital';
+    if (c.contains('porto alegre') || c == 'poa') return 'poa_capital';
+    if (s == 'sp') return 'sp_interior';
+    if (s == 'rj') return 'rj_interior';
+    if (s == 'mg') return 'mg_other';
+    if (s == 'rs') return 'rs_other';
+    if (s.isNotEmpty) return 'br_other_$s';
+    return null;
   }
 }
 

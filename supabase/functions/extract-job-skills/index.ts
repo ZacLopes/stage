@@ -20,7 +20,7 @@
 
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
-import { trackAIGeneration } from '../_shared/posthog.ts'
+import { trackAIGeneration, withEdgeAnalytics } from '../_shared/posthog.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -277,7 +277,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<{
 // Main handler
 // ────────────────────────────────────────────────────────────────────────────
 
-serve(async (req) => {
+serve(withEdgeAnalytics('extract-job-skills', async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -466,4 +466,4 @@ serve(async (req) => {
     const status = msg.includes('AbortError') || msg.includes('aborted') ? 504 : 500
     return jsonResponse({ error: 'internal', detail: msg.slice(0, 300) }, status)
   }
-})
+}))

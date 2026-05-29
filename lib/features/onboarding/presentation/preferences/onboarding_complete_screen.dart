@@ -30,7 +30,11 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
   @override
   void initState() {
     super.initState();
-    AnalyticsService.shared.track('onboarding_completed', props: {'via': 'profile_first_v2'});
+    // QA Dia 6 fix: raw track('onboarding_completed') foi removido daqui
+    // (era double-emission com `_handleFinish` abaixo, e não trazia
+    // door/duration/flow_version). O `onboarding_completed` fica só
+    // no tap "Começar". `onboarding_all_set_shown` é da AllSetScreen
+    // (transição entre masking e review) — não desta tela final.
   }
 
   Future<void> _handleFinish() async {
@@ -62,7 +66,14 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
     }
 
     if (!mounted) return;
-    Analytics.shared.onboardingCompleted();
+    // Door resolvida pela TwoDoorsScreen (persistida em SharedPrefs).
+    // Fallback 'upload_cv' pra fluxos sem TwoDoors (não deve acontecer
+    // pós-cutover) — evita None se SharedPrefs estiver vazio.
+    final door =
+        await Analytics.shared.resolveOnboardingDoor() ?? 'upload_cv';
+    if (!mounted) return;
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingCompleted(door: door);
 
     if (!campaignOk) {
       // Defensiva: se createCampaign rodou sem exception mas hasCampaign ficou false,

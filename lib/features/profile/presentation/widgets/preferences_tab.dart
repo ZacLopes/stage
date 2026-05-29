@@ -14,7 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../auth/auth_session.dart';
 
 import '../../../../core/constants/job_areas.dart';
 import '../../../../services/analytics_service.dart';
@@ -430,9 +430,14 @@ class _AreasSheetState extends State<_AreasSheet> {
       !_selected.containsAll(_initial);
 
   Future<void> _save() async {
+    final userId = currentUserIdOrNull();
+    if (userId == null) {
+      // ignore: unawaited_futures
+      handleSessionLost(context);
+      return;
+    }
     setState(() => _saving = true);
     HapticFeedback.mediumImpact();
-    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
     final entries = _selected
         .toList()
         .asMap()
@@ -797,10 +802,15 @@ class _HomeLocationSheetState extends State<_HomeLocationSheet> {
 
   Future<void> _save() async {
     if (!_canSave) return;
+    final userId = currentUserIdOrNull();
+    if (userId == null) {
+      // ignore: unawaited_futures
+      handleSessionLost(context);
+      return;
+    }
     setState(() => _saving = true);
     HapticFeedback.mediumImpact();
     final vm = context.read<ProfileEditorViewModel>();
-    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
     final base = vm.personal ?? PersonalInfo(userId: userId);
     try {
       await vm.commitPersonal(base.copyWith(
@@ -973,7 +983,8 @@ class _WorkLocationsSheetState extends State<_WorkLocationsSheet> {
     setState(() {
       _locations.add(OtherLocation(
         id: '',
-        userId: Supabase.instance.client.auth.currentUser?.id ?? '',
+        // user_id é re-carimbado pelo repo no insert; placeholder seguro.
+        userId: currentUserIdOrNull() ?? '',
         city: pick.city,
         state: pick.uf,
         country: 'BR',

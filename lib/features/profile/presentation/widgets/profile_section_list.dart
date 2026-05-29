@@ -6,6 +6,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../auth/auth_session.dart';
 import '../../application/profile_editor_view_model.dart';
 import '../../domain/entities/entities.dart';
 import 'add_edit_experience_modal.dart';
@@ -212,10 +213,15 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
         inputLabel: 'Certificação (formato: Nome - Instituição - Ano)',
         initialItems: asText,
         onSave: (items) async {
+          final userId = currentUserIdOrNull();
+          if (userId == null) {
+            // ignore: unawaited_futures
+            handleSessionLost(context);
+            return;
+          }
           for (final c in vm.certifications) {
             await vm.deleteCertification(c.id);
           }
-          final userId = vm.personal?.userId ?? '';
           for (var i = 0; i < items.length; i++) {
             await vm.addCertification(
               Certification(id: '', userId: userId, name: items[i], orderIndex: i),
@@ -302,10 +308,15 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
         inputLabel: 'Prêmio',
         initialItems: names,
         onSave: (items) async {
+          final userId = currentUserIdOrNull();
+          if (userId == null) {
+            // ignore: unawaited_futures
+            handleSessionLost(context);
+            return;
+          }
           for (final a in vm.awards) {
             await vm.deleteAward(a.id);
           }
-          final userId = vm.personal?.userId ?? '';
           for (var i = 0; i < items.length; i++) {
             await vm.addAward(Award(id: '', userId: userId, name: items[i], orderIndex: i));
           }

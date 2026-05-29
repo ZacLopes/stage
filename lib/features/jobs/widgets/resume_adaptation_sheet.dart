@@ -14,6 +14,7 @@ import 'package:printing/printing.dart';
 import '../../resume/services/resume_renderer.dart';
 import '../../resume/resume_viewmodel.dart';
 import '../../resume/widgets/import_cv_button.dart';
+import '../job_swipe_context.dart';
 import '../models/adapted_resume.dart';
 import '../models/job.dart';
 import '../pending_adapted_cv_tracker.dart';
@@ -179,6 +180,9 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
       if (force) _retrying = true;
     });
 
+    // Activation milestone — idempotente.
+    // ignore: unawaited_futures
+    Analytics.shared.activationMilestoneHit(milestone: 'first_adapt');
     Analytics.shared.cvAdaptationStarted(jobId: widget.job.id);
 
     AdaptedResume? result;
@@ -196,9 +200,16 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
       print('[ResumeAdaptationSheet] adaptResume failed: $e');
       // ignore: avoid_print
       print('[ResumeAdaptationSheet] stack: $stack');
+      // Fix QA Dia 8: NÃO dispara `cvAdaptationFailed` se o widget já foi
+      // disposed. Antes do guard, esse erro fantasma aparecia 10s depois
+      // de `adapt_succeeded` quando o user double-tapava no botão de adaptar
+      // (duas sheets abriam, uma sucedia rápido por cache, a outra dava
+      // timeout/cancelado e disparava failed mesmo com sheet já popped).
+      // O `cvAdaptationSucceeded` no caminho feliz já tem essa proteção
+      // (mounted check na linha 216) — agora o failure path tem também.
+      if (!mounted) return;
       final code = e is ResumeAdaptationException ? e.code : 'unknown';
       Analytics.shared.cvAdaptationFailed(jobId: widget.job.id, code: code);
-      if (!mounted) return;
       setState(() {
         _error = e;
         _isLoading = false;
@@ -311,6 +322,12 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
   }
 
   Future<void> _downloadPdf() async {
+    // Fix QA Dia 8: early return contra double-tap. O botão tem guard
+    // `_isExporting ? null` no onPressed, mas em taps muito rápidos (mesmo
+    // frame, antes do rebuild) o Flutter dispara duas vezes. Sem este guard,
+    // observamos 2x `adapt_pdf_downloaded` em sequência + `RangeError` do
+    // PdfPreview rasterizando uma State já em disposal (package: printing).
+    if (_isExporting) return;
     final adapted = _adapted;
     if (adapted == null) return;
     HapticFeedback.mediumImpact();
@@ -327,6 +344,8 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
         user: user,
         fallbackResume: adapted.effectiveResumeData,
         templateId: templateId,
+        // Download de CV adaptado pra vaga (compartilhamento direto).
+        purpose: 'adapt_share',
       );
       final safeName = user?.name ?? 'profissional';
       await Printing.sharePdf(
@@ -334,6 +353,13 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
         filename: 'curriculo_${safeName.replaceAll(' ', '_')}.pdf',
       );
       Analytics.shared.cvAdaptationPdfDownloaded(jobId: widget.job.id);
+      // Fix QA Dia 8 (Bug 1): marca essa vaga como "user já adaptou CV"
+      // num storage persistente — sustenta `used_adapted_cv: true` no apply
+      // que vier depois (vai da aba Curtidas, pode ser horas/dias depois).
+      // O PendingAdaptedCvTracker abaixo só mantém UMA adaptação (a mais
+      // recente, pra banner do Home); não serve pra essa pergunta.
+      // ignore: unawaited_futures
+      JobSwipeContext.shared.markAdapted(widget.job.id);
       // Ciclo completo — apaga o pendente do banner (F2.5).
       // ignore: unawaited_futures
       PendingAdaptedCvTracker.shared.clear();

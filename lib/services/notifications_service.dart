@@ -1,6 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'analytics_service.dart';
 
 /// Wrapper único pra OneSignal. Centraliza init, login/logout (associa
 /// device ↔ supabase user.id) e request de permissão.
@@ -12,6 +15,12 @@ class NotificationsService {
   static final NotificationsService shared = NotificationsService._();
 
   bool _initialized = false;
+  bool? _lastKnownPermission;
+
+  // SharedPrefs keys pra estado persistente do push lifecycle.
+  static const String _kAskCountKey = 'push_permission_ask_count';
+  static const String _kLastKnownPermissionKey = 'push_permission_last_known';
+  static const String _kPermissionGrantedAtKey = 'push_permission_granted_at';
 
   Future<void> init() async {
     if (_initialized) return;
@@ -22,6 +31,112 @@ class NotificationsService {
       OneSignal.Debug.setLogLevel(OSLogLevel.warn);
       OneSignal.initialize(appId);
       _initialized = true;
+      _bindAnalyticsListeners();
+    } catch (_) {}
+  }
+
+  /// Liga os 3 listeners OneSignal v5 a typed methods do AnalyticsService
+  /// (B.10 do plano v2). Idempotência: chamado uma única vez em [init].
+  ///
+  /// Sem isso, `push_displayed`/`push_opened`/`push_permission_*` ficavam
+  /// invisíveis no PostHog — reativação por push era caixa-preta (audit).
+  void _bindAnalyticsListeners() {
+    try {
+      // Foreground delivery: notificação chegou com app aberto.
+      OneSignal.Notifications.addForegroundWillDisplayListener((event) {
+        final n = event.notification;
+        final data = n.additionalData ?? const {};
+        final campaignId = (data['campaign'] ?? data['campaign_id'] ?? n.notificationId).toString();
+        final type = (data['type'] ?? 'unknown').toString();
+        // ignore: unawaited_futures
+        Analytics.shared.pushDisplayed(campaignId: campaignId, type: type);
+      });
+
+      // User tocou na notificação (foreground OU background).
+      OneSignal.Notifications.addClickListener((event) {
+        final n = event.notification;
+        final data = n.additionalData ?? const {};
+        final campaignId = (data['campaign'] ?? data['campaign_id'] ?? n.notificationId).toString();
+        final type = (data['type'] ?? 'unknown').toString();
+        // Edge function que envia push opcionalmente coloca `sent_at` ISO
+        // em additionalData — calculamos o tempo até o tap em ms.
+        int? timeFromSendMs;
+        final sentAtRaw = data['sent_at'];
+        if (sentAtRaw is String) {
+          final sentAt = DateTime.tryParse(sentAtRaw);
+          if (sentAt != null) {
+            timeFromSendMs = DateTime.now().difference(sentAt).inMilliseconds;
+          }
+        }
+        // ignore: unawaited_futures
+        Analytics.shared.pushOpened(
+          campaignId: campaignId,
+          type: type,
+          timeFromSendMs: timeFromSendMs,
+        );
+      });
+
+      // Observer de permission state — dispara em iOS quando user volta
+      // de Settings.app, e na 1ª resposta ao prompt nativo.
+      OneSignal.Notifications.addPermissionObserver((permission) async {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final previous = _lastKnownPermission
+              ?? (prefs.getBool(_kLastKnownPermissionKey));
+          _lastKnownPermission = permission;
+          await prefs.setBool(_kLastKnownPermissionKey, permission);
+
+          if (permission) {
+            // Granted (1ª vez OU re-granted após Settings).
+            await prefs.setInt(
+              _kPermissionGrantedAtKey,
+              DateTime.now().millisecondsSinceEpoch,
+            );
+            // ignore: unawaited_futures
+            Analytics.shared.pushPermissionGranted();
+          } else {
+            if (previous == true) {
+              // Tinha permission, virou false → revoked via Settings.
+              final grantedAt = prefs.getInt(_kPermissionGrantedAtKey);
+              final days = grantedAt != null
+                  ? DateTime.now()
+                      .difference(DateTime.fromMillisecondsSinceEpoch(grantedAt))
+                      .inDays
+                  : null;
+              // ignore: unawaited_futures
+              Analytics.shared.pushPermissionRevokedDetected(
+                daysSinceGrant: days,
+              );
+            } else {
+              // Foi negado (primeira vez OU continuou negado).
+              final askCount = prefs.getInt(_kAskCountKey) ?? 0;
+              // ignore: unawaited_futures
+              Analytics.shared.pushPermissionDenied(askCount: askCount);
+            }
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('[NotificationsService] permission observer failed: $e');
+          }
+        }
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[NotificationsService] _bindAnalyticsListeners failed: $e');
+      }
+    }
+  }
+
+  /// Incrementa o contador persistente de "quantas vezes pedimos permission"
+  /// e emite o evento `push_permission_requested` com source_screen.
+  /// Chamar dos pontos que efetivamente acionam o prompt nativo iOS.
+  Future<void> _trackPermissionRequested(String sourceScreen) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final next = (prefs.getInt(_kAskCountKey) ?? 0) + 1;
+      await prefs.setInt(_kAskCountKey, next);
+      // ignore: unawaited_futures
+      Analytics.shared.pushPermissionRequested(sourceScreen: sourceScreen);
     } catch (_) {}
   }
 
@@ -47,6 +162,8 @@ class NotificationsService {
   Future<bool> requestPermission({bool fallbackToSettings = true}) async {
     if (!_initialized) return false;
     try {
+      // ignore: unawaited_futures
+      _trackPermissionRequested('direct');
       return await OneSignal.Notifications.requestPermission(fallbackToSettings);
     } catch (_) {
       return false;
@@ -83,6 +200,8 @@ class NotificationsService {
       // (ex: home + swipe disparando juntos).
       await prefs.setBool(key, true);
 
+      // ignore: unawaited_futures
+      _trackPermissionRequested('first_session');
       final granted = await OneSignal.Notifications.requestPermission(false);
       return granted;
     } catch (_) {
@@ -161,6 +280,8 @@ class NotificationsService {
 
       // fallbackToSettings:true — se iOS já tem permissão negada, abre
       // Settings.app na seção do Stage automaticamente pro user reativar.
+      // ignore: unawaited_futures
+      _trackPermissionRequested('settings_reactivate');
       final granted = await OneSignal.Notifications.requestPermission(true);
 
       // Força optIn no caso de user ter sido optedOut programaticamente.

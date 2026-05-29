@@ -36,7 +36,13 @@ import {
   safeJson,
   stripHtml,
 } from "../_shared/jobs.ts";
-import { captureEvent } from "../_shared/posthog.ts";
+import {
+  captureEvent,
+  EV_APIFY_SYNC_COMPLETED,
+  EV_APIFY_SYNC_FAILED,
+  EV_APIFY_SYNC_STARTED,
+  trackEdgeFunctionInvoked,
+} from "../_shared/posthog.ts";
 
 interface GupyJob {
   id: number;
@@ -306,11 +312,41 @@ serve(async (req: Request) => {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   const startedAt = Date.now();
+
+  // B.7 — apify_sync_started: pareia com _completed/_failed pra calcular
+  // taxa de sucesso e detectar runs que travam (started sem completed).
+  captureEvent({
+    event: EV_APIFY_SYNC_STARTED,
+    distinctId: 'cron:sync-jobs-apify',
+    properties: {
+      source: 'apify_gupy',
+      apify_input: apifyInput,
+    },
+  }).catch(() => {});
+
   let items: GupyJob[];
   try {
     items = await runApify(apifyInput);
   } catch (e) {
-    return jsonResponse({ error: "apify_failed", message: (e as Error).message }, 502);
+    const errMsg = (e as Error).message;
+    captureEvent({
+      event: EV_APIFY_SYNC_FAILED,
+      distinctId: 'cron:sync-jobs-apify',
+      properties: {
+        source: 'apify_gupy',
+        error_message: errMsg.slice(0, 300),
+        duration_ms: Date.now() - startedAt,
+      },
+    }).catch(() => {});
+    trackEdgeFunctionInvoked({
+      functionName: 'sync-jobs-apify',
+      distinctId: 'cron:sync-jobs-apify',
+      durationMs: Date.now() - startedAt,
+      status: 'error',
+      errorCode: 'apify_failed',
+      extra: { error_message: errMsg.slice(0, 300) },
+    }).catch(() => {});
+    return jsonResponse({ error: "apify_failed", message: errMsg }, 502);
   }
 
   let inserted = 0;
@@ -373,8 +409,13 @@ serve(async (req: Request) => {
     .eq("source", SOURCE_NAME)
     .gte("created_at", new Date(startedAt).toISOString());
 
+  // B.7 — apify_sync_completed (substitui o `job_sync_completed` legacy
+  // do dashboard arquivado pré-cutover). Mantém todas as props pra dar
+  // base ao Dashboard "Operação" do plano v2.
+  const syncStatus =
+    errors > 0 ? (inserted > 0 ? 'partial' : 'failed') : 'success';
   await captureEvent({
-    event: 'job_sync_completed',
+    event: EV_APIFY_SYNC_COMPLETED,
     distinctId: 'cron:sync-jobs-apify',
     properties: {
       cron: 'sync-jobs-apify',
@@ -387,7 +428,20 @@ serve(async (req: Request) => {
       errors_count: errors,
       duration_ms: durationMs,
       cost_usd: costUsd,
-      status: errors > 0 ? (inserted > 0 ? 'partial' : 'failed') : 'success',
+      status: syncStatus,
+    },
+  }).catch(() => {});
+
+  trackEdgeFunctionInvoked({
+    functionName: 'sync-jobs-apify',
+    distinctId: 'cron:sync-jobs-apify',
+    durationMs,
+    status: syncStatus === 'success' ? 'ok' : 'error',
+    ...(syncStatus === 'success' ? {} : { errorCode: syncStatus }),
+    extra: {
+      fetched: items.length,
+      new_jobs: trulyNew ?? 0,
+      upserted_jobs: inserted,
     },
   }).catch(() => {});
 

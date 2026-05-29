@@ -20,7 +20,7 @@
 
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
-import { trackAIGeneration, captureEvent } from '../_shared/posthog.ts'
+import { trackAIGeneration, captureEvent, withEdgeAnalytics } from '../_shared/posthog.ts'
 import { PROFILE_JSON_SCHEMA, PROFILE_SYSTEM_PROMPT, toLegacyResume } from '../_shared/profile_schema.ts'
 import { flatten } from '../_shared/cv_text.ts'
 import { detectNonCvContent, nonCvMessage } from '../_shared/cv_content_validator.ts'
@@ -375,7 +375,7 @@ async function logAIGeneration(p: LogAIGenerationParams): Promise<string | null>
 // Main
 // ────────────────────────────────────────────────────────────────────────────
 
-serve(async (req) => {
+serve(withEdgeAnalytics('extract-profile', async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -827,4 +827,4 @@ serve(async (req) => {
     console.error('[extract-profile] internal error:', msg)
     return jsonResponse({ error: 'internal', detail: msg.slice(0, 300) }, 500)
   }
-})
+}))

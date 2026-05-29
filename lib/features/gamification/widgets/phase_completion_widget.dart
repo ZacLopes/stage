@@ -159,7 +159,7 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
     setState(() => _isSaving = true);
 
     try {
-      await widget.viewModel.saveProgress(widget.phase.id);
+      await widget.viewModel.saveProgress(widget.phase);
       if (!mounted) return;
       await context.read<UserViewModel>().refreshUser();
       if (!mounted) return;

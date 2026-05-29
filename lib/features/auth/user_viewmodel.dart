@@ -124,10 +124,21 @@ class UserViewModel extends ChangeNotifier {
   bool get hasResume {
     if (_hasProfileData) return true;
 
-    // Trilha gerou skills/summary/interests (gamification_data.whoIAm.derived
-    // continua sendo a fonte primária pra users que não importaram CV).
     final data = _user?.gamificationData;
     if (data == null) return false;
+
+    // Imediato pós-import: raw_text do PDF salvo em gamification_data.
+    // Reconhecer aqui evita 10-15s de "Crie seu CV" enquanto extract-profile
+    // roda em background populando as tabelas relacionais (que só então
+    // viram _hasProfileData = true via _loadProfileDataPresence).
+    final imported = data['imported_resume'];
+    if (imported is Map) {
+      final rawText = imported['raw_text']?.toString() ?? '';
+      if (rawText.trim().isNotEmpty) return true;
+    }
+
+    // Trilha gerou skills/summary/interests (gamification_data.whoIAm.derived
+    // continua sendo a fonte primária pra users que não importaram CV).
     final who = data['whoIAm'];
     if (who is Map) {
       final derived = who['derived'];
@@ -242,6 +253,25 @@ class UserViewModel extends ChangeNotifier {
     return false;
   }
 
+  /// Verdadeiro quando o user está EM ANDAMENTO no flow profile-first
+  /// (passou pelo TwoDoorsScreen e tem qualquer dado em `profile_personal`).
+  /// Usado pelo AuthGate pra NUNCA roteá pra CompletionScreen (legacy) se o
+  /// user está mid-flow — senão CompletionScreen.postFrameCallback empurra
+  /// TwoDoorsScreen e gera loop infinito (bug do QA Dia 7 upload_cv path).
+  ///
+  /// Sinal: `profile_personal` não-null com QUALQUER campo preenchido —
+  /// IA extraiu (firstName/lastName/email do CV) OU user respondeu uma
+  /// masking question (attributionSource). Como `profile_personal` só
+  /// existe pra users que entraram no flow novo, isso é suficiente.
+  bool get isInProfileFirstFlow {
+    final p = _profileEditor?.personal;
+    if (p == null) return false;
+    return (p.firstName ?? '').trim().isNotEmpty ||
+        (p.lastName ?? '').trim().isNotEmpty ||
+        (p.email ?? '').trim().isNotEmpty ||
+        (p.attributionSource ?? '').trim().isNotEmpty;
+  }
+
   /// Verdadeiro quando o user existe mas o nome é vazio ou o literal "User"
   /// (sentinela legacy do bug antigo). UI usa pra forçar a tela "Como
   /// podemos te chamar?" antes de entrar na home.
@@ -284,6 +314,14 @@ class UserViewModel extends ChangeNotifier {
           final uid = _supabase.auth.currentUser?.id;
           final email = _supabase.auth.currentUser?.email;
           if (uid != null) {
+            // Re-registra super properties (app_version, is_internal,
+            // flow_version, app_build_number) ANTES do identify. Necessário
+            // porque `Posthog().reset()` no logout apaga super properties no
+            // SDK iOS — sem essa chamada, eventos pós-signup/login ficam sem
+            // essas propriedades, quebrando filtros e cohort de internos.
+            // Idempotente: re-rodar em initialSession/tokenRefreshed é safe.
+            // ignore: unawaited_futures
+            Analytics.shared.refreshSuperProperties();
             Analytics.shared.identify(uid, properties: {
               if (email != null) 'email': email,
             });
@@ -618,6 +656,11 @@ class UserViewModel extends ChangeNotifier {
     // (listener), permite calcular abandono entre clique e finalização.
     // ignore: unawaited_futures
     Analytics.shared.appleSigninStarted();
+    // QA Dia 6 fix: também emite auth_signup_started canônico pra que o
+    // funil signup landing → method_chosen → started → completed funcione
+    // independente do método (apple/email/google/phone).
+    // ignore: unawaited_futures
+    Analytics.shared.authSignupStarted(method: 'apple');
 
     try {
       final rawNonce = _supabase.auth.generateRawNonce();

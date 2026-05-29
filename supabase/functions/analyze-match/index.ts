@@ -13,7 +13,7 @@
 
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
-import { trackAIGeneration } from '../_shared/posthog.ts'
+import { trackAIGeneration, trackEdgeFunctionInvoked } from '../_shared/posthog.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -685,6 +685,9 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  // B.7 do plano v2 — timer pra trackEdgeFunctionInvoked emitido no
+  // success path e no catch outer.
+  const fnStart = Date.now()
   try {
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -864,6 +867,13 @@ serve(async (req) => {
       tokens_used: ai.totalTokens,
     })
 
+    trackEdgeFunctionInvoked({
+      functionName: 'analyze-match',
+      distinctId: user.id,
+      durationMs: Date.now() - fnStart,
+      status: 'ok',
+      promptVersion: PROMPT_VERSION,
+    }).catch(() => {})
     return jsonResponse({
       score: payload.score,
       reasons: payload.reasons,
@@ -874,6 +884,14 @@ serve(async (req) => {
     const msg = (err as Error).message || 'unknown'
     console.error('analyze-match error:', msg)
     const status = msg.includes('AbortError') || msg.includes('aborted') ? 504 : 500
+    trackEdgeFunctionInvoked({
+      functionName: 'analyze-match',
+      distinctId: 'edge_function:analyze-match',
+      durationMs: Date.now() - fnStart,
+      status: 'error',
+      errorCode: status === 504 ? 'timeout' : 'internal',
+      extra: { error_message: msg.slice(0, 300) },
+    }).catch(() => {})
     return jsonResponse({ error: 'internal', detail: msg.slice(0, 300) }, status)
   }
 })

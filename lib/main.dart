@@ -41,7 +41,17 @@ import 'services/notifications_service.dart';
 import 'features/splash/splash_screen.dart';
 import 'features/version/version_gate.dart';
 
+/// Marcado no início absoluto do `main()` — atribuído imperativamente
+/// na primeira linha do `main()` (ver abaixo) em vez de iniciar como
+/// `final` global. Dart faz lazy initialization de finais top-level
+/// (só roda no primeiro acesso), e o primeiro acesso era dentro do
+/// `addPostFrameCallback` depois de todo o bootstrap — resultava em
+/// `duration_ms` ≈ 0. Com `late final` + assign explícito, marcamos o
+/// instante real do entry-point.
+late final int _coldStartT0Ms;
+
 void main() {
+  _coldStartT0Ms = DateTime.now().millisecondsSinceEpoch;
   // Captura global de exceptions. Três caminhos cobertos:
   //  - FlutterError.onError      → erros do framework Flutter (build, layout, paint)
   //  - PlatformDispatcher.onError → erros assíncronos não capturados na engine
@@ -97,12 +107,18 @@ Future<void> _bootstrap() async {
   // o session replay funciona no Flutter. Eventos, identify e replay passam
   // todos por esse init. Sem POSTHOG_API_KEY no .env, o init é skipado e tudo
   // vira no-op silencioso (não quebra o app).
+  //
+  // captureApplicationLifecycleEvents = false a partir do cutover (release
+  // 2026-05/06): o SDK emitia `Application Opened/Backgrounded/Installed/
+  // Updated` automaticamente, duplicando com nossos eventos custom de
+  // lifecycle (app_opened, app_backgrounded, session_started, ...) e poluindo
+  // a taxonomia. Decisão do plano v2: instrumentação manual única.
   final posthogKey = dotenv.env['POSTHOG_API_KEY'];
   if (posthogKey != null && posthogKey.isNotEmpty) {
     try {
       final config = PostHogConfig(posthogKey)
         ..host = dotenv.env['POSTHOG_HOST'] ?? 'https://us.i.posthog.com'
-        ..captureApplicationLifecycleEvents = true
+        ..captureApplicationLifecycleEvents = false
         ..debug = false
         ..sessionReplay = true;
       // Mask global OFF — mascara só widgets explícitos via PostHogMaskWidget
@@ -116,7 +132,15 @@ Future<void> _bootstrap() async {
 
   try {
     await Analytics.shared.init();
-    // Dispara o evento "app aberto" no boot — base pra DAU/MAU.
+    // Liga o observer de lifecycle (B.6 do plano v2). Emite
+    // `session_started` no cold start E nos warm starts após >5min no
+    // background, mais `app_backgrounded`/`app_foregrounded`/
+    // `session_ended` nos pontos certos. Registra `session_id` como
+    // super property automaticamente.
+    await Analytics.shared.bindLifecycle();
+    // `app_opened` complementar a `session_started`: o primeiro é o
+    // evento-âncora pra DAU/MAU (cobre cold + warm); o segundo marca
+    // boundary semântica de sessão. Coexistem por design.
     await Analytics.shared.appOpened();
   } catch (_) {}
 
@@ -182,6 +206,17 @@ Future<void> _bootstrap() async {
   final localStorageRepository = LocalStorageRepository();
   // Profile-first (Semana 2): repository compartilhado entre os 3 ViewModels novos.
   final ProfileRepository profileRepository = ProfileRepositorySupabase();
+
+  // Pareia com `_coldStartT0Ms` (topo do main): mede do entry do main()
+  // até o primeiro frame Flutter pintado. Roda 1x — addPostFrameCallback
+  // só dispara no próximo frame, e marcamos `_coldStartT0Ms` como final
+  // pra evitar re-medir em hot reload.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    final durationMs =
+        DateTime.now().millisecondsSinceEpoch - _coldStartT0Ms;
+    // ignore: unawaited_futures
+    Analytics.shared.appColdStart(durationMs: durationMs);
+  });
 
   runApp(
     MultiProvider(
@@ -260,10 +295,13 @@ class CareerGamificationApp extends StatelessWidget {
       // Agora tudo flui do AppColors / AppTheme.
       theme: AppTheme.light,
       home: const VersionGate(child: SplashScreen()),
-      // PosthogObserver: registra screen views automaticamente em cada
-      // Navigator.push/pop — sem ele, o session replay vê telas mas não
-      // sabe nomear a rota.
-      navigatorObservers: [PosthogObserver()],
+      // PosthogObserver removido no cutover (release 2026-05/06): como a
+      // navegação do Stage usa Navigator.push sem RouteSettings.name, o
+      // observer só registrava `root('/')` pra quase tudo. Agora screens
+      // são instrumentadas manualmente via ScreenTrackingMixin
+      // (`lib/core/analytics/screen_tracking.dart`), garantindo nomes
+      // corretos em `$screen`.
+      navigatorObservers: const [],
       // PostHogWidget habilita session replay (captura de tela). Sem esse
       // wrapper, a flag sessionReplay no init sozinha não grava nada em
       // Flutter. Tutorial overlay continua por cima de tudo.

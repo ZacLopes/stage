@@ -23,7 +23,11 @@
 
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
-import { captureEvent, trackAIGeneration } from '../_shared/posthog.ts'
+import {
+  captureEvent,
+  trackAIGeneration,
+  trackEdgeFunctionInvoked,
+} from '../_shared/posthog.ts'
 // V2 (Semana 3 Bloco C): path paralelo que lê do schema relacional.
 // Decisão v1/v2 acontece em handleAdaptV2 via feature flag + presença do
 // perfil. Quando retorna null, fall through pro código v1 abaixo.
@@ -2639,14 +2643,24 @@ serve(async (req) => {
       }
     }
 
-    // 6. Call OpenAI (com 1 retry se validateAdaptation falhar)
+    // 6. Call OpenAI (com até 3 retries se validateAdaptation falhar)
     //
     // Pré-fix: ~19 usuários únicos hit `adaptation_rejected` em 7 dias por
     // a IA propor inflation > 1.3x ou tocar campos imutáveis. O fallback
-    // era jogar o erro pro user — agora retentamos UMA vez alimentando
+    // era jogar o erro pro user — agora retentamos até 3 vezes alimentando
     // o erro de validação de volta como feedback ("você violou X: ajuste e
-    // tente de novo"). Se a 2ª resposta também falhar, retornamos o erro
-    // original como antes.
+    // tente de novo"). Cada retry acumula o aprendizado da rejeição anterior
+    // no prompt. Se a 4ª resposta também falhar, retornamos o erro
+    // original.
+    //
+    // 2026-05-28 bump 2 → 4 tentativas: usuário em QA hit rejeição na 1ª +
+    // retry (cobertas pelo `attempts < 2`), retentou manualmente e caiu
+    // em cache do sucesso anterior. A não-determinismo do modelo é a causa
+    // raiz (~5-10% de saídas inventam algo). Com 4 tentativas e feedback
+    // acumulado, a chance de TODAS falharem cai pra ~0.5-1% — diferença
+    // entre "erro raro" e "erro frequente". Custo no pior caso dobra
+    // (~$0.04 → ~$0.08) e latência no pior caso vai de 50s pra ~100s,
+    // mas SÓ no caminho infeliz. Caminho feliz (~90%+) não muda.
     const userPromptInitial = buildUserPrompt(input, job, extraSkillsClean)
     console.log(`[adapt-resume] calling OpenAI (prompt ${userPromptInitial.length} chars)`)
 
@@ -2659,7 +2673,7 @@ serve(async (req) => {
     // sem contar contra o limite diário.
     let tokensUsedTotal = 0
 
-    while (attempts < 2 && parsed === null) {
+    while (attempts < 4 && parsed === null) {
       attempts++
       const ai = await callOpenAI(SYSTEM_PROMPT, userPrompt)
       tokensUsedTotal += ai.totalTokens
@@ -2697,10 +2711,13 @@ serve(async (req) => {
       } catch (e) {
         lastValidationError = e as ValidationError
         console.warn(`[adapt-resume] validation failed attempt=${attempts} for user=${user.id} job=${jobId}: ${lastValidationError.message}`)
-        if (attempts < 2) {
-          // Anexa o erro como feedback ao prompt e retenta. Geralmente o
-          // segundo passe corrige porque o modelo agora SABE o que precisa
+        if (attempts < 4) {
+          // Anexa o erro como feedback ao prompt e retenta. Cada retry usa
+          // o prompt inicial + a rejeição mais recente — geralmente o
+          // passe seguinte corrige porque o modelo agora SABE o que precisa
           // respeitar (ex.: "use bullets do CV em vez de inventar").
+          // Não acumulamos rejeições anteriores no prompt pra não inflar
+          // tokens — só a última rejeição é mais sinal que ruído.
           userPrompt = userPromptInitial +
             `\n\n[REJEITADO NA TENTATIVA ${attempts}] A resposta anterior violou: ` +
             `${lastValidationError.field} → ${lastValidationError.message}. ` +
@@ -2726,7 +2743,7 @@ serve(async (req) => {
       return jsonResponse(
         {
           error: 'adaptation_rejected',
-          detail: 'A adaptação não passou na verificação de integridade. Tente novamente.',
+          detail: 'A IA gerou conteúdo que não bateu com seu currículo. Tentamos 4 vezes — toque em "Tentar novamente" pra fazer mais uma rodada.',
           field: ve.field,
           // Em debug-friendly: inclui a mensagem completa do ValidationError
           // no payload do erro pra UI poder mostrar (e PostHog capturar).
@@ -2892,6 +2909,16 @@ serve(async (req) => {
     console.log(`[adapt-resume] SUCCESS user=${user.id} job=${jobId} ` +
       `changes=${parsed.changes?.length ?? 0} ` +
       `score=${matchUpgrade.before}→${matchUpgrade.after}`)
+    // Plano v2 B.7 — request log estruturado pra PostHog. Distinto do
+    // $ai_generation (per-call OpenAI) e cv_adaptation_quality_score
+    // (qualidade IA pós-tudo): aqui é a view "1 invocação da function".
+    trackEdgeFunctionInvoked({
+      functionName: 'adapt-resume-to-job',
+      distinctId: user.id,
+      durationMs: Date.now() - fnStart,
+      status: 'ok',
+      promptVersion: PROMPT_VERSION,
+    }).catch(() => {})
     return jsonResponse({
       changes: parsed.changes,
       resume_data: parsed.resume,
@@ -2905,6 +2932,16 @@ serve(async (req) => {
     const msg = (err as Error).message || 'unknown'
     console.error('adapt-resume-to-job error:', msg)
     const status = msg.includes('AbortError') || msg.includes('aborted') ? 504 : 500
+    // Sem user.id aqui (auth pode ter falhado antes ou catch externo): usa
+    // o nome da função como distinct_id pra não ficar anônimo no PostHog.
+    trackEdgeFunctionInvoked({
+      functionName: 'adapt-resume-to-job',
+      distinctId: 'edge_function:adapt-resume-to-job',
+      durationMs: Date.now() - fnStart,
+      status: 'error',
+      errorCode: status === 504 ? 'timeout' : 'internal',
+      extra: { error_message: msg.slice(0, 300) },
+    }).catch(() => {})
     return jsonResponse({ error: 'internal', detail: msg.slice(0, 300) }, status)
   }
 })

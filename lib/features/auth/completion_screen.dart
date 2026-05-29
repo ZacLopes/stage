@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/analytics/screen_tracking.dart';
 import '../../core/theme/theme.dart';
 import '../../services/analytics_service.dart';
@@ -41,6 +42,26 @@ class _CompletionScreenState extends State<CompletionScreen>
     // on, redireciona pra TwoDoorsScreen (novo fluxo). Senão mantém CompletionScreen.
     // Check é async — feito em postFrame pra não bloquear o initial frame.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // GUARD anti-loop (QA Dia 7, upload_cv path): se o user JÁ escolheu uma
+      // door no flow profile-first (gravado em SharedPrefs por TwoDoorsScreen),
+      // ele está RETORNANDO à CompletionScreen via rebuild do AuthGate Consumer
+      // — provavelmente porque profile_personal foi populado pós-extraction e
+      // needsProfileSetup virou false antes do flow terminar (sem hasCampaign).
+      // Empurrar TwoDoorsScreen de novo gera loop infinito (a tela "nome
+      // muito rápido voltou pra TwoDoors" que o user reportou).
+      // Skip o redirect — deixar a tela de cv_upload_choice visível pro user
+      // continuar manualmente. Pós-release, o fix correto é fazer o flow novo
+      // criar a campaign assim que escolher a door, pra hasCampaign virar true
+      // e o AuthGate ir direto pro HomeScreen.
+      final prefs = await SharedPreferences.getInstance();
+      final alreadyChoseDoor =
+          prefs.getString('analytics_onboarding_door') != null;
+      if (alreadyChoseDoor) {
+        debugPrint(
+            '[CompletionScreen] anti-loop guard: door já escolhida (${prefs.getString('analytics_onboarding_door')}), pulando redirect pra TwoDoorsScreen');
+        return;
+      }
+
       // Garante identify ANTES de consultar flag (race condition em cold start)
       await Analytics.shared.identifyIfLoggedIn();
       // Força reload pra pegar valor mais recente do server (SDK tem cache local)
@@ -119,7 +140,9 @@ class _CompletionScreenState extends State<CompletionScreen>
 
     if (!mounted) return;
 
-    Analytics.shared.onboardingCompleted();
+    // door='upload_cv' — caminho A da CompletionScreen legacy.
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingCompleted(door: 'upload_cv');
     // Não navega manualmente — o AuthGate (Consumer<UserViewModel>) detecta
     // hasCampaign=true (setado por createCampaign acima) e re-renderiza
     // pra HomeScreen automaticamente. Push manual aqui duplicava o AuthGate
@@ -142,7 +165,10 @@ class _CompletionScreenState extends State<CompletionScreen>
     // Pede pra abrir na aba Currículo (que tem a trilha de construção).
     context.read<HomeViewModel>().requestTabChange(HomeTabs.resume);
 
-    Analytics.shared.onboardingCompleted();
+    // door='trail' — caminho B: user vai construir o CV pela trilha
+    // gamificada na aba Currículo. Variante confirmada no QA Dia 6.
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingCompleted(door: 'trail');
     // Não navega manualmente — Consumer<UserViewModel> em AuthGate detecta
     // hasCampaign=true e renderiza HomeScreen. Ver comentário em _uploadResumePath.
   }

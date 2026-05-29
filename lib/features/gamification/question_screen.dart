@@ -94,7 +94,7 @@ class _QuestionScreenState extends State<QuestionScreen>
   void initState() {
     super.initState();
     Future.microtask(() =>
-        context.read<GamificationViewModel>().startPhase(widget.phase.id));
+        context.read<GamificationViewModel>().startPhase(widget.phase));
   }
 
   void _handleOptionSelect(dynamic answer, QuestionType type) {
@@ -211,7 +211,12 @@ class _QuestionScreenState extends State<QuestionScreen>
           WidgetsBinding.instance.addPostFrameCallback((_) async {
             if (!mounted) return;
             final phaseId = viewModel.pendingBulletExperienceId!;
-            final campaignId = context.read<UserViewModel>().currentCampaign?.id ?? '';
+            final campaignId = context.read<UserViewModel>().currentCampaign?.id;
+            if (campaignId == null || campaignId.isEmpty) {
+              // Campanha ainda não carregou — não navega com UUID vazio.
+              if (mounted) setState(() => _isNavigatingToBullet = false);
+              return;
+            }
             await Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => BulletReviewScreen(
                 experiencePhaseId: phaseId,
@@ -227,7 +232,12 @@ class _QuestionScreenState extends State<QuestionScreen>
           _isNavigatingToSummary = true;
           WidgetsBinding.instance.addPostFrameCallback((_) async {
             if (!mounted) return;
-            final campaignId = context.read<UserViewModel>().currentCampaign?.id ?? '';
+            final campaignId = context.read<UserViewModel>().currentCampaign?.id;
+            if (campaignId == null || campaignId.isEmpty) {
+              // Campanha ainda não carregou — não navega com UUID vazio.
+              if (mounted) setState(() => _isNavigatingToSummary = false);
+              return;
+            }
             await Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => SummaryGenerationScreen(campaignId: campaignId),
             ));

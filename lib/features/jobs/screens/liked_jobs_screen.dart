@@ -8,11 +8,13 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/analytics/screen_tracking.dart';
 import '../../../core/utils/display_name.dart';
+import '../../../services/analytics_events.dart';
 import '../../../services/analytics_service.dart';
 import '../../../services/facebook_events_service.dart';
 import '../../auth/user_viewmodel.dart';
 import '../../profile/application/profile_editor_view_model.dart';
 import '../data/swipe_repository.dart';
+import '../job_swipe_context.dart';
 import '../jobs_viewmodel.dart';
 import 'job_details_sheet.dart';
 import '../../../core/theme/theme.dart';
@@ -63,16 +65,27 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
     if (userId == null) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('first_save_banner_dismissed_$userId', true);
-    Analytics.shared.track('first_save_banner_dismissed');
+    Analytics.shared.track(evFirstSaveBannerDismissed);
   }
 
   Future<void> _refresh() async {
     await context.read<JobsViewModel>().loadLikedJobs(silent: true);
   }
 
-  void _openJobDetails(LikedJob liked) {
+  Future<void> _openJobDetails(LikedJob liked) async {
     HapticFeedback.lightImpact();
-    Analytics.shared.jobDetailsOpened(jobId: liked.job.id);
+    // Fix QA Dia 8 (Bug 3): a tabela `jobs` no Supabase não persiste
+    // `match_score` (é per user×job), então `liked.job.matchScore` chega 0/null
+    // na Curtidas. Lê do JobSwipeContext, que persistiu o score real no
+    // momento do swipe. Fallback pro Job.matchScore se nada salvo (improvável,
+    // só se a vaga foi curtida em build antiga).
+    final cachedScore = await JobSwipeContext.shared.getMatchScore(liked.job.id);
+    final matchScore = cachedScore ?? liked.job.matchScore;
+    Analytics.shared.jobDetailsOpened(
+      jobId: liked.job.id,
+      matchScore: matchScore,
+    );
+    if (!mounted) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -82,9 +95,24 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
     );
   }
 
-  Future<void> _openApplication(_ApplyAction action, String jobId) async {
+  Future<void> _openApplication(_ApplyAction action, LikedJob liked) async {
     HapticFeedback.lightImpact();
-    Analytics.shared.jobApplyClicked(jobId: jobId);
+    // Activation milestone — idempotente.
+    // ignore: unawaited_futures
+    Analytics.shared.activationMilestoneHit(milestone: 'first_apply');
+    // Fix QA Dia 8 (Bugs 1 + 3): lê o `matchScore` real do JobSwipeContext
+    // (persistido no swipe) E checa se o user já adaptou CV pra essa vaga
+    // (marcado no adapt_pdf_downloaded). Sem isso o `used_adapted_cv` vinha
+    // null no apply, quebrando a tese B2B do pitch ("CV adaptado fecha o
+    // loop"). Resolução: ambos derivados do contexto persistente.
+    final cachedScore = await JobSwipeContext.shared.getMatchScore(liked.job.id);
+    final matchScore = cachedScore ?? liked.job.matchScore;
+    final usedAdaptedCv = await JobSwipeContext.shared.wasAdapted(liked.job.id);
+    Analytics.shared.jobApplyClicked(
+      jobId: liked.job.id,
+      matchScore: matchScore,
+      usedAdaptedCv: usedAdaptedCv,
+    );
     final ok = await launchUrl(action.uri, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -96,7 +124,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
     // retornou true (cliente externo abriu de fato, intent confirmada). Vale
     // tanto pra site quanto pra cliente de email — em ambos houve ação real.
     // ignore: unawaited_futures
-    FacebookEventsService.shared.logSubmittedApplication(jobId: jobId);
+    FacebookEventsService.shared.logSubmittedApplication(jobId: liked.job.id);
   }
 
   void _toggleApplied(LikedJob liked) {
@@ -312,7 +340,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
             onTap: () => _openJobDetails(liked),
             onToggleApplied: () => _toggleApplied(liked),
             onOpenLink: action != null
-                ? () => _openApplication(action, liked.job.id)
+                ? () => _openApplication(action, liked)
                 : null,
             applyAction: action,
             onRemove: () => _confirmAndRemove(liked),

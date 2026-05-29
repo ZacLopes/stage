@@ -1,6 +1,6 @@
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
-import { trackAIGeneration } from '../_shared/posthog.ts'
+import { trackAIGeneration, withEdgeAnalytics } from '../_shared/posthog.ts'
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -17,7 +17,7 @@ const corsHeaders = {
  * Request:  { campaign_id: string }
  * Response: { tools: string[], job_context: string }
  */
-serve(async (req) => {
+serve(withEdgeAnalytics('suggest-tools', async (req) => {
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders })
     }
@@ -182,4 +182,4 @@ Responda APENAS com JSON: {"tools": ["Ferramenta1", "Ferramenta2", ...]}`
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
     }
-})
+}))

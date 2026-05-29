@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/analytics/screen_tracking.dart';
 import '../../core/theme/theme.dart';
+import '../../services/analytics_service.dart';
 import '../../core/utils/auth_error_formatter.dart';
 import '../splash/splash_screen.dart' show AuthGate;
 import 'phone_signup_screen.dart';
@@ -31,6 +32,10 @@ class _AuthScreenState extends State<AuthScreen>
   @override
   void initState() {
     super.initState();
+    // QA Dia 6 fix: emite `auth_signup_landing_shown` no entry da tela
+    // de signup — pareado com `auth_signup_method_chosen` (tap no botão).
+    // ignore: unawaited_futures
+    Analytics.shared.authSignupLandingShown();
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -110,6 +115,8 @@ class _AuthScreenState extends State<AuthScreen>
 
   void _navigateToPhoneSignup() {
     HapticFeedback.lightImpact();
+    // ignore: unawaited_futures
+    Analytics.shared.authSignupMethodChosen(method: 'phone');
     Navigator.of(context).push(
       PageRouteBuilder(
         pageBuilder: (context, anim, secAnim) => const PhoneSignupScreen(),
@@ -215,6 +222,8 @@ class _AuthScreenState extends State<AuthScreen>
                         backgroundColor: Colors.white,
                         borderColor: AppColors.borderStrong,
                         onPressed: () async {
+                          // ignore: unawaited_futures
+                          Analytics.shared.authSignupMethodChosen(method: 'google');
                           try {
                             await context.read<UserViewModel>().signInWithOAuth(OAuthProvider.google);
                           } catch (e) {
@@ -239,6 +248,8 @@ class _AuthScreenState extends State<AuthScreen>
                         backgroundColor: Colors.black,
                         borderColor: Colors.black,
                         onPressed: () async {
+                          // ignore: unawaited_futures
+                          Analytics.shared.authSignupMethodChosen(method: 'apple');
                           try {
                             await context.read<UserViewModel>().signInWithApple();
                           } catch (e) {

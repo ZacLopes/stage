@@ -26,14 +26,26 @@ class ReviewResumeScreen extends StatefulWidget {
 }
 
 class _ReviewResumeScreenState extends State<ReviewResumeScreen> {
+  // QA Dia 6 — pra calcular `time_on_screen_ms` no review_confirmed.
+  DateTime? _shownAt;
+
   @override
   void initState() {
     super.initState();
-    AnalyticsService.shared.track('onboarding_review_resume_shown');
+    _shownAt = DateTime.now();
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingCvReviewShown();
   }
 
   void _continue() {
-    AnalyticsService.shared.track('onboarding_review_resume_continued');
+    final timeOnScreenMs = _shownAt != null
+        ? DateTime.now().difference(_shownAt!).inMilliseconds
+        : 0;
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingCvReviewConfirmed(
+      editsCount: 0,
+      timeOnScreenMs: timeOnScreenMs,
+    );
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const DesiredTitlesScreen()),

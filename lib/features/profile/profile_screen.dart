@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/analytics/screen_tracking.dart';
+import '../../services/analytics_events.dart';
 import '../../services/analytics_service.dart';
 import 'profile_viewmodel.dart';
 import 'profile_tab_prefs.dart';
@@ -108,7 +109,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       1 => 'preferences',
       _ => 'resumes',
     };
-    Analytics.shared.track('profile_tab_changed', props: {'tab': tabName});
+    Analytics.shared.track(evProfileTabChanged, props: {'tab': tabName});
   }
 
   @override

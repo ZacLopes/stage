@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/ai_service.dart';
+import '../../services/analytics_events.dart';
 import '../../services/analytics_service.dart';
 import '../../services/profile_events.dart';
 import '../../services/profile_snapshot_service.dart';
@@ -64,12 +65,13 @@ class JobsViewModel extends ChangeNotifier {
         case AuthChangeEvent.initialSession:
         case AuthChangeEvent.tokenRefreshed:
         case AuthChangeEvent.userUpdated:
-          // Session passou a estar disponível. Se ainda não temos vagas
-          // E não estamos carregando, dispara o init. Idempotente —
-          // init() faz no-op se já tem dados.
-          if (_jobs.isEmpty && !_isLoading) {
-            init();
-          }
+          // QA Dia 6 fix: NÃO disparar init() aqui. JobsSwipeScreen
+          // chama vm.init() no seu initState (linha ~164), o que
+          // garante que feed só carrega quando user está VISUALIZANDO
+          // a aba Vagas. O auto-init pelo auth listener disparava
+          // `feed_loaded` ~1s pós-signup, antes mesmo do AuthGate
+          // decidir se navega pra onboarding ou home — poluindo o
+          // funil de ativação.
           break;
         case AuthChangeEvent.signedOut:
         case AuthChangeEvent.userDeleted:
@@ -232,12 +234,20 @@ class JobsViewModel extends ChangeNotifier {
   Future<void> init({bool forceRefresh = false}) async {
     if (_isLoading) return;
     if (!forceRefresh && _jobs.isNotEmpty) {
+      // Cache hit — emite feed_loaded com cache_hit=true pra dashboard
+      // distinguir loads "frios" (rede) de "warm" (memória).
+      Analytics.shared.feedLoaded(
+        subTab: 'para_voce',
+        jobsCount: _jobs.length,
+        cacheHit: true,
+      );
       return; // no-op: já inicializado, mantém ordem atual dos cards
     }
 
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
+    final loadStartedAt = DateTime.now();
 
     try {
       // Espera o auth ficar pronto se ainda não estiver (race condition no
@@ -249,9 +259,22 @@ class JobsViewModel extends ChangeNotifier {
         return;
       }
       await _performFetch();
+      // B.17 do plano v2 — feed_loaded com duration_ms + cache_hit=false
+      // (foi pra rede). Sinal-âncora pra "tempo de feed pronto".
+      Analytics.shared.feedLoaded(
+        subTab: 'para_voce',
+        jobsCount: _jobs.length,
+        loadDurationMs:
+            DateTime.now().difference(loadStartedAt).inMilliseconds,
+        cacheHit: false,
+      );
     } catch (e) {
       _errorMessage = 'Erro ao carregar vagas. Tente novamente.';
       print('Error initializing jobs: $e');
+      Analytics.shared.feedLoadFailed(
+        subTab: 'para_voce',
+        errorCode: e.runtimeType.toString(),
+      );
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -259,13 +282,18 @@ class JobsViewModel extends ChangeNotifier {
   }
 
   Future<void> _performFetch() async {
-    // 1) Carrega FILTROS temporários do feed (local). Se não existem,
-    //    default = identidade do Perfil (tabelas relacionais), pra que o
-    //    user na 1ª abertura veja feed filtrado por área/cidade declaradas.
-    //    User pode mexer nos filtros depois sem afetar o Perfil.
+    // 1) Carrega FILTROS temporários do feed (local). Se não existem
+    //    (null), default = identidade do Perfil (tabelas relacionais), pra
+    //    que o user na 1ª abertura veja feed filtrado por área/cidade
+    //    declaradas. User pode mexer nos filtros depois sem afetar o Perfil.
+    //
+    //    NOTA: NÃO usar `isEmpty` no check — quando o user limpa explicitamente,
+    //    _loadLocalFilters retorna um UserJobPreferences vazio (não null) pra
+    //    sinalizar "limpou de propósito". Usar `isEmpty` aqui faria o fallback
+    //    ao Perfil voltar, anulando o efeito do "Limpar filtros".
     final uid = userId!;
     _preferences = await _loadLocalFilters(uid);
-    if (_preferences == null || _preferences!.isEmpty) {
+    if (_preferences == null) {
       _preferences = await _loadProfilePrefs();
     } else {
       // Pré-carrega profilePrefs em paralelo (match score precisa).
@@ -527,11 +555,20 @@ class JobsViewModel extends ChangeNotifier {
   // - Não escrevem mais em user_preferences (Supabase) via PreferencesRepository.
   // - Não afetam match score (que lê de [profilePrefs] = tabelas relacionais).
   // - Default ao abrir pela 1ª vez: cópia das prefs do Perfil (vide _performFetch).
+  // - Quando o user limpa explicitamente, seta `_filtersClearedKey` pra que
+  //   o fallback ao Perfil NÃO entre — senão "limpar" não tem efeito.
   static String _filtersKey(String userId) => 'job_filters_$userId';
+  static String _filtersClearedKey(String userId) =>
+      'job_filters_cleared_$userId';
 
   Future<UserJobPreferences?> _loadLocalFilters(String uid) async {
     try {
       final sp = await SharedPreferences.getInstance();
+      // Marcador "user limpou explicitamente" — retorna prefs vazias (não
+      // null) pra evitar fallback ao Perfil em _performFetch/loadPreferences.
+      if (sp.getBool(_filtersClearedKey(uid)) == true) {
+        return UserJobPreferences(userId: uid);
+      }
       final raw = sp.getString(_filtersKey(uid));
       if (raw == null || raw.isEmpty) return null;
       final decoded = jsonDecode(raw);
@@ -551,6 +588,8 @@ class JobsViewModel extends ChangeNotifier {
       final sp = await SharedPreferences.getInstance();
       final json = jsonEncode(prefs.toJson());
       await sp.setString(_filtersKey(uid), json);
+      // Salvar filtros customizados anula o estado "explicitamente limpo".
+      await sp.remove(_filtersClearedKey(uid));
     } catch (e) {
       print('saveLocalFilters failed: $e');
     }
@@ -560,6 +599,10 @@ class JobsViewModel extends ChangeNotifier {
     try {
       final sp = await SharedPreferences.getInstance();
       await sp.remove(_filtersKey(uid));
+      // Marca que o user limpou DE PROPÓSITO. Sem isso, _performFetch
+      // não sabe distinguir "nunca configurou" (deve fazer fallback) de
+      // "limpou explicitamente" (não deve fazer fallback).
+      await sp.setBool(_filtersClearedKey(uid), true);
     } catch (e) {
       print('clearLocalFilters failed: $e');
     }
@@ -740,10 +783,10 @@ class JobsViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _preferences = await _loadLocalFilters(uid);
-      if (_preferences == null || _preferences!.isEmpty) {
-        _preferences = await _loadProfilePrefs();
-      }
+      // Só fallback ao Perfil quando filtros NUNCA foram configurados (null).
+      // Quando user limpou explicitamente, _loadLocalFilters retorna vazio
+      // (não null) — respeitar a escolha do user.
+      _preferences = await _loadLocalFilters(uid) ?? await _loadProfilePrefs();
     } catch (e) {
       print('Error loading preferences: $e');
     } finally {
@@ -839,7 +882,7 @@ class JobsViewModel extends ChangeNotifier {
     try {
       await _swipeRepository.removeLike(userId!, jobId);
       // ignore: unawaited_futures
-      Analytics.shared.track('job_unsaved', props: {'job_id': jobId});
+      Analytics.shared.track(evJobUnsaved, props: {'job_id': jobId});
       return true;
     } catch (e) {
       print('Error removing liked job: $e');

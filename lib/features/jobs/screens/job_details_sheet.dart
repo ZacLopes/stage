@@ -86,19 +86,11 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
         builder: (context, scrollController) {
           return Column(
             children: [
-              // Drag handle
-              Padding(
-                padding: const EdgeInsets.only(top: 10, bottom: 4),
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFCBD5E1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-
+              // Drag handle agora vive DENTRO do hero header (sobreposto ao
+              // gradient azul) em vez de ocupar uma faixa branca antes dele.
+              // Sem essa fusão, o sheet ficava com 3 zonas visuais no topo:
+              // canto arredondado branco + drag handle + gradient azul, e a
+              // transição entre eles parecia bugada.
               Expanded(
                 child: CustomScrollView(
                   controller: scrollController,
@@ -215,6 +207,23 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
       ),
       child: Stack(
         children: [
+          // Drag handle sobre o gradient — cor branca semi-transparente
+          // pra ficar visível sem competir com o conteúdo do header.
+          Positioned(
+            top: 10,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.55),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
           // Glow sutil superior à esquerda — única decoração restante,
           // alinhada com o estilo glassmorphism do JobCard.
           Positioned(

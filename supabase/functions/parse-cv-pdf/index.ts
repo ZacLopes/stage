@@ -28,7 +28,7 @@
 
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
-import { trackAIGeneration } from '../_shared/posthog.ts'
+import { trackAIGeneration, withEdgeAnalytics } from '../_shared/posthog.ts'
 import { PARSE_CV_JSON_SCHEMA } from '../_shared/cv_schema.ts'
 import { flatten } from '../_shared/cv_text.ts'
 import { detectNonCvContent, nonCvMessage } from '../_shared/cv_content_validator.ts'
@@ -176,7 +176,7 @@ function validateAgainstFallback(parsed: any, rawTextFallback: string): {
   return { parsed: { resume: r }, fieldsFilled, warnings }
 }
 
-serve(async (req) => {
+serve(withEdgeAnalytics('parse-cv-pdf', async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -364,4 +364,4 @@ serve(async (req) => {
     const status = msg.includes('AbortError') || msg.includes('aborted') ? 504 : 500
     return jsonResponse({ error: 'internal', detail: msg.slice(0, 300) }, status)
   }
-})
+}))

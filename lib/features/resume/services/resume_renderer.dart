@@ -15,6 +15,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../data/models/models.dart';
+import '../../../services/analytics_events.dart';
 import '../../../services/analytics_service.dart';
 import '../../../services/feature_flags_service.dart';
 import '../data/profile_pdf_data_loader.dart';
@@ -49,6 +50,7 @@ class ResumeRenderer {
     required UserProfile? user,
     required ResumeData fallbackResume,
     required String templateId,
+    String purpose = 'render',
   }) async {
     final flagOn = userId != null &&
         FeatureFlagsService.instance
@@ -75,7 +77,7 @@ class ResumeRenderer {
     final bytes = await PdfService.generateResumeBytes(user, resumeToRender, templateId);
     stopwatch.stop();
 
-    _track(source: source, templateId: templateId, durationMs: stopwatch.elapsedMilliseconds);
+    _track(source: source, templateId: templateId, durationMs: stopwatch.elapsedMilliseconds, purpose: purpose);
 
     return ResumeRenderResult(
       bytes: bytes,
@@ -88,13 +90,27 @@ class ResumeRenderer {
     required ResumeRenderSource source,
     required String templateId,
     required int durationMs,
+    required String purpose,
   }) {
+    // Fix QA Dia 8 (Bug 4): `pdf_generated` estava disparando ~6x por
+    // adaptação porque a tela de preview renderiza 1 thumbnail por template
+    // ao trocar a seleção. Em PostHog o evento ficava inflado e a métrica
+    // "PDFs gerados por user" virava ruído. Solução: o caller passa
+    // `purpose` distinguindo render meaningful (download/export/share)
+    // de render auxiliar (preview/thumbnail). Pra thumbnails/preview,
+    // pulamos a emissão — eles são consequência técnica da UI, não ação
+    // do usuário. Pra os meaningful, emitimos com `purpose` preenchido
+    // pra futuras métricas distinguirem fluxos (CV base × CV adaptado ×
+    // share externo). Default `'render'` preserva compat com callers
+    // ainda não migrados (continuam emitindo como antes).
+    if (purpose == 'preview' || purpose == 'thumbnail') return;
     try {
-      Analytics.shared.track('pdf_generated', props: <String, Object>{
+      Analytics.shared.track(evPdfGenerated, props: <String, Object>{
         'template_id': templateId,
         'source': _sourceLabel(source),
         'version_used': source == ResumeRenderSource.v2Relational ? 'v2' : 'v1',
         'duration_ms': durationMs,
+        'purpose': purpose,
       });
     } catch (e) {
       if (kDebugMode) debugPrint('[ResumeRenderer] track erro: $e');

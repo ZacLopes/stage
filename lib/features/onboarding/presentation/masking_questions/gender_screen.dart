@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../auth/auth_session.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
@@ -39,7 +39,12 @@ class _GenderScreenState extends State<GenderScreen> {
     if (_selected == null || _saving) return;
     AnalyticsService.shared.track('onboarding_masking_question_answered', props: {'question': 'gender'});
     final vm = context.read<ProfileEditorViewModel>();
-    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    final userId = currentUserIdOrNull();
+    if (userId == null) {
+      // ignore: unawaited_futures
+      handleSessionLost(context);
+      return;
+    }
     final base = vm.personal ?? PersonalInfo(userId: userId);
     setState(() => _saving = true);
     final ok = await saveWithRetry(

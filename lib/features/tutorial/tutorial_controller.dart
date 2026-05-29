@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../services/analytics_service.dart';
 import 'tutorial_step.dart';
 
 /// Manages the dynamic spotlight tutorial: orchestrates the step
@@ -24,6 +25,11 @@ class TutorialController extends ChangeNotifier {
   List<TutorialStep> _steps = const [];
   bool _isTransitioning = false;
   bool _replayRequested = false;
+  // Telemetria (B.11 do plano v2). `_flow` identifica qual sequência está
+  // rodando (default 'home_main' — único hoje). `_startedAt` marca o
+  // início pra calcular `duration_ms` no tutorial_completed.
+  String _flow = 'home_main';
+  DateTime? _startedAt;
 
   bool get isRunning => _currentIndex >= 0 && _currentIndex < _steps.length;
   TutorialStep? get currentStep => isRunning ? _steps[_currentIndex] : null;
@@ -47,10 +53,19 @@ class TutorialController extends ChangeNotifier {
     // call [start] which notifies anyway.
   }
 
-  Future<void> start({required List<TutorialStep> steps}) async {
+  Future<void> start({
+    required List<TutorialStep> steps,
+    String flow = 'home_main',
+  }) async {
     if (steps.isEmpty) return;
     _steps = steps;
     _currentIndex = 0;
+    _flow = flow;
+    _startedAt = DateTime.now();
+    // ignore: unawaited_futures
+    Analytics.shared.tutorialStarted(flow: _flow);
+    // ignore: unawaited_futures
+    Analytics.shared.tutorialStepShown(flow: _flow, step: 0);
     notifyListeners();
     await _runOnEnter();
   }
@@ -59,22 +74,58 @@ class TutorialController extends ChangeNotifier {
     if (!isRunning || _isTransitioning) return;
     final newIndex = _currentIndex + 1;
     if (newIndex >= _steps.length) {
-      await finish();
+      await _finishInternal(skipped: false);
       return;
     }
     _currentIndex = newIndex;
+    // ignore: unawaited_futures
+    Analytics.shared.tutorialStepShown(flow: _flow, step: newIndex);
     notifyListeners();
     await _runOnEnter();
   }
 
   Future<void> skip() async {
-    await finish();
+    final stepAtSkip = _currentIndex;
+    // ignore: unawaited_futures
+    Analytics.shared.tutorialStepDismissed(flow: _flow, step: stepAtSkip);
+    await _finishInternal(skipped: true);
   }
 
+  /// Mantido pra compat. Trata como skip pra emitir o evento certo.
   Future<void> finish() async {
+    await _finishInternal(skipped: true);
+  }
+
+  /// Encerra o tutorial em sucesso após a última tela ("Pronto! Por onde
+  /// quer começar?") — usuário escolheu próxima ação (Ver vagas / Cuidar
+  /// do CV). Emite `tutorial_completed` com `next_action`.
+  Future<void> finishWithChoice({required String nextAction}) async {
+    await _finishInternal(skipped: false, nextAction: nextAction);
+  }
+
+  Future<void> _finishInternal({
+    required bool skipped,
+    String? nextAction,
+  }) async {
+    final startedAt = _startedAt;
+    final durationMs = startedAt != null
+        ? DateTime.now().difference(startedAt).inMilliseconds
+        : 0;
+    if (skipped) {
+      // ignore: unawaited_futures
+      Analytics.shared.tutorialSkipped(flow: _flow);
+    } else {
+      // ignore: unawaited_futures
+      Analytics.shared.tutorialCompleted(
+        flow: _flow,
+        durationMs: durationMs,
+        nextAction: nextAction,
+      );
+    }
     _currentIndex = -1;
     _steps = const [];
     _isTransitioning = false;
+    _startedAt = null;
     await _markSeen();
     notifyListeners();
   }

@@ -17,7 +17,7 @@ import 'package:geocoding/geocoding.dart' as geocoding;
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../auth/auth_session.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
@@ -41,6 +41,7 @@ class LocationScreen extends StatefulWidget {
 }
 
 class _LocationScreenState extends State<LocationScreen> {
+  DateTime? _shownAt;
   // Modo: false = empty state (pin + 2 buttons); true = form com CEP
   bool _formMode = false;
 
@@ -57,6 +58,12 @@ class _LocationScreenState extends State<LocationScreen> {
   @override
   void initState() {
     super.initState();
+    _shownAt = DateTime.now();
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingPrefStepShown(
+      step: 2,
+      stepName: 'location',
+    );
     _cep.addListener(_onCepTyped);
     _hydrateFromPrefs();
   }
@@ -240,7 +247,12 @@ class _LocationScreenState extends State<LocationScreen> {
 
   Future<void> _continue() async {
     if (!_canContinue || _saving) return;
-    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    final userId = currentUserIdOrNull();
+    if (userId == null) {
+      // ignore: unawaited_futures
+      handleSessionLost(context);
+      return;
+    }
     final profileVm = context.read<ProfileEditorViewModel>();
 
     // Salva APENAS em profile_personal.location_*. A tela seguinte
@@ -268,8 +280,15 @@ class _LocationScreenState extends State<LocationScreen> {
     setState(() => _saving = false);
     if (!ok) return;
 
-    AnalyticsService.shared.track('onboarding_preferences_location_completed',
-        props: {'mode': _gpsLoading ? 'gps' : 'cep'});
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingPrefStepAnswered(
+      step: 2,
+      stepName: 'location',
+      valuesCount: 1,
+      timeMs: _shownAt != null
+          ? DateTime.now().difference(_shownAt!).inMilliseconds
+          : 0,
+    );
     Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkLocationsScreen()));
   }
 

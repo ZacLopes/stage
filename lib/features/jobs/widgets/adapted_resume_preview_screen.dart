@@ -11,6 +11,7 @@ import '../../auth/user_viewmodel.dart';
 import '../../profile/profile_viewmodel.dart';
 import '../../resume/services/resume_renderer.dart';
 import '../../resume/resume_viewmodel.dart';
+import '../job_swipe_context.dart';
 import '../models/adapted_resume.dart';
 import '../models/job.dart';
 import '../pending_adapted_cv_tracker.dart';
@@ -206,6 +207,9 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
         user: user,
         fallbackResume: _current,
         templateId: templateId,
+        // Render auxiliar pro template picker — não conta como
+        // `pdf_generated` (Bug 4: evitar inflar count com thumbnails).
+        purpose: 'preview',
       );
       if (!mounted) return;
       setState(() {
@@ -397,6 +401,13 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
   }
 
   Future<void> _approveAndDownload() async {
+    // Fix QA Dia 8: early return contra double-tap. O botão tem guard
+    // `_isExporting ? null` no onPressed, mas em taps muito rápidos (mesmo
+    // frame, antes do rebuild) o Flutter dispara duas vezes. Resultado
+    // observado: 2x `adapt_pdf_downloaded` em sequência (~18s) + `RangeError`
+    // do PdfPreview rasterizando uma State já em disposal. Guard sincrono
+    // aqui é a única forma de cortar antes do `setState` agendar o rebuild.
+    if (_isExporting) return;
     HapticFeedback.mediumImpact();
     setState(() => _isExporting = true);
     try {
@@ -416,6 +427,8 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
         user: user,
         fallbackResume: _current,
         templateId: templateId,
+        // Download de CV adaptado pra vaga (B.15 → pdf_generated meaningful).
+        purpose: 'adapt_download',
       );
       final bytes = rendered.bytes;
 
@@ -462,6 +475,11 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
 
       // ignore: unawaited_futures
       Analytics.shared.cvAdaptationPdfDownloaded(jobId: widget.job.id);
+      // Fix QA Dia 8 (Bug 1): marca essa vaga como "user adaptou CV" num
+      // storage persistente. Sem isso, `used_adapted_cv` no apply (Curtidas)
+      // sempre vinha null, quebrando a métrica do pitch.
+      // ignore: unawaited_futures
+      JobSwipeContext.shared.markAdapted(widget.job.id);
       // ignore: unawaited_futures
       PendingAdaptedCvTracker.shared.clear();
       if (!mounted) return;

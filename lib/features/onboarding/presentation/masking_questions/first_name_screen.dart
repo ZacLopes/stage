@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../auth/auth_session.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/application/extraction_status_view_model.dart';
@@ -46,7 +46,12 @@ class _FirstNameScreenState extends State<FirstNameScreen> {
         props: {'question': 'first_name'});
 
     final vm = context.read<ProfileEditorViewModel>();
-    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    final userId = currentUserIdOrNull();
+    if (userId == null) {
+      // ignore: unawaited_futures
+      handleSessionLost(context);
+      return;
+    }
     final base = vm.personal ?? PersonalInfo(userId: userId);
     setState(() => _saving = true);
     final ok = await saveWithRetry(

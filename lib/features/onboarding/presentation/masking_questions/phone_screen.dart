@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../auth/auth_session.dart';
 import '../../../../core/utils/brazil_phone_formatter.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../auth/phone_auth_helpers.dart';
@@ -71,7 +72,12 @@ class _PhoneScreenState extends State<PhoneScreen> {
     if (!_valid || _saving) return;
     AnalyticsService.shared.track('onboarding_masking_question_answered', props: {'question': 'phone'});
     final vm = context.read<ProfileEditorViewModel>();
-    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    final userId = currentUserIdOrNull();
+    if (userId == null) {
+      // ignore: unawaited_futures
+      handleSessionLost(context);
+      return;
+    }
     final base = vm.personal ?? PersonalInfo(userId: userId);
     // Sempre persiste só dígitos — máscara é puramente visual.
     final digits = _ctrl.text.replaceAll(RegExp(r'\D'), '');

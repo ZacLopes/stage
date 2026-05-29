@@ -37,10 +37,17 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
   final _formKey = GlobalKey<FormState>();
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
-  String _countryCode = '+55';
+  // DDI editável — default '55' (Brasil), mas user pode digitar qualquer
+  // código (ex: '1', '351', '44'). O prefixo '+' é renderizado fixo pelo
+  // InputDecoration.prefixText, então o controller só guarda os dígitos.
+  final _countryController = TextEditingController(text: '55');
 
   bool _obscurePassword = true;
   String? _errorMessage;
+
+  /// Código completo (com '+') usado pra autenticação e pra detectar se
+  /// o user é BR (e ativar a máscara de telefone brasileira).
+  String get _countryCode => '+${_countryController.text}';
 
   @override
   void initState() {
@@ -52,6 +59,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
   void dispose() {
     _phoneController.dispose();
     _passwordController.dispose();
+    _countryController.dispose();
     super.dispose();
   }
 
@@ -76,6 +84,11 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
       setState(() => _errorMessage = null);
       HapticFeedback.lightImpact();
 
+      // QA Dia 6 fix: emite auth_signup_started canônico ANTES do
+      // sign-up real. Pareado com auth_signup_completed (listener no VM).
+      // ignore: unawaited_futures
+      Analytics.shared.authSignupStarted(method: 'phone');
+
       await vm.signUp(
         email: syntheticEmail,
         password: _passwordController.text,
@@ -93,10 +106,10 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
       }
     } catch (e) {
       if (mounted) {
+        // Banner inline com animação cobre a comunicação do erro. SnackBar
+        // sobreposto criava duplicação visual (2 mensagens iguais ao mesmo
+        // tempo), removido.
         setState(() => _errorMessage = AuthErrorFormatter.format(e));
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(backgroundColor: AppColors.error, content: Text(_errorMessage!)),
-        );
       }
     }
   }
@@ -154,26 +167,57 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                         ),
                         const SizedBox(height: 32),
 
-                        // Telefone (country code + número)
+                        // Telefone (DDI editável + número)
                         Row(
                           children: [
                             SizedBox(
-                              width: 124,
-                              child: DropdownButtonFormField<String>(
-                                isExpanded: true,
-                                initialValue: _countryCode,
+                              width: 110,
+                              // DDI editável — qualquer código numérico. Prefix
+                              // '+' renderizado fixo pelo InputDecoration (não
+                              // entra no controller). Quando muda pra/de '+55',
+                              // limpa o número porque a máscara BR muda.
+                              child: TextFormField(
+                                controller: _countryController,
+                                keyboardType: TextInputType.number,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.digitsOnly,
+                                  LengthLimitingTextInputFormatter(4),
+                                ],
                                 decoration: InputDecoration(
+                                  prefixText: '+',
+                                  prefixStyle: const TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                  labelText: 'DDI',
+                                  labelStyle: const TextStyle(
+                                    fontFamily: 'Inter',
+                                    color: AppColors.brandBlue,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  floatingLabelBehavior:
+                                      FloatingLabelBehavior.always,
                                   filled: true,
                                   fillColor: Colors.white,
                                   contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 20),
+                                      horizontal: 12, vertical: 20),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(16),
-                                    borderSide: BorderSide(color: AppColors.borderStrong),
+                                    borderSide: BorderSide(
+                                        color: AppColors.borderStrong),
                                   ),
                                   enabledBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(16),
-                                    borderSide: BorderSide(color: AppColors.borderStrong),
+                                    borderSide: BorderSide(
+                                        color: AppColors.borderStrong),
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(16),
@@ -181,18 +225,14 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                                         color: AppColors.brandBlue, width: 2),
                                   ),
                                 ),
-                                items: const [
-                                  DropdownMenuItem(
-                                      value: '+55', child: Text('🇧🇷 +55', overflow: TextOverflow.ellipsis)),
-                                  DropdownMenuItem(
-                                      value: '+1', child: Text('🇺🇸 +1', overflow: TextOverflow.ellipsis)),
-                                  DropdownMenuItem(
-                                      value: '+351', child: Text('🇵🇹 +351', overflow: TextOverflow.ellipsis)),
-                                  DropdownMenuItem(
-                                      value: '+44', child: Text('🇬🇧 +44', overflow: TextOverflow.ellipsis)),
-                                ],
-                                onChanged: (v) => setState(() {
-                                  _countryCode = v ?? '+55';
+                                validator: (v) => (v == null || v.isEmpty)
+                                    ? 'DDI'
+                                    : null,
+                                onChanged: (_) => setState(() {
+                                  // Limpa o número quando o DDI muda — máscara
+                                  // BR só vale pra +55, e outros países podem
+                                  // ter formatos incompatíveis com o que já
+                                  // estava digitado.
                                   _phoneController.clear();
                                 }),
                               ),
@@ -251,34 +291,60 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                   ),
                 ),
 
-                if (_errorMessage != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: AppColors.error.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.error.withOpacity(0.3)),
+                // AnimatedSwitcher faz o banner entrar com fade + expansão
+                // vertical (sizeFactor com axisAlignment -1 cresce de cima
+                // pra baixo). Quando _errorMessage volta a null (ex: user
+                // edita a senha pra tentar de novo), some com a mesma curva.
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 240),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SizeTransition(
+                        sizeFactor: animation,
+                        axisAlignment: -1,
+                        child: child,
                       ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 20),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              _errorMessage!,
-                              style: TextStyle(fontFamily: 'Inter', 
-                                color: AppColors.error,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                              ),
+                    );
+                  },
+                  child: _errorMessage == null
+                      ? const SizedBox.shrink(key: ValueKey('error-empty'))
+                      : Padding(
+                          key: const ValueKey('error-banner'),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 24, vertical: 8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: AppColors.error.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                  color: AppColors.error.withOpacity(0.3)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.error_outline_rounded,
+                                    color: AppColors.error, size: 20),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    _errorMessage!,
+                                    style: const TextStyle(
+                                      fontFamily: 'Inter',
+                                      color: AppColors.error,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
+                        ),
+                ),
 
                 Padding(
                   padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),

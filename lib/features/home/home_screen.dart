@@ -32,6 +32,9 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
   String get screenName => 'home';
 
   int _currentIndex = 0;
+  /// Marca o último tab switch pra calcular `duration_on_from_ms` no
+  /// próximo. Plano v2 B.13 — métrica de stickiness por aba.
+  DateTime? _lastTabEnteredAt = DateTime.now();
   final PageController _pageController = PageController();
 
   @override
@@ -182,10 +185,13 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
             label: 'Ver vagas',
             icon: Icons.work_rounded,
             onTap: () async {
-              Analytics.shared.track(
-                'tutorial_completed',
-                props: const {'next_action': 'jobs'},
-              );
+              // Encerra o tutorial via controller (emite tutorial_completed
+              // com flow+duration_ms+next_action via typed method — não
+              // mais raw track).
+              await context
+                  .read<TutorialController>()
+                  .finishWithChoice(nextAction: 'jobs');
+              if (!mounted) return;
               goTo(HomeTabs.jobs);
             },
           ),
@@ -193,10 +199,10 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
             label: 'Cuidar do CV',
             icon: Icons.description_rounded,
             onTap: () async {
-              Analytics.shared.track(
-                'tutorial_completed',
-                props: const {'next_action': 'resume'},
-              );
+              await context
+                  .read<TutorialController>()
+                  .finishWithChoice(nextAction: 'resume');
+              if (!mounted) return;
               goTo(HomeTabs.resume);
             },
           ),
@@ -288,6 +294,22 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
         // ignore: unawaited_futures
         Analytics.shared.screen(name);
       }
+      // B.13 do plano v2 — nav_tab_switched com duration_on_from_ms
+      // (tempo gasto na aba anterior). Permite construir tab switch matrix
+      // + stickiness por aba.
+      final from = _tabScreenNames[previousIndex] ?? 'unknown';
+      final to = _tabScreenNames[index] ?? 'unknown';
+      final lastEntered = _lastTabEnteredAt;
+      final durationOnFromMs = lastEntered != null
+          ? DateTime.now().difference(lastEntered).inMilliseconds
+          : null;
+      _lastTabEnteredAt = DateTime.now();
+      // ignore: unawaited_futures
+      Analytics.shared.navTabSwitched(
+        fromTab: from,
+        toTab: to,
+        durationOnFromMs: durationOnFromMs,
+      );
     }
   }
 

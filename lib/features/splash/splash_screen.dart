@@ -173,9 +173,16 @@ class AuthGate extends StatelessWidget {
           //    NÃO os campos legacy de user_profiles (course/semester/
           //    university) — sem essa prioridade, needsProfileSetup ficaria
           //    true e a gente entraria em loop redirecionando pra TwoDoors.
-          // 2. needsProfileSetup → TwoDoorsScreen (entrada do onboarding
+          // 2. isInProfileFirstFlow → TwoDoorsScreen (QA Dia 7 fix). User está
+          //    mid-flow profile-first (tem profile_personal preenchido — IA
+          //    extraiu CV OU user respondeu masking question). Sem este check,
+          //    quando AttributionScreen salva e dispara notifyListeners, AuthGate
+          //    rebuilda, needsProfileSetup retorna false (porque IA preencheu
+          //    firstName+lastName+email), AuthGate ia pra CompletionScreen, que
+          //    pushava TwoDoorsScreen → loop infinito reportado pelo user.
+          // 3. needsProfileSetup → TwoDoorsScreen (entrada do onboarding
           //    profile-first). Cobre Apple/Google sem nome, phone signup, etc.
-          // 3. Sem campaign mas sem precisar setup → CompletionScreen (legacy).
+          // 4. Sem campaign mas sem precisar setup → CompletionScreen (legacy).
           //
           // Esse Consumer re-roteia automaticamente quando o state muda
           // (ex: user finaliza onboarding → hasCampaign vira true → rebuild →
@@ -183,6 +190,9 @@ class AuthGate extends StatelessWidget {
           // gera GlobalKey duplicada com a HomeScreen que esse Consumer monta.
           if (viewModel.hasCampaign) {
             return const HomeScreen();
+          }
+          if (viewModel.isInProfileFirstFlow) {
+            return const TwoDoorsScreen();
           }
           if (viewModel.needsProfileSetup) {
             return const TwoDoorsScreen();

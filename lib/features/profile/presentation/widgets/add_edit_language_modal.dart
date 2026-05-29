@@ -1,7 +1,7 @@
 // AddEditLanguageModal — bottom sheet pra criar/editar Language.
 
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../auth/auth_session.dart';
 import '../../domain/entities/entities.dart';
 import '../../../../core/theme/theme.dart';
 
@@ -62,7 +62,12 @@ class _AddEditLanguageModalState extends State<AddEditLanguageModal> {
   bool get _canSave => _name.text.trim().isNotEmpty;
 
   void _handleSave() {
-    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    final userId = currentUserIdOrNull();
+    if (userId == null) {
+      // ignore: unawaited_futures
+      handleSessionLost(context);
+      return;
+    }
     final lang = (widget.initial ??
             Language(id: '', userId: userId, name: ''))
         .copyWith(

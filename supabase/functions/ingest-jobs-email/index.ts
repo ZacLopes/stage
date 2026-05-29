@@ -29,6 +29,7 @@
 //   SUPABASE_SERVICE_ROLE_KEY       (auto)
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { withEdgeAnalytics } from '../_shared/posthog.ts'
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   corsHeaders,
@@ -422,7 +423,7 @@ function slugify(s: string): string {
 
 // ── Handler ──────────────────────────────────────────────────────────────────
 
-serve(async (req: Request) => {
+serve(withEdgeAnalytics('ingest-jobs-email', async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -630,4 +631,4 @@ serve(async (req: Request) => {
     title: extracted.title,
     application_email: email,
   });
-});
+}));

@@ -23,19 +23,34 @@ class WorkModeScreen extends StatefulWidget {
 }
 
 class _WorkModeScreenState extends State<WorkModeScreen> {
+  DateTime? _shownAt;
   final Set<WorkMode> _selected = {};
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
+    _shownAt = DateTime.now();
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingPrefStepShown(
+      step: 4,
+      stepName: 'work_mode',
+    );
     final current = context.read<PreferencesViewModel>().prefs?.workMode;
     if (current != null) _selected.addAll(current);
   }
 
   Future<void> _next() async {
     if (_saving) return;
-    AnalyticsService.shared.track('onboarding_preferences_work_mode_completed');
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingPrefStepAnswered(
+      step: 4,
+      stepName: 'work_mode',
+      valuesCount: 1,
+      timeMs: _shownAt != null
+          ? DateTime.now().difference(_shownAt!).inMilliseconds
+          : 0,
+    );
     final vm = context.read<PreferencesViewModel>();
     setState(() => _saving = true);
     final ok = await saveWithRetry(

@@ -30,6 +30,28 @@ class GamificationViewModel extends ChangeNotifier {
   // Question Flow State
   List<Question> _questions = [];
   int _currentQuestionIndex = 0;
+  /// Marca o momento em que o step atual entrou na tela. Usado pra calcular
+  /// `duration_ms` no `phase_step_completed` (B.16 do plano v2 — gap
+  /// crítico de granularidade da trilha pré-cutover).
+  DateTime? _trilhaStepEnteredAt;
+  /// Marca o momento em que a fase atual foi iniciada via `startPhase`.
+  /// Alimenta `time_spent_ms` no `phase_completed` (gap descoberto no QA
+  /// do Fluxo 6 em 2026-05-28 — sem isso, não dá pra medir "tempo médio
+  /// por fase" no pitch).
+  DateTime? _phaseStartedAt;
+
+  /// Lookup pragmático trackId → título humano. Espelha o mapa em
+  /// `phase_completion_widget.dart` (`_trackNames`). 5 trilhas fixas no
+  /// produto; quando passar a haver mais, mover pro Track model do banco.
+  /// Usado pra enriquecer `phase_started`/`phase_completed` com
+  /// `track_title` legível, sem precisar manter lookup table no PostHog.
+  static const Map<String, String> _trackTitleById = {
+    'track_1': 'Direção',
+    'track_2': 'Minha Base',
+    'track_3': 'Minhas Experiências',
+    'track_4': 'Hard Skills & Idiomas',
+    'track_5': 'Links & Logística',
+  };
   Map<String, dynamic> _answers = {}; // questionId -> answer
   bool _isLoadingQuestions = false;
   bool _isPhaseCompleted = false;
@@ -189,8 +211,19 @@ class GamificationViewModel extends ChangeNotifier {
   }
 
   // Start a Phase
-  Future<void> startPhase(String phaseId) async {
-    Analytics.shared.trackPhaseStarted(phaseId: phaseId);
+  Future<void> startPhase(Phase phase) async {
+    final phaseId = phase.id;
+    _phaseStartedAt = DateTime.now();
+    // Activation milestone — idempotente.
+    // ignore: unawaited_futures
+    Analytics.shared.activationMilestoneHit(milestone: 'first_phase');
+    Analytics.shared.trackPhaseStarted(
+      phaseId: phaseId,
+      phaseTitle: phase.title,
+      trackId: phase.trackId,
+      trackTitle: _trackTitleById[phase.trackId],
+      phaseOrderIndex: phase.orderIndex,
+    );
     _isLoadingQuestions = true;
     _currentQuestionIndex = 0;
     _answers = {};
@@ -248,6 +281,18 @@ class GamificationViewModel extends ChangeNotifier {
     } finally {
       _isLoadingQuestions = false;
       notifyListeners();
+      // B.16 do plano v2 — phase_step_shown pro primeiro step após
+      // carregar questions. Granularidade da trilha (gap do audit).
+      final firstQ = currentQuestion;
+      if (firstQ != null) {
+        _trilhaStepEnteredAt = DateTime.now();
+        // ignore: unawaited_futures
+        Analytics.shared.phaseStepShown(
+          phaseId: firstQ.phaseId,
+          stepId: firstQ.id,
+          stepIndex: _currentQuestionIndex,
+        );
+      }
     }
   }
 
@@ -258,9 +303,21 @@ class GamificationViewModel extends ChangeNotifier {
 
   Future<void> answerQuestion(dynamic answer) async {
     if (currentQuestion == null) return;
-    
+
     final currentQ = currentQuestion!;
     _answers[currentQ.id] = answer;
+    // B.16 do plano v2 — phase_step_completed pro step que acaba de ser
+    // respondido. duration_ms = tempo desde phase_step_shown.
+    final stepEnteredAt = _trilhaStepEnteredAt;
+    final stepDurationMs = stepEnteredAt != null
+        ? DateTime.now().difference(stepEnteredAt).inMilliseconds
+        : 0;
+    // ignore: unawaited_futures
+    Analytics.shared.phaseStepCompleted(
+      phaseId: currentQ.phaseId,
+      stepId: currentQ.id,
+      durationMs: stepDurationMs,
+    );
     
     // Save answer to database
     try {
@@ -348,6 +405,7 @@ class GamificationViewModel extends ChangeNotifier {
 
     if (_currentQuestionIndex < _questions.length - 1) {
       _currentQuestionIndex++;
+      _emitTrilhaStepShown();
       notifyListeners();
     } else {
       await _finishPhase();
@@ -360,10 +418,26 @@ class GamificationViewModel extends ChangeNotifier {
     _pendingBulletExperienceId = null;
     if (_currentQuestionIndex < _questions.length - 1) {
       _currentQuestionIndex++;
+      _emitTrilhaStepShown();
       notifyListeners();
     } else {
       await _finishPhase();
     }
+  }
+
+  /// Helper centralizado pra emitir `phase_step_shown` (B.16) e reiniciar
+  /// o timer do step. Chamar SEMPRE após mudar `_currentQuestionIndex`
+  /// pra fora do `startPhase` (que tem sua própria emissão pós-load).
+  void _emitTrilhaStepShown() {
+    final q = currentQuestion;
+    if (q == null) return;
+    _trilhaStepEnteredAt = DateTime.now();
+    // ignore: unawaited_futures
+    Analytics.shared.phaseStepShown(
+      phaseId: q.phaseId,
+      stepId: q.id,
+      stepIndex: _currentQuestionIndex,
+    );
   }
 
   void previousQuestion() {
@@ -687,13 +761,33 @@ class GamificationViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> saveProgress(String phaseId) async {
+  Future<void> saveProgress(Phase phase) async {
+    final phaseId = phase.id;
     try {
       await _repository.markPhaseCompleted(phaseId);
+      // xp_earned removido do evento `phase_completed` no cutover de
+      // instrumentação (release 2026-05/06) — XP foi removido do produto
+      // em 2026-05-06 e a property virou zumbi. Anti-padrão #2 do plano v2.
+      //
+      // 2026-05-28: enriquecido com phase_title/track_id/track_title/
+      // ordinais + time_spent_ms + questions_total/answered (gap do QA
+      // do Fluxo 6 — eventos vinham só com phase_id="t1_p3", inviáveis
+      // pra "% conclusão por trilha" / "tempo médio por fase" no pitch).
+      final phaseStartedAt = _phaseStartedAt;
+      final timeSpentMs = phaseStartedAt != null
+          ? DateTime.now().difference(phaseStartedAt).inMilliseconds
+          : null;
       Analytics.shared.trackPhaseCompleted(
         phaseId: phaseId,
-        xpEarned: 50 + (_questions.length * 10),
+        phaseTitle: phase.title,
+        trackId: phase.trackId,
+        trackTitle: _trackTitleById[phase.trackId],
+        phaseOrderIndex: phase.orderIndex,
+        timeSpentMs: timeSpentMs,
+        questionsTotal: _questions.length,
+        questionsAnswered: _answers.length,
       );
+      _phaseStartedAt = null;
 
       final user = await _repository.getUserProfile();
       if (user != null) {

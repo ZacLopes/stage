@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../../core/analytics/screen_tracking.dart';
 import '../../../core/constants/job_areas.dart';
 import '../jobs_viewmodel.dart';
+import '../../auth/auth_session.dart';
 import '../models/user_preferences.dart';
 import '../../../core/theme/theme.dart';
 
@@ -148,11 +149,17 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
   Future<void> _saveAndClose() async {
     HapticFeedback.lightImpact();
     final vm = context.read<JobsViewModel>();
+    final userId = currentUserIdOrNull();
+    if (userId == null) {
+      // ignore: unawaited_futures
+      handleSessionLost(context);
+      return;
+    }
     setState(() => _saving = true);
 
     try {
       final prefs = UserJobPreferences(
-        userId: vm.userId ?? '',
+        userId: userId,
         areas: _selectedAreas.toList(),
         locations: _selectedLocations.toList(),
         workModels: _selectedWorkModels.toList(),
@@ -462,19 +469,37 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
   }
 
   Widget _buildLocationChips() {
+    // Cidades selecionadas que vieram do Perfil (onboarding / preferências)
+    // mas não estão no catálogo de 14 — aparecem primeiro como chips
+    // selecionados removíveis. Sem isso ficavam invisíveis mesmo contando
+    // no subtitle "X/5" (`_selectedLocations.length`).
+    final outsideCatalog = _selectedLocations
+        .where((loc) => !_locations.contains(loc))
+        .toList();
+    final atMax = _selectedLocations.length >= _maxLocations;
+
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: _locations.map((loc) {
-        final selected = _selectedLocations.contains(loc);
-        final atMax = _selectedLocations.length >= _maxLocations && !selected;
-        return _GradientChip(
-          label: loc,
-          selected: selected,
-          disabled: atMax,
-          onTap: atMax ? null : () => _toggleLocation(loc),
-        );
-      }).toList(),
+      children: [
+        // Cidades fora do catálogo — sempre selecionadas; tap remove.
+        ...outsideCatalog.map((loc) => _GradientChip(
+              label: loc,
+              selected: true,
+              onTap: () => _toggleLocation(loc),
+            )),
+        // Catálogo padrão.
+        ..._locations.map((loc) {
+          final selected = _selectedLocations.contains(loc);
+          final disabled = atMax && !selected;
+          return _GradientChip(
+            label: loc,
+            selected: selected,
+            disabled: disabled,
+            onTap: disabled ? null : () => _toggleLocation(loc),
+          );
+        }),
+      ],
     );
   }
 

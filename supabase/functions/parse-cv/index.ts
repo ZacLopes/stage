@@ -23,7 +23,7 @@
 
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
-import { trackAIGeneration } from '../_shared/posthog.ts'
+import { trackAIGeneration, trackEdgeFunctionInvoked } from '../_shared/posthog.ts'
 import { PARSE_CV_JSON_SCHEMA } from '../_shared/cv_schema.ts'
 import { flatten, normalize } from '../_shared/cv_text.ts'
 import { detectNonCvContent, nonCvMessage } from '../_shared/cv_content_validator.ts'
@@ -272,6 +272,11 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  // B.7 do plano v2 — timer pra trackEdgeFunctionInvoked emitido no
+  // success path e no catch outer. `userId` é resolvido dentro do try
+  // (auth ou body) — só uso aqui pra calcular duração.
+  const fnStart = Date.now()
+  let userIdForTracking = 'edge_function:parse-cv'
   try {
     const body = await req.json().catch(() => ({}))
     const force: boolean = body?.force === true
@@ -355,6 +360,7 @@ serve(async (req) => {
       const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
       if (authError || !user) return jsonResponse({ error: 'Unauthorized' }, 401)
       userId = user.id
+      userIdForTracking = user.id
     }
 
     // Lê raw_text do banco — sempre fresco. Não aceita raw_text via input
@@ -469,6 +475,13 @@ serve(async (req) => {
     }
 
     console.log(`[parse-cv] SUCCESS user=${userId} fieldsFilled=${fieldsFilled}`)
+    trackEdgeFunctionInvoked({
+      functionName: 'parse-cv',
+      distinctId: userId,
+      durationMs: Date.now() - fnStart,
+      status: 'ok',
+      extra: { fields_filled: fieldsFilled },
+    }).catch(() => {})
     return jsonResponse({
       parsed: parsed.resume,
       cached: false,
@@ -480,6 +493,14 @@ serve(async (req) => {
     const msg = (err as Error).message || 'unknown'
     console.error('parse-cv error:', msg)
     const status = msg.includes('AbortError') || msg.includes('aborted') ? 504 : 500
+    trackEdgeFunctionInvoked({
+      functionName: 'parse-cv',
+      distinctId: userIdForTracking,
+      durationMs: Date.now() - fnStart,
+      status: 'error',
+      errorCode: status === 504 ? 'timeout' : 'internal',
+      extra: { error_message: msg.slice(0, 300) },
+    }).catch(() => {})
     return jsonResponse({ error: 'internal', detail: msg.slice(0, 300) }, status)
   }
 })

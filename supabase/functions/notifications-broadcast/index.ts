@@ -38,6 +38,13 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 
+import {
+  captureEvent,
+  EV_PUSH_SEND_COMPLETED,
+  EV_PUSH_SEND_INITIATED,
+  trackEdgeFunctionInvoked,
+} from '../_shared/posthog.ts'
+
 const CRON_SECRET = Deno.env.get('CRON_SECRET') ?? ''
 const ONESIGNAL_APP_ID = Deno.env.get('ONESIGNAL_APP_ID') ?? ''
 const ONESIGNAL_REST_API_KEY = Deno.env.get('ONESIGNAL_REST_API_KEY') ?? ''
@@ -66,7 +73,15 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  const fnStart = Date.now()
+
   if (!isAuthorized(req)) {
+    trackEdgeFunctionInvoked({
+      functionName: 'notifications-broadcast',
+      distinctId: 'edge_function:notifications-broadcast',
+      durationMs: Date.now() - fnStart,
+      status: 'unauthorized',
+    }).catch(() => {})
     return jsonResponse({ error: 'unauthorized' }, 401)
   }
 
@@ -116,6 +131,9 @@ serve(async (req) => {
   // OneSignal payload — usa `included_segments` em vez de
   // `include_external_user_ids` pra broadcast eficiente (1 chamada =
   // entrega pra N users, sem loop por usuário).
+  // `sent_at` em data permite o app client calcular `time_from_send_ms`
+  // no `push_opened` (B.10 do plano v2 — fix do gap de attribution).
+  const sentAtIso = new Date().toISOString()
   const onesignalPayload = {
     app_id: ONESIGNAL_APP_ID,
     included_segments: [segment],
@@ -124,10 +142,26 @@ serve(async (req) => {
     data: {
       ...(body.data ?? {}),
       source: 'broadcast',
+      campaign: 'broadcast',
+      type: 'broadcast',
+      sent_at: sentAtIso,
     },
     // ttl 24h — broadcasts geralmente perdem valor depois de 1 dia.
     ttl: 86400,
   }
+
+  // B.10 — push_send_initiated. Marca intenção antes da chamada OneSignal,
+  // separado de push_send_completed pra detectar falhas pré-envio.
+  captureEvent({
+    event: EV_PUSH_SEND_INITIATED,
+    distinctId: 'edge_function:notifications-broadcast',
+    properties: {
+      campaign: 'broadcast',
+      segment,
+      title_length: title.length,
+      message_length: message.length,
+    },
+  }).catch(() => {})
 
   let resp: Response
   try {
@@ -140,6 +174,14 @@ serve(async (req) => {
       body: JSON.stringify(onesignalPayload),
     })
   } catch (e) {
+    trackEdgeFunctionInvoked({
+      functionName: 'notifications-broadcast',
+      distinctId: 'edge_function:notifications-broadcast',
+      durationMs: Date.now() - fnStart,
+      status: 'error',
+      errorCode: 'onesignal_fetch_failed',
+      extra: { error_message: String(e).slice(0, 300) },
+    }).catch(() => {})
     return jsonResponse({
       ok: false,
       error: 'onesignal_fetch_failed',
@@ -154,6 +196,34 @@ serve(async (req) => {
   } catch {
     onesignalBody = onesignalText.slice(0, 500)
   }
+
+  // B.10 — push_send_completed (status + recipients). OneSignal retorna
+  // `recipients` quando ok=true; em erro retorna `errors[]`.
+  const recipients =
+    typeof onesignalBody === 'object' && onesignalBody !== null
+      ? Number((onesignalBody as Record<string, unknown>).recipients ?? 0)
+      : 0
+  captureEvent({
+    event: EV_PUSH_SEND_COMPLETED,
+    distinctId: 'edge_function:notifications-broadcast',
+    properties: {
+      campaign: 'broadcast',
+      segment,
+      ok: resp.ok,
+      http_status: resp.status,
+      delivered_count: recipients,
+      failed_count: resp.ok ? 0 : 1,
+    },
+  }).catch(() => {})
+
+  trackEdgeFunctionInvoked({
+    functionName: 'notifications-broadcast',
+    distinctId: 'edge_function:notifications-broadcast',
+    durationMs: Date.now() - fnStart,
+    status: resp.ok ? 'ok' : 'error',
+    ...(resp.ok ? {} : { errorCode: `onesignal_http_${resp.status}` }),
+    extra: { delivered_count: recipients, segment },
+  }).catch(() => {})
 
   return jsonResponse({
     ok: resp.ok,

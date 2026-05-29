@@ -15,6 +15,7 @@ import '../features/profile/profile_viewmodel.dart';
 import 'analytics_service.dart';
 import 'cv_content_validator.dart';
 import 'pdf_text_extractor.dart';
+import 'profile_events.dart';
 
 /// Resultado de uma importação de CV. UI pode usar `success` pra decidir
 /// se fecha o picker / mostra confirmação, e os contadores pra mostrar
@@ -149,6 +150,12 @@ class CvImportService {
             'imported_at': DateTime.now().toUtc().toIso8601String(),
           };
           await userVM.updateProfile(gamificationData: currentData);
+          // Sinaliza pro JobsSwipeScreen/JobsViewModel limparem caches de
+          // match e pseudo-texto. Sem isso, `_matchCache` mantém
+          // `MatchResult.noResume()` até hot-restart mesmo com o raw_text
+          // já salvo. Os 2 listeners (ProfileEvents.changes em
+          // jobs_swipe_screen.dart e jobs_viewmodel.dart) já estão prontos.
+          ProfileEvents.instance.notifyChanged();
         }
       } catch (e) {
         extractionError = e.toString().split('\n').first;

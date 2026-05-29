@@ -30,11 +30,21 @@ class TwoDoorsScreen extends StatefulWidget {
 
 class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
   bool _processing = false;
+  // Marca quando a TwoDoorsScreen foi mostrada — pra calcular
+  // `time_to_decide_ms` no `onboardingDoorChosen` (B.1 do plano v2).
+  DateTime? _shownAt;
 
   @override
   void initState() {
     super.initState();
-    AnalyticsService.shared.track('onboarding_two_doors_shown');
+    _shownAt = DateTime.now();
+    // QA Dia 6 fix: este é o entry do fluxo profile-first. Emite
+    // onboarding_started (pareado com onboardingCompleted/_abandoned)
+    // e onboarding_two_doors_shown via typed methods.
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingStarted();
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingTwoDoorsShown();
   }
 
   bool _pickingFile = false;
@@ -42,8 +52,16 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
   Future<void> _chooseUpload() async {
     if (_pickingFile) return;
     HapticFeedback.lightImpact();
-    AnalyticsService.shared.track('onboarding_door_chosen', props: {'door': 'upload'});
-    AnalyticsService.shared.track('onboarding_upload_started');
+    final timeToDecideMs = _shownAt != null
+        ? DateTime.now().difference(_shownAt!).inMilliseconds
+        : 0;
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingDoorChosen(
+      door: 'upload_cv',
+      timeToDecideMs: timeToDecideMs,
+    );
+    // ignore: unawaited_futures
+    Analytics.shared.cvImportStarted();
     setState(() => _pickingFile = true);
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -137,7 +155,14 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
   Future<void> _chooseTrail() async {
     if (_processing) return;
     HapticFeedback.lightImpact();
-    AnalyticsService.shared.track('onboarding_door_chosen', props: {'door': 'trail'});
+    final timeToDecideMs = _shownAt != null
+        ? DateTime.now().difference(_shownAt!).inMilliseconds
+        : 0;
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingDoorChosen(
+      door: 'trail',
+      timeToDecideMs: timeToDecideMs,
+    );
 
     if (widget.onChooseTrail != null) {
       widget.onChooseTrail!();

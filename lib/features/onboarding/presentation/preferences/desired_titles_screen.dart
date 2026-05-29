@@ -10,6 +10,7 @@ import '../../../../core/constants/job_areas.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../profile/application/preferences_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../../../auth/auth_session.dart';
 import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'location_screen.dart';
@@ -30,10 +31,17 @@ class DesiredTitlesScreen extends StatefulWidget {
 class _DesiredTitlesScreenState extends State<DesiredTitlesScreen> {
   final Set<String> _selected = {};
   bool _saving = false;
+  DateTime? _shownAt;
 
   @override
   void initState() {
     super.initState();
+    _shownAt = DateTime.now();
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingPrefStepShown(
+      step: 1,
+      stepName: 'desired_titles',
+    );
     // Fonte primária: user_preferences.areas (115 users com áreas salvas
     // pós-Semana 2). Fonte secundária: profile_desired_titles legacy
     // (substring match). Sem o fetch da fonte primária, a tela abre vazia
@@ -104,9 +112,22 @@ class _DesiredTitlesScreenState extends State<DesiredTitlesScreen> {
 
   Future<void> _continue() async {
     if (_saving) return;
-    AnalyticsService.shared.track('onboarding_preferences_desired_titles_completed',
-        props: {'count': _selected.length});
-    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    final timeMs = _shownAt != null
+        ? DateTime.now().difference(_shownAt!).inMilliseconds
+        : 0;
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingPrefStepAnswered(
+      step: 1,
+      stepName: 'desired_titles',
+      valuesCount: _selected.length,
+      timeMs: timeMs,
+    );
+    final userId = currentUserIdOrNull();
+    if (userId == null) {
+      // ignore: unawaited_futures
+      handleSessionLost(context);
+      return;
+    }
     final entries = _selected
         .toList()
         .asMap()

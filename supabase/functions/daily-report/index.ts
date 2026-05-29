@@ -29,7 +29,7 @@
 
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
-import { captureEvent } from '../_shared/posthog.ts'
+import { captureEvent, withEdgeAnalytics } from '../_shared/posthog.ts'
 import {
   computeGapBlock,
   computeWindow,
@@ -125,7 +125,7 @@ async function sendNtfy(title: string, message: string): Promise<{ ok: boolean; 
   return { ok: resp.ok, status: resp.status, body: text.slice(0, 300) }
 }
 
-serve(async (req) => {
+serve(withEdgeAnalytics('daily-report', async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -274,4 +274,4 @@ serve(async (req) => {
       applies: match.totalApplies,
     },
   })
-})
+}))

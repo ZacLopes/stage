@@ -255,7 +255,7 @@ class AIService {
       case 'rate_limited':
         return 'Você atingiu o limite diário de adaptações. Tente amanhã.';
       case 'adaptation_rejected':
-        return 'A adaptação não passou na verificação de integridade. Tente novamente.';
+        return 'A IA gerou conteúdo que não bateu com seu currículo. Toque em "Tentar de novo" pra fazer mais uma rodada.';
       case 'ai_response_invalid':
         return 'Resposta da IA veio em formato inesperado. Tente de novo.';
       case 'unauthorized':

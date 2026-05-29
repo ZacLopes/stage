@@ -26,19 +26,34 @@ class JobTypesScreen extends StatefulWidget {
 }
 
 class _JobTypesScreenState extends State<JobTypesScreen> {
+  DateTime? _shownAt;
   final Set<JobType> _selected = {};
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
+    _shownAt = DateTime.now();
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingPrefStepShown(
+      step: 5,
+      stepName: 'job_types',
+    );
     final current = context.read<PreferencesViewModel>().prefs?.jobTypes;
     if (current != null) _selected.addAll(current);
   }
 
   Future<void> _next() async {
     if (_saving) return;
-    AnalyticsService.shared.track('onboarding_preferences_job_types_completed');
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingPrefStepAnswered(
+      step: 5,
+      stepName: 'job_types',
+      valuesCount: _selected.length,
+      timeMs: _shownAt != null
+          ? DateTime.now().difference(_shownAt!).inMilliseconds
+          : 0,
+    );
     final vm = context.read<PreferencesViewModel>();
     setState(() => _saving = true);
     final ok = await saveWithRetry(

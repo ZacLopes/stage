@@ -4,7 +4,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../auth/auth_session.dart';
 import '../../../services/analytics_service.dart';
 import '../../profile/application/profile_editor_view_model.dart';
 import '../../profile/domain/entities/entities.dart';
@@ -21,11 +21,15 @@ class ReviewPersonalInfoScreen extends StatefulWidget {
 
 class _ReviewPersonalInfoScreenState extends State<ReviewPersonalInfoScreen> {
   PersonalInfo? _draft;
+  // QA Dia 6 — pra calcular `time_on_screen_ms` no review_confirmed.
+  DateTime? _shownAt;
 
   @override
   void initState() {
     super.initState();
-    AnalyticsService.shared.track('onboarding_review_personal_shown');
+    _shownAt = DateTime.now();
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingPersonalReviewShown();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ProfileEditorViewModel>().load().then((_) {
         if (!mounted) return;
@@ -44,8 +48,24 @@ class _ReviewPersonalInfoScreenState extends State<ReviewPersonalInfoScreen> {
 
   void _continue() async {
     if (!_canContinue) return;
-    AnalyticsService.shared.track('onboarding_review_personal_continued');
-    await context.read<ProfileEditorViewModel>().commitPersonal(_draft!);
+    final userId = currentUserIdOrNull();
+    if (userId == null) {
+      // ignore: unawaited_futures
+      handleSessionLost(context);
+      return;
+    }
+    final timeOnScreenMs = _shownAt != null
+        ? DateTime.now().difference(_shownAt!).inMilliseconds
+        : 0;
+    // edits_count granular não está instrumentado (precisaria escutar
+    // onChanged de cada field) — passa 0. Pra qualidade de extração IA,
+    // o sinal vem do `cv_adaptation_user_edited` post-adapt.
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingPersonalReviewConfirmed(
+      editsCount: 0,
+      timeOnScreenMs: timeOnScreenMs,
+    );
+    await context.read<ProfileEditorViewModel>().commitPersonal(_draft!.copyWith(userId: userId));
     if (!mounted) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => const ReviewResumeScreen()));
   }
@@ -54,7 +74,7 @@ class _ReviewPersonalInfoScreenState extends State<ReviewPersonalInfoScreen> {
   Widget build(BuildContext context) {
     final vm = context.watch<ProfileEditorViewModel>();
     final initial = _draft ?? vm.personal ??
-        PersonalInfo(userId: Supabase.instance.client.auth.currentUser?.id ?? '');
+        PersonalInfo(userId: currentUserIdOrNull() ?? '');
 
     return OnboardingScaffold(
       title: 'Informações pessoais',

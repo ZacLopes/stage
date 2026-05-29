@@ -9,6 +9,7 @@
 // extraído pra "conferir", então a tela ficaria prometendo algo vazio.
 
 import 'package:flutter/material.dart';
+import '../../../services/analytics_events.dart';
 import '../../../services/analytics_service.dart';
 import 'onboarding_scaffold.dart';
 import 'review_personal_info_screen.dart';
@@ -30,7 +31,15 @@ class _AllSetScreenState extends State<AllSetScreen>
   @override
   void initState() {
     super.initState();
-    AnalyticsService.shared.track('onboarding_all_set_shown');
+    // QA Dia 6 fix: raw track substituído por typed method com
+    // total_duration_ms resolvido automaticamente.
+    // ignore: unawaited_futures
+    () async {
+      final totalDurationMs =
+          await Analytics.shared.resolveOnboardingDurationMs() ?? 0;
+      // ignore: unawaited_futures
+      Analytics.shared.onboardingAllSetShown(totalDurationMs: totalDurationMs);
+    }();
     _controller = AnimationController(
       duration: const Duration(milliseconds: 700),
       vsync: this,
@@ -51,7 +60,7 @@ class _AllSetScreenState extends State<AllSetScreen>
   }
 
   void _continue() {
-    AnalyticsService.shared.track('onboarding_all_set_continued');
+    AnalyticsService.shared.track(evOnboardingAllSetContinued);
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const ReviewPersonalInfoScreen()),

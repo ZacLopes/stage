@@ -216,10 +216,10 @@ class Project {
     final bulletsRaw = m['profile_project_bullets'] as List?;
     final bullets = bulletsRaw == null
         ? const <ProjectBullet>[]
-        : bulletsRaw
+        : (bulletsRaw
             .map((b) => ProjectBullet.fromMap(b as Map<String, dynamic>))
             .toList()
-          ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
+          ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex)));
     return Project(
       id: m['id'] as String,
       userId: m['user_id'] as String,

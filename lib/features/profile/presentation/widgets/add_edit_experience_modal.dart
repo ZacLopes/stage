@@ -4,7 +4,7 @@
 // add/update/delete individualmente OU se replace tudo via replaceProfile.
 
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../auth/auth_session.dart';
 import '../../../gamification/widgets/month_year_picker_sheet.dart';
 import '../../domain/entities/entities.dart';
 import '../../../../core/theme/theme.dart';
@@ -114,7 +114,12 @@ class _AddEditExperienceModalState extends State<AddEditExperienceModal> {
   }
 
   void _handleSave() {
-    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    final userId = currentUserIdOrNull();
+    if (userId == null) {
+      // ignore: unawaited_futures
+      handleSessionLost(context);
+      return;
+    }
     final exp = (widget.initial ??
             Experience(
               id: '', userId: userId,

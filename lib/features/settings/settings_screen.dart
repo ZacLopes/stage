@@ -6,6 +6,7 @@ import '../../core/utils/display_name.dart';
 import '../auth/account_migration_screen.dart';
 import '../auth/phone_auth_helpers.dart';
 import '../auth/user_viewmodel.dart';
+import '../auth/auth_session.dart';
 import '../auth/onboarding_screen.dart';
 import '../profile/application/profile_editor_view_model.dart';
 import 'change_password_screen.dart';
@@ -13,6 +14,7 @@ import '../resume/widgets/ai_consent_modal.dart';
 import '../resume/widgets/template_thumbnail_generator_screen.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../../core/utils/app_notifications.dart';
+import '../../services/analytics_events.dart';
 import '../../services/analytics_service.dart';
 import '../../services/notifications_service.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -32,9 +34,64 @@ class _SettingsScreenState extends State<SettingsScreen>
   @override
   String get screenName => 'settings';
 
+  // Devmode unlock (release builds): toque 7x rápido no título "Configurações"
+  // libera a seção [DEV] Ferramentas pro Pedro setar is_internal=true no
+  // device dele (sem isso, métricas do Demo Day contam o teste interno).
+  static const _kDevmodeUnlockedKey = 'analytics_devmode_unlocked';
+  int _titleTapCount = 0;
+  DateTime? _firstTapAt;
+  bool _devmodeUnlocked = false;
+  bool _isInternalDevice = false;
+
   @override
   void initState() {
     super.initState();
+    _hydrateDevmodeState();
+  }
+
+  Future<void> _hydrateDevmodeState() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _devmodeUnlocked = prefs.getBool(_kDevmodeUnlockedKey) ?? false;
+      _isInternalDevice = Analytics.shared.isInternalUser;
+    });
+  }
+
+  void _onTitleTap() async {
+    final now = DateTime.now();
+    // Janela de 2s pra completar a sequência de 7 toques.
+    if (_firstTapAt == null || now.difference(_firstTapAt!).inSeconds > 2) {
+      _firstTapAt = now;
+      _titleTapCount = 1;
+      return;
+    }
+    _titleTapCount++;
+    if (_titleTapCount >= 7) {
+      _titleTapCount = 0;
+      _firstTapAt = null;
+      final prefs = await SharedPreferences.getInstance();
+      final nextValue = !_devmodeUnlocked;
+      await prefs.setBool(_kDevmodeUnlockedKey, nextValue);
+      if (!mounted) return;
+      setState(() => _devmodeUnlocked = nextValue);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(nextValue ? 'Devmode liberado' : 'Devmode bloqueado'),
+        duration: const Duration(seconds: 2),
+      ));
+    }
+  }
+
+  Future<void> _toggleInternalDevice(bool value) async {
+    await Analytics.shared.setInternalUser(value);
+    if (!mounted) return;
+    setState(() => _isInternalDevice = value);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(value
+          ? 'Device marcado como INTERNO — eventos filtrados do produto'
+          : 'Device marcado como EXTERNO'),
+      duration: const Duration(seconds: 3),
+    ));
   }
 
 
@@ -55,7 +112,11 @@ class _SettingsScreenState extends State<SettingsScreen>
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Configurações', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+        title: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _onTitleTap,
+          child: const Text('Configurações', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+        ),
         centerTitle: true,
         backgroundColor: Colors.white,
         elevation: 0,
@@ -230,8 +291,10 @@ class _SettingsScreenState extends State<SettingsScreen>
             ),
           ),
 
-          // Dev tools — só em debug mode. Em release fica fora da árvore.
-          if (kDebugMode) ...[
+          // Dev tools — visível em debug OU quando devmode unlock (7 toques
+          // no título "Configurações") está ativo. Em release puro com
+          // devmode bloqueado, fica fora da árvore.
+          if (kDebugMode || _devmodeUnlocked) ...[
             const SizedBox(height: 32),
             const _SectionHeader(title: '[DEV] Ferramentas'),
             const SizedBox(height: 12),
@@ -247,17 +310,38 @@ class _SettingsScreenState extends State<SettingsScreen>
                   ),
                 ],
               ),
-              child: _SettingsTile(
-                icon: Icons.image_outlined,
-                title: 'Gerar thumbnails dos templates',
-                subtitle: 'Regera os PNGs de preview no Documents/',
-                iconColor: Colors.purple,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const TemplateThumbnailGeneratorScreen()),
-                  );
-                },
+              child: Column(
+                children: [
+                  // Toggle is_internal — quando ON, a person property
+                  // is_internal: true entra em todo evento futuro via super
+                  // property. Cohort "Internal users" no PostHog filtra
+                  // essas sessões fora das métricas de produto.
+                  SwitchListTile(
+                    value: _isInternalDevice,
+                    onChanged: _toggleInternalDevice,
+                    title: const Text('Marcar device como interno'),
+                    subtitle: Text(_isInternalDevice
+                        ? 'Eventos desse device excluídos das métricas (is_internal=true).'
+                        : 'Liga pra deixar de poluir o dashboard.'),
+                    secondary: Icon(
+                      Icons.shield_outlined,
+                      color: _isInternalDevice ? AppColors.success : AppColors.textTertiary,
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  _SettingsTile(
+                    icon: Icons.image_outlined,
+                    title: 'Gerar thumbnails dos templates',
+                    subtitle: 'Regera os PNGs de preview no Documents/',
+                    iconColor: Colors.purple,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const TemplateThumbnailGeneratorScreen()),
+                      );
+                    },
+                  ),
+                ],
               ),
             ),
           ],
@@ -961,18 +1045,18 @@ class _NotificationsTileState extends State<_NotificationsTile> {
     }
 
     setState(() => _loading = true);
-    Analytics.shared.track('push_reactivate_tapped',
+    Analytics.shared.track(evPushReactivateTapped,
         props: {'previous_status': _status});
 
-    final userId = context.read<UserViewModel>().user?.id ?? '';
+    final userId = currentUserIdOrNull();
     final granted = await NotificationsService.shared
-        .reactivatePush(userId: userId.isNotEmpty ? userId : null);
+        .reactivatePush(userId: userId);
 
     // Espera o SDK sincronizar antes de re-checar status (iOS roundtrip).
     await Future.delayed(const Duration(seconds: 1));
     await _refresh();
 
-    Analytics.shared.track('push_reactivate_completed', props: {
+    Analytics.shared.track(evPushReactivateCompleted, props: {
       'granted': granted,
       'new_status': _status,
     });

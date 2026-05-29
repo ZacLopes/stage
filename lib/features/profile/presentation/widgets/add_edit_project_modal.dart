@@ -13,7 +13,7 @@
 // no entity Project; o repository faz delete + re-insert.
 
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../auth/auth_session.dart';
 import '../../../gamification/widgets/month_year_picker_sheet.dart';
 import '../../domain/entities/entities.dart';
 import '../../../../core/theme/theme.dart';
@@ -147,7 +147,12 @@ class _AddEditProjectModalState extends State<AddEditProjectModal> {
   }
 
   void _handleSave() {
-    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    final userId = currentUserIdOrNull();
+    if (userId == null) {
+      // ignore: unawaited_futures
+      handleSessionLost(context);
+      return;
+    }
     final base = widget.initial ?? Project(id: '', userId: userId, name: '');
     final bullets = _bullets
         .where((t) => t.trim().isNotEmpty)

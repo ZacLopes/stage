@@ -46,7 +46,7 @@ import {
   safeJson,
   stripHtml,
 } from "../_shared/jobs.ts";
-import { captureEvent } from "../_shared/posthog.ts";
+import { captureEvent, withEdgeAnalytics } from "../_shared/posthog.ts";
 
 interface BrazilJob {
   id: string;
@@ -243,7 +243,7 @@ async function upsertJob(
 
 // ── HTTP handler ─────────────────────────────────────────────────────────────
 
-serve(async (req: Request) => {
+serve(withEdgeAnalytics('sync-jobs-brazil', async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -411,4 +411,4 @@ serve(async (req: Request) => {
     durationMs,
     apifyInput,
   });
-});
+}));

@@ -184,3 +184,270 @@ export async function captureEvent(params: CaptureEventParams): Promise<void> {
     console.error('[PostHog] captureEvent failed:', e);
   }
 }
+
+// ════════════════════════════════════════════════════════════════════
+// Catálogo server-side (mirror parcial de lib/services/analytics_events.dart)
+// pra eventos B.7 (backend/edge/LLM) do plano v2.
+// ════════════════════════════════════════════════════════════════════
+
+export const EV_EDGE_FUNCTION_INVOKED = 'edge_function_invoked';
+export const EV_LLM_CALL_FAILED = 'llm_call_failed';
+export const EV_LLM_RESPONSE_ANTI_INVENTION_FLAGGED =
+  'llm_response_anti_invention_flagged';
+export const EV_DB_QUERY_SLOW = 'db_query_slow';
+export const EV_APIFY_SYNC_STARTED = 'apify_sync_started';
+export const EV_APIFY_SYNC_COMPLETED = 'apify_sync_completed';
+export const EV_APIFY_SYNC_FAILED = 'apify_sync_failed';
+export const EV_DAILY_REPORT_SENT = 'daily_report_sent';
+export const EV_PUSH_SEND_INITIATED = 'push_send_initiated';
+export const EV_PUSH_SEND_COMPLETED = 'push_send_completed';
+export const EV_WEBHOOK_RECEIVED = 'webhook_received';
+export const EV_RATE_LIMIT_HIT = 'rate_limit_hit';
+export const EV_PGCRON_JOB_EXECUTED = 'pgcron_job_executed';
+
+// ════════════════════════════════════════════════════════════════════
+// Typed helpers — preferir estes sobre captureEvent cru pra B.7.
+// Cada helper enche as properties canônicas e marca `source: edge_function`.
+// ════════════════════════════════════════════════════════════════════
+
+interface TrackEdgeInvokedParams {
+  functionName: string;
+  durationMs: number;
+  status: 'ok' | 'error' | 'unauthorized' | 'bad_request' | 'rate_limited';
+  /// Distinct ID do user logado quando disponível; senão usar functionName.
+  distinctId: string;
+  /// Código de erro pequeno se status != ok (ex.: 'no_input', 'openai_500').
+  errorCode?: string;
+  /// Tamanho do body de resposta em bytes, opcional.
+  responseSizeBytes?: number;
+  /// Versão do prompt/lógica se aplicável (ex.: 'adapt_v2_15').
+  promptVersion?: string;
+  extra?: Record<string, unknown>;
+}
+
+/// Invocação de Edge Function — emite no final do handler com status + duração.
+/// É o "request log" estruturado pra PostHog.
+export function trackEdgeFunctionInvoked(
+  params: TrackEdgeInvokedParams,
+): Promise<void> {
+  return captureEvent({
+    event: EV_EDGE_FUNCTION_INVOKED,
+    distinctId: params.distinctId,
+    properties: {
+      function: params.functionName,
+      duration_ms: params.durationMs,
+      status: params.status,
+      ...(params.errorCode ? { error_code: params.errorCode } : {}),
+      ...(params.responseSizeBytes
+        ? { response_size_bytes: params.responseSizeBytes }
+        : {}),
+      ...(params.promptVersion
+        ? { prompt_version: params.promptVersion }
+        : {}),
+      ...(params.extra ?? {}),
+    },
+  });
+}
+
+interface TrackLlmCallFailedParams {
+  functionName: string;
+  model: string;
+  errorCode: string;
+  /// Mensagem curta de erro (truncar pra <500 chars antes de chamar).
+  errorMessage?: string;
+  retryCount?: number;
+  distinctId: string;
+  promptVersion?: string;
+}
+
+/// Falha na chamada LLM (HTTP != 2xx ou exception). Distinto do
+/// $ai_generation com isError=true: este evento é dedicado pra alertas
+/// e agrupamento de falhas, sem custo/tokens (que ficam 0).
+export function trackLlmCallFailed(
+  params: TrackLlmCallFailedParams,
+): Promise<void> {
+  return captureEvent({
+    event: EV_LLM_CALL_FAILED,
+    distinctId: params.distinctId,
+    properties: {
+      function: params.functionName,
+      model: params.model,
+      error_code: params.errorCode,
+      ...(params.errorMessage
+        ? { error_message: params.errorMessage.slice(0, 500) }
+        : {}),
+      ...(params.retryCount !== undefined
+        ? { retry_count: params.retryCount }
+        : {}),
+      ...(params.promptVersion
+        ? { prompt_version: params.promptVersion }
+        : {}),
+    },
+  });
+}
+
+interface TrackAntiInventionFlaggedParams {
+  functionName: string;
+  model: string;
+  /// Campos onde o validador detectou invenção (ex.: ['experiences.0.bullets.2', 'skills']).
+  fieldsFlagged: string[];
+  distinctId: string;
+  promptVersion?: string;
+}
+
+/// Validador semântico detectou invenção da IA (campo no output que não tinha
+/// base no input). Sinal CRÍTICO de qualidade IA — alerta no dashboard.
+export function trackLlmResponseAntiInventionFlagged(
+  params: TrackAntiInventionFlaggedParams,
+): Promise<void> {
+  return captureEvent({
+    event: EV_LLM_RESPONSE_ANTI_INVENTION_FLAGGED,
+    distinctId: params.distinctId,
+    properties: {
+      function: params.functionName,
+      model: params.model,
+      fields_flagged: params.fieldsFlagged,
+      fields_count: params.fieldsFlagged.length,
+      ...(params.promptVersion
+        ? { prompt_version: params.promptVersion }
+        : {}),
+    },
+  });
+}
+
+interface GroupIdentifyParams {
+  /// Tipo do group conforme A.14 do plano v2. Valores canônicos:
+  /// 'company', 'university', 'ad_campaign', 'job', 'phase', 'prompt_version'.
+  groupType: string;
+  /// Identificador único do group (ex.: company_id no Supabase, job_id, etc).
+  groupKey: string;
+  /// Properties que descrevem o group. Vão direto pro PostHog Groups —
+  /// não incluir PII de usuários individuais.
+  groupProperties: Record<string, unknown>;
+}
+
+/// Server-side $groupidentify. PostHog auto-registra novo `groupType` ao
+/// receber o primeiro evento desse tipo. Use ANTES de emitir eventos
+/// associados àquele group pra garantir que as properties estejam
+/// disponíveis na agregação. Idempotente — re-identifies sobrescrevem
+/// properties (PATCH-like via $set).
+export async function groupIdentify(params: GroupIdentifyParams): Promise<void> {
+  if (!POSTHOG_API_KEY) return;
+
+  const body = {
+    api_key: POSTHOG_API_KEY,
+    event: '$groupidentify',
+    distinct_id: `edge_function:${params.groupType}_identify`,
+    timestamp: new Date().toISOString(),
+    properties: {
+      $group_type: params.groupType,
+      $group_key: params.groupKey,
+      $group_set: params.groupProperties,
+    },
+  };
+
+  try {
+    await fetch(`${POSTHOG_HOST}/capture/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    console.error('[PostHog] groupIdentify failed:', e);
+  }
+}
+
+interface TrackRateLimitHitParams {
+  /// Endpoint ou nome lógico do limit (ex.: 'adapt_per_user_daily').
+  limitType: string;
+  /// Distinct ID do user que bateu o limit.
+  distinctId: string;
+  functionName: string;
+  /// Limite numérico se disponível.
+  limit?: number;
+  extra?: Record<string, unknown>;
+}
+
+/// Rate limiter recusou a chamada antes de chegar no backend pesado.
+export function trackRateLimitHit(
+  params: TrackRateLimitHitParams,
+): Promise<void> {
+  return captureEvent({
+    event: EV_RATE_LIMIT_HIT,
+    distinctId: params.distinctId,
+    properties: {
+      function: params.functionName,
+      limit_type: params.limitType,
+      ...(params.limit !== undefined ? { limit: params.limit } : {}),
+      ...(params.extra ?? {}),
+    },
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Wrapper de handler — auto-instrumenta `edge_function_invoked` em
+// success e error path. Uso:
+//
+//   serve(withEdgeAnalytics('my-func', async (req) => {
+//     // ... seu handler
+//     return jsonResponse({ ok: true });
+//   }));
+//
+// Captura: duração total, status semântico, error_code se exception,
+// status code HTTP. Distinct ID = `edge_function:<fn-name>` (cron-like)
+// por default; pra ter user.id real, chamar trackEdgeFunctionInvoked
+// manualmente DENTRO do handler quando tiver auth resolvido.
+// ════════════════════════════════════════════════════════════════════
+
+type EdgeHandler = (req: Request) => Promise<Response>;
+
+/// Mapeia HTTP status pra status semântico do edge_function_invoked.
+function statusFromHttpCode(
+  code: number,
+): 'ok' | 'error' | 'unauthorized' | 'bad_request' | 'rate_limited' {
+  if (code >= 200 && code < 300) return 'ok';
+  if (code === 401 || code === 403) return 'unauthorized';
+  if (code === 400) return 'bad_request';
+  if (code === 429) return 'rate_limited';
+  return 'error';
+}
+
+/// Auto-wrap pra handlers de edge function. Emite `edge_function_invoked`
+/// no final, com fallback em catch pra exceptions. NÃO substitui chamadas
+/// manuais (use ambas quando precisar enrich com user.id).
+export function withEdgeAnalytics(
+  functionName: string,
+  handler: EdgeHandler,
+): EdgeHandler {
+  return async (req) => {
+    if (req.method === 'OPTIONS') {
+      // CORS pre-flight — não conta como invocação de produto.
+      return handler(req);
+    }
+    const fnStart = Date.now();
+    try {
+      const response = await handler(req);
+      const status = statusFromHttpCode(response.status);
+      trackEdgeFunctionInvoked({
+        functionName,
+        distinctId: `edge_function:${functionName}`,
+        durationMs: Date.now() - fnStart,
+        status,
+        ...(status === 'ok' ? {} : { errorCode: `http_${response.status}` }),
+      }).catch(() => {});
+      return response;
+    } catch (err) {
+      const msg = (err as Error).message || 'unknown';
+      const isTimeout = msg.includes('AbortError') || msg.includes('aborted');
+      trackEdgeFunctionInvoked({
+        functionName,
+        distinctId: `edge_function:${functionName}`,
+        durationMs: Date.now() - fnStart,
+        status: 'error',
+        errorCode: isTimeout ? 'timeout' : 'unhandled_exception',
+        extra: { error_message: msg.slice(0, 300) },
+      }).catch(() => {});
+      throw err; // propaga pra Supabase Edge runtime tratar
+    }
+  };
+}

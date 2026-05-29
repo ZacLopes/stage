@@ -22,7 +22,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../auth/auth_session.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../profile/application/preferences_view_model.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
@@ -47,12 +47,19 @@ class WorkLocationsScreen extends StatefulWidget {
 }
 
 class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
+  DateTime? _shownAt;
   final List<OtherLocation> _locations = [];
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
+    _shownAt = DateTime.now();
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingPrefStepShown(
+      step: 3,
+      stepName: 'work_locations',
+    );
     // 1) Seed com cidades-de-trabalho já salvas (re-abertura da tela).
     _locations.addAll(context.read<PreferencesViewModel>().otherLocations);
 
@@ -70,7 +77,9 @@ class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
       if (!alreadyInList) {
         _locations.add(OtherLocation(
           id: '',
-          userId: Supabase.instance.client.auth.currentUser?.id ?? '',
+          // user_id é re-carimbado pelo repo no insert (replaceOtherLocations);
+          // este valor é placeholder e o save é guardado por PreferencesViewModel.
+          userId: currentUserIdOrNull() ?? '',
           city: homeCity,
           state: homeState.isEmpty ? null : homeState,
           country: personal?.locationCountry ?? 'BR',
@@ -92,7 +101,9 @@ class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
         setState(() {
           _locations.add(OtherLocation(
             id: '',
-            userId: Supabase.instance.client.auth.currentUser?.id ?? '',
+            // user_id é re-carimbado pelo repo no insert (replaceOtherLocations);
+            // este valor é placeholder e o save é guardado por PreferencesViewModel.
+            userId: currentUserIdOrNull() ?? '',
             city: result.city,
             state: result.uf,
             country: 'BR',
@@ -117,8 +128,15 @@ class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
     if (!mounted) return;
     setState(() => _saving = false);
     if (!ok) return;
-    AnalyticsService.shared.track('onboarding_preferences_work_locations_completed',
-        props: {'count': _locations.length, 'skipped': false});
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingPrefStepAnswered(
+      step: 3,
+      stepName: 'work_locations',
+      valuesCount: _locations.length,
+      timeMs: _shownAt != null
+          ? DateTime.now().difference(_shownAt!).inMilliseconds
+          : 0,
+    );
     Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkModeScreen()));
   }
 
@@ -133,8 +151,15 @@ class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
     if (!mounted) return;
     setState(() => _saving = false);
     if (!ok) return;
-    AnalyticsService.shared.track('onboarding_preferences_work_locations_completed',
-        props: {'count': 0, 'skipped': true});
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingPrefStepAnswered(
+      step: 3,
+      stepName: 'work_locations',
+      valuesCount: _locations.length,
+      timeMs: _shownAt != null
+          ? DateTime.now().difference(_shownAt!).inMilliseconds
+          : 0,
+    );
     Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkModeScreen()));
   }
 

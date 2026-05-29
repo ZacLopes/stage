@@ -138,10 +138,10 @@ class Experience {
       needsReview: map['needs_review'] as bool? ?? false,
       bullets: bulletsRaw == null
           ? const []
-          : bulletsRaw
+          : (bulletsRaw
               .map((b) => Bullet.fromMap(b as Map<String, dynamic>))
               .toList()
-            ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex)),
+            ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex))),
     );
   }
 
