@@ -81,6 +81,10 @@ class _BulletReviewScreenState extends State<BulletReviewScreen>
         campaignId: widget.campaignId,
         clarificationAnswer: clarificationAnswer,
       );
+      // User pode ter saído da tela durante a chamada de IA (segundos). Sem
+      // este guard, setState roda num State já disposto (_element == null) e
+      // o `_element!` interno lança "Null check operator used on a null value".
+      if (!mounted) return;
       setState(() {
         _result = result;
         _isLoading = false;
@@ -89,6 +93,7 @@ class _BulletReviewScreenState extends State<BulletReviewScreen>
         }
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _error = 'Não foi possível gerar os bullets. Tente novamente.';
@@ -113,6 +118,7 @@ class _BulletReviewScreenState extends State<BulletReviewScreen>
       displayOrder: displayOrder,
     );
 
+    if (!mounted) return;
     HapticFeedback.mediumImpact();
     setState(() {
       _approvedCount++;
