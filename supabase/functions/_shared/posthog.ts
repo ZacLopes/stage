@@ -191,6 +191,7 @@ export async function captureEvent(params: CaptureEventParams): Promise<void> {
 // ════════════════════════════════════════════════════════════════════
 
 export const EV_EDGE_FUNCTION_INVOKED = 'edge_function_invoked';
+export const EV_MATCH_ANALYSIS_COMPLETED = 'match_analysis_completed';
 export const EV_LLM_CALL_FAILED = 'llm_call_failed';
 export const EV_LLM_RESPONSE_ANTI_INVENTION_FLAGGED =
   'llm_response_anti_invention_flagged';

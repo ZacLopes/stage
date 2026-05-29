@@ -13,7 +13,12 @@
 
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
-import { trackAIGeneration, trackEdgeFunctionInvoked } from '../_shared/posthog.ts'
+import {
+  captureEvent,
+  EV_MATCH_ANALYSIS_COMPLETED,
+  trackAIGeneration,
+  trackEdgeFunctionInvoked,
+} from '../_shared/posthog.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -41,6 +46,9 @@ interface MatchReason {
 interface MatchPayload {
   score: number
   reasons: MatchReason[]
+  /// true quando o score que a IA retornou divergiu do score derivado das
+  /// reasons (sinal de erro de aritmética do gpt). Só no caminho AI normal.
+  divergence?: boolean
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -665,7 +673,9 @@ function parseAndValidate(raw: string): MatchPayload {
 
   // Log se a IA divergiu do score derivado — sinal de regressão a investigar.
   const aiScore = Number(parsed.score)
-  if (Number.isFinite(aiScore) && Math.abs(aiScore - clampedScore) > 0) {
+  const divergence =
+    Number.isFinite(aiScore) && Math.abs(aiScore - clampedScore) > 0
+  if (divergence) {
     console.warn(
       `[analyze-match] score divergence: ai=${aiScore} derived=${clampedScore} reasons=${JSON.stringify(
         reasons.map((r) => ({ l: r.label, m: r.matched, w: r.weight })),
@@ -673,7 +683,7 @@ function parseAndValidate(raw: string): MatchPayload {
     )
   }
 
-  return { score: clampedScore, reasons }
+  return { score: clampedScore, reasons, divergence }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -764,6 +774,18 @@ serve(async (req) => {
         latencyMs: 0,
         cached: true,
       }).catch(() => {})
+      // Match v9 dashboard: saúde do sistema de match (model_used, cache_hit,
+      // score_divergence). Fire-and-forget — nunca bloqueia/quebra a resposta.
+      captureEvent({
+        event: EV_MATCH_ANALYSIS_COMPLETED,
+        distinctId: user.id,
+        properties: {
+          model_used: cachedRow.model_used ?? MODEL,
+          cache_hit: true,
+          score_divergence: false,
+          scenario: 'cache',
+        },
+      }).catch(() => {})
       return jsonResponse({
         score: cachedRow.score,
         reasons: cachedRow.reasons,
@@ -817,6 +839,16 @@ serve(async (req) => {
 
       console.log(`[analyze-match] bypass scenario_c user=${user.id} (zero prefs + zero profile)`)
 
+      captureEvent({
+        event: EV_MATCH_ANALYSIS_COMPLETED,
+        distinctId: user.id,
+        properties: {
+          model_used: 'bypass_scenario_c',
+          cache_hit: false,
+          score_divergence: false,
+          scenario: 'C',
+        },
+      }).catch(() => {})
       return jsonResponse({
         score: scenarioCPayload.score,
         reasons: scenarioCPayload.reasons,
@@ -873,6 +905,16 @@ serve(async (req) => {
       durationMs: Date.now() - fnStart,
       status: 'ok',
       promptVersion: PROMPT_VERSION,
+    }).catch(() => {})
+    captureEvent({
+      event: EV_MATCH_ANALYSIS_COMPLETED,
+      distinctId: user.id,
+      properties: {
+        model_used: MODEL,
+        cache_hit: false,
+        score_divergence: payload.divergence ?? false,
+        scenario: 'ai',
+      },
     }).catch(() => {})
     return jsonResponse({
       score: payload.score,

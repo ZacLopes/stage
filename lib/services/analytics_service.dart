@@ -964,6 +964,7 @@ class AnalyticsService {
     required String action, // 'like' | 'reject'
     required int? matchScore,
     String? matchSource, // 'ai' | 'fallback_deterministic' | 'unknown'
+    String? matchConfidence, // 'low' | 'medium' | 'high' (MatchConfidence.name)
     int? positionInFeed,
     String? companyId,
     String? modality,
@@ -976,6 +977,7 @@ class AnalyticsService {
         'direction': action,
         if (matchScore != null) 'match_score': matchScore,
         if (matchSource != null) 'match_source': matchSource,
+        if (matchConfidence != null) 'match_confidence': matchConfidence,
         if (positionInFeed != null) 'position_in_feed': positionInFeed,
         if (companyId != null) 'company_id': companyId,
         if (modality != null) 'modality': modality,
@@ -1032,6 +1034,8 @@ class AnalyticsService {
     required int? scoreBefore,
     required int? scoreAfter,
     required bool cached,
+    int? latencyMs,
+    String? modelUsed,
   }) =>
       track(evAdaptSucceeded, props: {
         'job_id': jobId,
@@ -1039,6 +1043,10 @@ class AnalyticsService {
         if (scoreBefore != null) 'score_before': scoreBefore,
         if (scoreAfter != null) 'score_after': scoreAfter,
         'cached': cached,
+        // latency_ms: round-trip do client (stopwatch). cost_usd fica em
+        // $ai_generation (fonte canônica) — não duplicamos aqui.
+        if (latencyMs != null) 'latency_ms': latencyMs,
+        if (modelUsed != null) 'model_used': modelUsed,
       });
 
   Future<void> cvAdaptationFailed({required String jobId, required String code}) =>

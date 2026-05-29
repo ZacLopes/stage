@@ -443,6 +443,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         action: action == 'liked' ? 'like' : 'reject',
         matchScore: matchScore,
         matchSource: matchSource,
+        // Confidence do match (Passo 5) — só quando há análise real (cache IA
+        // resolvido e não-unknown). Powers o insight de distribuição de
+        // confidence no dashboard Match v9.
+        matchConfidence: (cached != null && !cached.isUnknown)
+            ? cached.confidence.name
+            : null,
         positionInFeed: previousIndex,
         companyId: job.companyId,
         modality: job.workModelRaw ?? job.workModel,

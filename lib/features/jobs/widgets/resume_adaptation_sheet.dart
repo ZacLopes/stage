@@ -185,6 +185,9 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
     Analytics.shared.activationMilestoneHit(milestone: 'first_adapt');
     Analytics.shared.cvAdaptationStarted(jobId: widget.job.id);
 
+    // Mede o round-trip do adapt (client-side) pra alimentar a latência
+    // p50/p90 no dashboard CV Adapt — sem depender da edge retornar latência.
+    final adaptStopwatch = Stopwatch()..start();
     AdaptedResume? result;
     try {
       result = await _aiService.adaptResume(
@@ -238,6 +241,8 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
         scoreBefore: result.matchScoreBefore,
         scoreAfter: result.matchScoreAfter,
         cached: result.cached,
+        latencyMs: adaptStopwatch.elapsedMilliseconds,
+        modelUsed: result.modelUsed,
       );
       // Marca como pendente de export pro banner do Home (F2.5).
       // Limpa em _downloadPdf() abaixo (export finalizado).
