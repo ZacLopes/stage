@@ -33,7 +33,11 @@ class FacebookEventsService {
 
   Future<void> init() async {
     if (_initialized) return;
-    if (!Platform.isIOS) return;
+    if (!Platform.isIOS) {
+      // ignore: avoid_print
+      print('[FBEvents] init skipped: not iOS');
+      return;
+    }
 
     try {
       // Auto-log de eventos do app (Install, Activate) já vem habilitado via
@@ -44,7 +48,12 @@ class FacebookEventsService {
       await _fb.setAutoLogAppEventsEnabled(true);
       await _fb.setAdvertiserTracking(enabled: false, collectId: false);
       _initialized = true;
-    } catch (_) {}
+      // ignore: avoid_print
+      print('[FBEvents] init SUCCESS — SDK initialized');
+    } catch (e) {
+      // ignore: avoid_print
+      print('[FBEvents] init FAILED: $e');
+    }
   }
 
   /// Pede permissão ATT (App Tracking Transparency) — exigido pelo Apple
@@ -108,6 +117,8 @@ class FacebookEventsService {
       await prefs.setBool(key, true);
 
       await _fb.logCompletedRegistration(registrationMethod: method);
+      // Flush imediato — CompletedRegistration é 1x na vida do user.
+      await _fb.flush();
     } catch (_) {}
   }
 
@@ -125,6 +136,8 @@ class FacebookEventsService {
           'job_id': jobId,
         },
       );
+      // Flush imediato — conversão de maior valor (job application).
+      await _fb.flush();
     } catch (_) {}
   }
 
@@ -136,6 +149,8 @@ class FacebookEventsService {
   /// É evento padrão da Meta (`fb_mobile_lead` no SDK iOS), então pode
   /// ser usado como objetivo de conversão direto no Ads Manager.
   Future<void> logLeadOnce({required String? userId}) async {
+    // ignore: avoid_print
+    print('[FBEvents] logLeadOnce called: userId=$userId, initialized=$_initialized, isIOS=${Platform.isIOS}');
     if (!_initialized) return;
     if (!Platform.isIOS) return;
     if (userId == null || userId.isEmpty) return;
@@ -143,13 +158,24 @@ class FacebookEventsService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = 'fb_lead_logged_$userId';
-      if (prefs.getBool(key) == true) return;
+      final alreadyLogged = prefs.getBool(key) == true;
+      // ignore: avoid_print
+      print('[FBEvents] Lead dedupe check: alreadyLogged=$alreadyLogged');
+      if (alreadyLogged) return;
       await prefs.setBool(key, true);
 
       // facebook_app_events não tem helper dedicado pro Lead — manda
       // como custom event com o nome padrão da Meta.
       await _fb.logEvent(name: 'Lead');
-    } catch (_) {}
+      // Flush imediato — Lead é evento crítico (1x na vida do user),
+      // não pode ficar buffered no SDK e perder se o user fechar o app.
+      await _fb.flush();
+      // ignore: avoid_print
+      print('[FBEvents] Lead DISPATCHED + FLUSHED');
+    } catch (e) {
+      // ignore: avoid_print
+      print('[FBEvents] Lead FAILED: $e');
+    }
   }
 
   /// Dispara `ViewContent` quando user toca em "Ver detalhes" duma vaga.
@@ -161,6 +187,8 @@ class FacebookEventsService {
     String? jobTitle,
     String? company,
   }) async {
+    // ignore: avoid_print
+    print('[FBEvents] logViewContent called: jobId=$jobId, initialized=$_initialized, isIOS=${Platform.isIOS}');
     if (!_initialized) return;
     if (!Platform.isIOS) return;
 
@@ -174,7 +202,14 @@ class FacebookEventsService {
           if (company != null) 'company': company,
         },
       );
-    } catch (_) {}
+      // Flush imediato pra evitar perda em fechamento de app.
+      await _fb.flush();
+      // ignore: avoid_print
+      print('[FBEvents] ViewContent DISPATCHED + FLUSHED: jobId=$jobId');
+    } catch (e) {
+      // ignore: avoid_print
+      print('[FBEvents] ViewContent FAILED: $e');
+    }
   }
 
   /// Dispara `AddToWishlist` no primeiro swipe right (curtir) por
@@ -188,6 +223,8 @@ class FacebookEventsService {
     required String? userId,
     required String jobId,
   }) async {
+    // ignore: avoid_print
+    print('[FBEvents] logAddToWishlistFirstTime called: userId=$userId, jobId=$jobId, initialized=$_initialized, isIOS=${Platform.isIOS}');
     if (!_initialized) return;
     if (!Platform.isIOS) return;
     if (userId == null || userId.isEmpty) return;
@@ -195,7 +232,10 @@ class FacebookEventsService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = 'fb_wishlist_${userId}_$jobId';
-      if (prefs.getBool(key) == true) return;
+      final alreadyLogged = prefs.getBool(key) == true;
+      // ignore: avoid_print
+      print('[FBEvents] AddToWishlist dedupe check: alreadyLogged=$alreadyLogged');
+      if (alreadyLogged) return;
       await prefs.setBool(key, true);
 
       await _fb.logEvent(
@@ -205,7 +245,14 @@ class FacebookEventsService {
           'fb_content_id': jobId,
         },
       );
-    } catch (_) {}
+      // Flush imediato — AddToWishlist é 1x por (user, jobId), não pode perder.
+      await _fb.flush();
+      // ignore: avoid_print
+      print('[FBEvents] AddToWishlist DISPATCHED + FLUSHED: jobId=$jobId');
+    } catch (e) {
+      // ignore: avoid_print
+      print('[FBEvents] AddToWishlist FAILED: $e');
+    }
   }
 
   /// Configura Advanced Matching no SDK — passa email/phone/nome etc do
