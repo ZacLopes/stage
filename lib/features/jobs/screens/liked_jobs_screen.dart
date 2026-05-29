@@ -85,6 +85,13 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
       jobId: liked.job.id,
       matchScore: matchScore,
     );
+    // Facebook ViewContent — intent forte. Sem dedupe (cada view é sinal).
+    // ignore: unawaited_futures
+    FacebookEventsService.shared.logViewContent(
+      jobId: liked.job.id,
+      jobTitle: liked.job.title,
+      company: liked.job.company?.name,
+    );
     if (!mounted) return;
     showModalBottomSheet(
       context: context,
@@ -112,7 +119,23 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
       jobId: liked.job.id,
       matchScore: matchScore,
       usedAdaptedCv: usedAdaptedCv,
+      // 'email' quando a candidatura é por mailto (Polifinance) — alimenta o
+      // funil swipe-right(email) → apply(email).
+      applicationMethod: liked.job.applicationMethod,
     );
+    // T2.3 — fecha o loop adapt→apply: quando o apply usa CV adaptado, emite
+    // adapt_apply_used com o tempo entre baixar o PDF e aplicar. adapt_apply_used
+    // não tinha emissor no app (bottom do funil B.15 / insight 9dK2XFpq).
+    if (usedAdaptedCv) {
+      final adaptedAt = await JobSwipeContext.shared.adaptedAtMs(liked.job.id);
+      // ignore: unawaited_futures
+      Analytics.shared.adaptApplyUsed(
+        jobId: liked.job.id,
+        timeFromDownloadToApplyMs: adaptedAt != null
+            ? DateTime.now().millisecondsSinceEpoch - adaptedAt
+            : 0,
+      );
+    }
     final ok = await launchUrl(action.uri, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

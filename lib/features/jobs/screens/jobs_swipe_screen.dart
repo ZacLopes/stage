@@ -14,6 +14,7 @@ import 'dart:async';
 import '../../../services/ai_service.dart';
 import '../../../services/analytics_events.dart';
 import '../../../services/analytics_service.dart';
+import '../../../services/facebook_events_service.dart';
 import '../../../services/profile_events.dart';
 import '../../../services/profile_snapshot_service.dart';
 import '../../auth/user_viewmodel.dart';
@@ -76,6 +77,9 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   final Set<String> _matchInflight = {};            // calls em andamento
   bool _hydrated = false;                           // primeira hidratação rodou?
   int _currentIndex = 0;                            // posição no swiper
+  // T2.2 — dedupe pra job_card_shown: dispara 1x por card/sessão (revealed
+  // preference). Sem isso o evento duplicaria a cada rebuild do stack.
+  final Set<String> _cardShownJobIds = {};
   // Prefetch reduzido em 2026-05-27: antes era 10 prefetch + 5 buffer ahead,
   // o que disparava 10 chamadas IA logo na abertura da aba. Como o user só
   // vê 1 card por vez no swiper, as outras 8-9 chamadas eram desperdiçadas
@@ -108,6 +112,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   /// disparando do widget disposto. O guard é síncrono pra cortar antes
   /// do showModalBottomSheet começar a animar.
   bool _openingAdaptSheet = false;
+
+  /// Guard pra disparar `requestAttIfNeeded` no PRIMEIRO swipe da sessão.
+  /// ATT saiu do home open — Apple recomenda pedir tracking só depois do
+  /// user ter contexto do app. Primeiro swipe = "user já entendeu que
+  /// somos um app de vagas" = momento certo pra prompt.
+  bool _attRequested = false;
 
   /// Snapshot do `prefsVersion` do JobsViewModel — usado pra detectar quando
   /// o user salva preferências novas ENQUANTO o feed está aberto. Quando muda,
@@ -172,6 +182,10 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         await vm.init();
         if (mounted) {
           Analytics.shared.jobFeedOpened(jobsCount: vm.jobs.length);
+          // T2.2 — card do topo exibido (exposição). Sem isso o funil
+          // feed→swipe→details→apply e o "apply rate por bucket" ficavam sem
+          // o passo de exposição (job_card_shown não tinha emissor no app).
+          _trackCardShown(vm, _currentIndex);
         }
         // F3.1: lê variante do experimento de match. Default = 'ai_match_v1'
         // (mantém comportamento atual). Se PostHog devolver 'deterministic_v1',
@@ -213,6 +227,14 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     Analytics.shared.jobDetailsOpened(
       jobId: job.id,
       matchScore: match?.score ?? job.matchScore,
+    );
+    // Facebook ViewContent — intent forte. Dispara em todo "Ver detalhes"
+    // (sem dedupe — cada view é sinal de interesse contínuo).
+    // ignore: unawaited_futures
+    FacebookEventsService.shared.logViewContent(
+      jobId: job.id,
+      jobTitle: job.title,
+      company: job.company?.name,
     );
     showModalBottomSheet(
       context: context,
@@ -449,8 +471,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         matchConfidence: (cached != null && !cached.isUnknown)
             ? cached.confidence.name
             : null,
+        // application_method ('email'|'url'): permite o funil "swipe-right em
+        // vaga com candidatura por email → aplicou por email".
+        applicationMethod: job.applicationMethod,
         positionInFeed: previousIndex,
         companyId: job.companyId,
+        companyName: job.companyName,
         modality: job.workModelRaw ?? job.workModel,
         salaryBucket: _bucketSalary(job.salaryMin, job.salaryMax),
         locationBucket: _bucketLocation(job.locationCity, job.locationState),
@@ -460,11 +486,33 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       // chegava no apply, quebrando a correlação match × conversão).
       // ignore: unawaited_futures
       JobSwipeContext.shared.recordSwipe(job.id, matchScore);
+
+      // Facebook AddToWishlist — só no primeiro swipe right por (user, jobId).
+      // Dedupado em SharedPreferences via logAddToWishlistFirstTime.
+      if (action == 'liked') {
+        // ignore: unawaited_futures
+        FacebookEventsService.shared.logAddToWishlistFirstTime(
+          userId: Supabase.instance.client.auth.currentUser?.id,
+          jobId: job.id,
+        );
+      }
+
+      // ATT prompt — disparar 1x por sessão no PRIMEIRO swipe (qualquer
+      // direção). User já entendeu o contexto do app aqui, então o opt-in
+      // rate tende a ser maior do que se pedisse logo na entrada do home.
+      // SDK é internamente idempotente (não re-prompta se já foi decidido).
+      if (!_attRequested) {
+        _attRequested = true;
+        // ignore: unawaited_futures
+        FacebookEventsService.shared.requestAttIfNeeded();
+      }
     }
 
     // Atualiza posição interna e dispara IA pras próximas vagas (buffer ahead)
     _currentIndex = currentIndex ?? (previousIndex + 1);
     _ensureBufferAhead(vm.jobs);
+    // T2.2 — novo card do topo exibido após o swipe avançar a posição.
+    _trackCardShown(vm, _currentIndex);
 
     // B.17 do plano v2 — feed_exhausted quando o último card foi swipado.
     // Sinal pra próxima ação do user (ir pra trilha? curtidas? sair?).
@@ -489,6 +537,31 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     }
 
     return true;
+  }
+
+  /// T2.2 — Emite `job_card_shown` quando o card no índice [index] vira o
+  /// topo da pilha (exposição / revealed preference). Deduplicado por job.id
+  /// (1x por card/sessão). `match_score` usa o resultado IA cacheado quando
+  /// disponível; senão o baseline determinístico do feed (mesma lógica do
+  /// swipe). Fire-and-forget — analytics nunca quebra a UI.
+  void _trackCardShown(JobsViewModel vm, int index) {
+    if (index < 0 || index >= vm.jobs.length) return;
+    final job = vm.jobs[index];
+    if (!_cardShownJobIds.add(job.id)) return; // já exibido nesta sessão
+    final cached = _matchCache[job.id];
+    final int score = (cached != null && !cached.isUnknown)
+        ? cached.score
+        : (job.matchScore > 0 ? job.matchScore : 0);
+    // ignore: unawaited_futures
+    Analytics.shared.jobCardShown(
+      jobId: job.id,
+      matchScore: score,
+      positionInFeed: index,
+      companyId: job.companyId,
+      modality: job.workModelRaw ?? job.workModel,
+      salaryBucket: _bucketSalary(job.salaryMin, job.salaryMax),
+      locationBucket: _bucketLocation(job.locationCity, job.locationState),
+    );
   }
 
   /// Mostra overlay celebratório APENAS na primeira vez que o usuário salva

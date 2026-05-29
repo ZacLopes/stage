@@ -14,7 +14,6 @@ import '../tutorial/tutorial_keys.dart';
 import '../tutorial/tutorial_step.dart';
 import '../../core/analytics/screen_tracking.dart';
 import '../../services/analytics_service.dart';
-import '../../services/facebook_events_service.dart';
 import '../../services/notifications_service.dart';
 import 'home_viewmodel.dart';
 import '../../core/theme/theme.dart';
@@ -49,21 +48,15 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
       // Escuta pedidos de replay vindos de Configurações → Tutorial.
       context.read<TutorialController>().addListener(_onTutorialControllerChange);
 
-      // Prompts iOS sequenciais — Apple recomenda ATT ANTES de outros
-      // prompts de permissão pra que o user entenda o contexto de tracking
-      // antes de ser bombardeado com pedidos. Ordem:
+      // Prompt iOS — só push aqui. ATT (App Tracking Transparency) saiu
+      // do home open e foi pro primeiro engajamento real (primeiro swipe
+      // em jobs_swipe_screen) — Apple recomenda pedir tracking DEPOIS que
+      // o user entendeu o contexto do app, não logo na entrada. Ganha
+      // opt-in rate maior, melhora atribuição da Meta Ads.
       //
-      //   T+1000ms  → ATT (App Tracking Transparency) - pra Meta Ads/atribuição
       //   T+4000ms  → Push (OneSignal) - notificação de vagas
       //
-      // Delay entre os 2 é proposital: dá tempo do user tomar decisão no
-      // primeiro prompt sem ser surpreendido pelo segundo. Cada um tem flag
-      // de "já pediu" persistido — não re-prompt em re-aberturas.
-      Future.delayed(const Duration(milliseconds: 1000), () {
-        if (!mounted) return;
-        // ignore: unawaited_futures
-        FacebookEventsService.shared.requestAttIfNeeded();
-      });
+      // Flag de "já pediu" persistido — não re-prompt em re-aberturas.
       Future.delayed(const Duration(milliseconds: 4000), () {
         if (!mounted) return;
         final uid = Supabase.instance.client.auth.currentUser?.id;

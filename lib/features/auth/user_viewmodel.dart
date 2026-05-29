@@ -366,6 +366,23 @@ class UserViewModel extends ChangeNotifier {
               } else {
                 Analytics.shared.loginCompleted(method: provider);
               }
+              // Advanced Matching: passa email/nome/userId pro SDK em todo
+              // signIn (signup OU login). SDK hasheia internamente e usa
+              // pra fazer match com a pessoa que clicou no ad. Sobe EMQ
+              // score e melhora atribuição pós-ATT deny. Email é obrigatório.
+              final authEmail = _supabase.auth.currentUser?.email;
+              if (authEmail != null && authEmail.isNotEmpty) {
+                final nameParts = (_user?.name ?? '').trim().split(RegExp(r'\s+'));
+                final firstName = nameParts.isNotEmpty ? nameParts.first : null;
+                final lastName = nameParts.length > 1 ? nameParts.last : null;
+                // ignore: unawaited_futures
+                FacebookEventsService.shared.setUserDataForMatching(
+                  email: authEmail,
+                  firstName: firstName,
+                  lastName: lastName,
+                  externalId: uid,
+                );
+              }
             }
           }
           break;
@@ -733,6 +750,25 @@ class UserViewModel extends ChangeNotifier {
         );
       }
 
+      // Advanced Matching pós-Apple-sign-in: ainda que o auth listener no
+      // signedIn também rode, aqui temos o appleName mais fresco (Apple
+      // só manda nome no primeiro authorize). Vale enviar pra garantir.
+      final appleEmail = _supabase.auth.currentUser?.email;
+      if (appleEmail != null && appleEmail.isNotEmpty) {
+        final nameParts = appleName.trim().isNotEmpty
+            ? appleName.trim().split(RegExp(r'\s+'))
+            : (_user?.name ?? '').trim().split(RegExp(r'\s+'));
+        final firstName = nameParts.isNotEmpty ? nameParts.first : null;
+        final lastName = nameParts.length > 1 ? nameParts.last : null;
+        // ignore: unawaited_futures
+        FacebookEventsService.shared.setUserDataForMatching(
+          email: appleEmail,
+          firstName: firstName,
+          lastName: lastName,
+          externalId: _user?.id,
+        );
+      }
+
     } catch (e) {
       // SignInWithAppleAuthorizationException com code=canceled vem quando
       // o user fecha o diálogo iOS. Tratamos como abandono silencioso —
@@ -771,6 +807,10 @@ class UserViewModel extends ChangeNotifier {
       try {
         await DatabaseHelper.instance.clearAllUserData();
       } catch (e) { print('Local DB cleanup on logout: $e'); }
+
+      // Limpa Advanced Matching no SDK pra próximo user não herdar dados.
+      // ignore: unawaited_futures
+      FacebookEventsService.shared.clearUserData();
 
       await _supabase.auth.signOut();
       _user = null;

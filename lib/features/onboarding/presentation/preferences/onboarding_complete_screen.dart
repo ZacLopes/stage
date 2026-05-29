@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../services/analytics_service.dart';
+import '../../../../services/facebook_events_service.dart';
 import '../../../auth/user_viewmodel.dart';
 import '../onboarding_scaffold.dart';
 import '../../../../core/theme/theme.dart';
@@ -74,6 +75,12 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
     if (!mounted) return;
     // ignore: unawaited_futures
     Analytics.shared.onboardingCompleted(door: door);
+
+    // Facebook Lead — sinal "user qualificado" (perfil populado + campaign
+    // criada). Mais forte que CompletedRegistration sozinho pra otimização
+    // de campanha. Dedupado por user_id em SharedPreferences.
+    // ignore: unawaited_futures
+    FacebookEventsService.shared.logLeadOnce(userId: userVm.user?.id);
 
     if (!campaignOk) {
       // Defensiva: se createCampaign rodou sem exception mas hasCampaign ficou false,
