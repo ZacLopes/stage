@@ -761,6 +761,27 @@ class GamificationViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// T2.4 — Emite `phase_step_abandoned` se o user saiu da fase NO MEIO de um
+  /// step (sem completar a fase). Chamado pelo `dispose` do QuestionScreen.
+  /// Guards: não dispara se a fase foi completada (saída normal) nem se não
+  /// há step ativo. Limpa o timer pra evitar double-fire. Fecha o insight
+  /// ZjVO5d1e ("Abandonment por step") — phase_step_abandoned não tinha
+  /// emissor no app. Fire-and-forget; nunca derruba a UI.
+  void trackStepAbandonedIfActive() {
+    if (_isPhaseCompleted) return; // completou normalmente → não é abandono
+    final q = currentQuestion;
+    final enteredAt = _trilhaStepEnteredAt;
+    if (q == null || enteredAt == null) return;
+    final durationMs = DateTime.now().difference(enteredAt).inMilliseconds;
+    _trilhaStepEnteredAt = null; // evita double-fire
+    // ignore: unawaited_futures
+    Analytics.shared.phaseStepAbandoned(
+      phaseId: q.phaseId,
+      stepId: q.id,
+      durationMs: durationMs,
+    );
+  }
+
   Future<void> saveProgress(Phase phase) async {
     final phaseId = phase.id;
     try {

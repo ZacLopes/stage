@@ -172,6 +172,13 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
     // pra ele aparecer rápido; outros vão ficando prontos enquanto user
     // interage com a tela.
     _startPdfPreviewGeneration();
+    // T2.3 — diff do CV adaptado exibido (tela de preview). Step do meio do
+    // funil adapt→apply. adapt_diff_shown não tinha emissor no app.
+    Analytics.shared.adaptDiffShown(
+      jobId: widget.job.id,
+      bulletsChangedCount: widget.adapted.changes.length,
+      additionsCount: widget.adapted.extraSkillsUsed.length,
+    );
   }
 
   /// Dispara render dos 5 templates em sequência (não paralelo — render é

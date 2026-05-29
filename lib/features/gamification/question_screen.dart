@@ -84,8 +84,16 @@ class _QuestionScreenState extends State<QuestionScreen>
 
   final TextEditingController _textController = TextEditingController();
 
+  // T2.4 — ref do viewModel capturada em didChangeDependencies pra uso seguro
+  // no dispose (context.read é inseguro em dispose). Usada pra registrar
+  // abandono de step se o user sair da fase no meio.
+  GamificationViewModel? _vm;
+
   @override
   void dispose() {
+    // T2.4 — abandono de step (fase não completada). phase_step_abandoned
+    // não tinha emissor no app (insight ZjVO5d1e).
+    _vm?.trackStepAbandonedIfActive();
     _textController.dispose();
     super.dispose();
   }
@@ -95,6 +103,13 @@ class _QuestionScreenState extends State<QuestionScreen>
     super.initState();
     Future.microtask(() =>
         context.read<GamificationViewModel>().startPhase(widget.phase));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Captura segura do viewModel pro uso no dispose (ver campo _vm).
+    _vm = context.read<GamificationViewModel>();
   }
 
   void _handleOptionSelect(dynamic answer, QuestionType type) {

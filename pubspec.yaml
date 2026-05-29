@@ -65,6 +65,12 @@ dependencies:
   geolocator: ^14.0.0
   geocoding: ^4.0.0
   http: ^1.2.0
+  # T3.1 — deep-link / atribuição de canal. Captura o initial link + params UTM
+  # pra derivar acquisition_source (puc/meta/organic/referral). REQUER config
+  # nativa iOS (URL scheme / Universal Links + AASA) pra capturar links reais;
+  # sem ela, getInitialLink retorna null e installs são marcadas 'organic'
+  # (comportamento seguro). O código abaixo nunca quebra o boot (try/catch).
+  app_links: ^6.3.0
 
 dev_dependencies:
   flutter_test:

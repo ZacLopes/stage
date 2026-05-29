@@ -120,6 +120,12 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
       CurvedAnimation(parent: _scoreController, curve: Curves.easeOutCubic),
     );
     _startLoadingMessages();
+    // T2.3 — intent de adaptar (sheet aberto = usuário decidiu adaptar). Top
+    // do funil adapt→apply. adapt_intent_clicked não tinha emissor no app.
+    Analytics.shared.adaptIntentClicked(
+      jobId: widget.job.id,
+      matchScore: widget.job.matchScore,
+    );
     _adapt();
   }
 

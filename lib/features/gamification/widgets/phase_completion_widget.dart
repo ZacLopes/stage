@@ -9,6 +9,7 @@ import 'package:career_gamification/features/profile/profile_viewmodel.dart';
 import 'package:career_gamification/features/resume/resume_viewmodel.dart';
 import 'package:career_gamification/features/resume/widgets/ai_consent_modal.dart';
 import 'package:career_gamification/data/models/models.dart';
+import 'package:career_gamification/services/analytics_service.dart';
 import '../../../core/theme/theme.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -173,6 +174,18 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
       // da detecção local de "last phase".
       final entireCourseDone = await widget.viewModel.isEntireCourseCompleted();
       if (!mounted) return;
+
+      // T2.4 — trilha (track) concluída: dispara quando é a última fase do
+      // track OU o curso inteiro terminou. Fecha o insight j0pwkwsW
+      // (trilha_completed não tinha emissor no app). totalDays não é rastreado
+      // no cliente hoje → 0 (a métrica de pitch é a contagem/taxa de conclusão).
+      if (_isLastPhaseOfTrack || entireCourseDone) {
+        // ignore: unawaited_futures
+        Analytics.shared.trilhaCompleted(
+          totalDays: 0,
+          phasesCount: _totalPhases,
+        );
+      }
 
       if (entireCourseDone) {
         _isLastTrack = true; // garante que o dialog certo aparece

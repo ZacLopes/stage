@@ -63,6 +63,25 @@ class _WorkModeScreenState extends State<WorkModeScreen> {
     Navigator.push(context, MaterialPageRoute(builder: (_) => const JobTypesScreen()));
   }
 
+  Future<void> _skip() async {
+    if (_saving) return;
+    // ignore: unawaited_futures
+    Analytics.shared.onboardingPrefStepSkipped(
+      step: 4,
+      stepName: 'work_mode',
+    );
+    final vm = context.read<PreferencesViewModel>();
+    setState(() => _saving = true);
+    final ok = await saveWithRetry(
+      context: context,
+      operation: () => vm.setWorkMode(_selected.toList()),
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (!ok) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const JobTypesScreen()));
+  }
+
   @override
   Widget build(BuildContext context) {
     return OnboardingScaffold(
@@ -74,7 +93,7 @@ class _WorkModeScreenState extends State<WorkModeScreen> {
       skipButton: (_selected.isNotEmpty || _saving)
           ? null
           : TextButton(
-              onPressed: _next,
+              onPressed: _skip,
               style: TextButton.styleFrom(foregroundColor: AppColors.textTertiary),
               child: const Text('Pular etapa'),
             ),

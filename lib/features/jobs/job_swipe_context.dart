@@ -129,6 +129,14 @@ class JobSwipeContext {
     final cache = await _load();
     return cache[jobId]?.adaptedAtMs != null;
   }
+
+  /// Epoch ms de quando o user adaptou+baixou o CV pra essa vaga (null se
+  /// nunca). Read-only — usado p/ calcular `time_from_download_to_apply_ms`
+  /// no evento `adapt_apply_used` (T2.3, fecha o funil adapt→apply).
+  Future<int?> adaptedAtMs(String jobId) async {
+    final cache = await _load();
+    return cache[jobId]?.adaptedAtMs;
+  }
 }
 
 /// Entry interno. Use os métodos do [JobSwipeContext], não construa direto.

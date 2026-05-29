@@ -152,13 +152,9 @@ class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
     setState(() => _saving = false);
     if (!ok) return;
     // ignore: unawaited_futures
-    Analytics.shared.onboardingPrefStepAnswered(
+    Analytics.shared.onboardingPrefStepSkipped(
       step: 3,
       stepName: 'work_locations',
-      valuesCount: _locations.length,
-      timeMs: _shownAt != null
-          ? DateTime.now().difference(_shownAt!).inMilliseconds
-          : 0,
     );
     Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkModeScreen()));
   }

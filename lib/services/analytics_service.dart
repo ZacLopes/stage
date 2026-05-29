@@ -965,8 +965,10 @@ class AnalyticsService {
     required int? matchScore,
     String? matchSource, // 'ai' | 'fallback_deterministic' | 'unknown'
     String? matchConfidence, // 'low' | 'medium' | 'high' (MatchConfidence.name)
+    String? applicationMethod, // 'email' | 'url' — método de candidatura da vaga
     int? positionInFeed,
     String? companyId,
+    String? companyName,
     String? modality,
     String? salaryBucket,
     String? locationBucket,
@@ -974,12 +976,21 @@ class AnalyticsService {
   }) =>
       track(evJobSwiped, props: {
         'job_id': jobId,
+        // Emitimos AMBAS as chaves de direção: 'action' (compat com os ~28k
+        // job_swiped históricos e o slide de pitch MJzpsoib) e 'direction'
+        // (taxonomia v2). Sem 'action', swipe-right-rate por bucket zera no
+        // cutover. Ver memória posthog-audit-remediation (action vs direction).
+        'action': action,
         'direction': action,
         if (matchScore != null) 'match_score': matchScore,
         if (matchSource != null) 'match_source': matchSource,
         if (matchConfidence != null) 'match_confidence': matchConfidence,
+        if (applicationMethod != null) 'application_method': applicationMethod,
         if (positionInFeed != null) 'position_in_feed': positionInFeed,
         if (companyId != null) 'company_id': companyId,
+        // company_name (T3 B2B): permite o slide "Pipeline B2B" mostrar nomes
+        // de empresa, não IDs. Só flui pós-build (build antiga não setava).
+        if (companyName != null) 'company_name': companyName,
         if (modality != null) 'modality': modality,
         if (salaryBucket != null) 'salary_bucket': salaryBucket,
         if (locationBucket != null) 'location_bucket': locationBucket,
@@ -1002,11 +1013,13 @@ class AnalyticsService {
     required String jobId,
     int? matchScore,
     bool? usedAdaptedCv,
+    String? applicationMethod, // 'email' | 'url' — método de candidatura da vaga
   }) =>
       track(evJobDetailsApplyClicked, props: {
         'job_id': jobId,
         if (matchScore != null) 'match_score': matchScore,
         if (usedAdaptedCv != null) 'used_adapted_cv': usedAdaptedCv,
+        if (applicationMethod != null) 'application_method': applicationMethod,
       });
 
   /// Mapeado pra `filter_applied` (B.13) com screen="jobs_feed".
