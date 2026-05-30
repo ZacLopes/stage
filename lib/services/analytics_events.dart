@@ -61,6 +61,7 @@ const String evOnboardingCvQuestionSkipped = 'onboarding_cv_question_skipped';
 const String evOnboardingProfileExtractionStarted = 'onboarding_profile_extraction_started';
 const String evOnboardingProfileExtractionSucceeded = 'onboarding_profile_extraction_succeeded';
 const String evOnboardingProfileExtractionFailed = 'onboarding_profile_extraction_failed';
+const String evOnboardingCvImportAbandoned = 'onboarding_cv_import_abandoned';
 const String evOnboardingPersonalReviewShown = 'onboarding_personal_review_shown';
 const String evOnboardingPersonalFieldEdited = 'onboarding_personal_field_edited';
 const String evOnboardingPersonalReviewConfirmed = 'onboarding_personal_review_confirmed';
@@ -534,6 +535,7 @@ const Set<String> kAllowedEventNames = {
   evOnboardingPrefStepAnswered, evOnboardingPrefStepSkipped,
   evOnboardingMaskingQuestionShown, evOnboardingMaskingQuestionAnswered,
   evOnboardingAllSetShown, evOnboardingCompleted, evOnboardingAbandoned,
+  evOnboardingCvImportAbandoned,
   evHomeFirstShown, evHomeShown, evCvTabFirstShown, evTrilhaTabFirstShown,
   evProfileTabFirstShown, evActivationMilestoneHit,
   // B.2

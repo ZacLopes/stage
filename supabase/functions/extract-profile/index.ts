@@ -554,7 +554,11 @@ serve(withEdgeAnalytics('extract-profile', async (req) => {
       captureEvent({
         event: 'profile_extraction_failed',
         distinctId: userId,
-        properties: { error_stage: 'openai', error_message: errMsg.slice(0, 200) },
+        properties: {
+          error_stage: 'openai',
+          error_reason: isTimeout ? 'timeout' : 'api_error',
+          error_message: errMsg.slice(0, 200),
+        },
       }).catch(() => {})
 
       return jsonResponse({ error: 'openai_failed', detail: errMsg.slice(0, 300) }, isTimeout ? 504 : 502)

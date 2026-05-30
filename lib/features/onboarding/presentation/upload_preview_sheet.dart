@@ -40,11 +40,26 @@ class UploadPreviewSheet extends StatefulWidget {
 class _UploadPreviewSheetState extends State<UploadPreviewSheet> {
   Uint8List? _previewPng;
   bool _confirming = false;
+  /// True quando o usuário confirmou OU trocou o arquivo. Usado no dispose pra
+  /// emitir abandono só quando a prévia é fechada sem resolver (X / swipe-down).
+  bool _resolved = false;
 
   @override
   void initState() {
     super.initState();
     _renderPreview();
+  }
+
+  @override
+  void dispose() {
+    // Abandono da importação: prévia fechada sem confirmar nem trocar arquivo
+    // (botão X ou swipe-down). Alimenta o insight "por que param na importação".
+    if (!_resolved) {
+      // ignore: unawaited_futures
+      AnalyticsService.shared
+          .onboardingCvImportAbandoned(reason: 'preview_dismissed');
+    }
+    super.dispose();
   }
 
   Future<void> _renderPreview() async {
@@ -63,6 +78,7 @@ class _UploadPreviewSheetState extends State<UploadPreviewSheet> {
 
   void _confirm() {
     if (_confirming) return;
+    _resolved = true; // confirmou — não conta como abandono
     setState(() => _confirming = true);
     HapticFeedback.lightImpact();
     AnalyticsService.shared.track('onboarding_upload_confirmed', props: {
@@ -234,6 +250,7 @@ class _UploadPreviewSheetState extends State<UploadPreviewSheet> {
                           ? null
                           : () {
                               HapticFeedback.selectionClick();
+                              _resolved = true; // trocar arquivo não é abandono
                               Navigator.pop(context);
                               widget.onReplace();
                             },

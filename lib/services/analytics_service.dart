@@ -865,6 +865,13 @@ class AnalyticsService {
         'reason': reason,
       });
 
+  /// Usuário abandonou o caminho IMPORTAR CV no onboarding antes de concluir
+  /// o upload/extração. `reason`: 'picker_cancelled' (fechou o seletor de
+  /// arquivo), 'file_invalid' (arquivo sem bytes), 'preview_dismissed' (fechou
+  /// a prévia sem confirmar). Alimenta o insight "por que param na importação".
+  Future<void> onboardingCvImportAbandoned({required String reason}) =>
+      track(evOnboardingCvImportAbandoned, props: {'reason': reason});
+
   /// CV base (resume tab) exportado em PDF. Distinto de
   /// [adaptPdfDownloaded] que é CV adaptado pra vaga específica.
   Future<void> cvExported({required String templateId}) =>

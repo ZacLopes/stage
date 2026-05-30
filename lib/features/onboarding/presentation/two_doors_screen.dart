@@ -71,12 +71,16 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
       );
       if (!mounted) return;
       if (result == null || result.files.isEmpty) {
+        // ignore: unawaited_futures
+        Analytics.shared.onboardingCvImportAbandoned(reason: 'picker_cancelled');
         setState(() => _pickingFile = false);
         return;
       }
       final file = result.files.first;
       final bytes = file.bytes;
       if (bytes == null) {
+        // ignore: unawaited_futures
+        Analytics.shared.onboardingCvImportAbandoned(reason: 'file_invalid');
         setState(() => _pickingFile = false);
         return;
       }
