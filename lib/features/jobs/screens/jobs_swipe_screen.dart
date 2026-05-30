@@ -514,15 +514,10 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     // T2.2 — novo card do topo exibido após o swipe avançar a posição.
     _trackCardShown(vm, _currentIndex);
 
-    // B.17 do plano v2 — feed_exhausted quando o último card foi swipado.
-    // Sinal pra próxima ação do user (ir pra trilha? curtidas? sair?).
-    if (_currentIndex >= vm.jobs.length) {
-      Analytics.shared.feedExhausted(
-        subTab: 'para_voce',
-        jobsSeenInSession: vm.jobs.length,
-        jobsSwipedInSession: _currentIndex,
-      );
-    }
+    // B.17 — feed_exhausted agora é emitido em JobsViewModel.tryAutoReload
+    // (ponto real de exaustão = remainingCount==0). Esta condição
+    // `_currentIndex >= jobs.length` nunca era atingida (a tela troca pro
+    // empty-state antes), por isso o evento ficava 0 all-time. Movido pra lá.
 
     // Reset overlay immediately (no setState needed — Listener already stopped)
     if (mounted) setState(() => _swipeFraction = 0.0);

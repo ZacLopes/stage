@@ -26,7 +26,10 @@ class AnalyticsService {
 
   // ── Cutover infrastructure (release 2026-05/06) ─────────────────────
   /// Uma vez setado, o alias do cutover não roda novamente nesse device.
-  static const String _kCutoverAliasDoneKey = 'analytics_cutover_alias_done_v1';
+  /// v2 (2026-05-30): bump força o bloco de marcação a re-rodar UMA vez por
+  /// device pra corrigir `is_pre_cutover_user` na base existente (backfill via
+  /// app) — a lógica antiga marcava errado/de menos.
+  static const String _kCutoverAliasDoneKey = 'analytics_cutover_alias_done_v2';
   /// Flag manual "esse device é interno". Toggleável via tela de devmode.
   /// Quando true, todos os eventos carregam `is_internal: true` (super property)
   /// e a person é marcada com `is_internal: true` (cohort de filtro).
@@ -305,10 +308,10 @@ class AnalyticsService {
   /// nova build com user JÁ logado, faz duas coisas extras:
   /// 1. `posthog.alias(user.id)` — liga o distinct_id anônimo atual ao user_id
   ///    Supabase, preservando continuidade de identidade entre versões do app.
-  /// 2. Marca a person com `is_pre_cutover_user=true` via $set_once (não
-  ///    sobrescreve se já marcado). O cohort "Pre-cutover users" usa essa flag
-  ///    pra separar histórico velho do dado limpo pós-release. O pitch do
-  ///    Demo Day usa "Post-cutover users" como base.
+  /// 2. Marca a person com `is_pre_cutover_user` (true/false) com base na DATA
+  ///    DE CRIAÇÃO DA CONTA Supabase (criada antes do release = pré-cutover). O
+  ///    cohort "Pre-cutover users" usa essa flag pra separar histórico velho do
+  ///    dado limpo pós-release. O pitch do Demo Day usa "Post-cutover users".
   /// A flag fica em SharedPrefs (`_kCutoverAliasDoneKey`) pra não rodar de novo.
   Future<void> identifyIfLoggedIn() async {
     try {
@@ -320,14 +323,23 @@ class AnalyticsService {
 
       if (!cutoverAliasDone) {
         await Posthog().alias(alias: user.id);
+        // is_pre_cutover_user vem da DATA DE CRIAÇÃO DA CONTA (Supabase), não da
+        // "primeira boot". Conta criada antes do release da build nova de
+        // instrumentação = usuário do tempo antigo (pré-cutover); depois =
+        // pós-release. Vai em userProperties ($set, sobrescreve) — não set_once —
+        // pra corrigir valores marcados errado pela lógica antiga. Ajuste a data
+        // abaixo se o release de produção tiver sido outro dia.
+        final cutoverDate = DateTime.parse('2026-05-30T03:00:00Z'); // 00:00 BRT 30/05
+        final createdAt = DateTime.tryParse(user.createdAt);
+        final isPreCutover = createdAt != null && createdAt.isBefore(cutoverDate);
         await Posthog().identify(
           userId: user.id,
           userProperties: {
             if (user.email != null) 'email': user.email!,
             if (_isInternal) 'is_internal': true,
+            'is_pre_cutover_user': isPreCutover,
           },
           userPropertiesSetOnce: {
-            'is_pre_cutover_user': true,
             'cutover_alias_at': DateTime.now().toIso8601String(),
           },
         );

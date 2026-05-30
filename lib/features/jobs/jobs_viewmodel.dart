@@ -686,6 +686,17 @@ class JobsViewModel extends ChangeNotifier {
     if (_autoReloadAttempted) return;
     if (_isLoading) return;
     _autoReloadAttempted = true;
+    // B.17 — feed_exhausted emitido AQUI (ponto real de exaustão: a UI chama
+    // tryAutoReload quando remainingCount==0). O emissor antigo na tela
+    // (`_currentIndex >= jobs.length`) nunca era atingido — a tela trocava pro
+    // empty-state antes —, então feed_exhausted ficava 0 all-time. O guard
+    // `_autoReloadAttempted` garante 1x por sessão.
+    // ignore: unawaited_futures
+    Analytics.shared.feedExhausted(
+      subTab: 'para_voce',
+      jobsSeenInSession: _jobs.length,
+      jobsSwipedInSession: _swipedIds.length,
+    );
     notifyListeners(); // pra UI saber que tentamos (evita re-trigger)
 
     try {
