@@ -9,14 +9,24 @@ class EducationMajor {
   final String educationId;
   final String name;
   final int orderIndex;
-  const EducationMajor({required this.id, required this.educationId, required this.name, this.orderIndex = 0});
-  Map<String, dynamic> toMap() => {'id': id, 'education_id': educationId, 'name': name, 'order_index': orderIndex};
+  const EducationMajor({
+    required this.id,
+    required this.educationId,
+    required this.name,
+    this.orderIndex = 0,
+  });
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'education_id': educationId,
+    'name': name,
+    'order_index': orderIndex,
+  };
   factory EducationMajor.fromMap(Map<String, dynamic> m) => EducationMajor(
-        id: m['id'] as String,
-        educationId: m['education_id'] as String,
-        name: m['name'] as String? ?? '',
-        orderIndex: (m['order_index'] as num?)?.toInt() ?? 0,
-      );
+    id: m['id'] as String,
+    educationId: m['education_id'] as String,
+    name: m['name'] as String? ?? '',
+    orderIndex: (m['order_index'] as num?)?.toInt() ?? 0,
+  );
 }
 
 @immutable
@@ -25,14 +35,24 @@ class EducationMinor {
   final String educationId;
   final String name;
   final int orderIndex;
-  const EducationMinor({required this.id, required this.educationId, required this.name, this.orderIndex = 0});
-  Map<String, dynamic> toMap() => {'id': id, 'education_id': educationId, 'name': name, 'order_index': orderIndex};
+  const EducationMinor({
+    required this.id,
+    required this.educationId,
+    required this.name,
+    this.orderIndex = 0,
+  });
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'education_id': educationId,
+    'name': name,
+    'order_index': orderIndex,
+  };
   factory EducationMinor.fromMap(Map<String, dynamic> m) => EducationMinor(
-        id: m['id'] as String,
-        educationId: m['education_id'] as String,
-        name: m['name'] as String? ?? '',
-        orderIndex: (m['order_index'] as num?)?.toInt() ?? 0,
-      );
+    id: m['id'] as String,
+    educationId: m['education_id'] as String,
+    name: m['name'] as String? ?? '',
+    orderIndex: (m['order_index'] as num?)?.toInt() ?? 0,
+  );
 }
 
 @immutable
@@ -41,9 +61,20 @@ class EducationActivity {
   final String educationId;
   final String text;
   final int orderIndex;
-  const EducationActivity({required this.id, required this.educationId, required this.text, this.orderIndex = 0});
-  Map<String, dynamic> toMap() => {'id': id, 'education_id': educationId, 'text': text, 'order_index': orderIndex};
-  factory EducationActivity.fromMap(Map<String, dynamic> m) => EducationActivity(
+  const EducationActivity({
+    required this.id,
+    required this.educationId,
+    required this.text,
+    this.orderIndex = 0,
+  });
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'education_id': educationId,
+    'text': text,
+    'order_index': orderIndex,
+  };
+  factory EducationActivity.fromMap(Map<String, dynamic> m) =>
+      EducationActivity(
         id: m['id'] as String,
         educationId: m['education_id'] as String,
         text: m['text'] as String? ?? '',
@@ -56,8 +87,12 @@ class Education {
   final String id;
   final String userId;
   final String institution;
+  final String? educationLevel;
+  final String? educationStatus;
   final String? location;
   final String? degree;
+  final int? currentSemester;
+  final int? currentSchoolYear;
   final DateTime? startDate;
   final DateTime? endDate;
   final double? gpa;
@@ -72,8 +107,12 @@ class Education {
     required this.id,
     required this.userId,
     required this.institution,
+    this.educationLevel,
+    this.educationStatus,
     this.location,
     this.degree,
+    this.currentSemester,
+    this.currentSchoolYear,
     this.startDate,
     this.endDate,
     this.gpa,
@@ -94,18 +133,22 @@ class Education {
   }
 
   Map<String, dynamic> toMap() => {
-        'id': id,
-        'user_id': userId,
-        'institution': institution,
-        'location': location,
-        'degree': degree,
-        'start_date': startDate != null ? _dateToDb(startDate!) : null,
-        'end_date': endDate != null ? _dateToDb(endDate!) : null,
-        'gpa': gpa,
-        'max_gpa': maxGpa,
-        'order_index': orderIndex,
-        'confidence': confidence,
-      };
+    'id': id,
+    'user_id': userId,
+    'institution': institution,
+    'education_level': educationLevel,
+    'education_status': educationStatus,
+    'location': location,
+    'degree': degree,
+    'current_semester': currentSemester,
+    'current_school_year': currentSchoolYear,
+    'start_date': startDate != null ? _dateToDb(startDate!) : null,
+    'end_date': endDate != null ? _dateToDb(endDate!) : null,
+    'gpa': gpa,
+    'max_gpa': maxGpa,
+    'order_index': orderIndex,
+    'confidence': confidence,
+  };
 
   factory Education.fromMap(Map<String, dynamic> map) {
     final majorsRaw = map['profile_education_majors'] as List?;
@@ -115,17 +158,39 @@ class Education {
       id: map['id'] as String,
       userId: map['user_id'] as String,
       institution: map['institution'] as String? ?? '',
+      educationLevel: map['education_level'] as String?,
+      educationStatus: map['education_status'] as String?,
       location: map['location'] as String?,
       degree: map['degree'] as String?,
-      startDate: map['start_date'] != null ? DateTime.parse(map['start_date'] as String) : null,
-      endDate: map['end_date'] != null ? DateTime.parse(map['end_date'] as String) : null,
+      currentSemester: (map['current_semester'] as num?)?.toInt(),
+      currentSchoolYear: (map['current_school_year'] as num?)?.toInt(),
+      startDate: map['start_date'] != null
+          ? DateTime.parse(map['start_date'] as String)
+          : null,
+      endDate: map['end_date'] != null
+          ? DateTime.parse(map['end_date'] as String)
+          : null,
       gpa: (map['gpa'] as num?)?.toDouble(),
       maxGpa: (map['max_gpa'] as num?)?.toDouble(),
       orderIndex: (map['order_index'] as num?)?.toInt() ?? 0,
       confidence: (map['confidence'] as num?)?.toDouble(),
-      majors: majorsRaw == null ? const [] : majorsRaw.map((m) => EducationMajor.fromMap(m as Map<String, dynamic>)).toList(),
-      minors: minorsRaw == null ? const [] : minorsRaw.map((m) => EducationMinor.fromMap(m as Map<String, dynamic>)).toList(),
-      activities: actsRaw == null ? const [] : actsRaw.map((m) => EducationActivity.fromMap(m as Map<String, dynamic>)).toList(),
+      majors: majorsRaw == null
+          ? const []
+          : majorsRaw
+                .map((m) => EducationMajor.fromMap(m as Map<String, dynamic>))
+                .toList(),
+      minors: minorsRaw == null
+          ? const []
+          : minorsRaw
+                .map((m) => EducationMinor.fromMap(m as Map<String, dynamic>))
+                .toList(),
+      activities: actsRaw == null
+          ? const []
+          : actsRaw
+                .map(
+                  (m) => EducationActivity.fromMap(m as Map<String, dynamic>),
+                )
+                .toList(),
     );
   }
 
@@ -133,8 +198,12 @@ class Education {
     String? id,
     String? userId,
     String? institution,
+    String? educationLevel,
+    String? educationStatus,
     String? location,
     String? degree,
+    int? currentSemester,
+    int? currentSchoolYear,
     DateTime? startDate,
     DateTime? endDate,
     double? gpa,
@@ -144,29 +213,46 @@ class Education {
     List<EducationMajor>? majors,
     List<EducationMinor>? minors,
     List<EducationActivity>? activities,
-  }) =>
-      Education(
-        id: id ?? this.id,
-        userId: userId ?? this.userId,
-        institution: institution ?? this.institution,
-        location: location ?? this.location,
-        degree: degree ?? this.degree,
-        startDate: startDate ?? this.startDate,
-        endDate: endDate ?? this.endDate,
-        gpa: gpa ?? this.gpa,
-        maxGpa: maxGpa ?? this.maxGpa,
-        orderIndex: orderIndex ?? this.orderIndex,
-        confidence: confidence ?? this.confidence,
-        majors: majors ?? this.majors,
-        minors: minors ?? this.minors,
-        activities: activities ?? this.activities,
-      );
+  }) => Education(
+    id: id ?? this.id,
+    userId: userId ?? this.userId,
+    institution: institution ?? this.institution,
+    educationLevel: educationLevel ?? this.educationLevel,
+    educationStatus: educationStatus ?? this.educationStatus,
+    location: location ?? this.location,
+    degree: degree ?? this.degree,
+    currentSemester: currentSemester ?? this.currentSemester,
+    currentSchoolYear: currentSchoolYear ?? this.currentSchoolYear,
+    startDate: startDate ?? this.startDate,
+    endDate: endDate ?? this.endDate,
+    gpa: gpa ?? this.gpa,
+    maxGpa: maxGpa ?? this.maxGpa,
+    orderIndex: orderIndex ?? this.orderIndex,
+    confidence: confidence ?? this.confidence,
+    majors: majors ?? this.majors,
+    minors: minors ?? this.minors,
+    activities: activities ?? this.activities,
+  );
 }
 
 String _dateToDb(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
 String _formatMonthYear(DateTime d) {
-  const months = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  const months = [
+    '',
+    'Jan',
+    'Fev',
+    'Mar',
+    'Abr',
+    'Mai',
+    'Jun',
+    'Jul',
+    'Ago',
+    'Set',
+    'Out',
+    'Nov',
+    'Dez',
+  ];
   return '${months[d.month]} ${d.year}';
 }

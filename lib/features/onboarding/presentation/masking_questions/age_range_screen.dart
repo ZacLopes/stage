@@ -15,7 +15,7 @@ import '../../../profile/domain/entities/entities.dart';
 import '../../utils/save_with_retry.dart';
 import '../all_set_screen.dart';
 import '../onboarding_scaffold.dart';
-import '../preferences/desired_titles_screen.dart';
+import 'education_screen.dart';
 import '../../../../core/theme/theme.dart';
 
 class AgeRangeScreen extends StatefulWidget {
@@ -75,7 +75,9 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
     // DateTime aceita day/month fora do intervalo e "rola" pra próximo
     // mês — usamos isso pra detectar valores impossíveis (31/02 vira 03/03).
     final candidate = DateTime(year, month, day);
-    if (candidate.day != day || candidate.month != month || candidate.year != year) {
+    if (candidate.day != day ||
+        candidate.month != month ||
+        candidate.year != year) {
       setState(() {
         _parsed = null;
         _error = 'Data inválida';
@@ -110,8 +112,10 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
     final dob = _parsed;
     if (dob == null || _saving) return;
     HapticFeedback.lightImpact();
-    AnalyticsService.shared.track('onboarding_masking_question_answered',
-        props: {'question': 'date_of_birth'});
+    AnalyticsService.shared.track(
+      'onboarding_masking_question_answered',
+      props: {'question': 'date_of_birth'},
+    );
 
     final vm = context.read<ProfileEditorViewModel>();
     final userId = currentUserIdOrNull();
@@ -125,10 +129,8 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
     setState(() => _saving = true);
     final ok = await saveWithRetry(
       context: context,
-      operation: () => vm.commitPersonal(base.copyWith(
-        dateOfBirth: dob,
-        ageRange: derived,
-      )),
+      operation: () =>
+          vm.commitPersonal(base.copyWith(dateOfBirth: dob, ageRange: derived)),
     );
     if (!mounted) return;
     setState(() => _saving = false);
@@ -136,17 +138,15 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
 
     // Bifurca conforme origem:
     //  - Upload (extração rodou) → AllSetScreen → revisar dados do CV
-    //  - Trail (sem CV) → pula AllSetScreen e a revisão (não há nada extraído
-    //    pra revisar), vai direto pras preferências de vaga.
+    //  - Trail (sem CV) → coleta formação manualmente antes das preferências.
     final extraction = context.read<ExtractionStatusViewModel>();
     final cameFromUpload = extraction.status != ExtractionStatus.notStarted;
 
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => cameFromUpload
-            ? const AllSetScreen()
-            : const DesiredTitlesScreen(),
+        builder: (_) =>
+            cameFromUpload ? const AllSetScreen() : const EducationScreen(),
       ),
     );
   }
@@ -179,29 +179,26 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
               ),
               filled: true,
               fillColor: Colors.white,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 18,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
-                  color: _error != null
-                      ? AppColors.error
-                      : AppColors.border,
+                  color: _error != null ? AppColors.error : AppColors.border,
                 ),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
-                  color: _error != null
-                      ? AppColors.error
-                      : AppColors.border,
+                  color: _error != null ? AppColors.error : AppColors.border,
                 ),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
-                  color: _error != null
-                      ? AppColors.error
-                      : AppColors.brandCyan,
+                  color: _error != null ? AppColors.error : AppColors.brandCyan,
                   width: 1.5,
                 ),
               ),

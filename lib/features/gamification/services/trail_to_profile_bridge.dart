@@ -18,6 +18,8 @@
 // a trilha legacy). Conforme cada passo da trilha for "ativado" pra escrever
 // no relacional, basta adicionar o case correspondente no switch.
 
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../profile/domain/entities/entities.dart';
@@ -30,10 +32,7 @@ class TrailToProfileBridge {
   /// Recebe phase_id e answer (como vem do GamificationViewModel) e roteia pra
   /// tabela correspondente. Retorna sem erro mesmo se o phase_id não estiver
   /// mapeado ainda — assim a trilha legacy não quebra.
-  Future<void> route({
-    required String phaseId,
-    required dynamic answer,
-  }) async {
+  Future<void> route({required String phaseId, required dynamic answer}) async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
 
@@ -91,18 +90,18 @@ class TrailToProfileBridge {
   /// Filtra opções não-area ("Ainda estou explorando", "Aberto a oportunidades").
   Future<void> _routeT1Areas(String userId, dynamic answer) async {
     final raw = _toStringList(answer);
-    final areas = raw
-        .where((a) {
-          final n = a.toLowerCase().trim();
-          if (n.contains('ainda estou explorando')) return false;
-          if (n.contains('aberto a oportunidades')) return false;
-          return n.isNotEmpty;
-        })
-        .toList();
+    final areas = raw.where((a) {
+      final n = a.toLowerCase().trim();
+      if (n.contains('ainda estou explorando')) return false;
+      if (n.contains('aberto a oportunidades')) return false;
+      return n.isNotEmpty;
+    }).toList();
     if (areas.isEmpty) return;
 
     final existing = await _repo.getDesiredTitles(userId);
-    final existingTitlesLower = existing.map((t) => t.title.toLowerCase().trim()).toSet();
+    final existingTitlesLower = existing
+        .map((t) => t.title.toLowerCase().trim())
+        .toSet();
     final toAdd = areas
         .where((a) => !existingTitlesLower.contains(a.toLowerCase().trim()))
         .toList();
@@ -143,7 +142,8 @@ class TrailToProfileBridge {
     }
     if (newTypes.isEmpty) return;
 
-    final existing = await _repo.getJobPreferences(userId) ?? JobPreferences(userId: userId);
+    final existing =
+        await _repo.getJobPreferences(userId) ?? JobPreferences(userId: userId);
     final merged = <JobType>{...existing.jobTypes, ...newTypes}.toList();
     if (merged.length == existing.jobTypes.length) return; // nenhum novo
     await _repo.upsertJobPreferences(existing.copyWith(jobTypes: merged));
@@ -157,7 +157,8 @@ class TrailToProfileBridge {
     final text = answer.trim();
     if (text.isEmpty) return;
 
-    final existing = await _repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
+    final existing =
+        await _repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
     if ((existing.summary ?? '').trim().isNotEmpty) {
       return; // já tem summary, preserva
     }
@@ -169,29 +170,83 @@ class TrailToProfileBridge {
   // ──────────────────────────────────────────────────────────────────────
   Future<void> _routeT2(String userId, String phaseId, dynamic answer) async {
     // M2 tem AcademicForm que retorna Map com institution/degree/dates.
-    if (answer is Map) {
-      final m = answer.cast<String, dynamic>();
-      final institution = (m['institution'] ?? m['school'] ?? '').toString();
-      if (institution.isEmpty) return;
-      final edu = Education(
-        id: '',
-        userId: userId,
-        institution: institution,
-        location: m['location'] as String?,
-        degree: m['degree'] as String?,
-        startDate: _parseDate(m['start_date'] ?? m['startDate']),
-        endDate: _parseDate(m['end_date'] ?? m['endDate']),
+    final m = _toStringMap(answer);
+    if (m == null) return;
+
+    final institution = _firstText(m, const [
+      'institution',
+      'institution_name',
+      'school',
+    ]);
+    if (institution == null) return;
+
+    final majors = <EducationMajor>[];
+    final majorList = m['majors'] ?? m['course'] ?? m['course_name'];
+    if (majorList is String && majorList.trim().isNotEmpty) {
+      majors.add(
+        EducationMajor(id: '', educationId: '', name: majorList.trim()),
       );
-      final majors = <EducationMajor>[];
-      final majorList = m['majors'] ?? m['course'];
-      if (majorList is String && majorList.isNotEmpty) {
-        majors.add(EducationMajor(id: '', educationId: '', name: majorList));
-      } else if (majorList is List) {
-        for (var i = 0; i < majorList.length; i++) {
-          majors.add(EducationMajor(id: '', educationId: '', name: majorList[i].toString(), orderIndex: i));
-        }
+    } else if (majorList is List) {
+      for (var i = 0; i < majorList.length; i++) {
+        final name = majorList[i].toString().trim();
+        if (name.isEmpty) continue;
+        majors.add(
+          EducationMajor(id: '', educationId: '', name: name, orderIndex: i),
+        );
       }
-      await _repo.addEducation(edu.copyWith(majors: majors));
+    }
+    final educationLevel = _inferEducationLevel(m, majors);
+    final educationStatus = _parseEducationStatus(m);
+    final currentSemester = educationLevel == 'college'
+        ? _parseSemester(m['current_semester'] ?? m['semester'])
+        : null;
+
+    final existing = await _repo.getEducation(userId);
+    Education? current;
+    for (final edu in existing) {
+      if (_sameText(edu.institution, institution)) {
+        current = edu;
+        break;
+      }
+    }
+
+    final incoming = Education(
+      id: current?.id ?? '',
+      userId: userId,
+      institution: institution,
+      educationLevel: educationLevel,
+      educationStatus: educationStatus,
+      location: _firstText(m, const ['location']),
+      degree:
+          _firstText(m, const ['degree']) ??
+          (educationLevel == 'college' ? 'Graduação' : null),
+      currentSemester: currentSemester,
+      startDate: _parseDate(
+        m['start_date'] ?? m['startDate'] ?? m['course_start_mm_yyyy'],
+      ),
+      endDate: _parseDate(
+        m['end_date'] ?? m['endDate'] ?? m['course_end_mm_yyyy'],
+      ),
+      orderIndex: current?.orderIndex ?? existing.length,
+      majors: majors,
+    );
+
+    if (current == null) {
+      await _repo.addEducation(incoming);
+    } else {
+      await _repo.updateEducation(
+        current.copyWith(
+          institution: incoming.institution,
+          educationLevel: incoming.educationLevel ?? current.educationLevel,
+          educationStatus: incoming.educationStatus ?? current.educationStatus,
+          location: incoming.location ?? current.location,
+          degree: incoming.degree ?? current.degree,
+          currentSemester: incoming.currentSemester ?? current.currentSemester,
+          startDate: incoming.startDate ?? current.startDate,
+          endDate: incoming.endDate ?? current.endDate,
+          majors: incoming.majors.isNotEmpty ? incoming.majors : current.majors,
+        ),
+      );
     }
   }
 
@@ -247,14 +302,34 @@ class TrailToProfileBridge {
         final m = answer.cast<String, dynamic>();
         final name = (m['name'] ?? m['language'] ?? '').toString();
         if (name.isEmpty) return;
-        final profStr = (m['proficiency'] ?? m['level'] ?? '').toString().toLowerCase();
+        final profStr = (m['proficiency'] ?? m['level'] ?? '')
+            .toString()
+            .toLowerCase();
         LanguageProficiency? prof;
         switch (profStr) {
-          case 'native': case 'nativo': prof = LanguageProficiency.native; break;
-          case 'fluent': case 'fluente': prof = LanguageProficiency.fluent; break;
-          case 'advanced': case 'avançado': case 'avancado': prof = LanguageProficiency.advanced; break;
-          case 'intermediate': case 'intermediário': case 'intermediario': prof = LanguageProficiency.intermediate; break;
-          case 'basic': case 'básico': case 'basico': prof = LanguageProficiency.basic; break;
+          case 'native':
+          case 'nativo':
+            prof = LanguageProficiency.native;
+            break;
+          case 'fluent':
+          case 'fluente':
+            prof = LanguageProficiency.fluent;
+            break;
+          case 'advanced':
+          case 'avançado':
+          case 'avancado':
+            prof = LanguageProficiency.advanced;
+            break;
+          case 'intermediate':
+          case 'intermediário':
+          case 'intermediario':
+            prof = LanguageProficiency.intermediate;
+            break;
+          case 'basic':
+          case 'básico':
+          case 'basico':
+            prof = LanguageProficiency.basic;
+            break;
         }
         await _repo.addLanguage(
           Language(id: '', userId: userId, name: name, proficiency: prof),
@@ -273,13 +348,16 @@ class TrailToProfileBridge {
   Future<void> _routeT5(String userId, String phaseId, dynamic answer) async {
     if (answer is Map) {
       final m = answer.cast<String, dynamic>();
-      final existing = await _repo.getPersonal(userId) ??
-          PersonalInfo(userId: userId);
+      final existing =
+          await _repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
       final updated = existing.copyWith(
         locationCity: (m['city'] ?? existing.locationCity) as String?,
         locationState: (m['state'] ?? existing.locationState) as String?,
-        locationCountry: (m['country'] ?? existing.locationCountry ?? 'BR') as String?,
-        headline: (m['headline'] ?? m['linkedin_headline'] ?? existing.headline) as String?,
+        locationCountry:
+            (m['country'] ?? existing.locationCountry ?? 'BR') as String?,
+        headline:
+            (m['headline'] ?? m['linkedin_headline'] ?? existing.headline)
+                as String?,
       );
       await _repo.upsertPersonal(updated);
     }
@@ -295,8 +373,12 @@ class TrailToProfileBridge {
     if (value is String) {
       // Aceita YYYY-MM-DD, YYYY-MM, YYYY/MM, MM/YYYY
       try {
-        if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value)) return DateTime.parse(value);
-        if (RegExp(r'^\d{4}-\d{2}$').hasMatch(value)) return DateTime.parse('$value-01');
+        if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value)) {
+          return DateTime.parse(value);
+        }
+        if (RegExp(r'^\d{4}-\d{2}$').hasMatch(value)) {
+          return DateTime.parse('$value-01');
+        }
         if (RegExp(r'^\d{2}/\d{4}$').hasMatch(value)) {
           final parts = value.split('/');
           return DateTime(int.parse(parts[1]), int.parse(parts[0]), 1);
@@ -309,12 +391,103 @@ class TrailToProfileBridge {
     return null;
   }
 
+  Map<String, dynamic>? _toStringMap(dynamic value) {
+    if (value is Map) {
+      return value.map((key, val) => MapEntry(key.toString(), val));
+    }
+    if (value is String) {
+      final trimmed = value.trim();
+      if (!trimmed.startsWith('{')) return null;
+      try {
+        final decoded = jsonDecode(trimmed);
+        if (decoded is Map) {
+          return decoded.map((key, val) => MapEntry(key.toString(), val));
+        }
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  String? _firstText(Map<String, dynamic> map, List<String> keys) {
+    for (final key in keys) {
+      final value = map[key];
+      if (value is! String) continue;
+      final text = value.trim();
+      if (text.isNotEmpty) return text;
+    }
+    return null;
+  }
+
+  String? _inferEducationLevel(
+    Map<String, dynamic> map,
+    List<EducationMajor> majors,
+  ) {
+    final explicit = _firstText(map, const [
+      'education_level',
+      'educationLevel',
+      'level',
+    ])?.toLowerCase();
+    if (explicit == 'college' || explicit == 'school') return explicit;
+    if (majors.isNotEmpty ||
+        _firstText(map, const ['course', 'course_name', 'degree']) != null ||
+        _firstText(map, const ['semester', 'current_semester']) != null) {
+      return 'college';
+    }
+    if (_firstText(map, const ['school']) != null) return 'school';
+    return null;
+  }
+
+  String? _parseEducationStatus(Map<String, dynamic> map) {
+    final raw = _firstText(map, const [
+      'education_status',
+      'educationStatus',
+      'status',
+      'course_status',
+    ])?.toLowerCase();
+    if (raw == null) return null;
+    if (raw.contains('tranc')) return 'paused';
+    if (raw.contains('conclu') ||
+        raw.contains('formad') ||
+        raw.contains('graduat')) {
+      return 'graduated';
+    }
+    if (raw.contains('curs') || raw.contains('study')) return 'studying';
+    return null;
+  }
+
+  int? _parseSemester(dynamic value) {
+    if (value == null) return null;
+    if (value is num) {
+      final semester = value.toInt();
+      return semester >= 1 && semester <= 12 ? semester : null;
+    }
+    final text = value.toString().toLowerCase().trim();
+    if (text.isEmpty || text.contains('finalizando')) return null;
+    final match = RegExp(r'\d+').firstMatch(text);
+    if (match == null) return null;
+    final semester = int.tryParse(match.group(0)!);
+    if (semester == null || semester < 1 || semester > 12) return null;
+    return semester;
+  }
+
+  bool _sameText(String a, String b) =>
+      a.trim().toLowerCase() == b.trim().toLowerCase();
+
   List<String> _toStringList(dynamic value) {
     if (value is String) {
-      return value.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+      return value
+          .split(',')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
     }
     if (value is List) {
-      return value.whereType<String>().where((s) => s.trim().isNotEmpty).toList();
+      return value
+          .whereType<String>()
+          .where((s) => s.trim().isNotEmpty)
+          .toList();
     }
     if (value is Map) {
       // Pode ser estrutura com tools categorizadas

@@ -7,7 +7,8 @@
 // Modo semanal: aos domingos (UTC), inclui resumo dos últimos 7 dias com WoW.
 //
 // Acesso:
-// - Header `x-cron-secret: <CRON_SECRET>` (pg_cron) OU Authorization Bearer JWT.
+// - Header `x-cron-secret: <CRON_SECRET>`.
+// - No deploy da Supabase, o gateway também exige um Authorization Bearer JWT válido.
 //
 // Body (JSON, opcional):
 // {
@@ -27,9 +28,9 @@
 //   SUPABASE_URL                  (auto)
 //   SUPABASE_SERVICE_ROLE_KEY     (auto)
 
-import { serve } from 'std/http/server'
-import { createClient } from 'supabase'
-import { captureEvent, withEdgeAnalytics } from '../_shared/posthog.ts'
+import { serve } from 'std/http/server';
+import { createClient } from 'supabase';
+import { captureEvent, withEdgeAnalytics } from '../_shared/posthog.ts';
 import {
   computeGapBlock,
   computeWindow,
@@ -43,50 +44,61 @@ import {
   fetchUsersBlock,
   fetchUsersTotalBlock,
   fetchWeeklyBlock,
-} from './queries.ts'
-import { renderEmailHtml, renderNtfyText, type ReportPayload } from './html_template.ts'
+} from './queries.ts';
+import { renderEmailHtml, renderNtfyText, type ReportPayload } from './html_template.ts';
 
-const CRON_SECRET = Deno.env.get('CRON_SECRET') ?? ''
-const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') ?? ''
-const REPORT_EMAIL_FROM = Deno.env.get('REPORT_EMAIL_FROM') ?? 'Stage <onboarding@resend.dev>'
-const REPORT_EMAIL_TO = Deno.env.get('REPORT_EMAIL_TO') ?? ''
-const NTFY_TOPIC_REPORT = Deno.env.get('NTFY_TOPIC_REPORT') ?? ''
-const NTFY_HOST = Deno.env.get('NTFY_HOST') ?? 'https://ntfy.sh'
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+const CRON_SECRET = Deno.env.get('CRON_SECRET') ?? '';
+const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') ?? '';
+const REPORT_EMAIL_FROM = Deno.env.get('REPORT_EMAIL_FROM') ?? 'Stage <onboarding@resend.dev>';
+const REPORT_EMAIL_TO = Deno.env.get('REPORT_EMAIL_TO') ?? '';
+const NTFY_TOPIC_REPORT = Deno.env.get('NTFY_TOPIC_REPORT') ?? '';
+const NTFY_HOST = Deno.env.get('NTFY_HOST') ?? 'https://ntfy.sh';
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, content-type, x-cron-secret',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
+};
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  })
+  });
 }
 
 function isAuthorized(req: Request): boolean {
-  const cronHeader = req.headers.get('x-cron-secret') ?? ''
-  if (CRON_SECRET && cronHeader === CRON_SECRET) return true
-  return (req.headers.get('Authorization') ?? '').startsWith('Bearer ')
+  const cronHeader = req.headers.get('x-cron-secret') ?? '';
+  return Boolean(CRON_SECRET && cronHeader === CRON_SECRET);
+}
+
+function missingRequiredConfig(): string[] {
+  const missing: string[] = [];
+  if (!CRON_SECRET) missing.push('CRON_SECRET');
+  if (!SUPABASE_URL) missing.push('SUPABASE_URL');
+  if (!SUPABASE_SERVICE_ROLE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+  return missing;
 }
 
 function parseRecipients(raw: string): string[] {
   return raw
     .split(',')
     .map((s) => s.trim())
-    .filter((s) => s.length > 0)
+    .filter((s) => s.length > 0);
 }
 
-async function sendEmail(html: string, subject: string, to: string[]): Promise<{ ok: boolean; status: number; body: string }> {
+async function sendEmail(
+  html: string,
+  subject: string,
+  to: string[],
+): Promise<{ ok: boolean; status: number; body: string }> {
   if (!RESEND_API_KEY) {
-    return { ok: false, status: 0, body: 'RESEND_API_KEY not set' }
+    return { ok: false, status: 0, body: 'RESEND_API_KEY not set' };
   }
   if (to.length === 0) {
-    return { ok: false, status: 0, body: 'no recipients' }
+    return { ok: false, status: 0, body: 'no recipients' };
   }
   const resp = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -100,14 +112,17 @@ async function sendEmail(html: string, subject: string, to: string[]): Promise<{
       subject,
       html,
     }),
-  })
-  const text = await resp.text()
-  return { ok: resp.ok, status: resp.status, body: text.slice(0, 500) }
+  });
+  const text = await resp.text();
+  return { ok: resp.ok, status: resp.status, body: text.slice(0, 500) };
 }
 
-async function sendNtfy(title: string, message: string): Promise<{ ok: boolean; status: number; body: string }> {
+async function sendNtfy(
+  title: string,
+  message: string,
+): Promise<{ ok: boolean; status: number; body: string }> {
   if (!NTFY_TOPIC_REPORT) {
-    return { ok: false, status: 0, body: 'NTFY_TOPIC_REPORT not set' }
+    return { ok: false, status: 0, body: 'NTFY_TOPIC_REPORT not set' };
   }
   // Mesmo padrão JSON do `notify-signup` pra suportar unicode no título.
   const resp = await fetch(NTFY_HOST, {
@@ -120,52 +135,67 @@ async function sendNtfy(title: string, message: string): Promise<{ ok: boolean; 
       priority: 3,
       tags: ['bar_chart', 'iphone'],
     }),
-  })
-  const text = await resp.text()
-  return { ok: resp.ok, status: resp.status, body: text.slice(0, 300) }
+  });
+  const text = await resp.text();
+  return { ok: resp.ok, status: resp.status, body: text.slice(0, 300) };
 }
 
 serve(withEdgeAnalytics('daily-report', async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response('ok', { headers: corsHeaders });
   }
 
   if (!isAuthorized(req)) {
-    return jsonResponse({ error: 'unauthorized' }, 401)
+    return jsonResponse({ error: 'unauthorized' }, 401);
+  }
+
+  const missingConfig = missingRequiredConfig();
+  if (missingConfig.length > 0) {
+    return jsonResponse({ error: 'missing_required_config', missing: missingConfig }, 500);
   }
 
   const body = await req.json().catch(() => ({})) as {
-    dryRun?: boolean
-    weeklyDigest?: boolean
-    targetEmail?: string
-  }
-  const dryRun = body.dryRun === true
-  const targetRaw = body.targetEmail?.trim() || REPORT_EMAIL_TO
-  const targetEmails = parseRecipients(targetRaw)
+    dryRun?: boolean;
+    weeklyDigest?: boolean;
+    targetEmail?: string;
+  };
+  const dryRun = body.dryRun === true;
+  const targetRaw = body.targetEmail?.trim() || REPORT_EMAIL_TO;
+  const targetEmails = parseRecipients(targetRaw);
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
-  })
+  });
 
-  const win = computeWindow(new Date())
-  const isWeekly = body.weeklyDigest === true || win.isSunday
+  const win = computeWindow(new Date());
+  const isWeekly = body.weeklyDigest === true || win.isSunday;
 
   // Roda tudo em paralelo — independentes entre si.
-  const [usersTotal, users, engagement, retention, jobsInserted, jobsStock, match, cvAdapted, health, weekly] =
-    await Promise.all([
-      fetchUsersTotalBlock(supabase),
-      fetchUsersBlock(supabase, win),
-      fetchEngagementBlock(supabase, win),
-      fetchRetentionBlock(supabase, win),
-      fetchJobsInsertedBlock(supabase, win),
-      fetchJobsStockBlock(supabase),
-      fetchMatchBlock(supabase, win),
-      fetchCvAdaptedBlock(supabase, win),
-      fetchHealthBlock(supabase, win),
-      isWeekly ? fetchWeeklyBlock(supabase, win) : Promise.resolve(undefined),
-    ])
+  const [
+    usersTotal,
+    users,
+    engagement,
+    retention,
+    jobsInserted,
+    jobsStock,
+    match,
+    cvAdapted,
+    health,
+    weekly,
+  ] = await Promise.all([
+    fetchUsersTotalBlock(supabase),
+    fetchUsersBlock(supabase, win),
+    fetchEngagementBlock(supabase, win),
+    fetchRetentionBlock(supabase, win),
+    fetchJobsInsertedBlock(supabase, win),
+    fetchJobsStockBlock(supabase),
+    fetchMatchBlock(supabase, win),
+    fetchCvAdaptedBlock(supabase, win),
+    fetchHealthBlock(supabase, win),
+    isWeekly ? fetchWeeklyBlock(supabase, win) : Promise.resolve(undefined),
+  ]);
 
-  const gap = computeGapBlock(match.likesByArea, jobsStock.byArea)
+  const gap = computeGapBlock(match.likesByArea, jobsStock.byArea);
 
   const payload: ReportPayload = {
     window: win,
@@ -180,13 +210,13 @@ serve(withEdgeAnalytics('daily-report', async (req) => {
     gap,
     health,
     weekly,
-  }
+  };
 
-  const html = renderEmailHtml(payload)
-  const ntfy = renderNtfyText(payload)
+  const html = renderEmailHtml(payload);
+  const ntfy = renderNtfyText(payload);
   const subject = isWeekly
     ? `Stage — Relatório Diário + Semanal (${win.yesterday.label})`
-    : `Stage — Relatório Diário (${win.yesterday.label})`
+    : `Stage — Relatório Diário (${win.yesterday.label})`;
 
   if (dryRun) {
     return jsonResponse({
@@ -207,11 +237,14 @@ serve(withEdgeAnalytics('daily-report', async (req) => {
       ntfy,
       htmlPreview: html.slice(0, 2000) + '...',
       htmlLength: html.length,
-    })
+    });
   }
 
   if (targetEmails.length === 0) {
-    return jsonResponse({ error: 'no_target_email', detail: 'set REPORT_EMAIL_TO env var (comma-separated) or pass targetEmail in body' }, 400)
+    return jsonResponse({
+      error: 'no_target_email',
+      detail: 'set REPORT_EMAIL_TO env var (comma-separated) or pass targetEmail in body',
+    }, 400);
   }
 
   // Envia email e ntfy em paralelo — falha de um não bloqueia o outro.
@@ -226,7 +259,7 @@ serve(withEdgeAnalytics('daily-report', async (req) => {
       status: 500,
       body: String(e).slice(0, 300),
     })),
-  ])
+  ]);
 
   // Telemetria — fire-and-forget pro PostHog.
   captureEvent({
@@ -248,9 +281,10 @@ serve(withEdgeAnalytics('daily-report', async (req) => {
       email_ok: emailResult.ok,
       ntfy_status: ntfyResult.status,
       ntfy_ok: ntfyResult.ok,
-      status: emailResult.ok ? 'success' : 'failed',
+      status: emailResult.ok ? 'success' : ntfyResult.ok ? 'partial_success' : 'failed',
+      target_count: targetEmails.length,
     },
-  }).catch(() => {})
+  }).catch(() => {});
 
   return jsonResponse({
     ok: emailResult.ok || ntfyResult.ok,
@@ -273,5 +307,5 @@ serve(withEdgeAnalytics('daily-report', async (req) => {
       likes: match.totalLikes,
       applies: match.totalApplies,
     },
-  })
-}))
+  });
+}));

@@ -46,11 +46,50 @@ class AIService {
     return _parseMatchResult(data);
   }
 
-  /// Versão atual do prompt do match. Tem que bater com `PROMPT_VERSION` em
-  /// `supabase/functions/analyze-match/index.ts` — descasamento vira cache miss
-  /// no cliente também, evitando que scores antigos (com regras desatualizadas)
-  /// apareçam até o Edge Function recomputar.
-  static const String _matchPromptVersion = 'v4';
+  /// Versão de prompt do match que o cliente lê do cache (`match_analyses`).
+  /// Tem que bater com `PROMPT_VERSION` em `analyze-match/index.ts` —
+  /// descasamento vira cache miss no cliente, evitando que scores de regras
+  /// antigas apareçam até a IA recomputar.
+  ///
+  /// O valor REAL em uso vem de `app_config.match_prompt_version` (hoje 'v10'),
+  /// lido 1x por sessão em [_resolveMatchPromptVersion]. Trocar esse valor no
+  /// banco é o "botão de rollback" instantâneo, sem precisar de release.
+  ///
+  /// Este const é só o FALLBACK conservador pra quando o `app_config` não pode
+  /// ser lido (rede/RLS): 'v4' = comportamento idêntico ao de hoje (lê o cache
+  /// v4 que já existe, sem disparar recomputo em massa).
+  static const String _matchPromptVersionFallback = 'v4';
+
+  /// Cache em memória da versão lida do `app_config` (1 leitura por sessão).
+  /// Estático pra ser compartilhado entre instâncias de [AIService].
+  static String? _matchPromptVersionCache;
+
+  /// Permite resetar o cache em teste/diagnóstico (não usado em produção).
+  static void debugResetMatchPromptVersionCache() =>
+      _matchPromptVersionCache = null;
+
+  /// Lê `app_config.match_prompt_version` (id=1) uma vez por sessão e cacheia.
+  /// Best-effort igual ao [VersionService]: qualquer falha cai no fallback
+  /// conservador sem cachear (tenta de novo depois) e NUNCA quebra o feed.
+  Future<String> _resolveMatchPromptVersion() async {
+    final cached = _matchPromptVersionCache;
+    if (cached != null) return cached;
+    try {
+      final row = await _client
+          .from('app_config')
+          .select('match_prompt_version')
+          .eq('id', 1)
+          .maybeSingle();
+      final v = (row?['match_prompt_version'] as String?)?.trim();
+      final resolved =
+          (v != null && v.isNotEmpty) ? v : _matchPromptVersionFallback;
+      _matchPromptVersionCache = resolved;
+      return resolved;
+    } catch (_) {
+      // Rede/RLS: usa fallback sem cachear pra reavaliar na próxima chamada.
+      return _matchPromptVersionFallback;
+    }
+  }
 
   /// Hidrata cache em batch: 1 SELECT direto na tabela match_analyses.
   /// Sem custo de IA. Retorna mapa jobId → MatchResult pros que estão cacheados.
@@ -64,11 +103,12 @@ class AIService {
     if (userId == null) return const {};
 
     try {
+      final promptVersion = await _resolveMatchPromptVersion();
       final rows = await _client
           .from('match_analyses')
           .select('job_id, score, reasons')
           .eq('user_id', userId)
-          .eq('prompt_version', _matchPromptVersion)
+          .eq('prompt_version', promptVersion)
           .inFilter('job_id', jobIds);
 
       final out = <String, MatchResult>{};

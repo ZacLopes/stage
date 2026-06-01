@@ -13,7 +13,7 @@ class ProfileRepositorySupabase implements ProfileRepository {
   final SupabaseClient _client;
 
   ProfileRepositorySupabase({SupabaseClient? client})
-      : _client = client ?? Supabase.instance.client;
+    : _client = client ?? Supabase.instance.client;
 
   // ──────────────────────────────────────────────────────────────────────
   // PersonalInfo
@@ -32,7 +32,8 @@ class ProfileRepositorySupabase implements ProfileRepository {
 
   @override
   Future<PersonalInfo> upsertPersonal(PersonalInfo info) async {
-    final map = info.toMap()..removeWhere((k, v) => v == null && k != 'user_id');
+    final map = info.toMap()
+      ..removeWhere((k, v) => v == null && k != 'user_id');
     final row = await _client
         .from('profile_personal')
         .upsert(map, onConflict: 'user_id')
@@ -85,7 +86,10 @@ class ProfileRepositorySupabase implements ProfileRepository {
   }
 
   @override
-  Future<void> reorderExperiences(String userId, List<String> orderedIds) async {
+  Future<void> reorderExperiences(
+    String userId,
+    List<String> orderedIds,
+  ) async {
     // Batch update — Postgres não tem batch nativo via PostgREST, então fazemos
     // N UPDATEs paralelos com Future.wait.
     final futures = <Future>[];
@@ -104,7 +108,11 @@ class ProfileRepositorySupabase implements ProfileRepository {
   @override
   Future<Bullet> addBullet(Bullet bullet) async {
     final map = bullet.toMap()..remove('id');
-    final row = await _client.from('profile_bullets').insert(map).select().single();
+    final row = await _client
+        .from('profile_bullets')
+        .insert(map)
+        .select()
+        .single();
     return Bullet.fromMap(row);
   }
 
@@ -125,7 +133,10 @@ class ProfileRepositorySupabase implements ProfileRepository {
   }
 
   @override
-  Future<void> reorderBullets(String experienceId, List<String> orderedIds) async {
+  Future<void> reorderBullets(
+    String experienceId,
+    List<String> orderedIds,
+  ) async {
     final futures = <Future>[];
     for (var i = 0; i < orderedIds.length; i++) {
       futures.add(
@@ -159,59 +170,151 @@ class ProfileRepositorySupabase implements ProfileRepository {
 
   @override
   Future<Education> addEducation(Education edu) async {
-    final map = edu.toMap()..remove('id');
-    final row = await _client.from('profile_education').insert(map).select().single();
+    final row = await _insertEducationRow(edu);
     final newEdu = Education.fromMap(row);
 
     // Insere filhas (majors, minors, activities)
     await _insertEducationChildren(newEdu.id, edu);
 
     // Re-fetch pra retornar com filhas
-    return (await getEducation(edu.userId)).firstWhere((e) => e.id == newEdu.id);
+    return (await getEducation(
+      edu.userId,
+    )).firstWhere((e) => e.id == newEdu.id);
   }
 
   @override
   Future<Education> updateEducation(Education edu) async {
-    await _client
-        .from('profile_education')
-        .update(edu.toMap()..remove('id'))
-        .eq('id', edu.id);
+    await _updateEducationRow(edu);
 
     // Estratégia: delete + re-insert filhas (cascade limpa via FK)
-    await _client.from('profile_education_majors').delete().eq('education_id', edu.id);
-    await _client.from('profile_education_minors').delete().eq('education_id', edu.id);
-    await _client.from('profile_education_activities').delete().eq('education_id', edu.id);
+    await _client
+        .from('profile_education_majors')
+        .delete()
+        .eq('education_id', edu.id);
+    await _client
+        .from('profile_education_minors')
+        .delete()
+        .eq('education_id', edu.id);
+    await _client
+        .from('profile_education_activities')
+        .delete()
+        .eq('education_id', edu.id);
     await _insertEducationChildren(edu.id, edu);
 
     return (await getEducation(edu.userId)).firstWhere((e) => e.id == edu.id);
   }
 
-  Future<void> _insertEducationChildren(String educationId, Education edu) async {
+  Future<Map<String, dynamic>> _insertEducationRow(Education edu) async {
+    try {
+      return await _client
+          .from('profile_education')
+          .insert(_educationMap(edu))
+          .select()
+          .single();
+    } catch (e) {
+      if (!_isEducationSchemaMismatch(e)) rethrow;
+      return await _client
+          .from('profile_education')
+          .insert(_educationMap(edu, includeOnboardingFields: false))
+          .select()
+          .single();
+    }
+  }
+
+  Future<void> _updateEducationRow(Education edu) async {
+    try {
+      await _client
+          .from('profile_education')
+          .update(_educationMap(edu))
+          .eq('id', edu.id);
+    } catch (e) {
+      if (!_isEducationSchemaMismatch(e)) rethrow;
+      await _client
+          .from('profile_education')
+          .update(_educationMap(edu, includeOnboardingFields: false))
+          .eq('id', edu.id);
+    }
+  }
+
+  Map<String, dynamic> _educationMap(
+    Education edu, {
+    bool includeOnboardingFields = true,
+  }) {
+    final map = edu.toMap()..remove('id');
+    if (!includeOnboardingFields) {
+      map.remove('education_level');
+      map.remove('education_status');
+      map.remove('current_semester');
+      map.remove('current_school_year');
+    }
+    return map;
+  }
+
+  bool _isEducationSchemaMismatch(Object error) {
+    final text = error.toString().toLowerCase();
+    return text.contains('profile_education') &&
+        (text.contains('schema cache') ||
+            text.contains('could not find') ||
+            text.contains('pgrst204')) &&
+        (text.contains('education_level') ||
+            text.contains('education_status') ||
+            text.contains('current_semester') ||
+            text.contains('current_school_year'));
+  }
+
+  Future<void> _insertEducationChildren(
+    String educationId,
+    Education edu,
+  ) async {
     if (edu.majors.isNotEmpty) {
-      await _client.from('profile_education_majors').insert(
-            edu.majors.asMap().entries.map((e) => {
-                  'education_id': educationId,
-                  'name': e.value.name,
-                  'order_index': e.key,
-                }).toList(),
+      await _client
+          .from('profile_education_majors')
+          .insert(
+            edu.majors
+                .asMap()
+                .entries
+                .map(
+                  (e) => {
+                    'education_id': educationId,
+                    'name': e.value.name,
+                    'order_index': e.key,
+                  },
+                )
+                .toList(),
           );
     }
     if (edu.minors.isNotEmpty) {
-      await _client.from('profile_education_minors').insert(
-            edu.minors.asMap().entries.map((e) => {
-                  'education_id': educationId,
-                  'name': e.value.name,
-                  'order_index': e.key,
-                }).toList(),
+      await _client
+          .from('profile_education_minors')
+          .insert(
+            edu.minors
+                .asMap()
+                .entries
+                .map(
+                  (e) => {
+                    'education_id': educationId,
+                    'name': e.value.name,
+                    'order_index': e.key,
+                  },
+                )
+                .toList(),
           );
     }
     if (edu.activities.isNotEmpty) {
-      await _client.from('profile_education_activities').insert(
-            edu.activities.asMap().entries.map((e) => {
-                  'education_id': educationId,
-                  'text': e.value.text,
-                  'order_index': e.key,
-                }).toList(),
+      await _client
+          .from('profile_education_activities')
+          .insert(
+            edu.activities
+                .asMap()
+                .entries
+                .map(
+                  (e) => {
+                    'education_id': educationId,
+                    'text': e.value.text,
+                    'order_index': e.key,
+                  },
+                )
+                .toList(),
           );
     }
   }
@@ -232,7 +335,9 @@ class ProfileRepositorySupabase implements ProfileRepository {
         .select()
         .eq('user_id', userId)
         .order('order_index');
-    return (rows as List).map((r) => Language.fromMap(r as Map<String, dynamic>)).toList();
+    return (rows as List)
+        .map((r) => Language.fromMap(r as Map<String, dynamic>))
+        .toList();
   }
 
   @override
@@ -272,7 +377,9 @@ class ProfileRepositorySupabase implements ProfileRepository {
         .select()
         .eq('user_id', userId)
         .order('order_index');
-    return (rows as List).map((r) => Skill.fromMap(r as Map<String, dynamic>)).toList();
+    return (rows as List)
+        .map((r) => Skill.fromMap(r as Map<String, dynamic>))
+        .toList();
   }
 
   @override
@@ -305,12 +412,20 @@ class ProfileRepositorySupabase implements ProfileRepository {
   Future<void> replaceSkills(String userId, List<String> names) async {
     await _client.from('profile_skills').delete().eq('user_id', userId);
     if (names.isEmpty) return;
-    await _client.from('profile_skills').insert(
-          names.asMap().entries.map((e) => {
-                'user_id': userId,
-                'name': e.value,
-                'order_index': e.key,
-              }).toList(),
+    await _client
+        .from('profile_skills')
+        .insert(
+          names
+              .asMap()
+              .entries
+              .map(
+                (e) => {
+                  'user_id': userId,
+                  'name': e.value,
+                  'order_index': e.key,
+                },
+              )
+              .toList(),
         );
   }
 
@@ -325,7 +440,9 @@ class ProfileRepositorySupabase implements ProfileRepository {
         .select()
         .eq('user_id', userId)
         .order('order_index');
-    return (rows as List).map((r) => Certification.fromMap(r as Map<String, dynamic>)).toList();
+    return (rows as List)
+        .map((r) => Certification.fromMap(r as Map<String, dynamic>))
+        .toList();
   }
 
   @override
@@ -365,7 +482,9 @@ class ProfileRepositorySupabase implements ProfileRepository {
         .select('*, profile_project_bullets(*)')
         .eq('user_id', userId)
         .order('order_index');
-    return (rows as List).map((r) => Project.fromMap(r as Map<String, dynamic>)).toList();
+    return (rows as List)
+        .map((r) => Project.fromMap(r as Map<String, dynamic>))
+        .toList();
   }
 
   @override
@@ -379,7 +498,9 @@ class ProfileRepositorySupabase implements ProfileRepository {
     if (project.bullets.isNotEmpty) {
       await _insertProjectBullets(newProject.id, project.bullets);
     }
-    return (await getProjects(project.userId)).firstWhere((p) => p.id == newProject.id);
+    return (await getProjects(
+      project.userId,
+    )).firstWhere((p) => p.id == newProject.id);
   }
 
   @override
@@ -390,14 +511,22 @@ class ProfileRepositorySupabase implements ProfileRepository {
         .eq('id', project.id);
 
     // Estratégia: delete + re-insert bullets (cascade limpa via FK quando deleta)
-    await _client.from('profile_project_bullets').delete().eq('project_id', project.id);
+    await _client
+        .from('profile_project_bullets')
+        .delete()
+        .eq('project_id', project.id);
     if (project.bullets.isNotEmpty) {
       await _insertProjectBullets(project.id, project.bullets);
     }
-    return (await getProjects(project.userId)).firstWhere((p) => p.id == project.id);
+    return (await getProjects(
+      project.userId,
+    )).firstWhere((p) => p.id == project.id);
   }
 
-  Future<void> _insertProjectBullets(String projectId, List<ProjectBullet> bullets) async {
+  Future<void> _insertProjectBullets(
+    String projectId,
+    List<ProjectBullet> bullets,
+  ) async {
     final rows = bullets.asMap().entries.map((entry) {
       final b = entry.value;
       return {
@@ -417,7 +546,11 @@ class ProfileRepositorySupabase implements ProfileRepository {
   @override
   Future<ProjectBullet> addProjectBullet(ProjectBullet bullet) async {
     final map = bullet.toMap()..remove('id');
-    final row = await _client.from('profile_project_bullets').insert(map).select().single();
+    final row = await _client
+        .from('profile_project_bullets')
+        .insert(map)
+        .select()
+        .single();
     return ProjectBullet.fromMap(row);
   }
 
@@ -438,7 +571,10 @@ class ProfileRepositorySupabase implements ProfileRepository {
   }
 
   @override
-  Future<void> reorderProjectBullets(String projectId, List<String> orderedIds) async {
+  Future<void> reorderProjectBullets(
+    String projectId,
+    List<String> orderedIds,
+  ) async {
     final futures = <Future>[];
     for (var i = 0; i < orderedIds.length; i++) {
       futures.add(
@@ -463,19 +599,29 @@ class ProfileRepositorySupabase implements ProfileRepository {
         .select()
         .eq('user_id', userId)
         .order('order_index');
-    return (rows as List).map((r) => Interest.fromMap(r as Map<String, dynamic>)).toList();
+    return (rows as List)
+        .map((r) => Interest.fromMap(r as Map<String, dynamic>))
+        .toList();
   }
 
   @override
   Future<void> replaceInterests(String userId, List<String> names) async {
     await _client.from('profile_interests').delete().eq('user_id', userId);
     if (names.isEmpty) return;
-    await _client.from('profile_interests').insert(
-          names.asMap().entries.map((e) => {
-                'user_id': userId,
-                'name': e.value,
-                'order_index': e.key,
-              }).toList(),
+    await _client
+        .from('profile_interests')
+        .insert(
+          names
+              .asMap()
+              .entries
+              .map(
+                (e) => {
+                  'user_id': userId,
+                  'name': e.value,
+                  'order_index': e.key,
+                },
+              )
+              .toList(),
         );
   }
 
@@ -486,7 +632,9 @@ class ProfileRepositorySupabase implements ProfileRepository {
         .select()
         .eq('user_id', userId)
         .order('order_index');
-    return (rows as List).map((r) => Award.fromMap(r as Map<String, dynamic>)).toList();
+    return (rows as List)
+        .map((r) => Award.fromMap(r as Map<String, dynamic>))
+        .toList();
   }
 
   @override
@@ -522,19 +670,29 @@ class ProfileRepositorySupabase implements ProfileRepository {
         .select()
         .eq('user_id', userId)
         .order('order_index');
-    return (rows as List).map((r) => Coursework.fromMap(r as Map<String, dynamic>)).toList();
+    return (rows as List)
+        .map((r) => Coursework.fromMap(r as Map<String, dynamic>))
+        .toList();
   }
 
   @override
   Future<void> replaceCoursework(String userId, List<String> names) async {
     await _client.from('profile_coursework').delete().eq('user_id', userId);
     if (names.isEmpty) return;
-    await _client.from('profile_coursework').insert(
-          names.asMap().entries.map((e) => {
-                'user_id': userId,
-                'name': e.value,
-                'order_index': e.key,
-              }).toList(),
+    await _client
+        .from('profile_coursework')
+        .insert(
+          names
+              .asMap()
+              .entries
+              .map(
+                (e) => {
+                  'user_id': userId,
+                  'name': e.value,
+                  'order_index': e.key,
+                },
+              )
+              .toList(),
         );
   }
 
@@ -570,14 +728,21 @@ class ProfileRepositorySupabase implements ProfileRepository {
         .select()
         .eq('user_id', userId)
         .order('order_index');
-    return (rows as List).map((r) => DesiredTitle.fromMap(r as Map<String, dynamic>)).toList();
+    return (rows as List)
+        .map((r) => DesiredTitle.fromMap(r as Map<String, dynamic>))
+        .toList();
   }
 
   @override
-  Future<void> replaceDesiredTitles(String userId, List<DesiredTitle> titles) async {
+  Future<void> replaceDesiredTitles(
+    String userId,
+    List<DesiredTitle> titles,
+  ) async {
     await _client.from('profile_desired_titles').delete().eq('user_id', userId);
     if (titles.isEmpty) return;
-    await _client.from('profile_desired_titles').insert(
+    await _client
+        .from('profile_desired_titles')
+        .insert(
           titles.asMap().entries.map((e) {
             final m = e.value.toMap()..remove('id');
             m['order_index'] = e.key;
@@ -588,19 +753,31 @@ class ProfileRepositorySupabase implements ProfileRepository {
   }
 
   @override
-  Future<List<ApplicationCountry>> getApplicationCountries(String userId) async {
+  Future<List<ApplicationCountry>> getApplicationCountries(
+    String userId,
+  ) async {
     final rows = await _client
         .from('profile_application_countries')
         .select()
         .eq('user_id', userId);
-    return (rows as List).map((r) => ApplicationCountry.fromMap(r as Map<String, dynamic>)).toList();
+    return (rows as List)
+        .map((r) => ApplicationCountry.fromMap(r as Map<String, dynamic>))
+        .toList();
   }
 
   @override
-  Future<void> replaceApplicationCountries(String userId, List<ApplicationCountry> countries) async {
-    await _client.from('profile_application_countries').delete().eq('user_id', userId);
+  Future<void> replaceApplicationCountries(
+    String userId,
+    List<ApplicationCountry> countries,
+  ) async {
+    await _client
+        .from('profile_application_countries')
+        .delete()
+        .eq('user_id', userId);
     if (countries.isEmpty) return;
-    await _client.from('profile_application_countries').insert(
+    await _client
+        .from('profile_application_countries')
+        .insert(
           countries.map((c) {
             final m = c.toMap()..remove('id');
             m['user_id'] = userId;
@@ -615,14 +792,24 @@ class ProfileRepositorySupabase implements ProfileRepository {
         .from('profile_other_locations')
         .select()
         .eq('user_id', userId);
-    return (rows as List).map((r) => OtherLocation.fromMap(r as Map<String, dynamic>)).toList();
+    return (rows as List)
+        .map((r) => OtherLocation.fromMap(r as Map<String, dynamic>))
+        .toList();
   }
 
   @override
-  Future<void> replaceOtherLocations(String userId, List<OtherLocation> locations) async {
-    await _client.from('profile_other_locations').delete().eq('user_id', userId);
+  Future<void> replaceOtherLocations(
+    String userId,
+    List<OtherLocation> locations,
+  ) async {
+    await _client
+        .from('profile_other_locations')
+        .delete()
+        .eq('user_id', userId);
     if (locations.isEmpty) return;
-    await _client.from('profile_other_locations').insert(
+    await _client
+        .from('profile_other_locations')
+        .insert(
           locations.map((l) {
             final m = l.toMap()..remove('id');
             m['user_id'] = userId;
@@ -636,11 +823,14 @@ class ProfileRepositorySupabase implements ProfileRepository {
   // ──────────────────────────────────────────────────────────────────────
 
   @override
-  Future<void> replaceProfile(String userId, Map<String, dynamic> profileData) async {
-    await _client.rpc('save_profile_from_json', params: {
-      'p_user_id': userId,
-      'p_data': profileData,
-    });
+  Future<void> replaceProfile(
+    String userId,
+    Map<String, dynamic> profileData,
+  ) async {
+    await _client.rpc(
+      'save_profile_from_json',
+      params: {'p_user_id': userId, 'p_data': profileData},
+    );
   }
 
   // ──────────────────────────────────────────────────────────────────────

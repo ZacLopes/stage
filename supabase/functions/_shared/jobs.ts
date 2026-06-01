@@ -527,26 +527,57 @@ export function isCompanyNameBlacklisted(name: string | null | undefined): boole
  * @param contextHints texto opcional concatenado (departamento, descrição, tags)
  */
 export function inferArea(title: string, contextHints?: string | null): string {
-  const text = `${title ?? ""} ${contextHints ?? ""}`.toLowerCase();
-
   const rules: Array<[string, RegExp]> = [
     // Saúde antes de tudo — vagas tipo "Estágio em Enfermagem" tinham
     // "enferma" pegando matchers genéricos depois e caindo em Produto/
     // Operações/RH errado. 22 vagas mal classificadas em 2026-05-27.
     ["Saúde", /(enferma|enferm[ae]ir[ao]|medic|m[ée]dic[ao]|farma|farm[áa]cia|farmac[êe]utic|fisio|fisioterap|nutricion|psic[óo]log|psicologia|biom[ée]dic|odont|odontol[óo]gi|veterin|cl[íi]nica|hospital|sa[úu]de|enfermagem|radiolo|terapeut|fonoaudi)/],
     ["Jurídico", /(jur[íi]dic|direito|advog|advocacia|legal|compliance|contencioso|tribut[áa]rio|paralegal|direito (?:empresarial|trabalhista|c[íi]vel|tribut[áa]rio|penal|consumidor)|escrit[óo]rio de advocacia)/],
-    ["Tecnologia", /(engenharia de software|desenvolved|software engineer|backend|frontend|full[- ]?stack|dados|data|machine learning|ml|devops|sre|cloud|infraestrutura|qa|testes?|cybersecurity|segurança da informação|tech|tecnologia|program(?:a[cdr]|ação|ador)|sistemas)/],
+    ["Tecnologia", /(engenharia de software|desenvolved|software engineer|backend|frontend|full[- ]?stack|dados|\bdata\b|machine learning|\bml\b|devops|sre|cloud|infraestrutura|\bqa\b|testes?|cybersecurity|segurança da informação|tech|tecnologia|\bti\b|program(?:a[cdr]|ação|ador)|sistemas)/],
     ["Marketing", /(marketing|growth|crm|mídia|branding|comunicação|publicidade|social media)/],
     ["Vendas", /(vendas|sales|comercial|account exec|consultor comercial|business development|bdr|sdr)/],
-    ["Finanças", /(finanças|financeir|controladoria|tesouraria|fp&a|contábil|accounting|treasury|investimento|finance|financ|controller|fp&a)/],
-    ["Recursos Humanos", /(recursos humanos|rh|gente|people|talent|recruiter|treinamento|human|hr)/],
-    ["Operações", /(operações|operations|logística|supply chain|cs|customer success|atendimento|suporte|opera[cç]ões|supply)/],
-    ["Produto", /(produto|product manager|pm|design de produto|ux|ui|design|product)/],
-    ["Engenharia", /(engenharia(?! de software)|engenheir(?!o de software))/],
+    ["Finanças", /(finanças|financeir|controladoria|tesouraria|fp&a|cont[áa]bi|accounting|treasury|investimento|finance|financ|controller|fp&a|auditoria|contas a (?:pagar|receber)|cr[ée]dito)/],
+    // Tokens curtos com \b: "rh"/"hr"/"gente" sem fronteira casavam dentro de
+    // "trabalho", "hora", "urgente", "agente", "inteligente" → falso RH.
+    ["Recursos Humanos", /(recursos humanos|\brh\b|\bgente\b|people|talent|recruiter|recruta|treinamento|human|\bhr\b)/],
+    ["Operações", /(operações|operations|logística|supply chain|\bcs\b|customer success|atendimento|suporte|opera[cç]ões|supply|compras|suprimentos)/],
+    // \b em "pm"/"ux"/"ui": sem fronteira casavam dentro de "auxiliar" (ux),
+    // "arquitetura"/"pesquisa" (ui), etc. → falso Produto.
+    ["Produto", /(produto|product manager|\bpm\b|design de produto|\bux\b|\bui\b|design|product)/],
+    ["Engenharia", /(engenharia(?! de software)|engenheir(?!o de software)|edifica[çc])/],
     ["Administrativo", /(administrativ|administração|secretaria|admin)/],
   ];
-  for (const [area, re] of rules) if (re.test(text)) return area;
+
+  // 1ª passada: SÓ o título. O título é o sinal mais confiável da área.
+  // Classificar pelo título antes de olhar a descrição impede que termos
+  // genéricos do corpo da vaga (benefícios, blurb institucional da empresa)
+  // sobrescrevam um título claro. Era exatamente isso que jogava
+  // "Estágio Financeiro", "Engenharia Mecânica", "Gente e Gestão (RH)" etc.
+  // pra Saúde só porque a descrição citava "plano de saúde"/"hospital".
+  const titleText = (title ?? "").toLowerCase();
+  for (const [area, re] of rules) if (re.test(titleText)) return area;
+
+  // 2ª passada: título não deu sinal (ex.: "Estagiário", "Analista" puro).
+  // Aí sim caímos na descrição — mas REMOVENDO frases de benefício, que
+  // aparecem em quase toda vaga brasileira e não dizem nada sobre a área
+  // (principal fonte dos falsos positivos de "Saúde" via "plano de saúde").
+  const hintsText = stripBenefitNoise((contextHints ?? "").toLowerCase());
+  for (const [area, re] of rules) if (re.test(hintsText)) return area;
+
   return "Geral";
+}
+
+/**
+ * Remove frases de benefício/boilerplate que poluíam a inferência de área
+ * quando a descrição era usada como hint. "Plano de saúde", "assistência
+ * médica" e afins estão em quase toda vaga e arrastavam vagas de qualquer
+ * setor pra "Saúde". Mexe SÓ nos hints (descrição) — nunca no título.
+ */
+function stripBenefitNoise(text: string): string {
+  return text.replace(
+    /plano[s]? de sa[úu]de|assist[êe]ncia m[ée]dica|assist[êe]ncia [àa]? ?sa[úu]de|seguro[s]?(?: de)? sa[úu]de|conv[êe]nio m[ée]dico|vale[- ]?sa[úu]de|aux[íi]lio[- ]?sa[úu]de|plano[s]? odontol[óo]gico[s]?|assist[êe]ncia odontol[óo]gica/g,
+    " ",
+  );
 }
 
 const JOB_TYPE_KEYWORDS: Array<[RegExp, string]> = [

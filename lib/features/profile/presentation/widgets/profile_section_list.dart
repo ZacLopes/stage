@@ -98,86 +98,107 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
   // ──────────────────────────────────────────────────────────────────────
 
   Widget _sectionExperiences(ProfileEditorViewModel vm) => _sectionShell(
-        key: 'experiences',
-        title: 'Experiência profissional',
-        count: vm.experiences.length,
-        onAdd: () => _showExperienceModal(context, vm),
-        children: vm.experiences.map((e) {
-          final lowConfidence = widget.showLowConfidenceBadges &&
-              (e.confidence != null && e.confidence! < 0.7);
-          return _ItemCard(
-            avatarText: e.company,
-            title: e.title,
-            subtitle: e.company,
-            period: e.formattedPeriod,
-            location: e.location,
-            bullets: e.bullets.map((b) => b.text).toList(),
-            lowConfidence: lowConfidence,
-            onTap: () => _showExperienceModal(context, vm, initial: e),
-            onDelete: () => vm.deleteExperience(e.id),
-          );
-        }).toList(),
+    key: 'experiences',
+    title: 'Experiência profissional',
+    count: vm.experiences.length,
+    onAdd: () => _showExperienceModal(context, vm),
+    children: vm.experiences.map((e) {
+      final lowConfidence =
+          widget.showLowConfidenceBadges &&
+          (e.confidence != null && e.confidence! < 0.7);
+      return _ItemCard(
+        avatarText: e.company,
+        title: e.title,
+        subtitle: e.company,
+        period: e.formattedPeriod,
+        location: e.location,
+        bullets: e.bullets.map((b) => b.text).toList(),
+        lowConfidence: lowConfidence,
+        onTap: () => _showExperienceModal(context, vm, initial: e),
+        onDelete: () => vm.deleteExperience(e.id),
       );
+    }).toList(),
+  );
 
   Widget _sectionEducation(ProfileEditorViewModel vm) => _sectionShell(
-        key: 'education',
-        title: 'Educação',
-        count: vm.education.length,
-        onAdd: () => _showEducationModal(context, vm),
-        children: vm.education.map((e) {
-          final lowConfidence = widget.showLowConfidenceBadges &&
-              (e.confidence != null && e.confidence! < 0.7);
-          final degree = e.degree ?? '';
-          final firstMajor = e.majors.isNotEmpty ? e.majors.first.name : '';
-          final subtitle = [degree, firstMajor].where((s) => s.isNotEmpty).join(', ');
-          final details = <_DetailLine>[
-            if (e.majors.length > 1)
-              _DetailLine(
-                label: 'Cursos principais',
-                value: e.majors.map((m) => m.name).join(', '),
-              ),
-            if (e.minors.isNotEmpty)
-              _DetailLine(
-                label: 'Cursos secundários',
-                value: e.minors.map((m) => m.name).join(', '),
-              ),
-            if (e.gpa != null)
-              _DetailLine(label: 'GPA', value: e.gpa!.toStringAsFixed(2)),
-            if (e.activities.isNotEmpty)
-              _DetailLine(
-                label: 'Atividades',
-                value: e.activities.map((a) => a.text).join(', '),
-              ),
-          ];
-          return _ItemCard(
-            avatarText: e.institution,
-            title: e.institution,
-            subtitle: subtitle.isEmpty ? null : subtitle,
-            period: e.formattedPeriod,
-            location: e.location,
-            details: details,
-            lowConfidence: lowConfidence,
-            onTap: () => _showEducationModal(context, vm, initial: e),
-            onDelete: () => vm.deleteEducation(e.id),
-          );
-        }).toList(),
+    key: 'education',
+    title: 'Educação',
+    count: vm.education.length,
+    onAdd: () => _showEducationModal(context, vm),
+    children: vm.education.map((e) {
+      final lowConfidence =
+          widget.showLowConfidenceBadges &&
+          (e.confidence != null && e.confidence! < 0.7);
+      final degree = e.degree ?? '';
+      final firstMajor = e.majors.isNotEmpty ? e.majors.first.name : '';
+      final subtitle = [
+        degree,
+        firstMajor,
+      ].where((s) => s.isNotEmpty).join(', ');
+      final details = <_DetailLine>[
+        if (_educationStatusDetail(e) != null)
+          _DetailLine(label: 'Situação', value: _educationStatusDetail(e)!),
+        if (e.currentSemester != null)
+          _DetailLine(
+            label: e.educationStatus == 'paused'
+                ? 'Último semestre'
+                : 'Semestre atual',
+            value: '${e.currentSemester}º semestre',
+          ),
+        if (e.currentSchoolYear != null)
+          _DetailLine(
+            label: 'Ano escolar',
+            value: '${e.currentSchoolYear}º ano',
+          ),
+        if (e.majors.length > 1)
+          _DetailLine(
+            label: 'Cursos principais',
+            value: e.majors.map((m) => m.name).join(', '),
+          ),
+        if (e.minors.isNotEmpty)
+          _DetailLine(
+            label: 'Cursos secundários',
+            value: e.minors.map((m) => m.name).join(', '),
+          ),
+        if (e.gpa != null)
+          _DetailLine(label: 'GPA', value: e.gpa!.toStringAsFixed(2)),
+        if (e.activities.isNotEmpty)
+          _DetailLine(
+            label: 'Atividades',
+            value: e.activities.map((a) => a.text).join(', '),
+          ),
+      ];
+      return _ItemCard(
+        avatarText: e.institution,
+        title: e.institution,
+        subtitle: subtitle.isEmpty ? null : subtitle,
+        period: e.formattedPeriod,
+        location: e.location,
+        details: details,
+        lowConfidence: lowConfidence,
+        onTap: () => _showEducationModal(context, vm, initial: e),
+        onDelete: () => vm.deleteEducation(e.id),
       );
+    }).toList(),
+  );
 
   Widget _sectionLanguages(ProfileEditorViewModel vm) => _sectionShell(
-        key: 'languages',
-        title: 'Idiomas',
-        count: vm.languages.length,
-        onAdd: () => _showLanguageModal(context, vm),
-        children: vm.languages
-            .map((l) => _ItemCard(
-                  avatarText: l.name,
-                  title: l.name,
-                  subtitle: l.proficiencyLabel,
-                  onTap: () => _showLanguageModal(context, vm, initial: l),
-                  onDelete: () => vm.deleteLanguage(l.id),
-                ))
-            .toList(),
-      );
+    key: 'languages',
+    title: 'Idiomas',
+    count: vm.languages.length,
+    onAdd: () => _showLanguageModal(context, vm),
+    children: vm.languages
+        .map(
+          (l) => _ItemCard(
+            avatarText: l.name,
+            title: l.name,
+            subtitle: l.proficiencyLabel,
+            onTap: () => _showLanguageModal(context, vm, initial: l),
+            onDelete: () => vm.deleteLanguage(l.id),
+          ),
+        )
+        .toList(),
+  );
 
   Widget _sectionSkills(ProfileEditorViewModel vm) {
     final names = vm.skills.map((s) => s.name).toList();
@@ -224,7 +245,12 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
           }
           for (var i = 0; i < items.length; i++) {
             await vm.addCertification(
-              Certification(id: '', userId: userId, name: items[i], orderIndex: i),
+              Certification(
+                id: '',
+                userId: userId,
+                name: items[i],
+                orderIndex: i,
+              ),
             );
           }
         },
@@ -251,40 +277,53 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
   }
 
   Widget _sectionProjects(ProfileEditorViewModel vm) => _sectionShell(
-        key: 'projects',
-        title: 'Projetos',
-        count: vm.projects.length,
-        onAdd: () => _showProjectModal(context, vm),
-        children: vm.projects.map((p) {
-          // Subtitle: role + context (ex: "Fundador • Empresa Júnior")
-          final parts = <String>[];
-          if (p.role != null && p.role!.isNotEmpty) parts.add(p.role!);
-          if (p.context != null && p.context!.isNotEmpty) parts.add(p.context!);
-          final subtitle = parts.join(' • ');
-          // Bullets: usa os bullets novos; fallback pro description legado
-          final bullets = p.bullets.isNotEmpty
-              ? p.bullets.map((b) => b.text).toList()
-              : (p.description != null && p.description!.isNotEmpty
-                  ? [p.description!]
-                  : <String>[]);
-          // Period only if at least one date is set
-          final hasPeriod = p.startDate != null || p.endDate != null;
-          return _ItemCard(
-            avatarText: p.name,
-            title: p.name,
-            subtitle: subtitle.isEmpty ? null : subtitle,
-            period: hasPeriod ? _formatProjectPeriod(p) : null,
-            bullets: bullets,
-            onTap: () => _showProjectModal(context, vm, initial: p),
-            onDelete: () => vm.deleteProject(p.id),
-          );
-        }).toList(),
+    key: 'projects',
+    title: 'Projetos',
+    count: vm.projects.length,
+    onAdd: () => _showProjectModal(context, vm),
+    children: vm.projects.map((p) {
+      // Subtitle: role + context (ex: "Fundador • Empresa Júnior")
+      final parts = <String>[];
+      if (p.role != null && p.role!.isNotEmpty) parts.add(p.role!);
+      if (p.context != null && p.context!.isNotEmpty) parts.add(p.context!);
+      final subtitle = parts.join(' • ');
+      // Bullets: usa os bullets novos; fallback pro description legado
+      final bullets = p.bullets.isNotEmpty
+          ? p.bullets.map((b) => b.text).toList()
+          : (p.description != null && p.description!.isNotEmpty
+                ? [p.description!]
+                : <String>[]);
+      // Period only if at least one date is set
+      final hasPeriod = p.startDate != null || p.endDate != null;
+      return _ItemCard(
+        avatarText: p.name,
+        title: p.name,
+        subtitle: subtitle.isEmpty ? null : subtitle,
+        period: hasPeriod ? _formatProjectPeriod(p) : null,
+        bullets: bullets,
+        onTap: () => _showProjectModal(context, vm, initial: p),
+        onDelete: () => vm.deleteProject(p.id),
       );
+    }).toList(),
+  );
 
   String _formatProjectPeriod(Project p) {
-    const months = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-    String fmt(DateTime? d) =>
-        d == null ? '' : '${months[d.month]} ${d.year}';
+    const months = [
+      '',
+      'Jan',
+      'Fev',
+      'Mar',
+      'Abr',
+      'Mai',
+      'Jun',
+      'Jul',
+      'Ago',
+      'Set',
+      'Out',
+      'Nov',
+      'Dez',
+    ];
+    String fmt(DateTime? d) => d == null ? '' : '${months[d.month]} ${d.year}';
     final start = fmt(p.startDate);
     final end = p.isCurrent ? 'Atual' : fmt(p.endDate);
     if (start.isEmpty && end.isEmpty) return '';
@@ -318,7 +357,9 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
             await vm.deleteAward(a.id);
           }
           for (var i = 0; i < items.length; i++) {
-            await vm.addAward(Award(id: '', userId: userId, name: items[i], orderIndex: i));
+            await vm.addAward(
+              Award(id: '', userId: userId, name: items[i], orderIndex: i),
+            );
           }
         },
       ),
@@ -330,7 +371,11 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
   // Modal launchers
   // ──────────────────────────────────────────────────────────────────────
 
-  Future<void> _showExperienceModal(BuildContext ctx, ProfileEditorViewModel vm, {Experience? initial}) {
+  Future<void> _showExperienceModal(
+    BuildContext ctx,
+    ProfileEditorViewModel vm, {
+    Experience? initial,
+  }) {
     return AddEditExperienceModal.show(
       context: ctx,
       initial: initial,
@@ -345,21 +390,52 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
     );
   }
 
-  Future<void> _showEducationModal(BuildContext ctx, ProfileEditorViewModel vm, {Education? initial}) {
+  Future<void> _showEducationModal(
+    BuildContext ctx,
+    ProfileEditorViewModel vm, {
+    Education? initial,
+  }) {
     return AddEditEducationModal.show(
       context: ctx,
       initial: initial,
       onSave: (edu, majors, minors, activities) async {
         final completeEdu = edu.copyWith(
-          majors: majors.asMap().entries.map((e) => EducationMajor(
-                id: 'temp_${e.key}', educationId: edu.id, name: e.value, orderIndex: e.key,
-              )).toList(),
-          minors: minors.asMap().entries.map((e) => EducationMinor(
-                id: 'temp_${e.key}', educationId: edu.id, name: e.value, orderIndex: e.key,
-              )).toList(),
-          activities: activities.asMap().entries.map((e) => EducationActivity(
-                id: 'temp_${e.key}', educationId: edu.id, text: e.value, orderIndex: e.key,
-              )).toList(),
+          majors: majors
+              .asMap()
+              .entries
+              .map(
+                (e) => EducationMajor(
+                  id: 'temp_${e.key}',
+                  educationId: edu.id,
+                  name: e.value,
+                  orderIndex: e.key,
+                ),
+              )
+              .toList(),
+          minors: minors
+              .asMap()
+              .entries
+              .map(
+                (e) => EducationMinor(
+                  id: 'temp_${e.key}',
+                  educationId: edu.id,
+                  name: e.value,
+                  orderIndex: e.key,
+                ),
+              )
+              .toList(),
+          activities: activities
+              .asMap()
+              .entries
+              .map(
+                (e) => EducationActivity(
+                  id: 'temp_${e.key}',
+                  educationId: edu.id,
+                  text: e.value,
+                  orderIndex: e.key,
+                ),
+              )
+              .toList(),
         );
         if (initial == null) {
           await vm.addEducation(completeEdu);
@@ -371,7 +447,11 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
     );
   }
 
-  Future<void> _showLanguageModal(BuildContext ctx, ProfileEditorViewModel vm, {Language? initial}) {
+  Future<void> _showLanguageModal(
+    BuildContext ctx,
+    ProfileEditorViewModel vm, {
+    Language? initial,
+  }) {
     return AddEditLanguageModal.show(
       context: ctx,
       initial: initial,
@@ -386,7 +466,11 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
     );
   }
 
-  Future<void> _showProjectModal(BuildContext ctx, ProfileEditorViewModel vm, {Project? initial}) {
+  Future<void> _showProjectModal(
+    BuildContext ctx,
+    ProfileEditorViewModel vm, {
+    Project? initial,
+  }) {
     return AddEditProjectModal.show(
       context: ctx,
       initial: initial,
@@ -435,6 +519,49 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
       ),
     );
   }
+}
+
+String? _educationStatusDetail(Education education) {
+  final level = education.educationLevel;
+  final status = education.educationStatus;
+  if (level == 'school') {
+    switch (status) {
+      case 'studying':
+        return 'Escola em andamento';
+      case 'graduated':
+        return 'Escola concluída';
+      case 'paused':
+        return 'Escola pausada';
+    }
+    if (education.currentSchoolYear != null) return 'Escola em andamento';
+    return 'Escola';
+  }
+  if (level == 'college' || education.currentSemester != null) {
+    switch (status) {
+      case 'studying':
+        return 'Faculdade em andamento';
+      case 'paused':
+        return 'Faculdade trancada';
+      case 'graduated':
+        return 'Faculdade concluída';
+      case 'not_studying':
+        return 'Não está estudando';
+      case 'not_started':
+        return 'Ainda não começou';
+      case 'not_in_college':
+        return 'Não está na faculdade';
+    }
+    return 'Faculdade';
+  }
+  switch (status) {
+    case 'studying':
+      return 'Em andamento';
+    case 'paused':
+      return 'Pausada';
+    case 'graduated':
+      return 'Concluída';
+  }
+  return null;
 }
 
 class _SectionHeader extends StatelessWidget {
@@ -488,7 +615,9 @@ class _SectionHeader extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                   Icon(
-                    isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                    isExpanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
                     color: _kMutedText,
                     size: 22,
                   ),
@@ -635,12 +764,16 @@ class _ItemCardState extends State<_ItemCard> {
                             height: 1.25,
                           ),
                         ),
-                        if (widget.subtitle != null && widget.subtitle!.isNotEmpty)
+                        if (widget.subtitle != null &&
+                            widget.subtitle!.isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.only(top: 2),
                             child: Text(
                               widget.subtitle!,
-                              style: const TextStyle(fontSize: 14, color: _kMutedText),
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: _kMutedText,
+                              ),
                             ),
                           ),
                         if (widget.period != null && widget.period!.isNotEmpty)
@@ -648,43 +781,63 @@ class _ItemCardState extends State<_ItemCard> {
                             padding: const EdgeInsets.only(top: 2),
                             child: Text(
                               widget.period!,
-                              style: const TextStyle(fontSize: 13, color: _kMutedText),
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: _kMutedText,
+                              ),
                             ),
                           ),
-                        if (widget.location != null && widget.location!.isNotEmpty)
+                        if (widget.location != null &&
+                            widget.location!.isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.only(top: 2),
                             child: Text(
                               widget.location!,
-                              style: const TextStyle(fontSize: 13, color: _kMutedText),
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: _kMutedText,
+                              ),
                             ),
                           ),
                       ],
                     ),
                   ),
-                  _ItemMenuButton(onEdit: widget.onTap, onDelete: widget.onDelete),
+                  _ItemMenuButton(
+                    onEdit: widget.onTap,
+                    onDelete: widget.onDelete,
+                  ),
                 ],
               ),
               if (widget.bullets.isNotEmpty) ...[
                 const SizedBox(height: 10),
-                ...visibleBullets.map((b) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Padding(
-                            padding: EdgeInsets.only(top: 6, right: 8),
-                            child: Icon(Icons.circle, size: 4, color: _kMutedText),
+                ...visibleBullets.map(
+                  (b) => Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.only(top: 6, right: 8),
+                          child: Icon(
+                            Icons.circle,
+                            size: 4,
+                            color: _kMutedText,
                           ),
-                          Expanded(
-                            child: Text(
-                              b,
-                              style: const TextStyle(fontSize: 14, color: _kTextColor, height: 1.4),
+                        ),
+                        Expanded(
+                          child: Text(
+                            b,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: _kTextColor,
+                              height: 1.4,
                             ),
                           ),
-                        ],
-                      ),
-                    )),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 if (hiddenCount > 0)
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
@@ -704,26 +857,34 @@ class _ItemCardState extends State<_ItemCard> {
               ],
               if (widget.details.isNotEmpty) ...[
                 const SizedBox(height: 10),
-                ...widget.details.map((d) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text.rich(
-                        TextSpan(
-                          style: const TextStyle(fontSize: 14, color: _kTextColor),
-                          children: [
-                            TextSpan(
-                              text: '${d.label}: ',
-                              style: const TextStyle(color: _kMutedText),
-                            ),
-                            TextSpan(text: d.value),
-                          ],
+                ...widget.details.map(
+                  (d) => Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text.rich(
+                      TextSpan(
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: _kTextColor,
                         ),
+                        children: [
+                          TextSpan(
+                            text: '${d.label}: ',
+                            style: const TextStyle(color: _kMutedText),
+                          ),
+                          TextSpan(text: d.value),
+                        ],
                       ),
-                    )),
+                    ),
+                  ),
+                ),
               ],
               if (widget.lowConfidence) ...[
                 const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.warningSoft,
                     borderRadius: BorderRadius.circular(6),
@@ -778,7 +939,11 @@ class _ItemMenuButton extends StatelessWidget {
           value: 'delete',
           child: Row(
             children: [
-              Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.error),
+              Icon(
+                Icons.delete_outline_rounded,
+                size: 18,
+                color: AppColors.error,
+              ),
               const SizedBox(width: 10),
               Text('Excluir', style: TextStyle(color: AppColors.error)),
             ],
@@ -809,7 +974,11 @@ class _ChipList extends StatelessWidget {
             ),
             child: Text(
               s,
-              style: const TextStyle(fontSize: 14, color: _kTextColor, fontWeight: FontWeight.w500),
+              style: const TextStyle(
+                fontSize: 14,
+                color: _kTextColor,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           );
         }).toList(),

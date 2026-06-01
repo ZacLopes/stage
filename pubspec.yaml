@@ -71,6 +71,9 @@ dependencies:
   # sem ela, getInitialLink retorna null e installs são marcadas 'organic'
   # (comportamento seguro). O código abaixo nunca quebra o boot (try/catch).
   app_links: ^6.3.0
+  # Parseia o `d` do SVG do logo (símbolo "S" do brandbook) em dart:ui Path,
+  # pra animar o glifo exato na splash. Pure-Dart, ~dezenas de KB.
+  path_drawing: ^1.0.1
 
 dev_dependencies:
   flutter_test:
@@ -103,9 +106,13 @@ flutter_icons:
     image_path: "assets/images/image copy.png"
 
 flutter_native_splash:
-  color: "#FFFFFF"
+  # Cor = meio do gradient da marca (AppColors.brand #1E88B8). O 1º frame
+  # Flutter (centro do gradient cyan→blue) bate com essa cor → handoff sem
+  # o salto branco→azul. NÃO setar `image:` aqui: a splash Flutter constrói
+  # o "S" do zero ("A Conexão") e o logo nativo estragaria o reveal.
+  color: "#1E88B8"
   android_12:
-    color: "#FFFFFF"
+    color: "#1E88B8"
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 

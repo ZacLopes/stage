@@ -1,7 +1,7 @@
 // Renderiza o HTML do relatório diário pra envio via Resend.
 //
 // Estilo: inline CSS (Gmail/Outlook strippam <style>), tabela simples por
-// bloco, cores do Stage (#00C27A primário, #F59E0B accent).
+// bloco, cores do Stage (#29B6D2 primário, #F59E0B accent).
 
 import type {
   CvAdaptedBlock,
@@ -16,22 +16,22 @@ import type {
   UsersBlock,
   UsersTotalBlock,
   WeeklyBlock,
-} from './queries.ts'
+} from './queries.ts';
 
 export interface ReportPayload {
-  window: ReportWindow
-  usersTotal: UsersTotalBlock
-  users: UsersBlock
-  engagement: EngagementBlock
-  retention: RetentionBlock
-  jobsInserted: JobsInsertedBlock
-  jobsStock: JobsStockBlock
-  match: MatchBlock
-  cvAdapted: CvAdaptedBlock
-  gap: GapBlock
-  health: HealthBlock
+  window: ReportWindow;
+  usersTotal: UsersTotalBlock;
+  users: UsersBlock;
+  engagement: EngagementBlock;
+  retention: RetentionBlock;
+  jobsInserted: JobsInsertedBlock;
+  jobsStock: JobsStockBlock;
+  match: MatchBlock;
+  cvAdapted: CvAdaptedBlock;
+  gap: GapBlock;
+  health: HealthBlock;
   /// Presente só aos domingos.
-  weekly?: WeeklyBlock
+  weekly?: WeeklyBlock;
 }
 
 const STYLE = {
@@ -40,27 +40,29 @@ const STYLE = {
   border: '#E5E7EB',
   text: '#0F172A',
   muted: '#64748B',
-  primary: '#00C27A',
+  primary: '#29B6D2',
   accent: '#F59E0B',
   up: '#16A34A',
   down: '#DC2626',
-}
+};
 
 function delta(current: number, previous: number): string {
   if (previous === 0) {
     return current > 0
       ? `<span style="color:${STYLE.up};font-weight:600">+${current} (novo)</span>`
-      : '<span style="color:#94A3B8">—</span>'
+      : '<span style="color:#94A3B8">—</span>';
   }
-  const diff = current - previous
-  const pct = (diff / previous) * 100
-  const arrow = diff >= 0 ? '↑' : '↓'
-  const color = diff >= 0 ? STYLE.up : STYLE.down
-  return `<span style="color:${color};font-weight:600">${arrow} ${Math.abs(pct).toFixed(0)}%</span> <span style="color:${STYLE.muted};font-size:12px">(vs ${previous})</span>`
+  const diff = current - previous;
+  const pct = (diff / previous) * 100;
+  const arrow = diff >= 0 ? '↑' : '↓';
+  const color = diff >= 0 ? STYLE.up : STYLE.down;
+  return `<span style="color:${color};font-weight:600">${arrow} ${
+    Math.abs(pct).toFixed(0)
+  }%</span> <span style="color:${STYLE.muted};font-size:12px">(vs ${previous})</span>`;
 }
 
 function pct(n: number): string {
-  return `${(n * 100).toFixed(0)}%`
+  return `${(n * 100).toFixed(0)}%`;
 }
 
 function escapeHtml(s: string): string {
@@ -68,18 +70,19 @@ function escapeHtml(s: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+    .replace(/"/g, '&quot;');
 }
 
 function table(rows: Array<{ key: string; count: number }>, emptyMsg = 'Sem dados'): string {
   if (rows.length === 0) {
-    return `<p style="color:${STYLE.muted};font-size:13px;margin:8px 0">${emptyMsg}</p>`
+    return `<p style="color:${STYLE.muted};font-size:13px;margin:8px 0">${emptyMsg}</p>`;
   }
-  const max = Math.max(...rows.map((r) => r.count))
+  const max = Math.max(...rows.map((r) => r.count));
   return `<table style="width:100%;border-collapse:collapse;font-size:13px">
-    ${rows
+    ${
+    rows
       .map((r) => {
-        const barW = max > 0 ? Math.round((r.count / max) * 100) : 0
+        const barW = max > 0 ? Math.round((r.count / max) * 100) : 0;
         return `<tr>
           <td style="padding:4px 8px 4px 0;color:${STYLE.text}">${escapeHtml(r.key)}</td>
           <td style="padding:4px 0;width:40%">
@@ -88,10 +91,11 @@ function table(rows: Array<{ key: string; count: number }>, emptyMsg = 'Sem dado
             </div>
           </td>
           <td style="padding:4px 0 4px 8px;text-align:right;color:${STYLE.text};font-weight:600;width:50px">${r.count}</td>
-        </tr>`
+        </tr>`;
       })
-      .join('')}
-  </table>`
+      .join('')
+  }
+  </table>`;
 }
 
 function section(title: string, icon: string, contentHtml: string): string {
@@ -100,7 +104,7 @@ function section(title: string, icon: string, contentHtml: string): string {
       ${icon} ${title}
     </h2>
     ${contentHtml}
-  </div>`
+  </div>`;
 }
 
 function bigNumber(value: number | string, label: string, sub?: string): string {
@@ -108,19 +112,35 @@ function bigNumber(value: number | string, label: string, sub?: string): string 
     <div style="font-size:28px;font-weight:700;color:${STYLE.text};line-height:1">${value}</div>
     <div style="font-size:11px;color:${STYLE.muted};text-transform:uppercase;letter-spacing:0.5px;margin-top:4px">${label}</div>
     ${sub ? `<div style="font-size:12px;color:${STYLE.text};margin-top:2px">${sub}</div>` : ''}
-  </div>`
+  </div>`;
 }
 
 export function renderEmailHtml(p: ReportPayload): string {
-  const { window: win, usersTotal, users, engagement, retention, jobsInserted, jobsStock, match, cvAdapted, gap, health, weekly } = p
-  const title = weekly ? `Stage — Relatório Diário + Semanal (${win.yesterday.label})` : `Stage — Relatório Diário (${win.yesterday.label})`
+  const {
+    window: win,
+    usersTotal,
+    users,
+    engagement,
+    retention,
+    jobsInserted,
+    jobsStock,
+    match,
+    cvAdapted,
+    gap,
+    health,
+    weekly,
+  } = p;
+  const title = weekly
+    ? `Stage — Relatório Diário + Semanal (${win.yesterday.label})`
+    : `Stage — Relatório Diário (${win.yesterday.label})`;
 
   // === Bloco 1B: Perfil total (all-time) ===
   const usersTotalHtml = `
     <div style="margin-bottom:8px">
       ${bigNumber(usersTotal.totalUsers, 'usuários no app')}
       ${bigNumber(pct(usersTotal.activatedRate), 'ativaram (1+ swipe)')}
-      ${bigNumber(pct(usersTotal.onboardingCompletionRate), 'completaram onb.')}
+      ${bigNumber(pct(usersTotal.onboardingCompletionRate), 'liberados no app')}
+      ${bigNumber(pct(usersTotal.trailCompletionRate), 'trilha completa')}
       ${bigNumber(pct(usersTotal.aiConsentRate), 'aceitaram IA')}
       ${bigNumber(pct(usersTotal.phoneRate), 'com telefone')}
     </div>
@@ -132,13 +152,16 @@ export function renderEmailHtml(p: ReportPayload): string {
     ${table(usersTotal.bySemester)}
     <h3 style="margin:16px 0 6px;font-size:13px;color:${STYLE.muted};text-transform:uppercase;letter-spacing:0.5px">Por idade (all-time)</h3>
     ${table(usersTotal.byAgeBucket, 'Nenhuma idade informada')}
-  `
+  `;
 
   // === Bloco 1: Usuários ===
   const usersHtml = `
     <div style="margin-bottom:8px">
-      ${bigNumber(users.newSignups, 'novos cadastros', delta(users.newSignups, users.newSignupsPrev))}
-      ${bigNumber(pct(users.onboardingCompletionRate), 'completaram onb.')}
+      ${
+    bigNumber(users.newSignups, 'novos cadastros', delta(users.newSignups, users.newSignupsPrev))
+  }
+      ${bigNumber(pct(users.onboardingCompletionRate), 'onboarding completo')}
+      ${bigNumber(pct(users.trailCompletionRate), 'trilha completa')}
       ${bigNumber(pct(users.aiConsentRate), 'aceitaram IA')}
       ${bigNumber(pct(users.phoneRate), 'com telefone')}
     </div>
@@ -148,43 +171,51 @@ export function renderEmailHtml(p: ReportPayload): string {
     ${table(users.byCourse)}
     <h3 style="margin:16px 0 6px;font-size:13px;color:${STYLE.muted};text-transform:uppercase;letter-spacing:0.5px">Por semestre</h3>
     ${table(users.bySemester)}
-  `
+  `;
 
   // === Bloco 2: Engajamento ===
   const engagementHtml = `
     ${bigNumber(engagement.dau, 'DAU (swipes)')}
     ${bigNumber(engagement.cvAdaptersYesterday, 'adaptaram CV')}
     ${bigNumber(engagement.appliersYesterday, 'aplicaram p/ vaga')}
-  `
+  `;
 
   // === Bloco 2.5: Retenção ===
   const retentionHtml = `
     <div style="margin-bottom:8px">
-      ${bigNumber(
-        pct(retention.d1RetentionRate),
-        'retenção D1 (novos)',
-        `${retention.d2SignupsReturnedD1}/${retention.d2Signups} cadastrados em ${win.dayBefore.label} voltaram em ${win.yesterday.label}`,
-      )}
-      ${bigNumber(
-        pct(retention.returningDauRate),
-        'DAU recorrente',
-        `${retention.dauReturning} recorrentes · ${retention.dauNewToday} estreantes (de ${retention.dau} ativos)`,
-      )}
-      ${bigNumber(
-        pct(retention.stickiness),
-        'stickiness DAU/MAU',
-        `${retention.dau} / ${retention.mau} ativos últimos 30d`,
-      )}
+      ${
+    bigNumber(
+      pct(retention.d1RetentionRate),
+      'retenção D1 (novos)',
+      `${retention.d2SignupsReturnedD1}/${retention.d2Signups} cadastrados em ${win.dayBefore.label} voltaram em ${win.yesterday.label}`,
+    )
+  }
+      ${
+    bigNumber(
+      pct(retention.returningDauRate),
+      'DAU recorrente',
+      `${retention.dauReturning} recorrentes · ${retention.dauNewToday} estreantes (de ${retention.dau} ativos)`,
+    )
+  }
+      ${
+    bigNumber(
+      pct(retention.stickiness),
+      'stickiness DAU/MAU',
+      `${retention.dau} / ${retention.mau} ativos últimos 30d`,
+    )
+  }
     </div>
     <p style="color:${STYLE.muted};font-size:12px;margin:8px 0 0">
       Retenção D1: % dos novos cadastrados anteontem que voltaram ontem (1+ swipe). DAU recorrente: % do DAU que já tinha conta antes de ontem. Stickiness: DAU ÷ MAU (únicos com swipe nos últimos 30 dias).
     </p>
-  `
+  `;
 
   // === Bloco 3: Vagas inseridas ===
   const jobsInsertedHtml = `
     <div style="margin-bottom:8px">
-      ${bigNumber(jobsInserted.total, 'vagas novas', delta(jobsInserted.total, jobsInserted.totalPrev))}
+      ${
+    bigNumber(jobsInserted.total, 'vagas novas', delta(jobsInserted.total, jobsInserted.totalPrev))
+  }
     </div>
     <h3 style="margin:16px 0 6px;font-size:13px;color:${STYLE.muted};text-transform:uppercase;letter-spacing:0.5px">Por área</h3>
     ${table(jobsInserted.byArea)}
@@ -198,31 +229,40 @@ export function renderEmailHtml(p: ReportPayload): string {
     ${table(jobsInserted.byJobType)}
     <h3 style="margin:16px 0 6px;font-size:13px;color:${STYLE.muted};text-transform:uppercase;letter-spacing:0.5px">Top cidades</h3>
     ${table(jobsInserted.byCity)}
-  `
+  `;
 
   // === Bloco 4: Estoque ===
   const stockHtml = `
     ${bigNumber(jobsStock.activeTotal, 'vagas ativas no app')}
     ${bigNumber(jobsStock.avgAgeDays.toFixed(1) + 'd', 'idade média')}
-    ${bigNumber(pct(jobsStock.withExternalUrlRate), 'com link p/ aplicar')}
+    ${bigNumber(pct(jobsStock.applyableRate), 'vagas aplicáveis')}
     <h3 style="margin:16px 0 6px;font-size:13px;color:${STYLE.muted};text-transform:uppercase;letter-spacing:0.5px">Top áreas no estoque</h3>
     ${table(jobsStock.byArea)}
-  `
+  `;
 
   // === Bloco 5: Match ===
   const topJobsHtml = match.topLikedJobs.length === 0
     ? `<p style="color:${STYLE.muted};font-size:13px">Sem curtidas ontem</p>`
     : `<ol style="margin:8px 0;padding-left:20px;font-size:13px;color:${STYLE.text}">
-        ${match.topLikedJobs
-          .map(
-            (j) => `<li style="margin-bottom:4px">
-              ${j.url ? `<a href="${escapeHtml(j.url)}" style="color:${STYLE.primary};text-decoration:none">${escapeHtml(j.title)}</a>` : escapeHtml(j.title)}
+        ${
+      match.topLikedJobs
+        .map(
+          (j) =>
+            `<li style="margin-bottom:4px">
+              ${
+              j.url
+                ? `<a href="${
+                  escapeHtml(j.url)
+                }" style="color:${STYLE.primary};text-decoration:none">${escapeHtml(j.title)}</a>`
+                : escapeHtml(j.title)
+            }
               <span style="color:${STYLE.muted}"> · ${escapeHtml(j.company)}</span>
               <span style="color:${STYLE.text};font-weight:600"> · ${j.count} curtidas</span>
             </li>`,
-          )
-          .join('')}
-      </ol>`
+        )
+        .join('')
+    }
+      </ol>`;
 
   const matchHtml = `
     ${bigNumber(match.totalLikes, 'curtidas')}
@@ -235,46 +275,66 @@ export function renderEmailHtml(p: ReportPayload): string {
     ${table(match.topLikedCompanies)}
     <h3 style="margin:16px 0 6px;font-size:13px;color:${STYLE.muted};text-transform:uppercase;letter-spacing:0.5px">Curtidas por área</h3>
     ${table(match.likesByArea)}
-  `
+  `;
 
   // === Bloco 6: CV adaptado ===
   const cvHtml = `
     ${bigNumber(cvAdapted.total, 'CVs adaptados ontem')}
     <h3 style="margin:16px 0 6px;font-size:13px;color:${STYLE.muted};text-transform:uppercase;letter-spacing:0.5px">Por área da vaga</h3>
     ${table(cvAdapted.byArea)}
-  `
+  `;
 
   // === Bloco 7: Gap ===
   const gapRows = gap.underservedAreas.map((g) => ({
     key: `${g.area} (${g.likes} likes / ${g.activeJobs} vagas)`,
     count: Math.round(g.ratio * 10),
-  }))
+  }));
   const gapHtml = gap.underservedAreas.length === 0
     ? `<p style="color:${STYLE.muted};font-size:13px">Sem áreas em desbalanço claro</p>`
     : `<p style="color:${STYLE.muted};font-size:13px;margin:0 0 8px">Áreas com mais demanda que oferta no estoque atual (ratio = likes / vagas ativas, ×10)</p>
-       ${table(gapRows)}`
+       ${table(gapRows)}`;
 
   // === Bloco 8: Health ===
   const healthHtml = `
     ${bigNumber(health.aiGenerations, 'chamadas IA ontem')}
     ${bigNumber((health.totalTokensUsed / 1000).toFixed(1) + 'k', 'tokens usados')}
-  `
+  `;
 
   // === Bloco semanal (domingo) ===
-  let weeklyHtml = ''
+  let weeklyHtml = '';
   if (weekly) {
     weeklyHtml = section(
       `Resumo semanal (${win.lastWeek.label})`,
       '📊',
       `
       <div>
-        ${bigNumber(weekly.newSignupsLastWeek, 'cadastros 7d', delta(weekly.newSignupsLastWeek, weekly.newSignupsPrevWeek))}
-        ${bigNumber(weekly.jobsLastWeek, 'vagas 7d', delta(weekly.jobsLastWeek, weekly.jobsPrevWeek))}
-        ${bigNumber(weekly.likesLastWeek, 'curtidas 7d', delta(weekly.likesLastWeek, weekly.likesPrevWeek))}
-        ${bigNumber(weekly.appliesLastWeek, 'aplicações 7d', delta(weekly.appliesLastWeek, weekly.appliesPrevWeek))}
+        ${
+        bigNumber(
+          weekly.newSignupsLastWeek,
+          'cadastros 7d',
+          delta(weekly.newSignupsLastWeek, weekly.newSignupsPrevWeek),
+        )
+      }
+        ${
+        bigNumber(weekly.jobsLastWeek, 'vagas 7d', delta(weekly.jobsLastWeek, weekly.jobsPrevWeek))
+      }
+        ${
+        bigNumber(
+          weekly.likesLastWeek,
+          'curtidas 7d',
+          delta(weekly.likesLastWeek, weekly.likesPrevWeek),
+        )
+      }
+        ${
+        bigNumber(
+          weekly.appliesLastWeek,
+          'aplicações 7d',
+          delta(weekly.appliesLastWeek, weekly.appliesPrevWeek),
+        )
+      }
       </div>
       `,
-    )
+    );
   }
 
   return `<!DOCTYPE html>
@@ -285,7 +345,7 @@ export function renderEmailHtml(p: ReportPayload): string {
 </head>
 <body style="margin:0;padding:0;background:${STYLE.bg};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:${STYLE.text}">
   <div style="max-width:680px;margin:0 auto;padding:24px 16px">
-    <div style="background:linear-gradient(135deg,${STYLE.primary} 0%,#00A368 100%);color:white;padding:20px;border-radius:8px;margin-bottom:16px">
+    <div style="background:linear-gradient(135deg,${STYLE.primary} 0%,#1565A8 100%);color:white;padding:20px;border-radius:8px;margin-bottom:16px">
       <h1 style="margin:0;font-size:20px;font-weight:700">${escapeHtml(title)}</h1>
       <p style="margin:4px 0 0;font-size:13px;opacity:0.9">Janela: ${win.yesterday.label} (00h-24h BRT)</p>
     </div>
@@ -303,23 +363,23 @@ export function renderEmailHtml(p: ReportPayload): string {
     ${section('Saúde do sistema', '🩺', healthHtml)}
 
     <p style="text-align:center;color:${STYLE.muted};font-size:11px;margin:24px 0 0">
-      Gerado automaticamente pelo cron daily-report · Stage v1.5.3
+      Gerado automaticamente pelo cron daily-report · Stage
     </p>
   </div>
 </body>
-</html>`
+</html>`;
 }
 
 /// Texto curto pro ntfy.sh — 3 linhas com os números chave.
 export function renderNtfyText(p: ReportPayload): { title: string; message: string } {
-  const { window: win, users, jobsInserted, match } = p
+  const { window: win, users, jobsInserted, match } = p;
   const title = p.weekly
     ? `Stage ${win.yesterday.label} (+ semanal)`
-    : `Stage ${win.yesterday.label}`
+    : `Stage ${win.yesterday.label}`;
   const message = [
     `${users.newSignups} cadastros · ${jobsInserted.total} vagas novas`,
     `${match.totalLikes} curtidas · ${match.totalApplies} aplicações`,
     `Email com o relatório completo já saiu.`,
-  ].join('\n')
-  return { title, message }
+  ].join('\n');
+  return { title, message };
 }

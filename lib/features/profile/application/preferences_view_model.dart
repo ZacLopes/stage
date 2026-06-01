@@ -76,6 +76,11 @@ class PreferencesViewModel extends ChangeNotifier {
   }
 
   Future<void> upsertPrefs(JobPreferences prefs) async {
+    if (prefs.userId.isEmpty) {
+      const message = 'Usuário não autenticado.';
+      _error(message);
+      throw StateError(message);
+    }
     _prefs = prefs;
     notifyListeners();
     _saving();
@@ -84,6 +89,7 @@ class PreferencesViewModel extends ChangeNotifier {
       _saved();
     } catch (e) {
       _error('Erro ao salvar preferências: $e');
+      rethrow;
     }
   }
 
@@ -108,20 +114,21 @@ class PreferencesViewModel extends ChangeNotifier {
     int? radiusKm,
   }) async {
     final current = _prefs ?? _emptyPrefs();
-    await upsertPrefs(current.copyWith(
-      primaryLocationCountry: country,
-      primaryLocationState: state,
-      primaryLocationCity: city,
-      primaryLocationPostalCode: postalCode,
-      primaryLocationLat: lat,
-      primaryLocationLng: lng,
-      primaryLocationRadiusKm: radiusKm,
-    ));
+    await upsertPrefs(
+      current.copyWith(
+        primaryLocationCountry: country,
+        primaryLocationState: state,
+        primaryLocationCity: city,
+        primaryLocationPostalCode: postalCode,
+        primaryLocationLat: lat,
+        primaryLocationLng: lng,
+        primaryLocationRadiusKm: radiusKm,
+      ),
+    );
   }
 
   Future<void> replaceDesiredTitles(List<DesiredTitle> titles) async {
-    final userId = _userId();
-    if (userId == null) return;
+    final userId = _requireUserId();
     _desiredTitles = titles;
     notifyListeners();
     _saving();
@@ -131,12 +138,12 @@ class PreferencesViewModel extends ChangeNotifier {
       _saved();
     } catch (e) {
       _error('Erro: $e');
+      rethrow;
     }
   }
 
   Future<void> replaceOtherLocations(List<OtherLocation> locations) async {
-    final userId = _userId();
-    if (userId == null) return;
+    final userId = _requireUserId();
     _otherLocations = locations;
     notifyListeners();
     _saving();
@@ -146,12 +153,22 @@ class PreferencesViewModel extends ChangeNotifier {
       _saved();
     } catch (e) {
       _error('Erro: $e');
+      rethrow;
     }
   }
 
-  String? _userId() => _prefs?.userId ?? Supabase.instance.client.auth.currentUser?.id;
+  String? _userId() =>
+      _prefs?.userId ?? Supabase.instance.client.auth.currentUser?.id;
 
-  JobPreferences _emptyPrefs() => JobPreferences(userId: _userId() ?? '');
+  String _requireUserId() {
+    final userId = _userId();
+    if (userId == null || userId.isEmpty) {
+      throw StateError('Usuário não autenticado.');
+    }
+    return userId;
+  }
+
+  JobPreferences _emptyPrefs() => JobPreferences(userId: _requireUserId());
 
   void _saving() {
     _saveStatus = SaveStatus.saving;

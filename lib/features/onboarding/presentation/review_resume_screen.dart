@@ -10,6 +10,7 @@ import '../../../services/analytics_service.dart';
 import '../../profile/application/extraction_status_view_model.dart';
 import '../../profile/application/profile_editor_view_model.dart';
 import '../../profile/presentation/widgets/profile_section_list.dart';
+import 'masking_questions/education_screen.dart';
 import 'onboarding_scaffold.dart';
 import 'preferences/desired_titles_screen.dart';
 import '../../../core/theme/theme.dart';
@@ -48,7 +49,11 @@ class _ReviewResumeScreenState extends State<ReviewResumeScreen> {
     );
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const DesiredTitlesScreen()),
+      MaterialPageRoute(
+        builder: (_) => widget.fromUpload
+            ? const EducationScreen()
+            : const DesiredTitlesScreen(),
+      ),
     );
   }
 
@@ -58,8 +63,10 @@ class _ReviewResumeScreenState extends State<ReviewResumeScreen> {
     final vm = context.watch<ProfileEditorViewModel>();
 
     // Se veio do upload e extração ainda rodando, mostra loading
-    final isWaiting = widget.fromUpload && extraction.status == ExtractionStatus.running;
-    final extractionFailed = widget.fromUpload && extraction.status == ExtractionStatus.failed;
+    final isWaiting =
+        widget.fromUpload && extraction.status == ExtractionStatus.running;
+    final extractionFailed =
+        widget.fromUpload && extraction.status == ExtractionStatus.failed;
 
     if (isWaiting) {
       return OnboardingScaffold(
@@ -69,7 +76,9 @@ class _ReviewResumeScreenState extends State<ReviewResumeScreen> {
         onContinue: null,
         child: const Padding(
           padding: EdgeInsets.symmetric(vertical: 80),
-          child: Center(child: CircularProgressIndicator(color: AppColors.brandCyan)),
+          child: Center(
+            child: CircularProgressIndicator(color: AppColors.brandCyan),
+          ),
         ),
       );
     }

@@ -173,7 +173,10 @@ class ProfileEditorViewModel extends ChangeNotifier {
     });
   }
 
-  Future<void> _savePersonal(PersonalInfo info) async {
+  Future<void> _savePersonal(
+    PersonalInfo info, {
+    bool rethrowOnError = false,
+  }) async {
     _setSaving();
     try {
       final saved = await _repo.upsertPersonal(info);
@@ -181,13 +184,14 @@ class ProfileEditorViewModel extends ChangeNotifier {
       _setSaved();
     } catch (e) {
       _setError('Erro ao salvar informações: $e');
+      if (rethrowOnError) rethrow;
     }
   }
 
   /// Force-save sem debounce (use ao tocar "Continue" no onboarding)
   Future<void> commitPersonal(PersonalInfo info) async {
     _personalDebounce?.cancel();
-    await _savePersonal(info);
+    await _savePersonal(info, rethrowOnError: true);
   }
 
   // ──────────────────────────────────────────────────────────────────────
@@ -321,11 +325,21 @@ class ProfileEditorViewModel extends ChangeNotifier {
   // ──────────────────────────────────────────────────────────────────────
 
   Future<void> replaceSkills(List<String> names) async {
-    final userId = _personal?.userId ?? Supabase.instance.client.auth.currentUser?.id;
+    final userId =
+        _personal?.userId ?? Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
     final original = _skills;
-    _skills = names.asMap().entries
-        .map((e) => Skill(id: 'temp_${e.key}', userId: userId, name: e.value, orderIndex: e.key))
+    _skills = names
+        .asMap()
+        .entries
+        .map(
+          (e) => Skill(
+            id: 'temp_${e.key}',
+            userId: userId,
+            name: e.value,
+            orderIndex: e.key,
+          ),
+        )
         .toList();
     notifyListeners();
     _setSaving();
@@ -340,11 +354,21 @@ class ProfileEditorViewModel extends ChangeNotifier {
   }
 
   Future<void> replaceInterests(List<String> names) async {
-    final userId = _personal?.userId ?? Supabase.instance.client.auth.currentUser?.id;
+    final userId =
+        _personal?.userId ?? Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
     final original = _interests;
-    _interests = names.asMap().entries
-        .map((e) => Interest(id: 'temp_${e.key}', userId: userId, name: e.value, orderIndex: e.key))
+    _interests = names
+        .asMap()
+        .entries
+        .map(
+          (e) => Interest(
+            id: 'temp_${e.key}',
+            userId: userId,
+            name: e.value,
+            orderIndex: e.key,
+          ),
+        )
         .toList();
     notifyListeners();
     _setSaving();
@@ -414,7 +438,9 @@ class ProfileEditorViewModel extends ChangeNotifier {
     _setSaving();
     try {
       final updated = await _repo.updateProject(p);
-      _projects = _projects.map((x) => x.id == updated.id ? updated : x).toList();
+      _projects = _projects
+          .map((x) => x.id == updated.id ? updated : x)
+          .toList();
       _setSaved();
     } catch (e) {
       _setError('Erro: $e');
