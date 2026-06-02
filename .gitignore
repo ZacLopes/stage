@@ -44,6 +44,14 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Node/Vite admin dashboard
+node_modules/
+**/node_modules/
+admin_dashboard/dist/
+*.tsbuildinfo
+admin_dashboard/vite.config.js
+admin_dashboard/vite.config.d.ts
+
 
 # Add this line to .gitignore
 .env
