@@ -87,7 +87,7 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
   // Paleta monocromática brand — header e acentos não mudam com a faixa de
   // match. Diferenciação visual fica só no número do ring (e nos estados
   // isNoResume/isPending via conteúdo do ring, não cor).
-  static const Color _accent = AppColors.brandCyan;     // AppColors.brandCyan
+  static const Color _accent = AppColors.brandCyan; // AppColors.brandCyan
   static const Color _accentDark = AppColors.brandBlue; // AppColors.brandBlue
 
   @override
@@ -129,159 +129,174 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                 // scrollview nem afetar transforms ancestrais.
                 child: ClipRect(
                   child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Bloco fixo no topo: title + meta + chips + section header
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                            // Job Title
-                            Text(
-                              widget.job.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 21,
-                                fontWeight: FontWeight.w800,
-                                height: 1.2,
-                                color: AppColors.textPrimary,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-
-                            // Company and Location
-                            Row(
-                              children: [
-                                const Icon(Icons.business_rounded, size: 14, color: AppColors.textTertiary),
-                                const SizedBox(width: 4),
-                                Expanded(
-                                  child: Text(
-                                    widget.job.companyName,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      color: AppColors.textSecondary,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                const Icon(Icons.location_on_rounded, size: 14, color: AppColors.textTertiary),
-                                const SizedBox(width: 2),
-                                Flexible(
-                                  child: Text(
-                                    widget.job.location,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      color: AppColors.textTertiary,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-
-                            // Tags / Chips
-                            Wrap(
-                              spacing: 7,
-                              runSpacing: 7,
-                              children: [
-                                _buildChip(
-                                  icon: Icons.payments_rounded,
-                                  label: widget.job.salaryRange,
-                                ),
-                                _buildChip(
-                                  icon: Icons.laptop_mac_rounded,
-                                  label: widget.job.workModel,
-                                ),
-                                _buildChip(
-                                  icon: Icons.work_rounded,
-                                  label: widget.job.jobType,
-                                ),
-                              ],
-                            ),
-
-                            // CTA discreto quando confidence != high — orienta
-                            // o user a completar perfil. Variante diferente
-                            // pra low (âmbar forte) vs medium (azul suave).
-                            // Vide _MissingDimensionsCta.
-                            if ((widget.confidence == MatchConfidence.low ||
-                                    widget.confidence == MatchConfidence.medium) &&
-                                widget.missingDimensions.isNotEmpty &&
-                                !widget.isPending &&
-                                !widget.isNoResume)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 10),
-                                child: _MissingDimensionsCta(
-                                  missing: widget.missingDimensions,
-                                  confidence: widget.confidence,
-                                ),
-                              ),
-
-                            const SizedBox(height: 14),
-
-                            // Description section header — overline minúsculo,
-                            // sem barra colorida. Hierarquia vem do tracking
-                            // e da cor mais clara.
-                            const Text(
-                              'SOBRE A VAGA',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.textTertiary,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                      ],
-                    ),
-
-                    // Description — expande pra preencher TODO espaço restante
-                    // até o pill. ShaderMask faz fade nas últimas ~20% do
-                    // espaço pra sinalizar que tem mais conteúdo se tocar.
-                    Expanded(
-                      child: ShaderMask(
-                        shaderCallback: (Rect bounds) {
-                          return const LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [Colors.black, Colors.transparent],
-                            stops: [0.78, 1.0],
-                          ).createShader(bounds);
-                        },
-                        blendMode: BlendMode.dstIn,
-                        child: SingleChildScrollView(
-                          physics: const NeverScrollableScrollPhysics(),
-                          child: Text(
-                            widget.job.description,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Bloco fixo no topo: title + meta + chips + section header
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Job Title
+                          Text(
+                            widget.job.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 14,
+                              fontSize: 21,
+                              fontWeight: FontWeight.w800,
+                              height: 1.2,
+                              color: AppColors.textPrimary,
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+
+                          // Company and Location
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.business_rounded,
+                                size: 14,
+                                color: AppColors.textTertiary,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  widget.job.companyName,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: AppColors.textSecondary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Icon(
+                                Icons.location_on_rounded,
+                                size: 14,
+                                color: AppColors.textTertiary,
+                              ),
+                              const SizedBox(width: 2),
+                              Flexible(
+                                child: Text(
+                                  widget.job.location,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: AppColors.textTertiary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Tags / Chips
+                          Wrap(
+                            spacing: 7,
+                            runSpacing: 7,
+                            children: [
+                              _buildChip(
+                                icon: Icons.payments_rounded,
+                                label: widget.job.salaryRange,
+                              ),
+                              _buildChip(
+                                icon: Icons.laptop_mac_rounded,
+                                label: widget.job.workModel,
+                              ),
+                              _buildChip(
+                                icon: Icons.work_rounded,
+                                label: widget.job.jobType,
+                              ),
+                            ],
+                          ),
+
+                          if (widget.job.applicationMethod == 'email')
+                            Padding(
+                              padding: const EdgeInsets.only(top: 10),
+                              child: _buildAiApplicationCta(),
+                            ),
+
+                          // CTA discreto quando confidence != high — orienta
+                          // o user a completar perfil. Variante diferente
+                          // pra low (âmbar forte) vs medium (azul suave).
+                          // Vide _MissingDimensionsCta.
+                          if ((widget.confidence == MatchConfidence.low ||
+                                  widget.confidence ==
+                                      MatchConfidence.medium) &&
+                              widget.missingDimensions.isNotEmpty &&
+                              !widget.isPending &&
+                              !widget.isNoResume)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 10),
+                              child: _MissingDimensionsCta(
+                                missing: widget.missingDimensions,
+                                confidence: widget.confidence,
+                              ),
+                            ),
+
+                          const SizedBox(height: 14),
+
+                          // Description section header — overline minúsculo,
+                          // sem barra colorida. Hierarquia vem do tracking
+                          // e da cor mais clara.
+                          const Text(
+                            'SOBRE A VAGA',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
                               color: AppColors.textTertiary,
-                              height: 1.5,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                        ],
+                      ),
+
+                      // Description — expande pra preencher TODO espaço restante
+                      // até o pill. ShaderMask faz fade nas últimas ~20% do
+                      // espaço pra sinalizar que tem mais conteúdo se tocar.
+                      Expanded(
+                        child: ShaderMask(
+                          shaderCallback: (Rect bounds) {
+                            return const LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Colors.black, Colors.transparent],
+                              stops: [0.78, 1.0],
+                            ).createShader(bounds);
+                          },
+                          blendMode: BlendMode.dstIn,
+                          child: SingleChildScrollView(
+                            physics: const NeverScrollableScrollPhysics(),
+                            child: Text(
+                              widget.job.description,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: AppColors.textTertiary,
+                                height: 1.5,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
+                      const SizedBox(height: 6),
 
-                    // Affordance discreta — chevron no canto direito sinaliza
-                    // que o card é tocável, sem o peso de um pill com label.
-                    const Align(
-                      alignment: Alignment.centerRight,
-                      child: Padding(
-                        padding: EdgeInsets.only(top: 4),
-                        child: Icon(
-                          Icons.chevron_right_rounded,
-                          size: 22,
-                          color: Color(0xFFCBD5E1),
+                      // Affordance discreta — chevron no canto direito sinaliza
+                      // que o card é tocável, sem o peso de um pill com label.
+                      const Align(
+                        alignment: Alignment.centerRight,
+                        child: Padding(
+                          padding: EdgeInsets.only(top: 4),
+                          child: Icon(
+                            Icons.chevron_right_rounded,
+                            size: 22,
+                            color: Color(0xFFCBD5E1),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -296,10 +311,7 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
       height: 110,
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            _accent.withOpacity(0.92),
-            _accentDark.withOpacity(0.95),
-          ],
+          colors: [_accent.withOpacity(0.92), _accentDark.withOpacity(0.95)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -374,7 +386,10 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.22),
                           borderRadius: BorderRadius.circular(6),
@@ -499,10 +514,37 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
     );
   }
 
-  Widget _buildChip({
-    required IconData icon,
-    required String label,
-  }) {
+  Widget _buildAiApplicationCta() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.primarySoft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFBFDBFE), width: 1),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.auto_awesome_rounded, size: 15, color: AppColors.primary),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Essa vaga aceita aplicações automáticas por IA, dê o swipe e acompanhe o resultado pelo WhatsApp ou Email!',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: AppColors.primary,
+                height: 1.18,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChip({required IconData icon, required String label}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
@@ -552,11 +594,7 @@ class _NoResumeBadge extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
-            Icons.description_outlined,
-            color: Colors.white,
-            size: 22,
-          ),
+          const Icon(Icons.description_outlined, color: Colors.white, size: 22),
           const SizedBox(height: 2),
           Text(
             'crie\nseu CV',
@@ -605,9 +643,9 @@ class _MissingDimensionsCta extends StatelessWidget {
 
     if (_isMedium) {
       return _buildChip(
-        bg: AppColors.primarySoft,         // azul muito claro
+        bg: AppColors.primarySoft, // azul muito claro
         border: const Color(0xFFBFDBFE),
-        iconColor: const Color(0xFF1D4ED8),  // azul médio
+        iconColor: const Color(0xFF1D4ED8), // azul médio
         textColor: AppColors.primary,
         // Pra medium menciona só a primeira dimensão (tom suave).
         text: 'Match estimado — declare ${actionable.first} pra refinar',
@@ -618,9 +656,9 @@ class _MissingDimensionsCta extends StatelessWidget {
     final visible = actionable.take(2).join(', ');
     final overflow = actionable.length > 2 ? '…' : '';
     return _buildChip(
-      bg: AppColors.warningSoft,           // âmbar muito claro
+      bg: AppColors.warningSoft, // âmbar muito claro
       border: AppColors.warningSoft,
-      iconColor: const Color(0xFFC2410C),    // âmbar escuro
+      iconColor: const Color(0xFFC2410C), // âmbar escuro
       textColor: const Color(0xFF9A3412),
       text: 'Pra match completo, declare: $visible$overflow',
     );
@@ -643,11 +681,7 @@ class _MissingDimensionsCta extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.info_outline_rounded,
-            size: 14,
-            color: iconColor,
-          ),
+          Icon(Icons.info_outline_rounded, size: 14, color: iconColor),
           const SizedBox(width: 7),
           Flexible(
             child: Text(
@@ -690,11 +724,7 @@ class _LimitedAnalysisBadge extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
-            Icons.help_outline_rounded,
-            color: Colors.white,
-            size: 22,
-          ),
+          const Icon(Icons.help_outline_rounded, color: Colors.white, size: 22),
           const SizedBox(height: 2),
           Text(
             'análise\nlimitada',
@@ -745,10 +775,7 @@ class _MatchPendingRingState extends State<_MatchPendingRing>
         alignment: Alignment.center,
         children: [
           // Anel tracejado sutil (idle)
-          CustomPaint(
-            size: const Size(60, 60),
-            painter: _PendingRingPainter(),
-          ),
+          CustomPaint(size: const Size(60, 60), painter: _PendingRingPainter()),
           // 3 dots pulsando em sequência
           AnimatedBuilder(
             animation: _ctrl,
@@ -757,7 +784,8 @@ class _MatchPendingRingState extends State<_MatchPendingRing>
                 mainAxisSize: MainAxisSize.min,
                 children: List.generate(3, (i) {
                   final phase = (_ctrl.value + i * 0.2) % 1.0;
-                  final scale = 0.6 + 0.4 * (1 - (phase - 0.5).abs() * 2).clamp(0.0, 1.0);
+                  final scale =
+                      0.6 + 0.4 * (1 - (phase - 0.5).abs() * 2).clamp(0.0, 1.0);
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 1.5),
                     child: Transform.scale(

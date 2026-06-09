@@ -505,6 +505,16 @@ const String evProfileTabChanged = 'profile_tab_changed';
 /// preserva continuidade.
 const String evOnboardingAllSetContinued = 'onboarding_all_set_continued';
 
+/// Micro-questionário de fit cultural aberto a partir da aba Vagas.
+const String evCultureFitPromptOpened = 'match_culture_fit_prompt_opened';
+
+/// Uma resposta do questionário de fit cultural foi selecionada.
+const String evCultureFitQuestionAnswered =
+    'match_culture_fit_question_answered';
+
+/// As 4 respostas de fit cultural foram salvas.
+const String evCultureFitCompleted = 'match_culture_fit_completed';
+
 // ════════════════════════════════════════════════════════════════════
 // Allowlist agregada — usada pelo wrapper pra rejeitar nomes não-catalogados.
 // ════════════════════════════════════════════════════════════════════
@@ -658,4 +668,6 @@ const Set<String> kAllowedEventNames = {
   evFirstSaveCelebrationContinued, evFirstSaveBannerDismissed,
   evPushReactivateTapped, evPushReactivateCompleted,
   evPdfGenerated, evProfileTabChanged, evOnboardingAllSetContinued,
+  evCultureFitPromptOpened, evCultureFitQuestionAnswered,
+  evCultureFitCompleted,
 };

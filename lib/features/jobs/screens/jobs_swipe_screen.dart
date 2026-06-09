@@ -20,11 +20,14 @@ import '../../../services/profile_snapshot_service.dart';
 import '../../auth/user_viewmodel.dart';
 import '../../home/home_viewmodel.dart';
 import '../../tutorial/tutorial_keys.dart';
+import '../data/culture_fit_repository.dart';
 import '../job_swipe_context.dart';
 import '../jobs_viewmodel.dart';
+import '../models/culture_fit_profile.dart';
 import '../models/job.dart';
 import '../pending_adapted_cv_tracker.dart';
 import '../utils/match_score.dart';
+import '../widgets/culture_fit_prompt_sheet.dart';
 import '../widgets/first_save_celebration.dart';
 import '../widgets/job_card.dart';
 import '../widgets/resume_adaptation_sheet.dart';
@@ -142,6 +145,10 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       ProfileSnapshotService();
   StreamSubscription<void>? _profileEventsSub;
 
+  final CultureFitRepository _cultureFitRepository = CultureFitRepository();
+  CultureFitProfile? _cultureFitProfile;
+  bool _cultureFitSaving = false;
+
   @override
   void initState() {
     super.initState();
@@ -180,6 +187,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       SchedulerBinding.instance.addPostFrameCallback((_) async {
         final vm = context.read<JobsViewModel>();
         await vm.init();
+        unawaited(_loadCultureFitProfile());
         if (mounted) {
           Analytics.shared.jobFeedOpened(jobsCount: vm.jobs.length);
           // T2.2 — card do topo exibido (exposição). Sem isso o funil
@@ -219,6 +227,95 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (context) => const JobPreferencesScreen(),
+    );
+  }
+
+  Future<void> _loadCultureFitProfile() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    final profile = await _cultureFitRepository.load(userId);
+    if (!mounted) return;
+    setState(() => _cultureFitProfile = profile);
+  }
+
+  Future<void> _openCultureFitPrompt() async {
+    if (_cultureFitSaving) return;
+    HapticFeedback.lightImpact();
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    var initialProfile =
+        _cultureFitProfile ?? CultureFitProfile.empty(userId);
+
+    var isRedo = false;
+    if (initialProfile.isComplete) {
+      final shouldRedo = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => const _CultureFitRedoSheet(),
+      );
+      if (!mounted || shouldRedo != true) return;
+      initialProfile = CultureFitProfile.empty(userId);
+      isRedo = true;
+    }
+
+    Analytics.shared.track(
+      evCultureFitPromptOpened,
+      props: {
+        'answered_count': initialProfile.answeredCount,
+        'is_complete': initialProfile.isComplete,
+        'is_redo': isRedo,
+      },
+    );
+
+    final result = await showModalBottomSheet<CultureFitProfile>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) =>
+          CultureFitPromptSheet(initialProfile: initialProfile),
+    );
+    if (!mounted || result == null) return;
+
+    setState(() => _cultureFitSaving = true);
+    CultureFitProfile saved;
+    try {
+      saved = await _cultureFitRepository.save(result);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _cultureFitSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Não consegui salvar agora: $e'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _cultureFitProfile = saved;
+      _cultureFitSaving = false;
+    });
+
+    Analytics.shared.track(
+      evCultureFitCompleted,
+      props: {
+        'answered_count': saved.answeredCount,
+        'is_complete': saved.isComplete,
+      },
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Fit cultural salvo. Vou usar isso para refinar vagas.'),
+        backgroundColor: AppColors.success,
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -914,6 +1011,15 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         surfaceTintColor: Colors.transparent,
         actions: [
           Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: _CultureFitActionButton(
+              answeredCount: _cultureFitProfile?.answeredCount ?? 0,
+              isComplete: _cultureFitProfile?.isComplete ?? false,
+              isLoading: _cultureFitSaving,
+              onTap: _openCultureFitPrompt,
+            ),
+          ),
+          Padding(
             padding: const EdgeInsets.only(right: 12),
             child: GestureDetector(
               onTap: _openPreferences,
@@ -1603,6 +1709,273 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     if (s == 'rs') return 'rs_other';
     if (s.isNotEmpty) return 'br_other_$s';
     return null;
+  }
+}
+
+class _CultureFitActionButton extends StatefulWidget {
+  final int answeredCount;
+  final bool isComplete;
+  final bool isLoading;
+  final VoidCallback onTap;
+
+  const _CultureFitActionButton({
+    required this.answeredCount,
+    required this.isComplete,
+    required this.isLoading,
+    required this.onTap,
+  });
+
+  @override
+  State<_CultureFitActionButton> createState() =>
+      _CultureFitActionButtonState();
+}
+
+class _CultureFitActionButtonState extends State<_CultureFitActionButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = (CultureFitKeys.all.length - widget.answeredCount).clamp(
+      0,
+      CultureFitKeys.all.length,
+    );
+    final showBadge = !widget.isComplete && !widget.isLoading;
+
+    return Semantics(
+      button: true,
+      label: 'Responder fit cultural',
+      child: GestureDetector(
+        onTap: widget.isLoading ? null : widget.onTap,
+        child: AnimatedBuilder(
+          animation: _pulse,
+          builder: (context, child) {
+            final scale = widget.isComplete ? 1.0 : 1.0 + (_pulse.value * 0.05);
+            return Transform.scale(scale: scale, child: child);
+          },
+          child: SizedBox(
+            width: 46,
+            height: 46,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: widget.isComplete
+                          ? null
+                          : const LinearGradient(
+                              colors: [AppColors.warning, AppColors.primary],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                      color: widget.isComplete ? Colors.white : null,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: widget.isComplete
+                            ? AppColors.primary.withValues(alpha: 0.18)
+                            : Colors.white.withValues(alpha: 0.45),
+                        width: 1.2,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color:
+                              (widget.isComplete
+                                      ? AppColors.primary
+                                      : AppColors.warning)
+                                  .withValues(alpha: 0.22),
+                          blurRadius: 14,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: widget.isLoading
+                        ? const Center(
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2.4,
+                              ),
+                            ),
+                          )
+                        : Icon(
+                            widget.isComplete
+                                ? Icons.check_rounded
+                                : Icons.groups_rounded,
+                            color: widget.isComplete
+                                ? AppColors.primary
+                                : Colors.white,
+                            size: 22,
+                          ),
+                  ),
+                ),
+                if (showBadge)
+                  Positioned(
+                    right: -2,
+                    top: -2,
+                    child: Container(
+                      width: 19,
+                      height: 19,
+                      decoration: BoxDecoration(
+                        color: AppColors.error,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                      child: Center(
+                        child: Text(
+                          '$remaining',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                            height: 1,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CultureFitRedoSheet extends StatelessWidget {
+  const _CultureFitRedoSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Align(
+                alignment: Alignment.center,
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.borderStrong,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 22),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: const BoxDecoration(
+                      color: AppColors.primarySoft,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.check_rounded,
+                      color: AppColors.primary,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Fit cultural preenchido',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        SizedBox(height: 6),
+                        Text(
+                          'Você pode refazer as 4 respostas. Ao salvar, as respostas anteriores serão substituídas.',
+                          style: TextStyle(
+                            color: AppColors.textTertiary,
+                            fontSize: 14,
+                            height: 1.4,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.of(context).pop(true),
+                icon: const Icon(Icons.refresh_rounded, size: 19),
+                label: const Text('Refazer respostas'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: AppColors.onPrimary,
+                  elevation: 0,
+                  minimumSize: const Size(0, 50),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: AppRadius.brMd,
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.textSecondary,
+                  side: const BorderSide(color: AppColors.border),
+                  minimumSize: const Size(0, 48),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: AppRadius.brMd,
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                child: const Text('Manter respostas atuais'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

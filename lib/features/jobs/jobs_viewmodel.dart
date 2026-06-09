@@ -19,6 +19,7 @@ import 'utils/match_score.dart';
 class JobsViewModel extends ChangeNotifier {
   final JobRepository _jobRepository;
   final SwipeRepository _swipeRepository;
+
   /// @deprecated Mantido no construtor por compatibilidade durante a migração
   /// pra fonte única (tabelas relacionais `profile_*`). Após Passo 3 do plano
   /// match-score (2026-05-27), JobsViewModel NÃO chama mais este repo — filtros
@@ -137,11 +138,13 @@ class JobsViewModel extends ChangeNotifier {
   List<Job> get jobs => _jobs;
   Set<String> get swipedIds => _swipedIds;
   int get remainingCount => _jobs.length - _swipedIds.length;
+
   /// Filtros TEMPORÁRIOS de feed (vivem em SharedPreferences local após
   /// Passo 3 do plano match-score, 2026-05-27). Mexer aqui só altera o
   /// que aparece no feed — NÃO afeta o match score. Pra identidade que
   /// alimenta o match, ver [profilePrefs].
   UserJobPreferences? get preferences => _preferences;
+
   /// Preferências de IDENTIDADE lidas das tabelas relacionais
   /// (`profile_job_preferences`, `profile_desired_titles`,
   /// `profile_other_locations`). Alimenta o MatchScoreCalculator no
@@ -212,7 +215,9 @@ class JobsViewModel extends ChangeNotifier {
   /// dentro do timeout, null caso contrário. Usado pra mitigar a race entre o
   /// widget montar e a sessão Supabase restaurar do storage local (cold start
   /// do app pode levar 100-500ms).
-  Future<String?> _awaitUserId({Duration timeout = const Duration(seconds: 3)}) async {
+  Future<String?> _awaitUserId({
+    Duration timeout = const Duration(seconds: 3),
+  }) async {
     final id = userId;
     if (id != null) return id;
     final deadline = DateTime.now().add(timeout);
@@ -264,8 +269,7 @@ class JobsViewModel extends ChangeNotifier {
       Analytics.shared.feedLoaded(
         subTab: 'para_voce',
         jobsCount: _jobs.length,
-        loadDurationMs:
-            DateTime.now().difference(loadStartedAt).inMilliseconds,
+        loadDurationMs: DateTime.now().difference(loadStartedAt).inMilliseconds,
         cacheHit: false,
       );
     } catch (e) {
@@ -396,7 +400,8 @@ class JobsViewModel extends ChangeNotifier {
           .select('gamification_data')
           .eq('id', userId!)
           .maybeSingle();
-      _cachedGamificationData = row?['gamification_data'] as Map<String, dynamic>?;
+      _cachedGamificationData =
+          row?['gamification_data'] as Map<String, dynamic>?;
     } catch (e) {
       print('fetchGamificationData failed: $e');
       _cachedGamificationData = null;
@@ -451,6 +456,7 @@ class JobsViewModel extends ChangeNotifier {
   /// invalida em [ProfileEvents.changes] e [signOut].
   UserJobPreferences? _cachedProfilePrefs;
   bool _profilePrefsLoaded = false;
+
   /// Contagem de skills do user em `profile_skills`. Carregada junto com
   /// profilePrefs (1 query extra). Usada pelo Passo 5 (confidence) — skills
   /// só "conta como dimensão preenchida" se >= 3 (1 ou 2 skills isoladas
@@ -480,9 +486,19 @@ class JobsViewModel extends ChangeNotifier {
         // Future.wait não infere tipo comum entre maybeSingle (Map?) e
         // select (List<Map>) — explicitamos `dynamic` e fazemos cast depois.
         final results = await Future.wait<dynamic>([
-          client.from('profile_job_preferences').select('*').eq('user_id', uid).maybeSingle(),
-          client.from('profile_desired_titles').select('title').eq('user_id', uid),
-          client.from('profile_other_locations').select('city').eq('user_id', uid),
+          client
+              .from('profile_job_preferences')
+              .select('*')
+              .eq('user_id', uid)
+              .maybeSingle(),
+          client
+              .from('profile_desired_titles')
+              .select('title')
+              .eq('user_id', uid),
+          client
+              .from('profile_other_locations')
+              .select('city')
+              .eq('user_id', uid),
           client.from('profile_skills').select('user_id').eq('user_id', uid),
         ]);
 
@@ -512,19 +528,28 @@ class JobsViewModel extends ChangeNotifier {
         final workModes = workModesRaw.map((wm) {
           final s = wm.toString();
           switch (s) {
-            case 'remote': return 'remoto';
-            case 'hybrid': return 'hibrido';
-            case 'in_person': return 'presencial';
-            default: return s; // já em PT ou desconhecido
+            case 'remote':
+              return 'remoto';
+            case 'hybrid':
+              return 'hibrido';
+            case 'in_person':
+              return 'presencial';
+            default:
+              return s; // já em PT ou desconhecido
           }
         }).toList();
 
-        final jobTypes = (jp?['job_types'] as List?)
-            ?.cast<dynamic>()
-            .map((e) => e.toString())
-            .toList() ?? <String>[];
+        final jobTypes =
+            (jp?['job_types'] as List?)
+                ?.cast<dynamic>()
+                .map((e) => e.toString())
+                .toList() ??
+            <String>[];
 
-        if (areas.isEmpty && locations.isEmpty && workModes.isEmpty && jobTypes.isEmpty) {
+        if (areas.isEmpty &&
+            locations.isEmpty &&
+            workModes.isEmpty &&
+            jobTypes.isEmpty) {
           _cachedProfilePrefs = null;
         } else {
           _cachedProfilePrefs = UserJobPreferences(
@@ -731,6 +756,9 @@ class JobsViewModel extends ChangeNotifier {
       // Silent refresh não bloqueia a UI do swiper.
       if (action == 'liked') {
         loadLikedJobs(silent: true);
+        if (job.applicationMethod == 'email') {
+          unawaited(_notifyAutoApplySwipe(job));
+        }
       }
     } catch (e) {
       // Rollback otimista
@@ -738,6 +766,23 @@ class JobsViewModel extends ChangeNotifier {
       _swipedIds.remove(job.id);
       _undoStack.removeLast();
       notifyListeners();
+    }
+  }
+
+  /// Notifica operação/founder quando um user autoriza candidatura automática
+  /// em vaga por email. Best-effort: falha de ntfy não desfaz o swipe.
+  Future<void> _notifyAutoApplySwipe(Job job) async {
+    try {
+      final response = await Supabase.instance.client.functions
+          .invoke('notify-auto-apply-swipe', body: {'job_id': job.id})
+          .timeout(const Duration(seconds: 10));
+      if (response.status < 200 || response.status >= 300) {
+        print(
+          '[notify-auto-apply-swipe] status=${response.status} data=${response.data}',
+        );
+      }
+    } catch (e) {
+      print('[notify-auto-apply-swipe] failed: $e');
     }
   }
 
