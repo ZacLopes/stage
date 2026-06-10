@@ -69,31 +69,10 @@ serve(withEdgeAnalytics('notify-auto-apply-swipe', async (req) => {
       return jsonResponse({ ok: true, skipped: 'not_email_application' })
     }
 
-    const [{ data: personal }, { data: legacy }] = await Promise.all([
-      supabaseAdmin
-        .from('profile_personal')
-        .select('first_name, last_name, email, phone_country_code, phone_number')
-        .eq('user_id', user.id)
-        .maybeSingle(),
-      supabaseAdmin
-        .from('user_profiles')
-        .select('name, email, phone')
-        .eq('id', user.id)
-        .maybeSingle(),
-    ])
-
-    const firstName = clean(personal?.first_name)
-    const lastName = clean(personal?.last_name)
-    const candidateName = clean(
-      [firstName, lastName].filter(Boolean).join(' '),
-      clean(legacy?.name, 'Usuário sem nome'),
-    )
-    const candidateEmail = clean(personal?.email, clean(legacy?.email, clean(user.email, 'email não informado')))
-    const candidatePhone = clean(
-      [personal?.phone_country_code, personal?.phone_number].filter(Boolean).join(' '),
-      clean(legacy?.phone),
-    )
-
+    // Fase 0 T0.3 (auditoria M4): PII do candidato (nome/e-mail/telefone)
+    // não transita mais pelo ntfy. Ficam só dados DA VAGA (título, empresa,
+    // e-mail/assunto da candidatura) + IDs. O contato do candidato é
+    // consultado no admin dashboard (decisão do fundador, 2026-06-10).
     const companies = job.companies as { name?: string } | Array<{ name?: string }> | null
     const company = clean(Array.isArray(companies) ? companies[0]?.name : companies?.name, 'Empresa não informada')
     const applicationEmail = clean(job.application_email, 'email da vaga não informado')
@@ -111,14 +90,11 @@ serve(withEdgeAnalytics('notify-auto-apply-swipe', async (req) => {
     }
 
     const message = [
-      `${candidateName} deu swipe em aplicação por IA`,
       `${clean(job.title, 'Vaga sem título')} · ${company}`,
       `Enviar para: ${applicationEmail}`,
       applicationSubject ? `Assunto: ${applicationSubject}` : '',
-      `Candidato: ${candidateEmail}`,
-      candidatePhone ? `Telefone: ${candidatePhone}` : '',
-      `Job ID: ${job.id}`,
-      `User ID: ${user.id}`,
+      `Job: ${job.id}`,
+      `User: ${user.id.slice(0, 8)} (contato no admin dashboard)`,
     ].filter(Boolean).join('\n')
 
     const ntfyRes = await fetch(host, {
