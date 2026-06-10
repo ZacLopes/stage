@@ -1,0 +1,72 @@
+# CI mínimo do Stage — Fase 0 (T0.5, ref. auditoria O2 #4 / A9).
+#
+# 4 jobs: analyze (com ratchet de warnings), test, env-safety e
+# migrations-manifest. Flutter pinado na versão do time (3.38.5).
+#
+# Deliberadamente fora (anotado no FASE-0-RELATORIO): build iOS noturno,
+# checagem real de drift contra o banco (roda local — sem secrets no GitHub).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.5'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # --no-fatal-warnings: o default do flutter analyze trata warning como
+      # fatal e a base tem 47 warnings históricos. Errors continuam fatais.
+      # O ratchet abaixo impede o número de warnings de SUBIR.
+      - name: flutter analyze + ratchet de warnings
+        run: |
+          set -o pipefail
+          flutter analyze --no-fatal-warnings 2>&1 | tee analyze_output.txt
+          count=$(grep -c "warning •" analyze_output.txt || true)
+          baseline=$(cat scripts/analyze_warnings_baseline.txt)
+          echo "warnings: $count (baseline: $baseline)"
+          if [ "$count" -gt "$baseline" ]; then
+            echo "ERRO: warnings subiram de $baseline para $count."
+            echo "Corrija os warnings novos (ou, com justificativa no PR, atualize scripts/analyze_warnings_baseline.txt)."
+            exit 1
+          fi
+          if [ "$count" -lt "$baseline" ]; then
+            echo "NOTA: warnings caíram para $count — atualize a baseline pra travar o ganho."
+          fi
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.5'
+          channel: stable
+          cache: true
+      # O .env é gitignored mas é asset declarado no pubspec — sem o arquivo,
+      # o asset bundle do flutter test falha. Dummy com chaves públicas vazias.
+      - name: cria .env dummy (asset declarado)
+        run: |
+          printf 'SUPABASE_URL=https://example.supabase.co\nSUPABASE_ANON_KEY=dummy\nPOSTHOG_API_KEY=\nPOSTHOG_HOST=https://us.i.posthog.com\nONESIGNAL_APP_ID=\n' > .env
+      - run: flutter pub get
+      - run: flutter test
+
+  env-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/check_env_safety.sh
+
+  migrations-manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/check_migrations_manifest.sh
