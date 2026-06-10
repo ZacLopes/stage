@@ -399,6 +399,20 @@ class AIService {
 
       print('AI RESUME JSON Response: ${json.encode(response.data)}');
       return ResumeContent.fromJson(response.data);
+    } on FunctionException catch (e) {
+      // Em status != 200 o invoke lança FunctionException com o body em
+      // e.details. 429 = rate limit diário (Fase 0 T0.2) — mensagem amigável
+      // em vez de erro técnico; a UI existente exibe a mensagem da exception.
+      final details = e.details;
+      final code = details is Map ? details['error']?.toString() : null;
+      if (e.status == 429 || code == 'rate_limit_exceeded') {
+        throw Exception(
+          'Você atingiu o limite diário de gerações de currículo. '
+          'Tente de novo amanhã.',
+        );
+      }
+      print('Error generating resume content: $e');
+      rethrow;
     } catch (e) {
       print('Error generating resume content: $e');
       rethrow;
