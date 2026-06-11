@@ -257,7 +257,7 @@ serve(withEdgeAnalytics('generate-bullets', async (req) => {
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
     }
-})
+}))
 
 function buildSystemPrompt(
     targetJob: { title?: string; description_text?: string } | null,
