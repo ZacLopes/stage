@@ -15,6 +15,7 @@ import '../../../auth/auth_session.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/data/repositories/profile_repository_supabase.dart';
 import '../../../profile/domain/entities/entities.dart';
+import '../../../profile/presentation/widgets/institution_typeahead_field.dart';
 import '../../utils/onboarding_input_decoration.dart';
 import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
@@ -163,6 +164,11 @@ class _EducationScreenState extends State<EducationScreen> {
   _EducationMoment? _moment;
   int? _semester;
   int? _schoolYear;
+
+  /// id do catálogo `institutions` quando o user escolhe uma sugestão do
+  /// typeahead (Fase 1 T1.6). Null = texto livre. Editar o campo depois de
+  /// selecionar limpa (callback do widget).
+  String? _collegeInstitutionId;
   bool _saving = false;
   DateTime? _shownAt;
 
@@ -218,6 +224,7 @@ class _EducationScreenState extends State<EducationScreen> {
 
         if (college != null) {
           _collegeController.text = college.institution;
+          _collegeInstitutionId = college.institutionId;
           if (college.majors.isNotEmpty) {
             _courseController.text = college.majors.first.name;
           } else {
@@ -404,6 +411,10 @@ class _EducationScreenState extends State<EducationScreen> {
       id: existing?.id ?? '',
       userId: existing?.userId ?? userId,
       institution: name,
+      // Typeahead desta sessão > vínculo pré-existente (se o texto não
+      // mudou) > null (texto livre). O raw text é sempre a verdade.
+      institutionId: _collegeInstitutionId ??
+          (name == existing?.institution ? existing?.institutionId : null),
       educationLevel: 'college',
       educationStatus: moment.educationStatus,
       location: existing?.location,
@@ -686,13 +697,25 @@ class _EducationScreenState extends State<EducationScreen> {
       children: [
         _FieldBlock(
           title: moment.institutionLabel,
-          child: TextField(
-            controller: institutionController,
-            textCapitalization: TextCapitalization.words,
-            decoration: onboardingInputDecoration(
-              hintText: moment.institutionHint,
-            ),
-          ),
+          // Fase 1 T1.6: faculdade ganha typeahead contra o catálogo
+          // `institutions` (95 IES) — seleção grava institution_id; texto
+          // livre continua valendo ("outra"). Escola segue campo livre
+          // (catálogo não cobre escolas).
+          child: moment.needsSchool
+              ? TextField(
+                  controller: institutionController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: onboardingInputDecoration(
+                    hintText: moment.institutionHint,
+                  ),
+                )
+              : InstitutionTypeaheadField(
+                  controller: institutionController,
+                  onInstitutionSelected: (s) => _collegeInstitutionId = s?.id,
+                  decoration: onboardingInputDecoration(
+                    hintText: moment.institutionHint,
+                  ),
+                ),
         ),
         if (moment.needsSchool) ...[
           const SizedBox(height: 12),

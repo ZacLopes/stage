@@ -87,6 +87,11 @@ class Education {
   final String id;
   final String userId;
   final String institution;
+
+  /// Vínculo com o catálogo `institutions` (Fase 1 T1.6). Null = texto livre
+  /// ("outra" no typeahead) ou registro anterior ao backfill sem match.
+  /// O texto raw em [institution] permanece sempre.
+  final String? institutionId;
   final String? educationLevel;
   final String? educationStatus;
   final String? location;
@@ -107,6 +112,7 @@ class Education {
     required this.id,
     required this.userId,
     required this.institution,
+    this.institutionId,
     this.educationLevel,
     this.educationStatus,
     this.location,
@@ -136,6 +142,7 @@ class Education {
     'id': id,
     'user_id': userId,
     'institution': institution,
+    'institution_id': institutionId,
     'education_level': educationLevel,
     'education_status': educationStatus,
     'location': location,
@@ -158,6 +165,7 @@ class Education {
       id: map['id'] as String,
       userId: map['user_id'] as String,
       institution: map['institution'] as String? ?? '',
+      institutionId: map['institution_id'] as String?,
       educationLevel: map['education_level'] as String?,
       educationStatus: map['education_status'] as String?,
       location: map['location'] as String?,
@@ -198,6 +206,8 @@ class Education {
     String? id,
     String? userId,
     String? institution,
+    String? institutionId,
+    bool clearInstitutionId = false,
     String? educationLevel,
     String? educationStatus,
     String? location,
@@ -217,6 +227,8 @@ class Education {
     id: id ?? this.id,
     userId: userId ?? this.userId,
     institution: institution ?? this.institution,
+    institutionId:
+        clearInstitutionId ? null : (institutionId ?? this.institutionId),
     educationLevel: educationLevel ?? this.educationLevel,
     educationStatus: educationStatus ?? this.educationStatus,
     location: location ?? this.location,

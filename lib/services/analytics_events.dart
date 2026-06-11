@@ -516,6 +516,25 @@ const String evCultureFitQuestionAnswered =
 const String evCultureFitCompleted = 'match_culture_fit_completed';
 
 // ════════════════════════════════════════════════════════════════════
+// Fase 1 — applications (espinha de dados; R7: catálogo + emissor no
+// mesmo PR). Transições server-side (edges admin, Fase 4) emitirão via
+// _shared/posthog.ts captureEvent — estes 3 são os client-side.
+// ════════════════════════════════════════════════════════════════════
+
+/// Application criada pelo usuário (toggle "Marcar como aplicada"; adição
+/// manual chega na F3). Props: application_id, application_type, job_id?,
+/// application_method?.
+const String evApplicationCreated = 'application_created';
+
+/// Transição de estado feita PELO usuário (actor user). Props:
+/// application_id, application_type, from_status, to_status, job_id?.
+const String evApplicationStateChanged = 'application_state_changed';
+
+/// Reabertura (rejected/withdrawn → submitted) pelo usuário. Props:
+/// application_id, application_type, job_id?.
+const String evApplicationReopened = 'application_reopened';
+
+// ════════════════════════════════════════════════════════════════════
 // Allowlist agregada — usada pelo wrapper pra rejeitar nomes não-catalogados.
 // ════════════════════════════════════════════════════════════════════
 
@@ -524,6 +543,8 @@ const String evCultureFitCompleted = 'match_culture_fit_completed';
 /// debug mode e loga warning se nome não está aqui. Em release, passa
 /// silenciosamente (pra não quebrar comportamento por bug de catálogo).
 const Set<String> kAllowedEventNames = {
+  // Fase 1 — applications
+  evApplicationCreated, evApplicationStateChanged, evApplicationReopened,
   // B.1
   evAppOpened, evAppFirstOpenEver, evAuthSignupLandingShown,
   evAuthSignupMethodChosen, evAuthSignupStarted, evAuthSignupCompleted,

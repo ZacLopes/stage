@@ -1,0 +1,173 @@
+/// Candidatura (Fase 1 — espinha de dados). Espelha `public.applications`:
+/// a fonte de verdade de "apliquei" deixou de ser `swipe_actions.applied`
+/// (DEPRECATED) e passou a ser esta entidade, com máquina de estados
+/// validada no banco (trigger + matriz por actor).
+library;
+
+enum ApplicationStatus {
+  submitted,
+  inReview,
+  shortlisted,
+  interview,
+  offer,
+  hired,
+  rejected,
+  withdrawn,
+  expired;
+
+  static ApplicationStatus fromDb(String raw) => switch (raw) {
+        'submitted' => submitted,
+        'in_review' => inReview,
+        'shortlisted' => shortlisted,
+        'interview' => interview,
+        'offer' => offer,
+        'hired' => hired,
+        'rejected' => rejected,
+        'withdrawn' => withdrawn,
+        'expired' => expired,
+        _ => submitted, // status desconhecido (versão futura) degrada pra base
+      };
+
+  String get db => switch (this) {
+        submitted => 'submitted',
+        inReview => 'in_review',
+        shortlisted => 'shortlisted',
+        interview => 'interview',
+        offer => 'offer',
+        hired => 'hired',
+        rejected => 'rejected',
+        withdrawn => 'withdrawn',
+        expired => 'expired',
+      };
+
+  bool get isTerminal => this == hired || this == expired;
+
+  /// "Conta como aplicada" pra UI (bucket "Já apliquei" e contadores):
+  /// qualquer estado vivo do pipeline. withdrawn/expired não contam;
+  /// rejected conta (o user aplicou — o desfecho foi negativo).
+  bool get countsAsApplied => this != withdrawn && this != expired;
+}
+
+enum ApplicationType {
+  stage,
+  externalConfirmed,
+  manual;
+
+  static ApplicationType fromDb(String raw) => switch (raw) {
+        'stage' => stage,
+        'manual' => manual,
+        _ => externalConfirmed,
+      };
+
+  String get db => switch (this) {
+        stage => 'stage',
+        externalConfirmed => 'external_confirmed',
+        manual => 'manual',
+      };
+}
+
+class Application {
+  final String id;
+  final String userId;
+  final String? jobId;
+  final ApplicationType type;
+  final ApplicationStatus status;
+  final String? applicationMethod;
+  final String? adaptedResumeId;
+  final DateTime? slaDeadline;
+  final String? rejectionCategory;
+  final String? notes;
+  final String? externalCompany;
+  final String? externalTitle;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const Application({
+    required this.id,
+    required this.userId,
+    required this.jobId,
+    required this.type,
+    required this.status,
+    this.applicationMethod,
+    this.adaptedResumeId,
+    this.slaDeadline,
+    this.rejectionCategory,
+    this.notes,
+    this.externalCompany,
+    this.externalTitle,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory Application.fromJson(Map<String, dynamic> json) => Application(
+        id: json['id'] as String,
+        userId: json['user_id'] as String,
+        jobId: json['job_id'] as String?,
+        type: ApplicationType.fromDb((json['type'] as String?) ?? ''),
+        status: ApplicationStatus.fromDb((json['status'] as String?) ?? ''),
+        applicationMethod: json['application_method'] as String?,
+        adaptedResumeId: json['adapted_resume_id'] as String?,
+        slaDeadline: json['sla_deadline'] != null
+            ? DateTime.tryParse(json['sla_deadline'] as String)
+            : null,
+        rejectionCategory: json['rejection_category'] as String?,
+        notes: json['notes'] as String?,
+        externalCompany: json['external_company'] as String?,
+        externalTitle: json['external_title'] as String?,
+        createdAt: DateTime.parse(json['created_at'] as String),
+        updatedAt: DateTime.parse(json['updated_at'] as String),
+      );
+
+  Application copyWith({ApplicationStatus? status}) => Application(
+        id: id,
+        userId: userId,
+        jobId: jobId,
+        type: type,
+        status: status ?? this.status,
+        applicationMethod: applicationMethod,
+        adaptedResumeId: adaptedResumeId,
+        slaDeadline: slaDeadline,
+        rejectionCategory: rejectionCategory,
+        notes: notes,
+        externalCompany: externalCompany,
+        externalTitle: externalTitle,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+      );
+}
+
+/// Espelho client da matriz de transições do banco (actor `user`). A
+/// validação REAL é o trigger `_applications_validate_update` — este helper
+/// existe pra UI desabilitar ações inválidas sem round-trip e pros testes.
+bool canTransition(ApplicationType type, ApplicationStatus from, ApplicationStatus to) {
+  if (from == to) return true;
+  const pipeline = {
+    ApplicationStatus.inReview,
+    ApplicationStatus.shortlisted,
+    ApplicationStatus.interview,
+    ApplicationStatus.offer,
+    ApplicationStatus.hired,
+  };
+  if (type == ApplicationType.stage) {
+    // user em stage: só desistir.
+    return !from.isTerminal &&
+        from != ApplicationStatus.rejected &&
+        from != ApplicationStatus.withdrawn &&
+        to == ApplicationStatus.withdrawn;
+  }
+  // Reabertura (manual/external).
+  if ((from == ApplicationStatus.rejected || from == ApplicationStatus.withdrawn) &&
+      to == ApplicationStatus.submitted) {
+    return true;
+  }
+  // Pipeline livre, INCLUSIVE retrocesso (por design — corrigir o próprio
+  // tracker), a partir de qualquer não-terminal.
+  if (from.isTerminal ||
+      from == ApplicationStatus.rejected ||
+      from == ApplicationStatus.withdrawn) {
+    return false;
+  }
+  return pipeline.contains(to) ||
+      to == ApplicationStatus.rejected ||
+      to == ApplicationStatus.withdrawn;
+}

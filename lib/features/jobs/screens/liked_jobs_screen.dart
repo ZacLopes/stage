@@ -15,6 +15,7 @@ import '../../auth/user_viewmodel.dart';
 import '../../profile/application/profile_editor_view_model.dart';
 import '../data/swipe_repository.dart';
 import '../job_swipe_context.dart';
+import '../widgets/expired_job_badge.dart';
 import '../jobs_viewmodel.dart';
 import 'job_details_sheet.dart';
 import '../../../core/theme/theme.dart';
@@ -162,15 +163,19 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
-          'Remover das salvas?',
-          style: TextStyle(fontFamily: 'Outfit', 
+          liked.job.isActive ? 'Remover das salvas?' : 'Arquivar vaga expirada?',
+          style: TextStyle(fontFamily: 'Outfit',
             fontSize: 18,
             fontWeight: FontWeight.w700,
             color: AppColors.textPrimary,
           ),
         ),
         content: Text(
-          '"${liked.job.title}" sai daqui e volta a aparecer no feed de vagas.',
+          // Vaga inativa NÃO volta ao feed (o fetch só traz is_active=true) —
+          // copy diferente pra não prometer o que não acontece (Fase 1 T1.4).
+          liked.job.isActive
+              ? '"${liked.job.title}" sai daqui e volta a aparecer no feed de vagas.'
+              : '"${liked.job.title}" não está mais ativa — sai das salvas e não volta ao feed.',
           style: TextStyle(fontFamily: 'Inter', 
             fontSize: 14,
             color: AppColors.textSecondary,
@@ -279,16 +284,20 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
     }
 
     // Agrupa em 3 buckets pra UX de acompanhamento:
-    // - pending: ainda não aplicou E prazo NÃO expirou (mais ação a fazer)
-    // - applied: já aplicou E prazo NÃO expirou (acompanhamento positivo)
-    // - expired: prazo expirou — independente de aplicado (baixa prioridade)
+    // - pending: ainda não aplicou E vaga viva (mais ação a fazer)
+    // - applied: já aplicou E vaga viva (acompanhamento positivo)
+    // - expired: prazo expirou OU a vaga foi desativada pelo sync
+    //   (is_active=false — 69% dos applied históricos apontavam pra vaga
+    //   morta sem nenhum aviso na UI; Fase 1 T1.4/E5). Link externo pode
+    //   estar morto — o card ganha badge e a ação vira arquivar.
     final now = DateTime.now();
     final pending = <LikedJob>[];
     final applied = <LikedJob>[];
     final expired = <LikedJob>[];
     for (final liked in vm.likedJobs) {
       final deadlineAt = liked.job.deadlineAt;
-      final isExpired = deadlineAt != null && deadlineAt.isBefore(now);
+      final isExpired = !liked.job.isActive ||
+          (deadlineAt != null && deadlineAt.isBefore(now));
       if (isExpired) {
         expired.add(liked);
       } else if (liked.applied) {
@@ -324,7 +333,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
     }
     if (expired.isNotEmpty) {
       items.add(_SectionHeaderItem(
-        title: 'Prazo expirado',
+        title: 'Expiradas',
         count: expired.length,
         color: AppColors.textDisabled,
         icon: Icons.event_busy_outlined,
@@ -663,6 +672,10 @@ class _LikedJobCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (isExpired) ...[
+                const ExpiredJobBadge(),
+                const SizedBox(height: 8),
+              ],
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

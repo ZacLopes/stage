@@ -43,17 +43,16 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
     setState(() => _finishing = true);
 
     final userVm = context.read<UserViewModel>();
-    debugPrint('[OnboardingCompleteScreen] before createCampaign: hasCampaign=${userVm.hasCampaign}');
 
-    // Cria campaign skipped — mesma técnica da CompletionScreen legacy.
-    // Sem isso, AuthGate não detecta hasCampaign=true e fica em loop.
-    bool campaignOk = false;
+    // Fase 1 T1.7: marca onboarding_completed_at direto (fonte única do
+    // gate) — 2.3.0 NÃO cria mais campaign (builds antigas seguem criando
+    // e a bridge no banco converte). Sem isso, AuthGate fica em loop.
     try {
-      await userVm.createCampaign(isSkipped: true);
-      campaignOk = userVm.hasCampaign;
-      debugPrint('[OnboardingCompleteScreen] after createCampaign: hasCampaign=$campaignOk');
+      await userVm.markOnboardingCompleted();
+      debugPrint('[OnboardingCompleteScreen] onboarding marcado: '
+          'hasCompletedOnboarding=${userVm.hasCompletedOnboarding}');
     } catch (e) {
-      debugPrint('[OnboardingCompleteScreen] createCampaign FAILED: $e');
+      debugPrint('[OnboardingCompleteScreen] markOnboardingCompleted FAILED: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -82,9 +81,9 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
     // ignore: unawaited_futures
     FacebookEventsService.shared.logLeadOnce(userId: userVm.user?.id);
 
-    if (!campaignOk) {
-      // Defensiva: se createCampaign rodou sem exception mas hasCampaign ficou false,
-      // não fecha o stack pra evitar loop. Mostra erro pro user.
+    if (!userVm.hasCompletedOnboarding) {
+      // Defensiva: se markOnboardingCompleted rodou sem exception mas o gate
+      // continua false, não fecha o stack pra evitar loop. Mostra erro.
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Não foi possível finalizar. Tenta novamente.'),

@@ -28,7 +28,7 @@ import 'features/resume/resume_viewmodel.dart';
 import 'features/jobs/jobs_viewmodel.dart';
 import 'features/jobs/data/job_repository.dart';
 import 'features/jobs/data/swipe_repository.dart';
-import 'features/jobs/data/preferences_repository.dart';
+import 'features/jobs/data/applications_repository.dart';
 import 'features/jobs/pending_adapted_cv_tracker.dart';
 import 'features/profile/profile_tab_prefs.dart';
 import 'features/tutorial/tutorial_controller.dart';
@@ -262,7 +262,7 @@ Future<void> _bootstrap() async {
           create: (_) => JobsViewModel(
             JobRepository(),
             SwipeRepository(),
-            PreferencesRepository(),
+            ApplicationsRepository(),
             aiService,
           ),
         ),

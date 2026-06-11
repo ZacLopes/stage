@@ -128,14 +128,13 @@ class _CompletionScreenState extends State<CompletionScreen>
 
     if (!mounted) return;
 
-    // Cria campaign sem target (skipped) — o cargo-alvo será coletado
-    // contextualmente depois (na hora de adaptar CV pra uma vaga específica).
-    // Sem isso o AuthGate continuaria roteando pra CompletionScreen porque
-    // `hasCampaign` é o flag de "onboarding finalizado".
+    // Fase 1 T1.7: marca onboarding_completed_at (fonte única do gate) —
+    // substitui o createCampaign(skipped) legacy. O cargo-alvo continua
+    // sendo coletado contextualmente depois (ao adaptar CV pra uma vaga).
     try {
-      await context.read<UserViewModel>().createCampaign(isSkipped: true);
+      await context.read<UserViewModel>().markOnboardingCompleted();
     } catch (e) {
-      debugPrint('createCampaign(skip) failed (non-blocking): $e');
+      debugPrint('markOnboardingCompleted failed (non-blocking): $e');
     }
 
     if (!mounted) return;
@@ -155,9 +154,10 @@ class _CompletionScreenState extends State<CompletionScreen>
     setState(() => _isPickingFile = true);
 
     try {
-      await context.read<UserViewModel>().createCampaign(isSkipped: true);
+      // Fase 1 T1.7: fonte única do gate (substitui createCampaign skipped).
+      await context.read<UserViewModel>().markOnboardingCompleted();
     } catch (e) {
-      debugPrint('createCampaign(skip) failed (non-blocking): $e');
+      debugPrint('markOnboardingCompleted failed (non-blocking): $e');
     }
 
     if (!mounted) return;

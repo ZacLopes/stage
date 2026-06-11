@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../../../auth/auth_session.dart';
 import '../../../gamification/widgets/month_year_picker_sheet.dart';
 import '../../domain/entities/entities.dart';
+import 'institution_typeahead_field.dart';
 import '../../../../core/theme/theme.dart';
 
 const _degrees = [
@@ -132,6 +133,11 @@ class AddEditEducationModal extends StatefulWidget {
 
 class _AddEditEducationModalState extends State<AddEditEducationModal> {
   late final TextEditingController _institution;
+
+  /// Vínculo com o catálogo `institutions` (Fase 1 T1.6). Prefilled do
+  /// registro existente; setado pelo typeahead; limpo quando o user edita
+  /// o texto depois de selecionar (callback do widget).
+  String? _institutionId;
   late final TextEditingController _location;
   late String _educationLevel;
   late String _educationStatus;
@@ -153,6 +159,7 @@ class _AddEditEducationModalState extends State<AddEditEducationModal> {
     _educationLevel = _initialEducationLevel(i);
     _educationStatus = _initialEducationStatus(i, _educationLevel);
     _institution = TextEditingController(text: i?.institution ?? '');
+    _institutionId = i?.institutionId;
     _location = TextEditingController(text: i?.location ?? '');
     _degree = _normalizeDegree(i?.degree);
     _majors = i?.majors.map((m) => m.name).toList() ?? <String>[];
@@ -286,6 +293,7 @@ class _AddEditEducationModalState extends State<AddEditEducationModal> {
       id: base?.id ?? '',
       userId: base?.userId ?? userId,
       institution: _institution.text.trim(),
+      institutionId: isSchool ? null : _institutionId,
       educationLevel: _educationLevel,
       educationStatus: _educationStatus,
       location: _location.text.trim().isEmpty ? null : _location.text.trim(),
@@ -357,12 +365,40 @@ class _AddEditEducationModalState extends State<AddEditEducationModal> {
                           onChanged: _setEducationLevel,
                         ),
                         const SizedBox(height: 20),
-                        _UnderlineField(
-                          controller: _institution,
-                          label: _institutionLabel,
-                          required: true,
-                          capitalize: true,
-                        ),
+                        // Fase 1 T1.6: faculdade ganha typeahead contra o
+                        // catálogo `institutions`; escola segue campo livre.
+                        // _FieldLabel preservado (estilo + testes existentes).
+                        if (_isSchool)
+                          _UnderlineField(
+                            controller: _institution,
+                            label: _institutionLabel,
+                            required: true,
+                            capitalize: true,
+                          )
+                        else
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _FieldLabel(
+                                  text: _institutionLabel, required: true),
+                              const SizedBox(height: 4),
+                              InstitutionTypeaheadField(
+                                controller: _institution,
+                                onInstitutionSelected: (s) =>
+                                    _institutionId = s?.id,
+                                style: const TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w700,
+                                  color: _kTextColor,
+                                ),
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  contentPadding:
+                                      EdgeInsets.symmetric(vertical: 8),
+                                ),
+                              ),
+                            ],
+                          ),
                         const SizedBox(height: 20),
                         _UnderlineOptionDropdown(
                           label: 'Situação',

@@ -524,10 +524,15 @@ class AuthGate extends StatelessWidget {
           // 4. Sem campaign mas sem precisar setup → CompletionScreen (legacy).
           //
           // Esse Consumer re-roteia automaticamente quando o state muda
-          // (ex: user finaliza onboarding → hasCampaign vira true → rebuild →
-          // HomeScreen). Telas filhas NÃO devem fazer push manual —
-          // gera GlobalKey duplicada com a HomeScreen que esse Consumer monta.
-          if (viewModel.hasCampaign) {
+          // (ex: user finaliza onboarding → hasCompletedOnboarding vira true
+          // → rebuild → HomeScreen). Telas filhas NÃO devem fazer push manual
+          // — gera GlobalKey duplicada com a HomeScreen que esse Consumer monta.
+          //
+          // Fase 1 T1.7: o gate passou de hasCampaign (marcador legacy) para
+          // onboarding_completed_at em profile_personal — backfill cobriu o
+          // histórico e a bridge no banco cobre builds antigas que ainda
+          // criam campaign. A prioridade sobre os checks de setup permanece.
+          if (viewModel.hasCompletedOnboarding) {
             return const HomeScreen();
           }
           if (viewModel.isInProfileFirstFlow) {
