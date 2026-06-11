@@ -96,6 +96,23 @@ class UserViewModel extends ChangeNotifier {
   }
   Campaign? get currentCampaign => _currentCampaign;
   bool get hasCampaign => _currentCampaign != null;
+
+  /// Fase 1 T1.7 — fonte única do gate de onboarding (substitui hasCampaign
+  /// no AuthGate). Backfill + bridge no banco garantem que todo user com
+  /// campaign tem onboarding_completed_at.
+  DateTime? _onboardingCompletedAt;
+  bool get hasCompletedOnboarding => _onboardingCompletedAt != null;
+
+  /// Marca o onboarding como concluído (idempotente) e atualiza o estado
+  /// local — o AuthGate (Consumer) re-roteia pra HomeScreen no notify.
+  /// Substitui o createCampaign(isSkipped: true) das telas de conclusão.
+  Future<void> markOnboardingCompleted() async {
+    if (_user?.id == null) return;
+    _onboardingCompletedAt =
+        await _repository.markOnboardingCompleted(_user!.id!);
+    notifyListeners();
+  }
+
   bool get showM1ResetNotice =>
       _user?.gamificationData['show_m1_reset_notice'] == true;
 
@@ -390,6 +407,7 @@ class UserViewModel extends ChangeNotifier {
         case AuthChangeEvent.userDeleted:
           _user = null;
           _currentCampaign = null;
+          _onboardingCompletedAt = null;
           notifyListeners();
           Analytics.shared.logoutCompleted();
           Analytics.shared.reset();
@@ -449,6 +467,9 @@ class UserViewModel extends ChangeNotifier {
         _user = userProfile;
         if (_user != null) {
           _currentCampaign = await _repository.getLatestCampaign(_user!.id!);
+          // Fase 1 T1.7: gate do AuthGate vem daqui (não mais de hasCampaign).
+          _onboardingCompletedAt =
+              await _repository.getOnboardingCompletedAt(_user!.id!);
           // Carrega presença de dados nas tabelas profile_* (alimenta o
           // getter sync `hasResume`). Bloqueia o load — barato (1 query
           // paralela de cada tabela; ~100ms em rede normal).
@@ -461,6 +482,7 @@ class UserViewModel extends ChangeNotifier {
       } else {
         _user = null;
         _currentCampaign = null;
+        _onboardingCompletedAt = null;
         _hasProfileData = false;
         _canAdaptCv = false;
       }

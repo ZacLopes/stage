@@ -123,12 +123,14 @@ class SwipeRepository {
   /// Recria um registro de like com o `created_at` original. Usado pra
   /// desfazer a remoção via SnackBar "Desfazer" — preserva a ordem original
   /// na lista (que é ordenada por created_at desc).
+  ///
+  /// Fase 1: NÃO escreve mais applied/applied_at (DEPRECATED — a fonte de
+  /// verdade é `applications`; escrever applied aqui dispararia a bridge
+  /// de undo no banco). O setApplied legacy foi removido junto.
   Future<void> restoreLike(
     String userId,
     String jobId, {
     required DateTime createdAt,
-    required bool applied,
-    DateTime? appliedAt,
   }) async {
     try {
       await _client.from('swipe_actions').upsert({
@@ -136,28 +138,9 @@ class SwipeRepository {
         'job_id': jobId,
         'action': 'liked',
         'created_at': createdAt.toIso8601String(),
-        'applied': applied,
-        'applied_at': appliedAt?.toIso8601String(),
       }, onConflict: 'user_id,job_id');
     } catch (e) {
       print('Error restoring like: $e');
-      rethrow;
-    }
-  }
-
-  /// Alterna o flag `applied` da vaga curtida do user.
-  Future<void> setApplied(String userId, String jobId, bool applied) async {
-    try {
-      await _client
-          .from('swipe_actions')
-          .update({
-            'applied': applied,
-            'applied_at': applied ? DateTime.now().toIso8601String() : null,
-          })
-          .eq('user_id', userId)
-          .eq('job_id', jobId);
-    } catch (e) {
-      print('Error setting applied flag: $e');
       rethrow;
     }
   }

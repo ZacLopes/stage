@@ -9,9 +9,10 @@ import '../../services/analytics_events.dart';
 import '../../services/analytics_service.dart';
 import '../../services/profile_events.dart';
 import '../../services/profile_snapshot_service.dart';
+import 'data/applications_repository.dart';
 import 'data/job_repository.dart';
 import 'data/swipe_repository.dart';
-import 'data/preferences_repository.dart';
+import 'models/application.dart';
 import 'models/job.dart';
 import 'models/user_preferences.dart';
 import 'utils/match_score.dart';
@@ -20,14 +21,16 @@ class JobsViewModel extends ChangeNotifier {
   final JobRepository _jobRepository;
   final SwipeRepository _swipeRepository;
 
-  /// @deprecated Mantido no construtor por compatibilidade durante a migração
-  /// pra fonte única (tabelas relacionais `profile_*`). Após Passo 3 do plano
-  /// match-score (2026-05-27), JobsViewModel NÃO chama mais este repo — filtros
-  /// vão pra SharedPreferences local e identidade vem das tabelas relacionais.
-  /// Remover no Passo 6 (pós-release) junto com o cleanup do legacy.
-  // ignore: unused_field
-  final PreferencesRepository _preferencesRepository;
+  /// Fase 1: fonte de verdade do "apliquei" é `applications` (máquina de
+  /// estados no banco). Substituiu o PreferencesRepository morto que ocupava
+  /// esta posição do construtor (injeção deprecated desde 27/05, removida).
+  final ApplicationsRepository _applicationsRepository;
   final AIService _aiService;
+
+  /// Cache da application por job_id (hidratado em [loadLikedJobs]).
+  /// `LikedJob.applied` é DERIVADO daqui — `swipe_actions.applied` virou
+  /// legacy (builds antigas ainda escrevem; a bridge do banco converte).
+  Map<String, Application> _applicationsByJob = {};
 
   /// Listener pra mudanças no auth Supabase. Garante que `init()` rode
   /// assim que o user logar (caso o widget tenha sido construído antes
@@ -39,7 +42,7 @@ class JobsViewModel extends ChangeNotifier {
   JobsViewModel(
     this._jobRepository,
     this._swipeRepository,
-    this._preferencesRepository,
+    this._applicationsRepository,
     this._aiService,
   ) {
     // Invalida cache de profileText E profilePrefs quando o user edita o
@@ -912,6 +915,25 @@ class JobsViewModel extends ChangeNotifier {
 
     try {
       _likedJobs = await _swipeRepository.getLikedJobsWithDetails(userId!);
+      // Fase 1: a fonte de verdade do "apliquei" é `applications` — o
+      // `applied` que veio do join com swipe_actions é legacy e é
+      // SOBRESCRITO aqui pelo estado da application (countsAsApplied).
+      final apps = await _applicationsRepository.fetchForUser(userId!);
+      _applicationsByJob = {
+        for (final a in apps)
+          if (a.jobId != null) a.jobId!: a,
+      };
+      _likedJobs = _likedJobs.map((l) {
+        final app = _applicationsByJob[l.job.id];
+        final isApplied = app != null && app.status.countsAsApplied;
+        return LikedJob(
+          swipeId: l.swipeId,
+          job: l.job,
+          applied: isApplied,
+          appliedAt: isApplied ? app.createdAt : null,
+          likedAt: l.likedAt,
+        );
+      }).toList();
     } catch (e) {
       print('Error loading liked jobs: $e');
     } finally {
@@ -957,12 +979,14 @@ class JobsViewModel extends ChangeNotifier {
     if (userId == null) return;
 
     try {
+      // Fase 1: restore não escreve mais applied/applied_at (legacy) — o
+      // estado de candidatura vive em `applications` e é re-derivado no
+      // loadLikedJobs abaixo. Escrever applied=false aqui dispararia a
+      // bridge de undo no banco indevidamente.
       await _swipeRepository.restoreLike(
         userId!,
         liked.job.id,
         createdAt: liked.likedAt,
-        applied: liked.applied,
-        appliedAt: liked.appliedAt,
       );
       // Recarrega pra puxar o swipeId novo (gerado pelo DB no upsert) e
       // manter consistência com a próxima sessão.
@@ -975,6 +999,11 @@ class JobsViewModel extends ChangeNotifier {
   }
 
   /// Marca/desmarca vaga como aplicada. Otimista: atualiza UI antes do DB.
+  ///
+  /// Fase 1: escreve em `applications` (cria `external_confirmed` ou move
+  /// pra `withdrawn`) — NÃO escreve mais `swipe_actions.applied` (legacy;
+  /// builds antigas continuam via bridge do banco). Re-marcar uma vaga cuja
+  /// application estava withdrawn/rejected REABRE a row existente.
   Future<void> setApplied(String jobId, bool applied) async {
     if (userId == null) return;
 
@@ -982,14 +1011,57 @@ class JobsViewModel extends ChangeNotifier {
     if (idx == -1) return;
 
     final old = _likedJobs[idx];
-    _likedJobs[idx] = old.copyWith(
+    _likedJobs[idx] = LikedJob(
+      swipeId: old.swipeId,
+      job: old.job,
       applied: applied,
       appliedAt: applied ? DateTime.now() : null,
+      likedAt: old.likedAt,
     );
     notifyListeners();
 
     try {
-      await _swipeRepository.setApplied(userId!, jobId, applied);
+      if (applied) {
+        final result = await _applicationsRepository.markApplied(
+          userId: userId!,
+          jobId: jobId,
+          applicationMethod: old.job.applicationMethod,
+        );
+        _applicationsByJob[jobId] = result.application;
+        if (result.reopened) {
+          // ignore: unawaited_futures
+          Analytics.shared.applicationReopened(
+            applicationId: result.application.id,
+            applicationType: result.application.type.db,
+            jobId: jobId,
+          );
+        } else {
+          // ignore: unawaited_futures
+          Analytics.shared.applicationCreated(
+            applicationId: result.application.id,
+            applicationType: result.application.type.db,
+            jobId: jobId,
+            applicationMethod: old.job.applicationMethod,
+          );
+        }
+      } else {
+        final prev = _applicationsByJob[jobId];
+        final app = await _applicationsRepository.withdraw(
+          userId: userId!,
+          jobId: jobId,
+        );
+        if (app != null) {
+          _applicationsByJob[jobId] = app;
+          // ignore: unawaited_futures
+          Analytics.shared.applicationStateChanged(
+            applicationId: app.id,
+            applicationType: app.type.db,
+            fromStatus: prev?.status.db ?? ApplicationStatus.submitted.db,
+            toStatus: app.status.db,
+            jobId: jobId,
+          );
+        }
+      }
     } catch (e) {
       // Rollback otimista
       print('Error setting applied: $e');

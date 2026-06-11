@@ -28,7 +28,11 @@ interface UsersRequest {
   };
   consent?: {
     status: 'not_asked' | 'granted' | 'denied' | 'revoked';
+    /// Nota de evidência humana ("confirmou por WhatsApp em DD/MM") —
+    /// vai pra status_reason (decisão do fundador, Fase 1 T1.8).
     reason?: string;
+    grantedVia?: 'whatsapp' | 'email' | 'in_app';
+    scope?: string[];
   };
 }
 
@@ -230,6 +234,8 @@ serve(async (req: Request) => {
           user_id: body.id,
           status: body.consent.status,
           status_reason: body.consent.reason ?? null,
+          granted_via: body.consent.grantedVia ?? null,
+          scope: body.consent.scope ?? ['contact_info'],
           granted_at: body.consent.status === 'granted' ? now : null,
           revoked_at: body.consent.status === 'revoked' ? now : null,
           updated_by_admin: ctx.email,

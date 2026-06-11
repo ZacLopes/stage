@@ -169,7 +169,7 @@ Responda APENAS com um JSON válido no seguinte formato:
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
-})
+}))
 
 function buildPrompt(answersWithQuestions: Record<string, string>): string {
   if (Object.keys(answersWithQuestions).length === 0) {

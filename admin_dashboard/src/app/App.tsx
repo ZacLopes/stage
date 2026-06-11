@@ -7,11 +7,12 @@ import { JobsPage } from '../features/jobs/JobsPage';
 import { UsersPage } from '../features/users/UsersPage';
 import { ClientsPage } from '../features/clients/ClientsPage';
 import { CandidateListsPage } from '../features/candidate-lists/CandidateListsPage';
+import { CandidatesSearchPage } from '../features/candidates/CandidatesSearchPage';
 import { Card } from '../components/ui';
 
 function currentPage(): PageId {
   const hash = window.location.hash.replace('#', '');
-  if (['overview', 'jobs', 'users', 'clients', 'candidate-lists'].includes(hash)) return hash as PageId;
+  if (['overview', 'jobs', 'users', 'candidates', 'clients', 'candidate-lists'].includes(hash)) return hash as PageId;
   return 'overview';
 }
 
@@ -51,6 +52,7 @@ function Shell() {
       {page === 'overview' && <OverviewPage />}
       {page === 'jobs' && <JobsPage onOpenLists={() => changePage('candidate-lists')} />}
       {page === 'users' && <UsersPage />}
+      {page === 'candidates' && <CandidatesSearchPage />}
       {page === 'clients' && <ClientsPage />}
       {page === 'candidate-lists' && <CandidateListsPage />}
     </Layout>

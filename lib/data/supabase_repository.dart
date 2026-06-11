@@ -1048,6 +1048,38 @@ class SupabaseRepository {
     }
   }
 
+  /// Fase 1 T1.7: fonte única do gate de onboarding. Substitui o marcador
+  /// legacy `hasCampaign` (campaigns viraram fóssil; a bridge no banco cobre
+  /// builds antigas que ainda criam campaign).
+  Future<DateTime?> getOnboardingCompletedAt(String userId) async {
+    try {
+      final row = await _client
+          .from('profile_personal')
+          .select('onboarding_completed_at')
+          .eq('user_id', userId)
+          .maybeSingle();
+      final raw = row?['onboarding_completed_at'] as String?;
+      return raw != null ? DateTime.tryParse(raw) : null;
+    } catch (e) {
+      print('Error fetching onboarding_completed_at: $e');
+      return null;
+    }
+  }
+
+  /// Marca o onboarding como concluído. Idempotente: não sobrescreve data
+  /// existente. INSERT mínimo é seguro (NOT NULLs de profile_personal têm
+  /// default — verificado na Fase 1); upsert parcial só toca a coluna nova.
+  Future<DateTime> markOnboardingCompleted(String userId) async {
+    final existing = await getOnboardingCompletedAt(userId);
+    if (existing != null) return existing;
+    final now = DateTime.now().toUtc();
+    await _withTransientRetry(() => _client.from('profile_personal').upsert({
+          'user_id': userId,
+          'onboarding_completed_at': now.toIso8601String(),
+        }, onConflict: 'user_id'));
+    return now;
+  }
+
   Future<Campaign?> getLatestCampaign(String userId) async {
     try {
       final data = await _client

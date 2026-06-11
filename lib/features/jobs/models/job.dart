@@ -46,6 +46,11 @@ class Job {
   /// Assunto sugerido do email de candidatura. Pode conter placeholders tipo
   /// "[SEU NOME]" — substituídos no momento de abrir o mailto.
   final String? applicationSubject;
+
+  /// `jobs.is_active` — o feed só busca ativas, mas a aba Curtidas faz join
+  /// com vagas salvas que podem ter sido desativadas pelo sync (69% dos
+  /// applied históricos — Fase 1 V5). Default true pra payloads sem o campo.
+  final bool isActive;
   final Company? company;
 
   Job({
@@ -79,6 +84,7 @@ class Job {
     this.applicationMethod = 'url',
     this.applicationEmail,
     this.applicationSubject,
+    this.isActive = true,
     this.company,
   });
 
@@ -197,6 +203,7 @@ class Job {
       applicationMethod: (json['application_method'] as String?) ?? 'url',
       applicationEmail: json['application_email'] as String?,
       applicationSubject: json['application_subject'] as String?,
+      isActive: (json['is_active'] as bool?) ?? true,
       company: company,
     );
   }

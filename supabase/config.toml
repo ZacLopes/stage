@@ -1,0 +1,23 @@
+# Config do projeto Supabase (criado no fechamento da Fase 1, 2026-06-11).
+#
+# Razão de existir: persistir o verify_jwt das functions de WEBHOOK.
+# Sem isso, um `supabase functions deploy` futuro SEM o flag
+# --no-verify-jwt reativaria a validação de JWT e quebraria os webhooks
+# SILENCIOSAMENTE (Resend Inbound e o Database Webhook de signup chamam
+# sem Authorization de user) — exatamente a classe de quebra que o
+# deploy manual de hoje evitou na mão.
+#
+# Demais seções usam os defaults do CLI (sem stack local — Docker não
+# instalado; ver V11 do PLANO-FASE-1).
+
+project_id = "career_gamification"
+
+# Webhook do Resend Inbound (vagas Polifinance por e-mail) — autentica
+# por RESEND_INBOUND_WEBHOOK_SECRET + allowlist de remetentes, não por JWT.
+[functions.ingest-jobs-email]
+verify_jwt = false
+
+# Database Webhook (trigger notify_new_signup em user_profiles) — chamada
+# servidor→servidor, sem sessão de user.
+[functions.notify-signup]
+verify_jwt = false

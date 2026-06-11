@@ -135,7 +135,9 @@ async function verifySvixSignature(
 
   const key = await crypto.subtle.importKey(
     "raw",
-    secretBytes,
+    // Cast neutro: generics de TypedArray do TS 5.7/Deno 2 não unificam
+    // Uint8Array<ArrayBufferLike> com BufferSource — runtime idêntico.
+    secretBytes as unknown as BufferSource,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],

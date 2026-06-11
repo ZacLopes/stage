@@ -1041,6 +1041,47 @@ class AnalyticsService {
         if (applicationMethod != null) 'application_method': applicationMethod,
       });
 
+  // ── Fase 1 — applications (R7: catálogo + emissor no mesmo PR) ──────
+
+  Future<void> applicationCreated({
+    required String applicationId,
+    required String applicationType, // 'external_confirmed' | 'manual'
+    String? jobId,
+    String? applicationMethod,
+  }) =>
+      track(evApplicationCreated, props: {
+        'application_id': applicationId,
+        'application_type': applicationType,
+        if (jobId != null) 'job_id': jobId,
+        if (applicationMethod != null) 'application_method': applicationMethod,
+      });
+
+  Future<void> applicationStateChanged({
+    required String applicationId,
+    required String applicationType,
+    required String fromStatus,
+    required String toStatus,
+    String? jobId,
+  }) =>
+      track(evApplicationStateChanged, props: {
+        'application_id': applicationId,
+        'application_type': applicationType,
+        'from_status': fromStatus,
+        'to_status': toStatus,
+        if (jobId != null) 'job_id': jobId,
+      });
+
+  Future<void> applicationReopened({
+    required String applicationId,
+    required String applicationType,
+    String? jobId,
+  }) =>
+      track(evApplicationReopened, props: {
+        'application_id': applicationId,
+        'application_type': applicationType,
+        if (jobId != null) 'job_id': jobId,
+      });
+
   /// Mapeado pra `filter_applied` (B.13) com screen="jobs_feed".
   Future<void> jobFiltersApplied({
     required int areasCount,
