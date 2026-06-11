@@ -75,3 +75,7 @@
 20260601030000_admin_dashboard_b2b.sql
 20260601213000_admin_jobs_metrics_rpc.sql
 20260607000000_user_culture_fit_preferences.sql
+20260610150000_applications.sql
+20260610150100_onboarding_completed_at.sql
+20260610150200_bridges_legacy.sql
+20260610150300_backfill_applications_from_applied.sql
