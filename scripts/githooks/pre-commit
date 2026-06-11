@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Pre-commit hook do Stage (Fase 0 — T0.1).
+# Setup one-time por clone:  git config core.hooksPath scripts/githooks
+set -euo pipefail
+bash "$(git rev-parse --show-toplevel)/scripts/check_env_safety.sh"

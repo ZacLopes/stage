@@ -1,6 +1,6 @@
 import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
-import { trackAIGeneration, withEdgeAnalytics } from '../_shared/posthog.ts'
+import { trackAIGeneration, trackRateLimitHit, withEdgeAnalytics } from '../_shared/posthog.ts'
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -32,23 +32,34 @@ serve(withEdgeAnalytics('generate-resume', async (req) => {
             )
         }
 
-        // Rate limiting: TEMPORARILY DISABLED for development.
-        // TODO: re-enable before launch — restore the `count >= N` check below.
-        //
-        // const today = new Date()
-        // today.setHours(0, 0, 0, 0)
-        // const { count } = await supabaseClient
-        //     .from('ai_generation_logs')
-        //     .select('*', { count: 'exact', head: true })
-        //     .eq('user_id', user.id)
-        //     .eq('generation_type', 'resume')
-        //     .gte('created_at', today.toISOString())
-        // if (count && count >= 15) {
-        //     return new Response(
-        //         JSON.stringify({ error: 'Rate limit exceeded. Maximum 15 resume generations per day.' }),
-        //         { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        //     )
-        // }
+        // Rate limit diário por usuário (Fase 0 T0.2, ref. auditoria L3 #1).
+        // O count usa ai_generation_logs, cujo INSERT acontece PÓS-sucesso
+        // (mais abaixo) — falha de geração não consome cota. O SELECT roda
+        // sob o JWT do user e passa pela policy "Users can view own
+        // generation logs" (auth.uid() = user_id).
+        // Configurável sem redeploy via secret RESUME_RATE_LIMIT_PER_DAY
+        // (default 10) — também é o mecanismo de teste do 429.
+        const rateLimit = Number(Deno.env.get('RESUME_RATE_LIMIT_PER_DAY') ?? '10')
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        const { count: usedToday } = await supabaseClient
+            .from('ai_generation_logs')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .eq('generation_type', 'resume')
+            .gte('created_at', today.toISOString())
+        if (rateLimit > 0 && (usedToday ?? 0) >= rateLimit) {
+            trackRateLimitHit({
+                distinctId: user.id,
+                functionName: 'generate-resume',
+                limitType: 'daily_per_user',
+                limit: rateLimit,
+            }).catch(() => {})
+            return new Response(
+                JSON.stringify({ error: 'rate_limit_exceeded', limit: rateLimit }),
+                { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+        }
 
         const { answersWithQuestions, areaContext, language } = await req.json()
 
@@ -138,7 +149,7 @@ serve(withEdgeAnalytics('generate-resume', async (req) => {
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
     }
-})
+}))
 
 function buildResumePrompt(
     answersWithQuestions: Record<string, string>,

@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../services/analytics_service.dart';
 import '../models/culture_fit_profile.dart';
 
 class CultureFitRepository {
@@ -73,12 +75,16 @@ class CultureFitRepository {
           .maybeSingle();
       if (row == null) return null;
       return CultureFitProfile.fromJson(Map<String, dynamic>.from(row));
-    } catch (e) {
-      developer.log(
-        'loadRemote failed',
-        name: 'CultureFitRepository',
-        error: e,
-      );
+    } catch (e, stack) {
+      // Falha remota não pode ser muda (Fase 0 T0.4): o drift da migration
+      // ficou invisível por dias exatamente porque este caminho engolia o
+      // erro. Local-first continua — o caller usa o cache local.
+      unawaited(Analytics.shared.captureException(
+        e,
+        stackTrace: stack,
+        handled: true,
+        extra: {'repo': 'culture_fit', 'op': 'load_remote'},
+      ));
       return null;
     }
   }
@@ -88,12 +94,19 @@ class CultureFitRepository {
       await _client
           .from('user_culture_fit_preferences')
           .upsert(profile.toJson(), onConflict: 'user_id');
-    } catch (e) {
-      developer.log(
-        'saveRemote failed',
-        name: 'CultureFitRepository',
-        error: e,
-      );
+    } catch (e, stack) {
+      // Best-effort segue valendo (save local já aconteceu), mas a falha
+      // agora aparece no Error Tracking em vez de sumir num developer.log.
+      unawaited(Analytics.shared.captureException(
+        e,
+        stackTrace: stack,
+        handled: true,
+        extra: {
+          'repo': 'culture_fit',
+          'op': 'save_remote',
+          'user_id_set': profile.userId.isNotEmpty,
+        },
+      ));
     }
   }
 }

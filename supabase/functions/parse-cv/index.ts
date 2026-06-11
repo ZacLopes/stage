@@ -1,5 +1,8 @@
 // Edge Function: parse-cv
 //
+// ⚠️ DEPRECATED — sem caller no app desde 2026-05-26 (extract-profile cobre
+// o fluxo); manter deployada para rollback até a Fase 2 (Fase 0 T0.7 / L4).
+//
 // Estrutura raw_text de CV em JSON via GPT-4o-mini e persiste em
 // `user_profiles.gamification_data.imported_resume.parsed`. Criada na F2
 // da reformulação da feature de adaptação de CV — substitui o pre-parser

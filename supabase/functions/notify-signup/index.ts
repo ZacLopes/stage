@@ -1,4 +1,5 @@
 import { serve } from 'std/http/server'
+import { createClient } from 'supabase'
 import { withEdgeAnalytics } from '../_shared/posthog.ts'
 
 /**
@@ -27,14 +28,35 @@ serve(withEdgeAnalytics('notify-signup', async (req) => {
     // Payload do Supabase Database Webhook tem o formato:
     // { type: 'INSERT', table: 'user_profiles', record: {...}, schema: 'public' }
     const record = payload.record ?? {}
-    const name = (record.name ?? 'Usuário sem nome').toString().trim()
-    const email = (record.email ?? 'email não informado').toString().trim()
-    const course = (record.course ?? '').toString().trim()
-    const semester = (record.semester ?? '').toString().trim()
 
-    // Monta a mensagem em formato amigável
-    const extra = [course, semester].filter(Boolean).join(' · ')
-    const body = extra ? `${name}\n${email}\n${extra}` : `${name}\n${email}`
+    // Fase 0 T0.3 (auditoria M4): tópico ntfy é canal best-effort de
+    // terceiros — PII de usuário (nome/e-mail/curso) não transita mais
+    // por aqui. O push vira contagem do dia + user_id truncado; o detalhe
+    // completo o fundador consulta no admin dashboard.
+    const userId8 = (record.id ?? '').toString().slice(0, 8) || 'desconhecido'
+
+    // Contagem de cadastros do dia em America/Sao_Paulo (UTC-3 fixo, sem
+    // DST desde 2019 — meia-noite SP == 03:00 UTC do mesmo dia SP).
+    let countLabel = '?'
+    try {
+      const supabaseAdmin = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      )
+      const sp = new Date(Date.now() - 3 * 60 * 60 * 1000)
+      const dayStartUtc = new Date(Date.UTC(
+        sp.getUTCFullYear(), sp.getUTCMonth(), sp.getUTCDate(), 3, 0, 0,
+      ))
+      const { count } = await supabaseAdmin
+        .from('user_profiles')
+        .select('id', { count: 'exact', head: true })
+        .gte('created_at', dayStartUtc.toISOString())
+      if (typeof count === 'number') countLabel = String(count)
+    } catch (countErr) {
+      console.error('[notify-signup] count do dia falhou:', countErr)
+    }
+
+    const body = `Novo cadastro (#${countLabel} hoje) · User ${userId8}`
 
     const topic = Deno.env.get('NTFY_TOPIC') ?? ''
     const host = Deno.env.get('NTFY_HOST') ?? 'https://ntfy.sh'

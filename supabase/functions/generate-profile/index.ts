@@ -1,3 +1,6 @@
+// ⚠️ DEPRECATED — sem caller alcançável: o único wrapper no app
+// (AIService.generateProfileContent, ai_service.dart:339) não tem call site.
+// Manter deployada para rollback até a Fase 2 (Fase 0 T0.7 / L4).
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { trackAIGeneration, withEdgeAnalytics } from '../_shared/posthog.ts'
