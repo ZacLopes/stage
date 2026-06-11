@@ -24,6 +24,7 @@
 2. **`parse-cv-pdf` já tinha header DEPRECATED** (desde 22/05) — só `parse-cv` e `generate-profile` precisaram do header novo.
 3. **`generate-profile` não está 100% sem caller** como o plano-mãe assumia: existe o wrapper `AIService.generateProfileContent` (`ai_service.dart:339`), porém **sem nenhum call site** — morto de fato, deprecação segura. (Regra "auditoria vence": registrado aqui.)
 4. **Baseline de warnings nasceu 46, não 47** — a deleção do `world_screen.dart` removeu 1 warning; o ratchet já trava no número menor.
+5. **Ajuste pós-PR no job analyze do CI** — o job morreu no GitHub dentro do próprio `flutter analyze` (infos são fatais por default; ~580 infos → exit 1 sob o `bash -e` do Actions, antes do ratchet): adicionado `--no-fatal-infos` + o mesmo `.env` dummy do job test (sem ele o runner emite `asset_does_not_exist` → 47 > baseline 46; local não reproduzia porque `admin_dashboard/.env` conta como variante do asset e mascara a ausência). Baseline ficou 46. **Lição:** o teste local do CI não replicou a semântica de shell do GitHub (`bash -e` + pipefail) — mesma classe de gap do "repo ≠ deployado"; replicar o step literal com `bash -e` antes de declarar verde.
 
 ## Decisões documentadas
 

@@ -22,14 +22,21 @@ jobs:
           flutter-version: '3.38.5'
           channel: stable
           cache: true
+      # Mesmo dummy do job test: o .env é asset declarado no pubspec e, sem o
+      # arquivo, o analyzer emite asset_does_not_exist — warning a mais que o
+      # local (onde o .env existe) e que furaria a baseline do ratchet.
+      - name: cria .env dummy (asset declarado)
+        run: |
+          printf 'SUPABASE_URL=https://example.supabase.co\nSUPABASE_ANON_KEY=dummy\nPOSTHOG_API_KEY=\nPOSTHOG_HOST=https://us.i.posthog.com\nONESIGNAL_APP_ID=\n' > .env
       - run: flutter pub get
-      # --no-fatal-warnings: o default do flutter analyze trata warning como
-      # fatal e a base tem 47 warnings históricos. Errors continuam fatais.
-      # O ratchet abaixo impede o número de warnings de SUBIR.
+      # --no-fatal-warnings + --no-fatal-infos: o default do flutter analyze
+      # trata warning E info como fatais; a base tem warnings (baseline abaixo)
+      # e ~580 infos históricos. Errors continuam fatais. O ratchet abaixo
+      # impede o número de warnings de SUBIR.
       - name: flutter analyze + ratchet de warnings
         run: |
           set -o pipefail
-          flutter analyze --no-fatal-warnings 2>&1 | tee analyze_output.txt
+          flutter analyze --no-fatal-warnings --no-fatal-infos 2>&1 | tee analyze_output.txt
           count=$(grep -c "warning •" analyze_output.txt || true)
           baseline=$(cat scripts/analyze_warnings_baseline.txt)
           echo "warnings: $count (baseline: $baseline)"
