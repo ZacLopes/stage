@@ -1,4 +1,4 @@
-import { BarChart3, BriefcaseBusiness, Building2, ListChecks, LogOut, Users } from 'lucide-react';
+import { BarChart3, BriefcaseBusiness, Building2, ListChecks, LogOut, UserSearch, Users } from 'lucide-react';
 import { Button } from '../components/ui';
 import { useAuth } from './AuthProvider';
 
@@ -6,6 +6,7 @@ const nav = [
   { id: 'overview', label: 'Overview', icon: BarChart3 },
   { id: 'jobs', label: 'Vagas', icon: BriefcaseBusiness },
   { id: 'users', label: 'Usuarios', icon: Users },
+  { id: 'candidates', label: 'Busca', icon: UserSearch },
   { id: 'clients', label: 'Empresas', icon: Building2 },
   { id: 'candidate-lists', label: 'Listas', icon: ListChecks },
 ] as const;
