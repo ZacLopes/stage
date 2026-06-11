@@ -26,7 +26,7 @@ REPO_FN="supabase/functions"
 ACTIVE=(
   adapt-resume-to-job analyze-match
   admin-me admin-overview admin-jobs admin-users admin-clients
-  admin-candidate-lists admin-audit
+  admin-candidate-lists admin-candidates-search admin-audit
   sync-jobs-apify sync-jobs-ats sync-jobs-brazil
   generate-resume generate-bullets generate-summary suggest-tools
   extract-profile extract-job-skills
