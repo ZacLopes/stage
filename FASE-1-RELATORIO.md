@@ -27,6 +27,7 @@
 3. **Export CSV consent-gated já existia** (`admin-candidate-lists`: `exportable = consentStatus==='granted'`, owner-only, log em `candidate_list_exports`) — T1.8 reusou em vez de reimplementar; o que faltava era a BUSCA + criação de lista por seleção + colunas de consent.
 4. **`admin-users` já tinha `update_consent`** — estendido (granted_via/scope) em vez de criar endpoint novo.
 5. **Drift adicional descoberto no T1.0**: bundles com `_shared/` defasado mesmo com function-dir idêntico (adapt-resume-to-job) → o script compara `_shared` por bundle e o redeploy cobriu; 2 functions tinham o parêntese-do-wrapper quebrado no repo (generate-bullets, generate-summary — mesma classe da F0), corrigidos.
+6. **`generate-profile` foi corrigida e REDEPLOYADA apesar do allowlist "não redeployar" da F1** (deprecated trio) — desvio consciente: o diff era header-only com zero callers, e o redeploy foi necessário pro `deno check` do fechamento ficar verde com repo == deployado.
 
 ## Estado final (queries 11/06 ~02:30 UTC)
 
@@ -38,7 +39,7 @@
 
 ## Fechamento (11/06)
 
-1. **Rotação da chave OpenAI CONCLUÍDA** (fundador, 11/06; secret atualizado via `supabase secrets set`). Veredito do usage dashboard: **LIMPO** (sem consumo anômalo). **Smoke pós-rotação verificado:** `analyze-match` real com a conta interna (1 preferência semeada pra sair do bypass do Cenário C) → **HTTP 200**, avaliação gerada pela IA e cacheada em `match_analyses` com `model_used=gpt-4o-mini`, `prompt_version=v10`, `computed_at=2026-06-11 13:02 UTC` — a chave nova está operante de ponta a ponta.
+1. **Rotação da chave OpenAI CONCLUÍDA** (fundador, 11/06; secret atualizado via `supabase secrets set`). Veredito do usage dashboard (verificado pelo fundador em 11/06): **tudo normal — há momentos em que o custo chega a $0.50, mas isso tem a ver com um backfill que realizamos; sem problemas.** **Smoke pós-rotação verificado:** `analyze-match` real com a conta interna (1 preferência semeada pra sair do bypass do Cenário C) → **HTTP 200**, avaliação gerada pela IA e cacheada em `match_analyses` com `model_used=gpt-4o-mini`, `prompt_version=v10`, `computed_at=2026-06-11 13:02 UTC` — a chave nova está operante de ponta a ponta.
 2. **`deno check` no CI** (job `functions-check`): valida parse + tipos grossos dos entrypoints das edge functions (config relaxada em `scripts/deno-check.jsonc`; `strict` é dívida futura por função, com redeploy junto). **Pagou-se na primeira execução: 4ª ocorrência da classe "parêntese do wrapper"** encontrada em `generate-profile` (deprecated — por isso nunca explodiu em deploy), corrigida e redeployada. Exclusão documentada: `adapt-resume-to-job` (index+v2) — dívida de tipos do pipeline só será paga junto com rodada de golden_set (R5); parse do adapt segue coberto pelo bundler do deploy. Um cast neutro de TypedArray (`ingest-jobs-email`, generics do Deno 2) + redeploy com `--no-verify-jwt`. Resultado: `check_functions_types: OK (27 entrypoints)`; drift re-verificado pós-redeploys: **OK (25 ativas, repo == deployado)**.
 
 ## Checklist do fundador
