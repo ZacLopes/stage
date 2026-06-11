@@ -1,0 +1,20 @@
+// Config do `deno check` das edge functions (Fase 1 — fechamento, item 3).
+//
+// Escopo deliberado: pegar a classe de bug "parêntese do wrapper" (parse) e
+// erros grossos de tipo — que já apareceu 4x (F0 generate-resume; F1
+// generate-bullets, generate-summary; fechamento generate-profile, este
+// último pego pelo PRÓPRIO deno check na primeira execução).
+//
+// strict:false porque o backlog de tipos do código existente (catch como
+// unknown, generics de TypedArray do Deno 2) não é desta fase — apertar o
+// strict é dívida futura, função a função, com redeploy junto (senão o
+// check força casts cosméticos que reabrem drift repo≠deployado).
+//
+// Fica FORA do dir supabase/functions/ de propósito: um deno.json lá dentro
+// seria lido pelo bundler do `supabase functions deploy`.
+{
+  "importMap": "../supabase/functions/import_map.json",
+  "compilerOptions": {
+    "strict": false
+  }
+}

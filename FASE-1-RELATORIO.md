@@ -14,7 +14,7 @@
 | 2 | Backfill 493±delta, idempotente, eventos 1:1 | ✅ | **499 applications** (493 do plan-mode + 6 applied do dia) com **499 eventos iniciais actor=system**. Re-execução literal em prod = **0 rows**. |
 | 3 | Matriz + guardas (script SQL rollback) | ✅ | `supabase/scripts/test_fase1_state_machine.sql` executado em prod: **FASE1_TESTS_OK** (T1-T9: criação+evento, pipeline user com retrocesso-por-design, hired terminal, imutabilidade type/sla, stage user-só-withdrawn + admin reabre/SLA, Bridge 1 user-path + unicidade, Bridge 1 service-role→withdrawn, idempotência, Bridge 2 INSERT mínimo, ON DELETE RESTRICT). Rollback verificado: zero resíduos. |
 | 4 | Pontes vivas | ✅ | **Testadas ao vivo no banco de prod**: campaign sintética → gate setado + `bridge_activity='campaign_onboarding'`; swipe applied sintético → application submitted + evento + `'swipe_applied'`. Sintéticos limpos. (As 2 campaigns reais de 23:43/23:47 eram pré-migration — cobertas pelo backfill, timestamps batem exato.) |
-| 5 | Merge prefs | ✅ | Áreas: **19 users exatos** (=dry-run V6) via `source='legacy_merge'` (CHECK estendido — ajuste previsto na decisão (b)). Locations/work/job_types nos padrões "só onde vazio". Re-execução = 0. min_salary/min_match morrem (decisão 27/05). Smoke do feed no app fica no checklist do fundador (device). |
+| 5 | Merge prefs | ✅ | Ganhos exatos = dry-run V6 integral: **19 áreas** (via `source='legacy_merge'`; CHECK estendido — decisão (b)), **33 locations, 27 work_mode, 21 job_types** — provado por elegibilidade-pós-merge **= 0 nos três campos** (queries 11/06; as mesmas condições do dry-run, consumidas por completo). Re-execução = 0. min_salary/min_match morrem (decisão 27/05). Smoke do feed no app fica no checklist do fundador (device). |
 | 6 | Institutions ≥70% college | ✅ | **74,1% college** (de 50,4% cru), 51,0% global, catálogo **95 IES** (32 aprovadas + tiers 1/2 da cauda real — o gap era amplitude, não aliases; `unesa`→Estácio e `link`→Link School adicionados). Typeahead no onboarding + modal do perfil (client 2.3.0). |
 | 7 | Curtidas 2.3.0 | ✅ código / ⏳ device | Rewire completo (applied ← applications.countsAsApplied; toggle cria/withdrawn/reabre; zero escrita em `swipe_actions.applied` — `setApplied` do repo REMOVIDO e `restoreLike` sem applied); badge Expirada (`is_active=false` OU deadline — **69% dos applied apontavam pra vaga morta**); copy do diálogo corrigida. Eventos `application_created/state_changed/reopened` no catálogo + emissores (R7). ⏳ Validação visual num device = checklist do fundador (build local 2.3.0). |
 | 8 | T1.8 | ✅ deploy / ⏳ fundador | Edge `admin-candidates-search` (search com 7 filtros + save_list) + página "Busca" no dashboard + consent com `granted_via`/`scope`/nota em `status_reason` + eventos server `candidate_search_performed`/`candidate_list_created`. Export CSV consent-gated **já existia** no `admin-candidate-lists` (exportable = consent granted) — verificado, não duplicado. Não-admin → 403 (testado). ⏳ "Shortlist real em <5min" = teste do fundador (preciso de conta admin). |
@@ -36,6 +36,11 @@
 - Functions: 25 ativas com repo == deployado; novas versões: admin-candidates-search v1, admin-users v4.
 - `supabase migration list`: limpo (até `20260610162000`).
 
+## Fechamento (11/06)
+
+1. **Rotação da chave OpenAI CONCLUÍDA** (fundador, 11/06; secret atualizado via `supabase secrets set`). Veredito do usage dashboard: **LIMPO** (sem consumo anômalo). **Smoke pós-rotação verificado:** `analyze-match` real com a conta interna (1 preferência semeada pra sair do bypass do Cenário C) → **HTTP 200**, avaliação gerada pela IA e cacheada em `match_analyses` com `model_used=gpt-4o-mini`, `prompt_version=v10`, `computed_at=2026-06-11 13:02 UTC` — a chave nova está operante de ponta a ponta.
+2. **`deno check` no CI** (job `functions-check`): valida parse + tipos grossos dos entrypoints das edge functions (config relaxada em `scripts/deno-check.jsonc`; `strict` é dívida futura por função, com redeploy junto). **Pagou-se na primeira execução: 4ª ocorrência da classe "parêntese do wrapper"** encontrada em `generate-profile` (deprecated — por isso nunca explodiu em deploy), corrigida e redeployada. Exclusão documentada: `adapt-resume-to-job` (index+v2) — dívida de tipos do pipeline só será paga junto com rodada de golden_set (R5); parse do adapt segue coberto pelo bundler do deploy. Um cast neutro de TypedArray (`ingest-jobs-email`, generics do Deno 2) + redeploy com `--no-verify-jwt`. Resultado: `check_functions_types: OK (27 entrypoints)`; drift re-verificado pós-redeploys: **OK (25 ativas, repo == deployado)**.
+
 ## Checklist do fundador
 
 | # | Ação |
@@ -43,7 +48,7 @@
 | 1 | Abrir PRs no GitHub (branch `fase-1-espinha-de-dados`; base = `fase-0-seguranca` até a F0 mergear — depois rebase) e mergear na ordem |
 | 2 | **Build local 2.3.0 num device**: aba Curtidas (marcar/desmarcar aplicada → conferir `applications` + eventos no PostHog; badge Expirada numa vaga inativa), onboarding novo (gate sem campaign), typeahead de instituição, feed da conta interna filtrando igual pós-merge |
 | 3 | **Shortlist real em <5min**: dashboard → Busca → filtros → selecionar → consent (nota de evidência) → salvar lista → aba Listas → aprovar → exportar CSV (bloqueio sem consent é automático) |
-| 4 | Pendências herdadas da F0 que continuam: rotação da chave OpenAI (se ainda não feita), assinar tópicos ntfy, archive 2.2.0+5 |
+| 4 | Pendências herdadas da F0 que continuam: ~~rotação da chave OpenAI~~ **feita 11/06 (smoke ok — ver Fechamento)**, assinar tópicos ntfy, archive 2.2.0+5 |
 | 5 | Quando decidir a release: client da Fase 1 sai como **2.3.0** (bump no merge + archive) |
 
 ## Fora de escopo confirmado

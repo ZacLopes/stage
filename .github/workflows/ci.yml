@@ -77,3 +77,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash scripts/check_migrations_manifest.sh
+
+  # Fase 1 (fechamento): deno check nos entrypoints das edge functions —
+  # fecha a classe de bug "parêntese do wrapper" (4 ocorrências: F0
+  # generate-resume; F1 generate-bullets/summary; generate-profile pego
+  # pelo próprio check na 1ª execução). Tipos relaxados (strict:false em
+  # scripts/deno-check.jsonc) e adapt excluído (R5) — ver headers dos
+  # scripts pra racional completo.
+  functions-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: bash scripts/check_functions_types.sh
