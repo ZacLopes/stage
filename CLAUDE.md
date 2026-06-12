@@ -34,11 +34,11 @@ O Stage está sendo evoluído por um **plano-mãe de 7 fases (0–6)** desenhado
 - **Tópicos ntfy são bearer tokens** de canal público — nunca em commit/PR/screenshot.
 - **`.env` é asset do bundle** (embarca no IPA) — só chaves públicas-by-design; `scripts/check_env_safety.sh` (CI + pre-commit via `git config core.hooksPath scripts/githooks`) garante.
 
-### Estado atual (2026-06-11)
+### Estado atual (2026-06-12)
 
-**Fases 0–1 executadas** (branches `fase-0-seguranca` e `fase-1-espinha-de-dados`, relatórios na raiz). Chave OpenAI rotacionada e verificada (smoke real). **Próxima: Fase 2 — feed server-side** (seção F2 do plano-mãe; a revisão do plano será de performance: `EXPLAIN ANALYZE` no RPC).
+**Fases 0–1 mergeadas no main** (relatórios na raiz); 2.2.0 em produção desde ~09/06 com baseline anotada no PostHog; **2.3.0+6 submetida à revisão da App Store**; fixes do admin commitados (f1d7cb9). **Fase 2 em execução**: `PLANO-FASE-2.md` aprovado em 12/06 (fundador + arquiteto externo, REV-1 incorporada) — branch `fase-2-feed-server`, ordem T2.0→T2.5 (RPC `get_feed_page` + lista atrás de `feed_list_v1` + exaustão honesta/`company_requests` + bandas/holdout + detalhe). Paridade client×RPC provada 7/7 em plan mode (harness em `tools/feed_parity/` quando commitado).
 
-Pendências do fundador, NESTA ordem: PR F0 → merge → **archive 2.2.0+5 do main ANTES do merge da F1** → rebase/PR F1 → merge; validação device 2.3.0 (Curtidas/gate/typeahead); shortlist real em <5min (dashboard → Busca); bump 2.3.0+6 + archive; `scripts/posthog_annotate_deploy.sh` na **liberação** de cada build aos usuários (não no upload).
+Pendências do fundador: validação device da 2.3.0 quando aprovada (Curtidas/gate/typeahead); shortlist real em <5min (dashboard → Busca); assinar tópicos ntfy; `scripts/posthog_annotate_deploy.sh` na **liberação** de cada build aos usuários (não no upload); itens da F2 no checklist do `PLANO-FASE-2.md` (telefone sintético da conta interna, momento do rollout `feed_list_v1`, ativação do holdout).
 
 ---
 
