@@ -3,7 +3,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { Download, Play, Plus } from 'lucide-react';
 import { downloadCsv, invokeAdmin } from '../../lib/api';
 import type { CandidateListItem, CandidateListRequest, EmployerClient } from '../../lib/types';
-import { formatDate, formatNumber } from '../../lib/utils';
+import { formatDate, formatNumber, slugify } from '../../lib/utils';
 import { Badge, Button, Card, Field, Input, Select, Textarea } from '../../components/ui';
 import { DataTable } from '../../components/DataTable';
 
@@ -104,12 +104,20 @@ export function CandidateListsPage() {
   }
 
   async function updateItem(item: CandidateListItem, status: CandidateListItem['status']) {
-    await invokeAdmin('admin-candidate-lists', {
-      action: 'update_item',
-      itemId: item.id,
-      item: { status },
-    });
-    if (selected) await openRequest(selected);
+    setMessage(null);
+    // Feedback otimista: reflete na hora; openRequest reconcilia com o servidor.
+    setItems((prev) => prev.map((x) => (x.id === item.id ? { ...x, status } : x)));
+    try {
+      await invokeAdmin('admin-candidate-lists', {
+        action: 'update_item',
+        itemId: item.id,
+        item: { status },
+      });
+      if (selected) await openRequest(selected);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Erro ao atualizar candidato');
+      if (selected) await openRequest(selected); // reverte pro estado real do servidor
+    }
   }
 
   async function exportCsv() {
@@ -120,7 +128,14 @@ export function CandidateListsPage() {
         action: 'export',
         id: selected.id,
       });
-      downloadCsv(payload.filename, payload.csv);
+      // Nome automático legível: stage-{empresa?}-{titulo}-{AAAA-MM-DD}.csv
+      // (ignora o filename cru com UUID que a função devolve).
+      const today = new Date().toISOString().slice(0, 10);
+      const parts = [selected.employer_clients?.name, selected.title]
+        .map((part) => (part ? slugify(part) : ''))
+        .filter(Boolean);
+      const filename = `stage-${parts.join('-') || 'lista'}-${today}.csv`;
+      downloadCsv(filename, payload.csv);
       setMessage(`${formatNumber(payload.count)} candidatos exportados.`);
       await openRequest(selected);
       await loadRequests();

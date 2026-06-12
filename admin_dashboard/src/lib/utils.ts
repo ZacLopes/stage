@@ -24,3 +24,16 @@ export function formatDate(value: string | undefined | null) {
     year: '2-digit',
   }).format(new Date(value));
 }
+
+// Slug ASCII pra nomes de arquivo: remove acentos (via NFD + classe Unicode
+// Diacritic), baixa pra minúsculas e troca não-alfanuméricos por hífen.
+// "Estágio — Cliente X" -> "estagio-cliente-x".
+export function slugify(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}

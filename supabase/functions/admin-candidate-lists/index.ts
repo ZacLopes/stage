@@ -220,12 +220,22 @@ function scoreCandidate(request: any, candidate: CandidateProfile) {
   return { score: Math.max(0, Math.min(100, score)), breakdown };
 }
 
-async function buildCandidateProfiles(supabase: any): Promise<CandidateProfile[]> {
-  const { data: users, error } = await supabase
+async function buildCandidateProfiles(
+  supabase: any,
+  restrictUserIds?: string[],
+): Promise<CandidateProfile[]> {
+  // Quando é pra hidratar itens de uma lista específica (loadItems), buscar SÓ
+  // esses user_ids. Sem isso o pool cai no teto de 1000 linhas do PostgREST
+  // (ordenado por created_at desc) e candidatos mais antigos somem, virando
+  // candidate:null (UUID no nome, consent "not_asked", e nunca exportável).
+  // Sem restrição, mantém o pool completo pro 'generate'.
+  let poolQuery = supabase
     .from('user_profiles')
-    .select('id, name, email, phone, created_at')
-    .order('created_at', { ascending: false })
-    .limit(5000);
+    .select('id, name, email, phone, created_at');
+  poolQuery = restrictUserIds && restrictUserIds.length > 0
+    ? poolQuery.in('id', restrictUserIds)
+    : poolQuery.order('created_at', { ascending: false }).limit(5000);
+  const { data: users, error } = await poolQuery;
   if (error) throw new AdminHttpError(500, 'candidate_pool_failed', error.message);
 
   const userIds = (users ?? []).map((row: any) => row.id);
@@ -383,8 +393,7 @@ async function loadItems(supabase: any, requestId: string) {
 
   const userIds = (items ?? []).map((row: any) => row.user_id);
   const profiles = new Map(
-    (await buildCandidateProfiles(supabase))
-      .filter((profile) => userIds.includes(profile.userId))
+    (await buildCandidateProfiles(supabase, userIds))
       .map((profile) => [profile.userId, profile]),
   );
 
@@ -519,26 +528,35 @@ serve(async (req: Request) => {
       }
 
       const profiles = new Map(
-        (await buildCandidateProfiles(supabase)).map((profile) => [profile.userId, profile]),
+        (await buildCandidateProfiles(supabase, approved.map((item: any) => item.userId)))
+          .map((profile) => [profile.userId, profile]),
       );
       const rows = approved.map((item: any) => profiles.get(item.userId)).filter(
         Boolean,
       ) as CandidateProfile[];
       const headers = ['nome', 'email', 'telefone', 'cidade', 'estado', 'headline', 'skills'];
+      // Delimitador ';' + skills juntas com ', ': o Excel pt-BR usa ';' como
+      // separador de CSV (a vírgula é separador decimal aqui), então com ','
+      // as colunas não separavam. Todo campo já sai entre aspas (csvEscape),
+      // então ';' dentro de um valor é seguro. CRLF + BOM (no downloadCsv)
+      // completam a compatibilidade com Excel.
       const csv = [
-        headers.map(csvEscape).join(','),
+        headers.map(csvEscape).join(';'),
         ...rows.map((profile) =>
           [
             profile.name,
             profile.email,
-            profile.phone,
+            // Telefone como fórmula-texto ="...": o Excel avalia como string
+            // literal e mantém o "+", em vez de tratar o E.164 (13 dígitos +
+            // sinal) como número e mostrar notação científica / comer o "+".
+            profile.phone ? `="${profile.phone}"` : '',
             profile.city,
             profile.state,
             profile.headline,
-            profile.skills.join('; '),
-          ].map(csvEscape).join(',')
+            profile.skills.join(', '),
+          ].map(csvEscape).join(';')
         ),
-      ].join('\n');
+      ].join('\r\n');
 
       const { data: exportRow, error } = await supabase
         .from('candidate_list_exports')

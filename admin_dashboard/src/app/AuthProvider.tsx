@@ -27,7 +27,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const me = await invokeAdmin<AdminUser>('admin-me');
       setAdmin(me);
     } catch (err) {
-      setAdmin(null);
+      // Falha transitória do admin-me (token em renovação, StrictMode, blip de
+      // rede) NÃO deve derrubar um admin já validado pra tela de "Acesso negado".
+      // O servidor revalida a cada chamada; aqui mantemos o último estado bom.
       setError(err instanceof Error ? err.message : 'Falha ao validar admin');
     }
   }
@@ -40,10 +42,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (data.session) await refreshAdmin();
       setLoading(false);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_, nextSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange(async (event, nextSession) => {
       setSession(nextSession);
-      if (nextSession) await refreshAdmin();
-      else setAdmin(null);
+      if (event === 'SIGNED_OUT' || !nextSession) {
+        setAdmin(null);
+      } else if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        await refreshAdmin();
+      }
+      // TOKEN_REFRESHED / USER_UPDATED: sessão só renovou, o admin segue válido —
+      // não revalidar aqui era o que disparava o "Acesso negado" no meio do clique.
       setLoading(false);
     });
     return () => {

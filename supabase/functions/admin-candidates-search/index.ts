@@ -238,7 +238,9 @@ serve(withEdgeAnalytics('admin-candidates-search', async (req) => {
         request_id: request.id,
         user_id: uid,
         rank: index + 1,
-        score: null,
+        // Lista da busca é seleção manual (concierge), não tem match score.
+        // A coluna é NOT NULL + CHECK (0..100); 0 = "não pontuado".
+        score: 0,
         status: 'pending',
       }));
       const { error: itemsError } = await ctx.supabase.from('candidate_list_items').insert(rows);

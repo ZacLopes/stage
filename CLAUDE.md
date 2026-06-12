@@ -23,6 +23,7 @@ O Stage está sendo evoluído por um **plano-mãe de 7 fases (0–6)** desenhado
 ### Aprendizados permanentes
 
 - **Deploy só a partir do repo** + `scripts/check_functions_drift.sh` no checklist de release — compara o `_shared/` embarcado em CADA bundle, não só o function-dir (bundles ficam com `_shared` defasado mesmo com function-dir idêntico).
+- **Deploy só de código COMMITADO** — deployar do working tree cria drift instantâneo entre repo e prod (aconteceu em 12/06 com os fixes do admin deployados antes de commitar; flagrado por `check_functions_drift.sh` e alinhado no mesmo dia). Ordem certa: commit → deploy, nunca o inverso.
 - **Migrations só via CLI + manifest** (`scripts/check_migrations_manifest.sh`); nunca pelo dashboard.
 - **`deno check` no CI** (job `functions-check`; config relaxada em `scripts/deno-check.jsonc`; adapt excluído por R5) — matou a classe "parêntese do wrapper" (4 ocorrências: generate-resume, generate-bullets, generate-summary, generate-profile).
 - **`verify_jwt` dos webhooks vive em `supabase/config.toml`** (`ingest-jobs-email`, `notify-signup`) — deploy sem isso reativaria JWT e quebraria os webhooks silenciosamente.
