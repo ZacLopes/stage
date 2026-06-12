@@ -1,4 +1,4 @@
-import { BarChart3, BriefcaseBusiness, Building2, ListChecks, LogOut, UserSearch, Users } from 'lucide-react';
+import { BarChart3, BriefcaseBusiness, Building2, ListChecks, LogOut, MailQuestion, UserSearch, Users } from 'lucide-react';
 import { Button } from '../components/ui';
 import { useAuth } from './AuthProvider';
 
@@ -9,6 +9,8 @@ const nav = [
   { id: 'candidates', label: 'Busca', icon: UserSearch },
   { id: 'clients', label: 'Empresas', icon: Building2 },
   { id: 'candidate-lists', label: 'Listas', icon: ListChecks },
+  // FASE 2 (T2.3): pedidos de empresa do estado de exaustão do feed
+  { id: 'company-requests', label: 'Pedidos', icon: MailQuestion },
 ] as const;
 
 export type PageId = typeof nav[number]['id'];

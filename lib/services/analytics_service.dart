@@ -1534,6 +1534,18 @@ class AnalyticsService {
   Future<void> feedModeToggled({required String mode}) =>
       track(evFeedModeToggled, props: {'mode': mode});
 
+  /// FASE 2 (T2.3): pedido de empresa no estado de exaustão do feed.
+  Future<void> companyRequested({
+    required String companyName,
+    required bool hasNote,
+    required String feedMode,
+  }) =>
+      track(evCompanyRequested, props: {
+        'company_name': companyName,
+        'has_note': hasNote,
+        'feed_mode': feedMode,
+      });
+
   /// User puxou pra atualizar.
   Future<void> feedRefreshPulled({
     required String subTab,

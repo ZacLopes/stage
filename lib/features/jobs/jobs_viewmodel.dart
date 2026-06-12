@@ -543,6 +543,51 @@ class JobsViewModel extends ChangeNotifier {
     }
   }
 
+  // ── FASE 2 (T2.3): exaustão honesta + pedido de empresa ─────────────
+
+  /// Expansão honesta do estado A: se o filtro de MODELO exclui remotas,
+  /// 1 toque as inclui. (Se workModels está vazio, remotas JÁ passam —
+  /// oferecer "incluir remotas" seria expansão de mentira.)
+  bool get canExpandToRemote {
+    final p = _preferences;
+    return p != null &&
+        p.workModels.isNotEmpty &&
+        !p.workModels.contains('remoto');
+  }
+
+  Future<void> expandFiltersWithRemote() async {
+    final p = _preferences;
+    if (p == null || !canExpandToRemote) return;
+    await savePreferences(
+      p.copyWith(workModels: [...p.workModels, 'remoto']),
+    );
+  }
+
+  /// Insere o pedido em `company_requests` (RLS own-insert) + evento R7.
+  /// Retorna false em falha — a UI mostra erro e mantém o sheet aberto.
+  Future<bool> submitCompanyRequest(String companyName, String? note) async {
+    final uid = userId;
+    final name = companyName.trim();
+    if (uid == null || name.isEmpty) return false;
+    try {
+      await Supabase.instance.client.from('company_requests').insert({
+        'user_id': uid,
+        'company_name': name,
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      });
+      // ignore: unawaited_futures
+      Analytics.shared.companyRequested(
+        companyName: name,
+        hasNote: note != null && note.trim().isNotEmpty,
+        feedMode: feedMode,
+      );
+      return true;
+    } catch (e) {
+      print('submitCompanyRequest failed: $e');
+      return false;
+    }
+  }
+
   // ── Modo do feed (swipe|lista), persistido por user ─────────────────
   static String _feedModeKey(String userId) => 'feed_mode_$userId';
 

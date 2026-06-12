@@ -7,9 +7,11 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/theme.dart';
 import '../../../services/analytics_service.dart';
 import '../../../services/facebook_events_service.dart';
+import '../../../services/notifications_service.dart';
 import '../data/feed_pager.dart';
 import '../jobs_viewmodel.dart';
 import '../models/job.dart';
+import '../widgets/company_request_sheet.dart';
 import 'job_details_sheet.dart';
 
 /// FASE 2 (T2.2): modo LISTA do feed — atrás de `feed_list_v1`, opt-in via
@@ -101,6 +103,25 @@ class _JobsListViewState extends State<JobsListView> {
     );
   }
 
+  /// T2.3 — CTA de alerta do estado A (espelho do _enableNewJobsAlert do
+  /// swipe): garante permissão de push pro digest diário avisar.
+  Future<void> _enableNewJobsAlert() async {
+    HapticFeedback.lightImpact();
+    final granted = await NotificationsService.shared
+        .requestPermission(fallbackToSettings: true);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          granted
+              ? 'Boa! Te avisamos quando entrarem vagas novas. 🔔'
+              : 'Ative as notificações nos Ajustes pra receber o alerta.',
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   void _openDetails(Job job) {
     HapticFeedback.lightImpact();
     Analytics.shared.jobDetailsOpened(
@@ -153,6 +174,12 @@ class _JobsListViewState extends State<JobsListView> {
               isLoadingMore: vm.isLoadingMore,
               hasMore: vm.hasMorePages,
               isEmpty: jobs.isEmpty,
+              filtersTooStrict: vm.filtersAreTooRestrictive,
+              canExpandToRemote: vm.canExpandToRemote,
+              onClearFilters: () => vm.clearPreferences(),
+              onExpandRemote: () => vm.expandFiltersWithRemote(),
+              onEnableAlert: _enableNewJobsAlert,
+              onRequestCompany: () => CompanyRequestSheet.show(context),
             );
           }
           final job = jobs[index];
@@ -375,16 +402,32 @@ class _SwipeBackground extends StatelessWidget {
   }
 }
 
+/// T2.3 — fim da lista com exaustão HONESTA. Estado B (filtros zeraram:
+/// total_after_filters=0 com total_available>0, via sentinela do RPC) →
+/// "limpar filtros". Estado A (catálogo relevante esgotado) → alerta
+/// (digest) + expansão honesta + "Pedir uma empresa".
 class _ListFooter extends StatelessWidget {
   const _ListFooter({
     required this.isLoadingMore,
     required this.hasMore,
     required this.isEmpty,
+    required this.filtersTooStrict,
+    required this.canExpandToRemote,
+    required this.onClearFilters,
+    required this.onExpandRemote,
+    required this.onEnableAlert,
+    required this.onRequestCompany,
   });
 
   final bool isLoadingMore;
   final bool hasMore;
   final bool isEmpty;
+  final bool filtersTooStrict;
+  final bool canExpandToRemote;
+  final VoidCallback onClearFilters;
+  final VoidCallback onExpandRemote;
+  final VoidCallback onEnableAlert;
+  final VoidCallback onRequestCompany;
 
   @override
   Widget build(BuildContext context) {
@@ -404,28 +447,79 @@ class _ListFooter extends StatelessWidget {
       );
     }
     if (hasMore && !isEmpty) return const SizedBox(height: 24);
-    // Fim honesto da lista — PR3 (T2.3) troca pelos estados A/B completos
-    // (alerta/expansão/limpar filtros) + "Pedir uma empresa".
+
+    if (isEmpty && filtersTooStrict) {
+      // Estado B — filtros zeraram tudo
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 28),
+        child: Column(
+          children: [
+            const Icon(Icons.filter_alt_off_rounded,
+                color: AppColors.textTertiary, size: 28),
+            const SizedBox(height: 8),
+            const Text(
+              'Existem vagas ativas, mas seus filtros\nestão muito restritivos.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textTertiary,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: onClearFilters,
+              icon: const Icon(Icons.filter_alt_off_rounded, size: 18),
+              label: const Text('Limpar filtros'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Estado A — fim das relevantes
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 28),
       child: Column(
         children: [
-          Icon(
-            isEmpty ? Icons.filter_alt_off_rounded : Icons.check_circle_rounded,
-            color: AppColors.textTertiary,
-            size: 28,
-          ),
+          const Icon(Icons.task_alt_rounded,
+              color: AppColors.textTertiary, size: 28),
           const SizedBox(height: 8),
-          Text(
-            isEmpty
-                ? 'Nenhuma vaga pra mostrar com seus filtros.'
-                : 'Você viu todas as vagas relevantes por enquanto.',
+          const Text(
+            'Você viu as vagas relevantes por agora.\nVagas novas entram toda semana.',
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13.5,
               fontWeight: FontWeight.w600,
               color: AppColors.textTertiary,
+              height: 1.4,
             ),
+          ),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            onPressed: onEnableAlert,
+            style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+            icon: const Icon(Icons.notifications_active_rounded, size: 18),
+            label: const Text('Me avisar de vagas novas'),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 10,
+            alignment: WrapAlignment.center,
+            children: [
+              if (canExpandToRemote)
+                OutlinedButton.icon(
+                  onPressed: onExpandRemote,
+                  icon: const Icon(Icons.public_rounded, size: 18),
+                  label: const Text('Incluir remotas'),
+                ),
+              OutlinedButton.icon(
+                onPressed: onRequestCompany,
+                icon: const Icon(Icons.add_business_rounded, size: 18),
+                label: const Text('Pedir uma empresa'),
+              ),
+            ],
           ),
         ],
       ),

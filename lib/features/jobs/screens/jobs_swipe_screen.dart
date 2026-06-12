@@ -27,6 +27,8 @@ import '../models/culture_fit_profile.dart';
 import '../models/job.dart';
 import '../pending_adapted_cv_tracker.dart';
 import '../utils/match_score.dart';
+import '../../../services/notifications_service.dart';
+import '../widgets/company_request_sheet.dart';
 import '../widgets/culture_fit_prompt_sheet.dart';
 import '../widgets/first_save_celebration.dart';
 import '../widgets/job_card.dart';
@@ -234,6 +236,25 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (context) => const JobPreferencesScreen(),
+    );
+  }
+
+  /// T2.3 — CTA de alerta do estado A: garante permissão de push (o digest
+  /// diário existente já avisa de vagas novas; sem permissão ele não chega).
+  Future<void> _enableNewJobsAlert() async {
+    HapticFeedback.lightImpact();
+    final granted = await NotificationsService.shared
+        .requestPermission(fallbackToSettings: true);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          granted
+              ? 'Boa! Te avisamos quando entrarem vagas novas. 🔔'
+              : 'Ative as notificações nos Ajustes pra receber o alerta.',
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -1244,18 +1265,20 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         // Renderiza loading enquanto auto-reload acontece.
         return _buildAutoReloadLoading();
       }
-      // Distingue 2 cenários: filtros zeraram tudo (vagas existem mas não
-      // batem) vs. realmente esgotou. Mensagem e CTA mudam.
+      // Distingue 2 cenários (T2.3, exaustão honesta): estado B = filtros
+      // zeraram tudo (vagas existem mas não batem); estado A = fim das
+      // relevantes de verdade. B1/D2 do plano provaram que os DOIS existem
+      // hoje — esses estados são produto, não edge case.
       final isFiltersTooStrict = vm.filtersAreTooRestrictive;
       final iconData = isFiltersTooStrict
           ? Icons.filter_alt_off_rounded
-          : Icons.rocket_launch_rounded;
+          : Icons.task_alt_rounded;
       final title = isFiltersTooStrict
           ? 'Nenhuma vaga bate com seus filtros'
-          : 'Você explorou tudo!';
+          : 'Você viu as relevantes por agora';
       final subtitle = isFiltersTooStrict
           ? 'Existem ${vm.totalAvailable} vagas ativas, mas seus\nfiltros estão muito restritivos. Tente afrouxar.'
-          : 'Ajuste seus filtros ou volte\nmais tarde para novas oportunidades.';
+          : 'Vagas novas entram toda semana.\nA gente te avisa quando chegarem.';
 
       return Center(
         child: Padding(
@@ -1303,35 +1326,67 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                 ),
               ),
               const SizedBox(height: 32),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (isFiltersTooStrict)
+              if (isFiltersTooStrict)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
                     _buildOutlinedActionButton(
                       label: 'Limpar filtros',
                       icon: Icons.filter_alt_off_rounded,
                       onTap: () async {
                         await vm.clearPreferences();
                       },
-                    )
-                  else
-                    _buildOutlinedActionButton(
-                      label: 'Filtros',
+                    ),
+                    const SizedBox(width: 12),
+                    _buildGradientButton(
+                      label: 'Ajustar',
                       icon: Icons.tune_rounded,
                       onTap: _openPreferences,
                     ),
-                  const SizedBox(width: 12),
-                  _buildGradientButton(
-                    label: isFiltersTooStrict ? 'Ajustar' : 'Recarregar',
-                    icon: isFiltersTooStrict
-                        ? Icons.tune_rounded
-                        : Icons.refresh_rounded,
-                    onTap: isFiltersTooStrict
-                        ? _openPreferences
-                        : () => vm.reloadJobs(),
+                  ],
+                )
+              else ...[
+                // T2.3 — estado A: alerta (digest existente) + expansão
+                // honesta (só quando o filtro de modelo exclui remotas) +
+                // pedido de empresa.
+                _buildGradientButton(
+                  label: 'Me avisar de vagas novas',
+                  icon: Icons.notifications_active_rounded,
+                  onTap: _enableNewJobsAlert,
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (vm.canExpandToRemote) ...[
+                      _buildOutlinedActionButton(
+                        label: 'Incluir remotas',
+                        icon: Icons.public_rounded,
+                        onTap: () => vm.expandFiltersWithRemote(),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                    _buildOutlinedActionButton(
+                      label: 'Pedir uma empresa',
+                      icon: Icons.add_business_rounded,
+                      onTap: () => CompanyRequestSheet.show(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                TextButton.icon(
+                  onPressed: () => vm.reloadJobs(),
+                  icon: const Icon(Icons.refresh_rounded,
+                      size: 18, color: AppColors.textTertiary),
+                  label: const Text(
+                    'Recarregar',
+                    style: TextStyle(
+                      color: AppColors.textTertiary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ],
           ),
         ),

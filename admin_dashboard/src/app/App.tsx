@@ -8,11 +8,12 @@ import { UsersPage } from '../features/users/UsersPage';
 import { ClientsPage } from '../features/clients/ClientsPage';
 import { CandidateListsPage } from '../features/candidate-lists/CandidateListsPage';
 import { CandidatesSearchPage } from '../features/candidates/CandidatesSearchPage';
+import { CompanyRequestsPage } from '../features/company-requests/CompanyRequestsPage';
 import { Card } from '../components/ui';
 
 function currentPage(): PageId {
   const hash = window.location.hash.replace('#', '');
-  if (['overview', 'jobs', 'users', 'candidates', 'clients', 'candidate-lists'].includes(hash)) return hash as PageId;
+  if (['overview', 'jobs', 'users', 'candidates', 'clients', 'candidate-lists', 'company-requests'].includes(hash)) return hash as PageId;
   return 'overview';
 }
 
@@ -55,6 +56,7 @@ function Shell() {
       {page === 'candidates' && <CandidatesSearchPage />}
       {page === 'clients' && <ClientsPage />}
       {page === 'candidate-lists' && <CandidateListsPage />}
+      {page === 'company-requests' && <CompanyRequestsPage />}
     </Layout>
   );
 }
