@@ -130,4 +130,9 @@ class FeatureFlagKeys {
   static const String templatesV2Enabled = 'templates_v2_enabled';
   static const String adaptV2Enabled = 'adapt_v2_enabled';
   static const String matchV2Enabled = 'match_v2_enabled';
+
+  /// FASE 2 (T2.2): feed server-side via RPC get_feed_page (modo lista +
+  /// swipe por snapshot). OFF = caminho legacy intocado (rollback).
+  /// Seed na migration 20260612120200; rollout 10→50→100 pós-2.4.0.
+  static const String feedListV1 = 'feed_list_v1';
 }

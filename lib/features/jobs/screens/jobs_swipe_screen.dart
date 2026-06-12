@@ -34,6 +34,7 @@ import '../widgets/resume_adaptation_sheet.dart';
 import '../widgets/skills_confirmation_sheet.dart';
 import 'job_details_sheet.dart';
 import 'job_preferences_screen.dart';
+import 'jobs_list_screen.dart';
 import '../../../core/theme/theme.dart';
 
 class JobsSwipeScreen extends StatefulWidget {
@@ -128,6 +129,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   /// Null inicial significa "nunca observei ainda" — primeira leitura não
   /// dispara invalidação.
   int? _lastPrefsVersion;
+
+  /// FASE 2 (T2.2): snapshot do `feedEpoch` do VM. Quando muda (página
+  /// nova do RPC substituiu `_jobs`), o CardSwiper é recriado via Key e o
+  /// índice/dedupe de exposição zeram — reinício coincide com array
+  /// esgotado, sem dessincronizar o current-index interno (B4).
+  int _lastFeedEpoch = 0;
 
   /// Snapshot do `hasResume` no UserViewModel — usado pra detectar quando o
   /// user importa o CV / completa a trilha ENQUANTO o feed está aberto.
@@ -577,6 +584,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         modality: job.workModelRaw ?? job.workModel,
         salaryBucket: _bucketSalary(job.salaryMin, job.salaryMax),
         locationBucket: _bucketLocation(job.locationCity, job.locationState),
+        feedMode: 'swipe', // FASE 2: save-rate por modo (lista emite 'list')
       );
       // Fix QA Dia 8 (Bug 3): persiste o `matchScore` por job_id pra que a
       // aba Curtidas leia o número correto depois (sem isso `match_score=0`
@@ -653,6 +661,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       modality: job.workModelRaw ?? job.workModel,
       salaryBucket: _bucketSalary(job.salaryMin, job.salaryMax),
       locationBucket: _bucketLocation(job.locationCity, job.locationState),
+      feedMode: 'swipe', // FASE 2: exposição por modo
     );
   }
 
@@ -919,6 +928,22 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     }
     _lastPrefsVersion = currentPrefsVersion;
 
+    // FASE 2 (T2.2): página nova do RPC substituiu _jobs (snapshot do
+    // swipe avançou) → o CardSwiper renasce via Key(feedEpoch); índice e
+    // dedupe de exposição zeram junto e o match IA re-hidrata pro
+    // snapshot novo. No-op com flag OFF (epoch fica em 0).
+    if (_lastFeedEpoch != vm.feedEpoch) {
+      _lastFeedEpoch = vm.feedEpoch;
+      _currentIndex = 0;
+      _cardShownJobIds.clear();
+      _matchInflight.clear();
+      _hydrated = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _trackCardShown(context.read<JobsViewModel>(), _currentIndex);
+      });
+    }
+
     // Hidrata cache + dispara IA quando vm.jobs chega pela primeira vez.
     if (!_hydrated && !vm.isLoading && vm.jobs.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -958,26 +983,30 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
           ),
         ),
         child: SafeArea(
-          child: Column(
-            children: [
-              const SizedBox(height: 4),
-
-              // Stack so we can draw the fixed swipe overlay on top of the cards
-              Expanded(
-                child: Stack(
+          // FASE 2 (T2.2): modo LISTA (flag feed_list_v1 + toggle, D-6).
+          // O swipe (abaixo) segue sendo o padrão.
+          child: vm.feedRpcEnabled && vm.feedMode == JobsViewModel.feedModeList
+              ? const JobsListView()
+              : Column(
                   children: [
-                    _buildBody(vm),
-                    // Fixed overlay — never rotates, perfectly centered on the card area
+                    const SizedBox(height: 4),
+
+                    // Stack so we can draw the fixed swipe overlay on top of the cards
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          _buildBody(vm),
+                          // Fixed overlay — never rotates, perfectly centered on the card area
+                          if (!vm.isLoading && vm.jobs.isNotEmpty)
+                            _buildSwipeOverlay(),
+                        ],
+                      ),
+                    ),
+
                     if (!vm.isLoading && vm.jobs.isNotEmpty)
-                      _buildSwipeOverlay(),
+                      _buildActionBar(),
                   ],
                 ),
-              ),
-
-              if (!vm.isLoading && vm.jobs.isNotEmpty)
-                _buildActionBar(),
-            ],
-          ),
         ),
       ),
     );
@@ -1010,6 +1039,32 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
         actions: [
+          // FASE 2 (T2.2): toggle swipe↔lista — só com feed_list_v1 ON.
+          if (context.watch<JobsViewModel>().feedRpcEnabled)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Builder(builder: (context) {
+                final vm = context.read<JobsViewModel>();
+                final isList =
+                    vm.feedMode == JobsViewModel.feedModeList;
+                return IconButton(
+                  tooltip: isList ? 'Ver como cards' : 'Ver como lista',
+                  icon: Icon(
+                    isList
+                        ? Icons.style_rounded
+                        : Icons.view_agenda_rounded,
+                    color: AppColors.primary,
+                  ),
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    // ignore: unawaited_futures
+                    vm.setFeedMode(isList
+                        ? JobsViewModel.feedModeSwipe
+                        : JobsViewModel.feedModeList);
+                  },
+                );
+              }),
+            ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: _CultureFitActionButton(
@@ -1312,6 +1367,10 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         if (mounted) setState(() => _swipeFraction = 0.0);
       },
       child: CardSwiper(
+        // FASE 2 (T2.2): Key por feedEpoch — página nova do RPC recria o
+        // swiper do zero (índice interno zera com o array novo; B4).
+        // Com flag OFF o epoch é constante 0 → comportamento idêntico.
+        key: ValueKey('feed_epoch_${vm.feedEpoch}'),
         controller: _swiperController,
         cardsCount: vm.jobs.length,
         onSwipe: _onSwipe,

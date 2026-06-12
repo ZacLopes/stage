@@ -7,9 +7,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/ai_service.dart';
 import '../../services/analytics_events.dart';
 import '../../services/analytics_service.dart';
+import '../../services/feature_flags_service.dart';
 import '../../services/profile_events.dart';
 import '../../services/profile_snapshot_service.dart';
 import 'data/applications_repository.dart';
+import 'data/feed_pager.dart';
 import 'data/job_repository.dart';
 import 'data/swipe_repository.dart';
 import 'models/application.dart';
@@ -96,6 +98,12 @@ class JobsViewModel extends ChangeNotifier {
           _cachedProfileSkillsCount = 0;
           _totalAvailable = 0;
           _totalAfterFilters = 0;
+          // FASE 2 (T2.2): zera a sessão RPC pro próximo user.
+          _feedPager = null;
+          _rpcSessionActive = false;
+          _feedRows.clear();
+          _feedModeRaw = feedModeSwipe;
+          _exhaustedEmittedRpc = false;
           notifyListeners();
           break;
         default:
@@ -129,6 +137,47 @@ class JobsViewModel extends ChangeNotifier {
   // "filtros muito restritivos".
   int _totalAvailable = 0;
   int _totalAfterFilters = 0;
+
+  // ── FASE 2 (T2.2): feed server-side atrás de feed_list_v1 ───────────
+  // Com a flag ON, AMBOS os modos consomem o RPC get_feed_page (D-6):
+  // lista = scroll infinito por cursor; swipe = snapshot imutável da
+  // página corrente (_jobs vira A PÁGINA, e esgotá-la avança via
+  // tryAutoReload + recriação do CardSwiper pela tela via feedEpoch).
+  // Flag OFF = caminho legacy intocado (rollback).
+  static const String feedModeSwipe = 'swipe';
+  static const String feedModeList = 'list';
+
+  FeedPager? _feedPager;
+  bool _rpcSessionActive = false;
+  String _feedModeRaw = feedModeSwipe;
+  int _feedEpoch = 0;
+  bool _isLoadingMore = false;
+  bool _exhaustedEmittedRpc = false;
+  final Map<String, FeedPageRow> _feedRows = {};
+
+  bool get feedRpcEnabled => FeatureFlagsService.instance
+      .isEnabledForUser(FeatureFlagKeys.feedListV1, userId);
+
+  /// Modo persistido do feed; só vale com a flag ON (OFF = sempre swipe).
+  String get feedMode => feedRpcEnabled ? _feedModeRaw : feedModeSwipe;
+
+  /// (REV-1) 'rpc'|'legacy' — prop do feed_loaded; é o corte do aceite P50.
+  String get feedSource => _rpcSessionActive ? 'rpc' : 'legacy';
+
+  /// Incrementa a cada SUBSTITUIÇÃO de _jobs no caminho RPC — a tela usa
+  /// como Key do CardSwiper (recriar swiper = índice interno zera junto
+  /// com o array novo; resolve B4 sem refatorar o plugin).
+  int get feedEpoch => _feedEpoch;
+  bool get isLoadingMore => _isLoadingMore;
+
+  /// Row do RPC (score server + razões) da vaga — chips da célula da lista.
+  FeedPageRow? feedRowFor(String jobId) => _feedRows[jobId];
+
+  /// Vagas visíveis no modo lista (exclui as já swipadas na sessão — a
+  /// lista PODE remover células; a restrição de array imutável é do
+  /// CardSwiper, não daqui).
+  List<Job> get listJobs =>
+      _jobs.where((j) => !_swipedIds.contains(j.id)).toList();
 
   // Stack of swiped jobs (mais recente no fim) pra suportar undo
   final List<Job> _undoStack = [];
@@ -248,6 +297,8 @@ class JobsViewModel extends ChangeNotifier {
         subTab: 'para_voce',
         jobsCount: _jobs.length,
         cacheHit: true,
+        feedSource: feedSource,
+        feedMode: feedMode,
       );
       return; // no-op: já inicializado, mantém ordem atual dos cards
     }
@@ -266,14 +317,20 @@ class JobsViewModel extends ChangeNotifier {
         // Realmente sem user — provavelmente deslogou. UI mostra estado vazio.
         return;
       }
+      // FASE 2 (T2.2): modo persistido (swipe|lista) — só relevante com a
+      // flag ON, mas a leitura é barata e failure-safe.
+      await _loadFeedMode(id);
       await _performFetch();
       // B.17 do plano v2 — feed_loaded com duration_ms + cache_hit=false
       // (foi pra rede). Sinal-âncora pra "tempo de feed pronto".
+      // (REV-1) feed_source corta o aceite P50 da Fase 2 por rota.
       Analytics.shared.feedLoaded(
         subTab: 'para_voce',
         jobsCount: _jobs.length,
         loadDurationMs: DateTime.now().difference(loadStartedAt).inMilliseconds,
         cacheHit: false,
+        feedSource: feedSource,
+        feedMode: feedMode,
       );
     } catch (e) {
       _errorMessage = 'Erro ao carregar vagas. Tente novamente.';
@@ -289,6 +346,13 @@ class JobsViewModel extends ChangeNotifier {
   }
 
   Future<void> _performFetch() async {
+    // FASE 2 (T2.2): com feed_list_v1 ON o feed vem do RPC get_feed_page.
+    // O caminho legacy abaixo segue INTOCADO — rollback = flag OFF.
+    if (feedRpcEnabled) {
+      await _performRpcFetch();
+      return;
+    }
+    _rpcSessionActive = false;
     // 1) Carrega FILTROS temporários do feed (local). Se não existem
     //    (null), default = identidade do Perfil (tabelas relacionais), pra
     //    que o user na 1ª abertura veja feed filtrado por área/cidade
@@ -333,6 +397,183 @@ class JobsViewModel extends ChangeNotifier {
     // Único page request hoje retorna até o cap do JobRepository. Sinaliza
     // pra UI se atingiu o cap (improvável na prática).
     _hasMorePages = _jobs.length >= 5000;
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // FASE 2 (T2.2): fetch via RPC get_feed_page (flag feed_list_v1 ON)
+  // ──────────────────────────────────────────────────────────────────
+
+  /// Reinicia a sessão de paginação e busca a 1ª página. A resolução de
+  /// filtros é o ESPELHO do caminho legacy (filtros locais SE existem,
+  /// senão prefs do Perfil — D-8); o RPC recebe os filtros como args e lê
+  /// as prefs de RANKING server-side via auth.uid().
+  Future<void> _performRpcFetch() async {
+    final uid = userId!;
+    _preferences = await _loadLocalFilters(uid);
+    if (_preferences == null) {
+      _preferences = await _loadProfilePrefs();
+    } else {
+      // Pré-carrega profilePrefs em paralelo (match score precisa).
+      // ignore: unawaited_futures
+      _loadProfilePrefs();
+    }
+
+    _feedPager = FeedPager(_jobRepository.callFeedPageRpc);
+    _feedRows.clear();
+    _exhaustedEmittedRpc = false;
+    _rpcSessionActive = true;
+    _currentPage = 0;
+
+    await _fetchRpcPage(replaceJobs: true);
+  }
+
+  /// Busca UMA página do RPC e hidrata as vagas. [replaceJobs] substitui
+  /// `_jobs` (snapshot do swipe / 1ª página) — e bumpa [feedEpoch] pra
+  /// tela recriar o CardSwiper; `false` = appenda (scroll da lista).
+  ///
+  /// `min_match_score` continua client-side por página (D-8: depende do
+  /// par user×vaga + cache match_analyses) — página pode encolher; se
+  /// encolher a ZERO com mais páginas no servidor, busca a próxima
+  /// (guard de 5 tentativas pra não varrer o catálogo num gesto só).
+  Future<void> _fetchRpcPage({required bool replaceJobs}) async {
+    final pager = _feedPager;
+    if (pager == null) return;
+
+    final prefs = _preferences;
+    final minScore = prefs?.minMatchScore;
+    var pageJobs = <Job>[];
+    var attempts = 0;
+
+    while (true) {
+      attempts++;
+      final rows = await pager.fetchNext(
+        areas: prefs?.areas,
+        locations: prefs?.locations,
+        workModels: prefs?.workModels,
+        jobTypes: prefs?.jobTypes,
+        minSalary: prefs?.minSalary,
+      );
+      for (final row in rows) {
+        _feedRows[row.jobId] = row;
+      }
+
+      var jobs = await _jobRepository
+          .fetchJobsByIds([for (final r in rows) r.jobId]);
+      if (minScore != null && minScore > 0 && jobs.isNotEmpty) {
+        jobs = await _filterByMatchScore(jobs, minScore);
+      }
+      pageJobs = jobs;
+      if (pageJobs.isNotEmpty || !pager.hasMore || attempts >= 5) break;
+    }
+
+    if (replaceJobs) {
+      _jobs = pageJobs;
+      _feedEpoch++;
+    } else {
+      _jobs = [..._jobs, ...pageJobs];
+    }
+    // Diagnóstico pros empty states: totais da 1ª página do RPC. No
+    // caminho RPC `filtersAreTooRestrictive` continua funcionando — o
+    // sentinela do estado B entrega after=0/available>0 sem nenhuma row.
+    _totalAfterFilters = pager.totalAfterFilters ?? _totalAfterFilters;
+    _totalAvailable = pager.totalAvailable ?? _totalAvailable;
+    _hasMorePages = pager.hasMore;
+  }
+
+  /// Scroll infinito do modo lista: appenda a próxima página.
+  Future<void> loadMoreFeedPage() async {
+    if (!feedRpcEnabled || !_rpcSessionActive) return;
+    if (_isLoading || _isLoadingMore) return;
+    if (!(_feedPager?.hasMore ?? false)) {
+      _emitRpcExhaustedOnce();
+      return;
+    }
+    _isLoadingMore = true;
+    notifyListeners();
+    try {
+      await _fetchRpcPage(replaceJobs: false);
+      if (!(_feedPager?.hasMore ?? false)) _emitRpcExhaustedOnce();
+    } catch (e) {
+      print('loadMoreFeedPage failed: $e');
+    } finally {
+      _isLoadingMore = false;
+      notifyListeners();
+    }
+  }
+
+  /// `feed_exhausted` 1x por sessão de paginação RPC (aceite #6: exaustão
+  /// medida por feed_mode).
+  void _emitRpcExhaustedOnce() {
+    if (_exhaustedEmittedRpc) return;
+    _exhaustedEmittedRpc = true;
+    // ignore: unawaited_futures
+    Analytics.shared.feedExhausted(
+      subTab: 'para_voce',
+      jobsSeenInSession: _jobs.length,
+      jobsSwipedInSession: _swipedIds.length,
+      feedMode: feedMode,
+    );
+  }
+
+  /// FASE 2 (T2.2): swipe a partir da CÉLULA da lista (sem CardSwiper /
+  /// índice). MESMA semântica otimista de [onSwipe] — mantido separado de
+  /// propósito pra não tocar o caminho do swiper (mudou lá → muda aqui).
+  Future<void> swipeJobFromList(Job job, String action) async {
+    if (userId == null) return;
+    if (_swipedIds.contains(job.id)) return; // dedup
+
+    _swipedIds.add(job.id);
+    _undoStack.add(job);
+    notifyListeners();
+
+    try {
+      await _swipeRepository.recordSwipe(userId!, job.id, action);
+      if (action == 'liked') {
+        loadLikedJobs(silent: true);
+        if (job.applicationMethod == 'email') {
+          unawaited(_notifyAutoApplySwipe(job));
+        }
+      }
+    } catch (e) {
+      // Rollback otimista (espelho de onSwipe)
+      print('Error recording swipe (list): $e');
+      _swipedIds.remove(job.id);
+      _undoStack.remove(job);
+      notifyListeners();
+    }
+  }
+
+  // ── Modo do feed (swipe|lista), persistido por user ─────────────────
+  static String _feedModeKey(String userId) => 'feed_mode_$userId';
+
+  Future<void> _loadFeedMode(String uid) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      _feedModeRaw = sp.getString(_feedModeKey(uid)) ?? feedModeSwipe;
+    } catch (_) {
+      _feedModeRaw = feedModeSwipe; // failure-safe: padrão do fundador
+    }
+  }
+
+  /// Toggle swipe↔lista (D-6: swipe é padrão, lista é opt-in). Persiste a
+  /// escolha e reinicia a sessão de paginação no modo novo.
+  Future<void> setFeedMode(String mode) async {
+    if (mode != feedModeSwipe && mode != feedModeList) return;
+    if (mode == _feedModeRaw) return;
+    _feedModeRaw = mode;
+    notifyListeners();
+    // ignore: unawaited_futures
+    Analytics.shared.feedModeToggled(mode: mode);
+    final uid = userId;
+    if (uid != null) {
+      try {
+        final sp = await SharedPreferences.getInstance();
+        await sp.setString(_feedModeKey(uid), mode);
+      } catch (e) {
+        print('saveFeedMode failed: $e');
+      }
+    }
+    await reloadJobs();
   }
 
   /// Aplica filtro de score mínimo in-memory.
@@ -711,6 +952,29 @@ class JobsViewModel extends ChangeNotifier {
   /// via sync recente. Se ainda assim vier vazio, marca o flag pra UI
   /// mostrar o estado "esgotou tudo".
   Future<void> tryAutoReload() async {
+    // FASE 2 (T2.2): no caminho RPC, esgotar o snapshot do swipe avança
+    // pra PRÓXIMA página (D-6) — _jobs é substituído e a tela recria o
+    // CardSwiper via feedEpoch. Sem guard de 1x: cada snapshot esgotado
+    // avança de novo. Exaustão REAL (sem próxima página) cai no fluxo
+    // legacy abaixo, que emite feed_exhausted e tenta 1 reload por sessão
+    // (reload com flag ON reinicia a sessão RPC — pega vagas novas do sync).
+    if (feedRpcEnabled && _rpcSessionActive && (_feedPager?.hasMore ?? false)) {
+      if (_isLoading) return;
+      _isLoading = true;
+      notifyListeners();
+      try {
+        _swipedIds.clear();
+        _undoStack.clear();
+        await _fetchRpcPage(replaceJobs: true);
+      } catch (e) {
+        print('RPC page advance failed: $e');
+      } finally {
+        _isLoading = false;
+        notifyListeners();
+      }
+      return;
+    }
+
     if (_autoReloadAttempted) return;
     if (_isLoading) return;
     _autoReloadAttempted = true;
@@ -724,6 +988,7 @@ class JobsViewModel extends ChangeNotifier {
       subTab: 'para_voce',
       jobsSeenInSession: _jobs.length,
       jobsSwipedInSession: _swipedIds.length,
+      feedMode: feedMode,
     );
     notifyListeners(); // pra UI saber que tentamos (evita re-trigger)
 

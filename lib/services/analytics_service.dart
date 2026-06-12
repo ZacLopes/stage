@@ -992,6 +992,7 @@ class AnalyticsService {
     String? salaryBucket,
     String? locationBucket,
     int? timeOnCardMs,
+    String? feedMode, // 'swipe' | 'list' (Fase 2: save-rate por modo)
   }) =>
       track(evJobSwiped, props: {
         'job_id': jobId,
@@ -1014,6 +1015,7 @@ class AnalyticsService {
         if (salaryBucket != null) 'salary_bucket': salaryBucket,
         if (locationBucket != null) 'location_bucket': locationBucket,
         if (timeOnCardMs != null) 'time_on_card_ms': timeOnCardMs,
+        if (feedMode != null) 'feed_mode': feedMode,
       });
 
   Future<void> jobDetailsOpened({required String jobId, int? matchScore}) =>
@@ -1210,6 +1212,7 @@ class AnalyticsService {
     String? modality,
     String? salaryBucket,
     String? locationBucket,
+    String? feedMode, // 'swipe' | 'list' (Fase 2: exposição por modo)
   }) =>
       track(evJobCardShown, props: {
         'job_id': jobId,
@@ -1220,6 +1223,7 @@ class AnalyticsService {
         if (modality != null) 'modality': modality,
         if (salaryBucket != null) 'salary_bucket': salaryBucket,
         if (locationBucket != null) 'location_bucket': locationBucket,
+        if (feedMode != null) 'feed_mode': feedMode,
       });
 
   /// Pareado com [jobCardDwellEnded]. Marca instante em que card entrou.
@@ -1479,17 +1483,24 @@ class AnalyticsService {
 
   /// Feed terminou de carregar (com sub_tab + duration + cache hit).
   /// [subTab]: 'para_voce' | 'curtidas'.
+  /// (REV-1) [feedSource] 'rpc'|'legacy': sem ela o aceite P50 da Fase 2
+  /// não filtra rota nova×antiga ([feedMode] distingue lista×swipe, e o
+  /// swipe com flag ON também usa RPC).
   Future<void> feedLoaded({
     required String subTab,
     required int jobsCount,
     int? loadDurationMs,
     bool? cacheHit,
+    String? feedSource, // 'rpc' | 'legacy'
+    String? feedMode, // 'swipe' | 'list'
   }) =>
       track(evFeedLoaded, props: {
         'sub_tab': subTab,
         'jobs_count': jobsCount,
         if (loadDurationMs != null) 'load_duration_ms': loadDurationMs,
         if (cacheHit != null) 'cache_hit': cacheHit,
+        if (feedSource != null) 'feed_source': feedSource,
+        if (feedMode != null) 'feed_mode': feedMode,
       });
 
   /// Feed falhou em carregar.
@@ -1509,13 +1520,19 @@ class AnalyticsService {
     required String subTab,
     required int jobsSeenInSession,
     int? jobsSwipedInSession,
+    String? feedMode, // 'swipe' | 'list' (Fase 2: aceite #6, exaustão por modo)
   }) =>
       track(evFeedExhausted, props: {
         'sub_tab': subTab,
         'jobs_seen_in_session': jobsSeenInSession,
         if (jobsSwipedInSession != null)
           'jobs_swiped_in_session': jobsSwipedInSession,
+        if (feedMode != null) 'feed_mode': feedMode,
       });
+
+  /// FASE 2 (T2.2): toggle swipe↔lista da aba Vagas (flag feed_list_v1).
+  Future<void> feedModeToggled({required String mode}) =>
+      track(evFeedModeToggled, props: {'mode': mode});
 
   /// User puxou pra atualizar.
   Future<void> feedRefreshPulled({

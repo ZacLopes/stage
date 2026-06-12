@@ -260,6 +260,18 @@ BEGIN
   RAISE NOTICE 'T7 ok: all-ties — % páginas, % vagas, zero overlap, zero gap', v_pages, v_total;
 
   ------------------------------------------------------------------
+  -- T7b (v1.2): cursor float-safe — rank quantizado em 6 casas sobrevive
+  -- a text→float8→text (espelho do caminho JSON→double do client)
+  ------------------------------------------------------------------
+  SELECT count(*) INTO v_count
+    FROM get_feed_page(p_limit := 50, p_frozen_at := v_frozen) g
+   WHERE g.rank_score <> (g.rank_score::float8::text)::numeric;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'T7b FALHOU: % ranks não sobrevivem roundtrip double', v_count;
+  END IF;
+  RAISE NOTICE 'T7b ok: rank_score float-safe (roundtrip exato)';
+
+  ------------------------------------------------------------------
   -- T8: jitter — determinístico no mesmo p_frozen_at, rotaciona por dia,
   --     e clamp do futuro (frozen futuro = hoje)
   ------------------------------------------------------------------
