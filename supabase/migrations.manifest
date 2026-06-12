@@ -84,3 +84,8 @@
 20260610160200_consents_granted_via_scope.sql
 20260610161000_institutions_tail_expansion.sql
 20260610162000_institutions_tier2.sql
+20260612120000_get_feed_page.sql
+20260612120100_normalize_legacy_desired_titles.sql
+20260612120200_seed_feed_list_v1.sql
+20260612120300_company_requests.sql
+20260612130000_get_feed_page_v1_1_perf.sql

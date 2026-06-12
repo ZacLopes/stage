@@ -36,9 +36,9 @@ O Stage está sendo evoluído por um **plano-mãe de 7 fases (0–6)** desenhado
 
 ### Estado atual (2026-06-12)
 
-**Fases 0–1 mergeadas no main** (relatórios na raiz); 2.2.0 em produção desde ~09/06 com baseline anotada no PostHog; **2.3.0+6 submetida à revisão da App Store**; fixes do admin commitados (f1d7cb9). **Fase 2 em execução**: `PLANO-FASE-2.md` aprovado em 12/06 (fundador + arquiteto externo, REV-1 incorporada) — branch `fase-2-feed-server`, ordem T2.0→T2.5 (RPC `get_feed_page` + lista atrás de `feed_list_v1` + exaustão honesta/`company_requests` + bandas/holdout + detalhe). Paridade client×RPC provada 7/7 em plan mode (harness em `tools/feed_parity/` quando commitado).
+**Fases 0–1 mergeadas no main** (relatórios na raiz); 2.2.0 em produção desde ~09/06 com baseline anotada no PostHog; **2.3.0+6 submetida à revisão da App Store**; fixes do admin commitados (f1d7cb9). **Fase 2 em execução** (`PLANO-FASE-2.md` aprovado 12/06, REV-1; branch `fase-2-feed-server`): **PR1 [server] executado em 12/06** — RPC `get_feed_page` v1.1 em prod (v1.0 + fix de perf 167→20ms, ver FASE-2-RELATORIO §desvios), D-11 aplicada (50 títulos legacy → 0), `feed_list_v1` semeada OFF, `company_requests` criada, `FASE2_TESTS_OK` + paridade 7/7 verificados contra prod (harness `tools/feed_parity/` commitado). Faltam PR2 (lista) → PR3 (exaustão/pedido de empresa) → PR4 (bandas/holdout/detalhe), todos client-2.4.0. Relatório parcial: `FASE-2-RELATORIO.md`.
 
-Pendências do fundador: validação device da 2.3.0 quando aprovada (Curtidas/gate/typeahead); shortlist real em <5min (dashboard → Busca); assinar tópicos ntfy; `scripts/posthog_annotate_deploy.sh` na **liberação** de cada build aos usuários (não no upload); itens da F2 no checklist do `PLANO-FASE-2.md` (telefone sintético da conta interna, momento do rollout `feed_list_v1`, ativação do holdout).
+Pendências do fundador: rodar `scripts/convert_internal_account.sh` + `scripts/validate_internal_login.sh` (T2.0 — telefone sintético (00) 90000-0001; gate de onboarding já semeado); validação device da 2.3.0 quando aprovada (Curtidas/gate/typeahead); shortlist real em <5min (dashboard → Busca); assinar tópicos ntfy; `scripts/posthog_annotate_deploy.sh` na **liberação** de cada build aos usuários (não no upload); momento do rollout `feed_list_v1` e ativação do holdout (pós-aceitação da 2.4.0).
 
 ---
 
