@@ -309,26 +309,50 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Job type badge
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.22),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.25),
-                                width: 0.5,
+                          // Job type badge + selo de fonte (T2.5 — vagas
+                          // agregadas ganham "via {source}" discreto;
+                          // preparação visual pra "Vaga Stage" da F4)
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.22),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.25),
+                                    width: 0.5,
+                                  ),
+                                ),
+                                child: Text(
+                                  widget.job.jobType.toUpperCase(),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
                               ),
-                            ),
-                            child: Text(
-                              widget.job.jobType.toUpperCase(),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
+                              if ((widget.job.source ?? '').isNotEmpty) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    'via ${_sourceLabel(widget.job.source!)}',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.85),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                           const SizedBox(height: 5),
                           Text(
@@ -444,6 +468,25 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
   // ════════════════════════════════════════════
   //  MATCH CARD
   // ════════════════════════════════════════════
+  /// T2.5 — label amigável da fonte agregadora ('gupy' → 'Gupy';
+  /// 'email' → indicação direta). Fallback: capitaliza o slug.
+  String _sourceLabel(String source) {
+    switch (source.toLowerCase()) {
+      case 'gupy':
+        return 'Gupy';
+      case 'greenhouse':
+        return 'Greenhouse';
+      case 'lever':
+        return 'Lever';
+      case 'email':
+        return 'indicação direta';
+      default:
+        return source.isEmpty
+            ? source
+            : source[0].toUpperCase() + source.substring(1);
+    }
+  }
+
   Widget _buildMatchCard() {
     // Sem perfil/prefs → renderiza CTA pra completar perfil em vez de
     // mostrar "Match razoável 0%" enganoso. User precisa entender que

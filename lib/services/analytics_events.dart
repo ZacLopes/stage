@@ -371,6 +371,16 @@ const String evFeedExhausted = 'feed_exhausted';
 const String evFeedRefreshPulled = 'feed_refresh_pulled';
 const String evFeedCacheStaleDetected = 'feed_cache_stale_detected';
 const String evFeedPositionResumed = 'feed_position_resumed';
+
+/// FASE 2 (T2.2): user alternou swipe↔lista no toggle da aba Vagas
+/// (flag feed_list_v1). Prop: mode ('swipe'|'list'). A tese da lista é
+/// lida pela adoção deste toggle + save-rate por feed_mode (decisão do
+/// fundador 12/06: lista é opt-in, swipe segue padrão).
+const String evFeedModeToggled = 'feed_mode_toggled';
+
+/// FASE 2 (T2.3): user pediu uma empresa no estado de exaustão do feed
+/// (row em company_requests). Aceite #7 da fase: ≥1 pedido real em prod.
+const String evCompanyRequested = 'company_requested';
 const String evMatchScoreVisualizationShown = 'match_score_visualization_shown';
 const String evMatchScoreExplainedTapped = 'match_score_explained_tapped';
 
@@ -661,6 +671,7 @@ const Set<String> kAllowedEventNames = {
   // B.17
   evFeedOpened, evFeedLoaded, evFeedLoadFailed, evFeedExhausted,
   evFeedRefreshPulled, evFeedCacheStaleDetected, evFeedPositionResumed,
+  evFeedModeToggled, evCompanyRequested,
   evMatchScoreVisualizationShown, evMatchScoreExplainedTapped,
   // B.18
   evIdentifyCalled, evAliasCreated, evMultiDeviceDetected,

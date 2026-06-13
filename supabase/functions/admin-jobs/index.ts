@@ -10,7 +10,7 @@ import {
 } from '../_shared/admin.ts';
 
 interface JobsRequest {
-  action?: 'list' | 'detail';
+  action?: 'list' | 'detail' | 'company_requests';
   id?: string;
   page?: number;
   pageSize?: number;
@@ -106,6 +106,60 @@ serve(async (req: Request) => {
     const body = await readJson<JobsRequest>(req);
     const action = body.action ?? 'list';
     const supabase = ctx.supabase;
+
+    // FASE 2 (T2.3): pedidos de empresa do estado de exaustão do feed
+    // (tabela company_requests, RLS own-* — admin lê via service role aqui).
+    if (action === 'company_requests') {
+      const { page, pageSize } = parsePagination(body);
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+      const { data, error, count } = await supabase
+        .from('company_requests')
+        .select('*', { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range(from, to);
+      if (error) {
+        return jsonResponse({ error: 'company_requests_failed', message: error.message }, 500);
+      }
+
+      // hidrata nome/email do solicitante (user_profiles é public)
+      const userIds = [
+        ...new Set((data ?? []).map((r: Record<string, unknown>) => String(r.user_id))),
+      ];
+      const profiles = new Map<string, { name?: string; email?: string }>();
+      if (userIds.length > 0) {
+        const { data: rows } = await supabase
+          .from('user_profiles')
+          .select('id, name, email')
+          .in('id', userIds);
+        for (const p of rows ?? []) {
+          profiles.set(String(p.id), {
+            name: p.name ?? undefined,
+            email: p.email ?? undefined,
+          });
+        }
+      }
+
+      await audit(ctx, req, {
+        action: 'admin_company_requests_listed',
+        entityType: 'company_request',
+        metadata: { page, pageSize },
+      });
+
+      return jsonResponse({
+        requests: (data ?? []).map((r: Record<string, unknown>) => ({
+          id: r.id,
+          companyName: r.company_name,
+          note: r.note,
+          createdAt: r.created_at,
+          userId: r.user_id,
+          user: profiles.get(String(r.user_id)) ?? null,
+        })),
+        page,
+        pageSize,
+        total: count ?? 0,
+      });
+    }
 
     if (action === 'detail') {
       if (!body.id) return jsonResponse({ error: 'missing_id' }, 400);

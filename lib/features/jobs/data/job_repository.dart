@@ -131,6 +131,35 @@ class JobRepository {
     }
   }
 
+  /// FASE 2 (T2.2): transporte do feed server-side — chama o RPC
+  /// `get_feed_page` e devolve as rows cruas. Parsing/cursor ficam no
+  /// FeedPager (puro, testável); aqui é só o fio com o Supabase.
+  Future<List<dynamic>> callFeedPageRpc(Map<String, dynamic> params) async {
+    final res = await _client.rpc('get_feed_page', params: params);
+    return (res as List?) ?? const [];
+  }
+
+  /// FASE 2 (T2.2): hidrata as vagas de uma página do RPC (que devolve só
+  /// ids + score + reasons). Preserva a ORDEM dos [ids] (= ordem de rank
+  /// do servidor); ids que sumiram entre o RPC e este fetch (vaga
+  /// desativada no meio) são silenciosamente omitidos.
+  Future<List<Job>> fetchJobsByIds(List<String> ids) async {
+    if (ids.isEmpty) return const [];
+    final response = await _client
+        .from('jobs')
+        .select('*, companies(*)')
+        .inFilter('id', ids);
+    final byId = <String, Job>{
+      for (final json in (response as List))
+        (json as Map)['id'] as String:
+            Job.fromJson(Map<String, dynamic>.from(json)),
+    };
+    return [
+      for (final id in ids)
+        if (byId.containsKey(id)) byId[id]!,
+    ];
+  }
+
   /// Fetches a single job with full company details.
   Future<Job?> getJobById(String id) async {
     try {

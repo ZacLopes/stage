@@ -27,6 +27,8 @@ import '../models/culture_fit_profile.dart';
 import '../models/job.dart';
 import '../pending_adapted_cv_tracker.dart';
 import '../utils/match_score.dart';
+import '../../../services/notifications_service.dart';
+import '../widgets/company_request_sheet.dart';
 import '../widgets/culture_fit_prompt_sheet.dart';
 import '../widgets/first_save_celebration.dart';
 import '../widgets/job_card.dart';
@@ -34,6 +36,7 @@ import '../widgets/resume_adaptation_sheet.dart';
 import '../widgets/skills_confirmation_sheet.dart';
 import 'job_details_sheet.dart';
 import 'job_preferences_screen.dart';
+import 'jobs_list_screen.dart';
 import '../../../core/theme/theme.dart';
 
 class JobsSwipeScreen extends StatefulWidget {
@@ -129,6 +132,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   /// dispara invalidação.
   int? _lastPrefsVersion;
 
+  /// FASE 2 (T2.2): snapshot do `feedEpoch` do VM. Quando muda (página
+  /// nova do RPC substituiu `_jobs`), o CardSwiper é recriado via Key e o
+  /// índice/dedupe de exposição zeram — reinício coincide com array
+  /// esgotado, sem dessincronizar o current-index interno (B4).
+  int _lastFeedEpoch = 0;
+
   /// Snapshot do `hasResume` no UserViewModel — usado pra detectar quando o
   /// user importa o CV / completa a trilha ENQUANTO o feed está aberto.
   /// Sem isso, o `_matchCache` em memória mantém `MatchResult.noResume()` da
@@ -187,6 +196,9 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       SchedulerBinding.instance.addPostFrameCallback((_) async {
         final vm = context.read<JobsViewModel>();
         await vm.init();
+        // T2.4 — holdout do match resolvido 1x por sessão (gate de
+        // elegibilidade + flag PostHog; failure-safe = controle).
+        unawaited(vm.resolveMatchScoreHoldout());
         unawaited(_loadCultureFitProfile());
         if (mounted) {
           Analytics.shared.jobFeedOpened(jobsCount: vm.jobs.length);
@@ -227,6 +239,25 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (context) => const JobPreferencesScreen(),
+    );
+  }
+
+  /// T2.3 — CTA de alerta do estado A: garante permissão de push (o digest
+  /// diário existente já avisa de vagas novas; sem permissão ele não chega).
+  Future<void> _enableNewJobsAlert() async {
+    HapticFeedback.lightImpact();
+    final granted = await NotificationsService.shared
+        .requestPermission(fallbackToSettings: true);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          granted
+              ? 'Boa! Te avisamos quando entrarem vagas novas. 🔔'
+              : 'Ative as notificações nos Ajustes pra receber o alerta.',
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -577,6 +608,14 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         modality: job.workModelRaw ?? job.workModel,
         salaryBucket: _bucketSalary(job.salaryMin, job.salaryMax),
         locationBucket: _bucketLocation(job.locationCity, job.locationState),
+        feedMode: 'swipe', // FASE 2: save-rate por modo (lista emite 'list')
+        // T2.4 — holdout: o que o user VIU de fato (pós-flag e
+        // pós-confidence) + variante pra cortar a análise por atribuição.
+        scoreVisible: vm.matchScoreVisible &&
+            cached != null &&
+            !cached.isUnknown &&
+            cached.confidence != MatchConfidence.low,
+        holdoutVariant: vm.holdoutVariant,
       );
       // Fix QA Dia 8 (Bug 3): persiste o `matchScore` por job_id pra que a
       // aba Curtidas leia o número correto depois (sem isso `match_score=0`
@@ -653,6 +692,13 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       modality: job.workModelRaw ?? job.workModel,
       salaryBucket: _bucketSalary(job.salaryMin, job.salaryMax),
       locationBucket: _bucketLocation(job.locationCity, job.locationState),
+      feedMode: 'swipe', // FASE 2: exposição por modo
+      // T2.4 — holdout: exposição com/sem banda visível + variante.
+      scoreVisible: vm.matchScoreVisible &&
+          cached != null &&
+          !cached.isUnknown &&
+          cached.confidence != MatchConfidence.low,
+      holdoutVariant: vm.holdoutVariant,
     );
   }
 
@@ -919,6 +965,22 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     }
     _lastPrefsVersion = currentPrefsVersion;
 
+    // FASE 2 (T2.2): página nova do RPC substituiu _jobs (snapshot do
+    // swipe avançou) → o CardSwiper renasce via Key(feedEpoch); índice e
+    // dedupe de exposição zeram junto e o match IA re-hidrata pro
+    // snapshot novo. No-op com flag OFF (epoch fica em 0).
+    if (_lastFeedEpoch != vm.feedEpoch) {
+      _lastFeedEpoch = vm.feedEpoch;
+      _currentIndex = 0;
+      _cardShownJobIds.clear();
+      _matchInflight.clear();
+      _hydrated = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _trackCardShown(context.read<JobsViewModel>(), _currentIndex);
+      });
+    }
+
     // Hidrata cache + dispara IA quando vm.jobs chega pela primeira vez.
     if (!_hydrated && !vm.isLoading && vm.jobs.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -958,26 +1020,30 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
           ),
         ),
         child: SafeArea(
-          child: Column(
-            children: [
-              const SizedBox(height: 4),
-
-              // Stack so we can draw the fixed swipe overlay on top of the cards
-              Expanded(
-                child: Stack(
+          // FASE 2 (T2.2): modo LISTA (flag feed_list_v1 + toggle, D-6).
+          // O swipe (abaixo) segue sendo o padrão.
+          child: vm.feedRpcEnabled && vm.feedMode == JobsViewModel.feedModeList
+              ? const JobsListView()
+              : Column(
                   children: [
-                    _buildBody(vm),
-                    // Fixed overlay — never rotates, perfectly centered on the card area
+                    const SizedBox(height: 4),
+
+                    // Stack so we can draw the fixed swipe overlay on top of the cards
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          _buildBody(vm),
+                          // Fixed overlay — never rotates, perfectly centered on the card area
+                          if (!vm.isLoading && vm.jobs.isNotEmpty)
+                            _buildSwipeOverlay(),
+                        ],
+                      ),
+                    ),
+
                     if (!vm.isLoading && vm.jobs.isNotEmpty)
-                      _buildSwipeOverlay(),
+                      _buildActionBar(),
                   ],
                 ),
-              ),
-
-              if (!vm.isLoading && vm.jobs.isNotEmpty)
-                _buildActionBar(),
-            ],
-          ),
         ),
       ),
     );
@@ -1010,6 +1076,32 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
         actions: [
+          // FASE 2 (T2.2): toggle swipe↔lista — só com feed_list_v1 ON.
+          if (context.watch<JobsViewModel>().feedRpcEnabled)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Builder(builder: (context) {
+                final vm = context.read<JobsViewModel>();
+                final isList =
+                    vm.feedMode == JobsViewModel.feedModeList;
+                return IconButton(
+                  tooltip: isList ? 'Ver como cards' : 'Ver como lista',
+                  icon: Icon(
+                    isList
+                        ? Icons.style_rounded
+                        : Icons.view_agenda_rounded,
+                    color: AppColors.primary,
+                  ),
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    // ignore: unawaited_futures
+                    vm.setFeedMode(isList
+                        ? JobsViewModel.feedModeSwipe
+                        : JobsViewModel.feedModeList);
+                  },
+                );
+              }),
+            ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: _CultureFitActionButton(
@@ -1189,18 +1281,20 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         // Renderiza loading enquanto auto-reload acontece.
         return _buildAutoReloadLoading();
       }
-      // Distingue 2 cenários: filtros zeraram tudo (vagas existem mas não
-      // batem) vs. realmente esgotou. Mensagem e CTA mudam.
+      // Distingue 2 cenários (T2.3, exaustão honesta): estado B = filtros
+      // zeraram tudo (vagas existem mas não batem); estado A = fim das
+      // relevantes de verdade. B1/D2 do plano provaram que os DOIS existem
+      // hoje — esses estados são produto, não edge case.
       final isFiltersTooStrict = vm.filtersAreTooRestrictive;
       final iconData = isFiltersTooStrict
           ? Icons.filter_alt_off_rounded
-          : Icons.rocket_launch_rounded;
+          : Icons.task_alt_rounded;
       final title = isFiltersTooStrict
           ? 'Nenhuma vaga bate com seus filtros'
-          : 'Você explorou tudo!';
+          : 'Você viu as relevantes por agora';
       final subtitle = isFiltersTooStrict
           ? 'Existem ${vm.totalAvailable} vagas ativas, mas seus\nfiltros estão muito restritivos. Tente afrouxar.'
-          : 'Ajuste seus filtros ou volte\nmais tarde para novas oportunidades.';
+          : 'Vagas novas entram toda semana.\nA gente te avisa quando chegarem.';
 
       return Center(
         child: Padding(
@@ -1248,35 +1342,67 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                 ),
               ),
               const SizedBox(height: 32),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (isFiltersTooStrict)
+              if (isFiltersTooStrict)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
                     _buildOutlinedActionButton(
                       label: 'Limpar filtros',
                       icon: Icons.filter_alt_off_rounded,
                       onTap: () async {
                         await vm.clearPreferences();
                       },
-                    )
-                  else
-                    _buildOutlinedActionButton(
-                      label: 'Filtros',
+                    ),
+                    const SizedBox(width: 12),
+                    _buildGradientButton(
+                      label: 'Ajustar',
                       icon: Icons.tune_rounded,
                       onTap: _openPreferences,
                     ),
-                  const SizedBox(width: 12),
-                  _buildGradientButton(
-                    label: isFiltersTooStrict ? 'Ajustar' : 'Recarregar',
-                    icon: isFiltersTooStrict
-                        ? Icons.tune_rounded
-                        : Icons.refresh_rounded,
-                    onTap: isFiltersTooStrict
-                        ? _openPreferences
-                        : () => vm.reloadJobs(),
+                  ],
+                )
+              else ...[
+                // T2.3 — estado A: alerta (digest existente) + expansão
+                // honesta (só quando o filtro de modelo exclui remotas) +
+                // pedido de empresa.
+                _buildGradientButton(
+                  label: 'Me avisar de vagas novas',
+                  icon: Icons.notifications_active_rounded,
+                  onTap: _enableNewJobsAlert,
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (vm.canExpandToRemote) ...[
+                      _buildOutlinedActionButton(
+                        label: 'Incluir remotas',
+                        icon: Icons.public_rounded,
+                        onTap: () => vm.expandFiltersWithRemote(),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                    _buildOutlinedActionButton(
+                      label: 'Pedir uma empresa',
+                      icon: Icons.add_business_rounded,
+                      onTap: () => CompanyRequestSheet.show(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                TextButton.icon(
+                  onPressed: () => vm.reloadJobs(),
+                  icon: const Icon(Icons.refresh_rounded,
+                      size: 18, color: AppColors.textTertiary),
+                  label: const Text(
+                    'Recarregar',
+                    style: TextStyle(
+                      color: AppColors.textTertiary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ],
           ),
         ),
@@ -1312,6 +1438,10 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         if (mounted) setState(() => _swipeFraction = 0.0);
       },
       child: CardSwiper(
+        // FASE 2 (T2.2): Key por feedEpoch — página nova do RPC recria o
+        // swiper do zero (índice interno zera com o array novo; B4).
+        // Com flag OFF o epoch é constante 0 → comportamento idêntico.
+        key: ValueKey('feed_epoch_${vm.feedEpoch}'),
         controller: _swiperController,
         cardsCount: vm.jobs.length,
         onSwipe: _onSwipe,
@@ -1343,6 +1473,8 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
               isNoResume: match.isNoResume,
               confidence: match.confidence,
               missingDimensions: match.missingDimensions,
+              // T2.4 — holdout: variante 'hidden' não vê banda pré-swipe.
+              showScore: vm.matchScoreVisible,
             ),
           );
         },

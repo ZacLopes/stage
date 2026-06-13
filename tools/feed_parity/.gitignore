@@ -1,0 +1,2 @@
+# Snapshots carregam dados reais de usuários (prefs, swipes) — local only.
+snapshot*.json
