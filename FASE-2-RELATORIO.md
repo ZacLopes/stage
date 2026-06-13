@@ -1,7 +1,13 @@
 # FASE-2-RELATORIO — Feed server-side, lista e holdout
 
-**Status: PARCIAL — PR1 (server) executado em 12/06.** PR2-PR4 (client 2.4.0) pendentes.
-Branch `fase-2-feed-server`. Refs: `PLANO-FASE-2.md` (aprovado 12/06, REV-1 incorporada).
+**Status: EXECUÇÃO COMPLETA dos 4 PRs em 12/06** (commits 9714fa9 → d51ba1b →
+b22c6b3 → bde9706 na branch `fase-2-feed-server`). Aceites server-side medidos;
+aceites de produção (#2, #3, #5, #6, #7) fecham pós-release 2.4.0 + rollout.
+Refs: `PLANO-FASE-2.md` (aprovado 12/06, REV-1 incorporada).
+
+> **Desvio de agrupamento (registrado):** os "PRs 1-4" do §6 viraram 4 commits
+> escopados na MESMA branch (1 PR de fase no GitHub, padrão de merge da F1) —
+> revisão por commit preserva a granularidade sem stack de PRs dependentes.
 
 ---
 
@@ -105,7 +111,82 @@ duplicatas removidas). Harness re-rodado verde (tabela acima).
    conferida por sha256 — drift cópia↔original deixa de existir; o espelhamento que o
    harness vigia continua sendo Dart ↔ SQL.
 
-## Pendências do PR1 (fundador)
+## PR2 — T2.2: modo lista + swipe por snapshot (client 2.4.0, commit d51ba1b)
+
+- **Server v1.2** (migration `20260612140000`): `rank_score` quantizado em 6
+  casas — fecha o risco "cursor numeric float" do §9. A mitigação do plano
+  ("client repassa a string exata") não sobrevive ao caminho real: PostgREST
+  serializa numeric como JSON number e o `jsonDecode` do Dart entrega double;
+  em EMPATES (batches do sync compartilham `published_at`) um cursor inexato
+  flipava o tie-break. Com 6 casas (rank < 104 → ≤9 dígitos significativos) o
+  roundtrip double é exato. **Verificado:** `FASE2_TESTS_OK_V12` + teste novo
+  T7b (todo rank sobrevive a `text→float8→text`) em prod, rollback limpo.
+- **FeedPager** (`lib/features/jobs/data/feed_pager.dart`): lógica pura de
+  cursor/sentinela/dedup/totais com transporte injetado — 8 unit tests com
+  RPC mockado (R3), incluindo paginação completa sem overlap (espelho do
+  all-ties) e dedup de borda.
+- **JobsViewModel:** `_performFetch` bifurca pro RPC com `feed_list_v1` ON;
+  caminho legacy intocado (rollback = flag OFF). Filtros resolvidos como hoje
+  (local-else-profile, D-8); `min_match_score` client-side por página (página
+  pode encolher; busca a próxima se zerar, guard de 5). Lista = scroll
+  infinito; swipe = snapshot por página, avanço no `tryAutoReload` e
+  CardSwiper recriado via `Key(feedEpoch)` (B4 sem refatorar o plugin).
+- **UI:** `JobsListView`/`JobsListCell` (célula: empresa, título, chips de
+  razão do RPC, bolsa/"A combinar", frescor; Dismissible direita-salva/
+  esquerda-descarta na MESMA `swipe_actions`); toggle swipe↔lista no AppBar,
+  persistido por user, swipe é padrão (D-6).
+- **R7:** `feed_mode_toggled` (catálogo+emissor) + props `feed_source`
+  ('rpc'|'legacy', REV-1 — corte do aceite P50) e `feed_mode` em
+  `feed_loaded`/`feed_exhausted`/`job_swiped`/`job_card_shown`.
+
+## PR3 — T2.3: exaustão honesta + pedido de empresa + admin (commit b22c6b3)
+
+- **Estados A/B** no swipe e na lista. B (filtros zeraram; sentinela do RPC
+  alimenta `filtersAreTooRestrictive`): "limpar filtros". A (fim das
+  relevantes): CTA de alerta (permissão de push pro digest diário existente),
+  **expansão honesta** — "incluir remotas" só aparece quando o filtro de
+  MODELO as exclui (sem filtro de modelo, remotas já passam por localização;
+  oferecer seria expansão de mentira) — e "Pedir uma empresa".
+- **CompanyRequestSheet:** own-insert em `company_requests` + evento
+  `company_requested` (R7). Aceite #7 (≥1 pedido real) fecha pós-release.
+- **Admin:** action `company_requests` na edge `admin-jobs` (service role +
+  audit log + nome/email via `user_profiles`) e aba "Pedidos" no dashboard.
+  Edge **deployada pós-commit** (ordem commit→deploy);
+  `check_functions_drift` OK (25 functions, repo == deployado). tsc + vite
+  build do dashboard verdes.
+
+## PR4 — T2.4 bandas + holdout · T2.5 detalhe (commit bde9706)
+
+- **Bandas:** número 0-100 saiu do pré-swipe. Card mostra banda no ring
+  (Alta ≥70 / Média 40-69 / Baixa <40 — `match_band.dart`, unit test dos
+  limiares); célula da lista ganha chip de banda do score do RANKING server
+  (D-2: ranking ordena, card explica; sem prefs declaradas a banda não
+  aparece — score 0 viraria "Baixa" pra tudo). Número completo só no detalhe.
+  R5 não disparou (pipeline adapt intocado).
+- **Holdout (§5/D3):** gate puro em `holdout_gate.dart` — confidence low →
+  flag NÃO avaliada (unit test: zero chamadas), failure-safe = controle.
+  `JobsViewModel.resolveMatchScoreHoldout()` 1× por sessão pós-prefs;
+  variante 'hidden' oculta banda E chips pré-swipe no card e na célula
+  (revelados no detalhe). Props `score_visible` (o que o user VIU, pós-flag
+  e pós-confidence) + `holdout_variant` em `job_card_shown`/`job_swiped`.
+- **Flag PostHog 693925 reconfigurada via MCP** (12/06, version 2): variantes
+  `percent` **80** / `hidden` **20**, exclusão do cohort interno 303703
+  preservada, bucketing distinct_id, **SEGUE INATIVA** — ativação é do
+  fundador na liberação da 2.4.0 (checklist #5; seguro: `last_called_at`
+  ainda null).
+- **T2.5:** as razões já abrem o detalhe (o match card com razões é o 1º
+  bloco após o header — nada a mover); adicionado selo discreto
+  "via {source}" no header (`jobs.source` novo no model Job).
+
+## Validações finais (12/06)
+
+`flutter analyze` 0 errors/warnings (ratchet 46 = baseline 46) ·
+`flutter test` verde (35 testes, 13 novos da fase) · `deno check` 27
+entrypoints OK · tsc + vite build do dashboard OK · `migration list` limpo
+(local = remoto, 93 migrations) · manifest atualizado ·
+`check_functions_drift` OK · `check_env_safety` OK.
+
+## Pendências (fundador)
 
 1. **Rodar `scripts/convert_internal_account.sh`** no terminal (precisa `SERVICE_ROLE`
    exportada + senha nova via prompt; telefone sintético: **(00) 90000-0001**).
@@ -114,10 +195,18 @@ duplicatas removidas). Harness re-rodado verde (tabela acima).
 3. Decisões já tomadas que seguem valendo: rollout 10→50→100 pós-aceitação da 2.4.0;
    swipe padrão/lista opt-in; holdout 20%.
 
-## Próximos passos
+## Próximos passos (fechamento da fase)
 
-- **PR2 [client]:** T2.2 — lista + swipe por snapshot + eventos (`feed_source`,
-  `feed_mode`, `feed_mode_toggled`) + testes; consome sentinela e counts da 1ª página.
-- **PR3 [client+admin]:** T2.3 — estados de exaustão + "Pedir uma empresa" + página admin.
-- **PR4 [client+PostHog]:** T2.4 + T2.5 — bandas, holdout (flag 693925 → 80/20), detalhe.
-- Aceites #2-#7 fecham pós-release/rollout (medições PostHog descritas no §8 do plano).
+1. Validação device com a conta interna (T2.0 verificação ii): login, toggle
+   lista, P50 percebido — **antes** do rollout (risco §9: e2e ≠ EXPLAIN).
+2. Release 2.4.0: bump + archive; `posthog_annotate_deploy.sh` na LIBERAÇÃO.
+3. Pós-aceitação: rollout `feed_list_v1` 10→50→100 (degraus 3-4 dias; gatilho
+   zero regressão crash/`feed_load_failed` + save-rate estável) + ativar a
+   flag do holdout no PostHog.
+4. Aceites de produção: #2 P50<800ms (`feed_loaded` com `feed_source='rpc'`,
+   `cache_hit=false`, ≥7 dias com flag ≥50%); #3 sem regressão; #5 holdout
+   ≥14 dias + análise do §5; #6 exaustão por `feed_mode`; #7 ≥1
+   `company_request` real.
+5. Fechamento (flag 100% + janela estável): deletar `jobs.shuffle(Random())`
+   + fetch-tudo (aceite #4, commit dedicado) — os emissores legacy de
+   `feed_loaded` continuam com `feed_source='legacy'` até lá.
