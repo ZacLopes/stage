@@ -11,6 +11,7 @@ import '../../../services/notifications_service.dart';
 import '../data/feed_pager.dart';
 import '../jobs_viewmodel.dart';
 import '../models/job.dart';
+import '../utils/match_band.dart';
 import '../widgets/company_request_sheet.dart';
 import 'job_details_sheet.dart';
 
@@ -59,8 +60,10 @@ class _JobsListViewState extends State<JobsListView> {
     }
   }
 
-  void _trackCellShown(Job job, FeedPageRow? row, int index) {
+  void _trackCellShown(
+      Job job, FeedPageRow? row, int index, bool scoreVisible) {
     if (!_shownIds.add(job.id)) return;
+    final vm = context.read<JobsViewModel>();
     // match_score aqui é o score determinístico do RANKING server-side
     // (sem skills — D-2); o card do swipe continua usando IA+fallback.
     // ignore: unawaited_futures
@@ -74,6 +77,8 @@ class _JobsListViewState extends State<JobsListView> {
       salaryBucket: bucketSalary(job.salaryMin, job.salaryMax),
       locationBucket: bucketLocation(job.locationCity, job.locationState),
       feedMode: 'list',
+      scoreVisible: scoreVisible, // T2.4 — o que a célula mostrou de fato
+      holdoutVariant: vm.holdoutVariant,
     );
   }
 
@@ -100,6 +105,10 @@ class _JobsListViewState extends State<JobsListView> {
       salaryBucket: bucketSalary(job.salaryMin, job.salaryMax),
       locationBucket: bucketLocation(job.locationCity, job.locationState),
       feedMode: 'list',
+      // T2.4 — holdout: célula mostra banda/chips só com score visível e
+      // alguma dimensão de ranking declarada.
+      scoreVisible: vm.matchScoreVisible && vm.profilePrefs != null,
+      holdoutVariant: vm.holdoutVariant,
     );
   }
 
@@ -184,7 +193,12 @@ class _JobsListViewState extends State<JobsListView> {
           }
           final job = jobs[index];
           final row = vm.feedRowFor(job.id);
-          _trackCellShown(job, row, index);
+          // T2.4 — banda/chips pré-swipe: escondidos na variante 'hidden'
+          // do holdout; banda só faz sentido com alguma dimensão de
+          // ranking declarada (senão score=0 viraria "Baixa" pra tudo).
+          final scoreVisible =
+              vm.matchScoreVisible && vm.profilePrefs != null;
+          _trackCellShown(job, row, index, scoreVisible);
           return Dismissible(
             key: ValueKey('feed_cell_${job.id}'),
             background: const _SwipeBackground(
@@ -208,7 +222,12 @@ class _JobsListViewState extends State<JobsListView> {
             },
             child: JobsListCell(
               job: job,
-              reasonLabels: row?.matchedReasonLabels ?? const [],
+              reasonLabels: scoreVisible
+                  ? (row?.matchedReasonLabels ?? const [])
+                  : const [],
+              band: scoreVisible && row != null
+                  ? matchBandFor(row.score)
+                  : null,
               onTap: () => _openDetails(job),
             ),
           );
@@ -225,11 +244,16 @@ class JobsListCell extends StatelessWidget {
     super.key,
     required this.job,
     required this.reasonLabels,
+    this.band,
     this.onTap,
   });
 
   final Job job;
   final List<String> reasonLabels;
+
+  /// T2.4 — banda do score do RANKING server (D-2: ranking ordena, card
+  /// explica). Null = não mostrar (holdout 'hidden' ou sem prefs).
+  final MatchBand? band;
   final VoidCallback? onTap;
 
   @override
@@ -282,7 +306,31 @@ class JobsListCell extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  _FreshnessBadge(postedDaysAgo: job.postedDaysAgo),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      _FreshnessBadge(postedDaysAgo: job.postedDaysAgo),
+                      if (band != null) ...[
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: band!.color.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            'Match ${band!.label}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: band!.color,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ],
               ),
               const SizedBox(height: 10),

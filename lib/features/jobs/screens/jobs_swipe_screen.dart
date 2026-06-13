@@ -196,6 +196,9 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       SchedulerBinding.instance.addPostFrameCallback((_) async {
         final vm = context.read<JobsViewModel>();
         await vm.init();
+        // T2.4 — holdout do match resolvido 1x por sessão (gate de
+        // elegibilidade + flag PostHog; failure-safe = controle).
+        unawaited(vm.resolveMatchScoreHoldout());
         unawaited(_loadCultureFitProfile());
         if (mounted) {
           Analytics.shared.jobFeedOpened(jobsCount: vm.jobs.length);
@@ -606,6 +609,13 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         salaryBucket: _bucketSalary(job.salaryMin, job.salaryMax),
         locationBucket: _bucketLocation(job.locationCity, job.locationState),
         feedMode: 'swipe', // FASE 2: save-rate por modo (lista emite 'list')
+        // T2.4 — holdout: o que o user VIU de fato (pós-flag e
+        // pós-confidence) + variante pra cortar a análise por atribuição.
+        scoreVisible: vm.matchScoreVisible &&
+            cached != null &&
+            !cached.isUnknown &&
+            cached.confidence != MatchConfidence.low,
+        holdoutVariant: vm.holdoutVariant,
       );
       // Fix QA Dia 8 (Bug 3): persiste o `matchScore` por job_id pra que a
       // aba Curtidas leia o número correto depois (sem isso `match_score=0`
@@ -683,6 +693,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       salaryBucket: _bucketSalary(job.salaryMin, job.salaryMax),
       locationBucket: _bucketLocation(job.locationCity, job.locationState),
       feedMode: 'swipe', // FASE 2: exposição por modo
+      // T2.4 — holdout: exposição com/sem banda visível + variante.
+      scoreVisible: vm.matchScoreVisible &&
+          cached != null &&
+          !cached.isUnknown &&
+          cached.confidence != MatchConfidence.low,
+      holdoutVariant: vm.holdoutVariant,
     );
   }
 
@@ -1457,6 +1473,8 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
               isNoResume: match.isNoResume,
               confidence: match.confidence,
               missingDimensions: match.missingDimensions,
+              // T2.4 — holdout: variante 'hidden' não vê banda pré-swipe.
+              showScore: vm.matchScoreVisible,
             ),
           );
         },

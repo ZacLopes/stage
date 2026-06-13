@@ -993,6 +993,8 @@ class AnalyticsService {
     String? locationBucket,
     int? timeOnCardMs,
     String? feedMode, // 'swipe' | 'list' (Fase 2: save-rate por modo)
+    bool? scoreVisible, // T2.4: o que o user VIU (pós-flag e pós-confidence)
+    String? holdoutVariant, // T2.4: 'percent'|'hidden'|null (não-elegível)
   }) =>
       track(evJobSwiped, props: {
         'job_id': jobId,
@@ -1016,6 +1018,8 @@ class AnalyticsService {
         if (locationBucket != null) 'location_bucket': locationBucket,
         if (timeOnCardMs != null) 'time_on_card_ms': timeOnCardMs,
         if (feedMode != null) 'feed_mode': feedMode,
+        if (scoreVisible != null) 'score_visible': scoreVisible,
+        if (holdoutVariant != null) 'holdout_variant': holdoutVariant,
       });
 
   Future<void> jobDetailsOpened({required String jobId, int? matchScore}) =>
@@ -1213,6 +1217,8 @@ class AnalyticsService {
     String? salaryBucket,
     String? locationBucket,
     String? feedMode, // 'swipe' | 'list' (Fase 2: exposição por modo)
+    bool? scoreVisible, // T2.4: o que o user VIU (pós-flag e pós-confidence)
+    String? holdoutVariant, // T2.4: 'percent'|'hidden'|null (não-elegível)
   }) =>
       track(evJobCardShown, props: {
         'job_id': jobId,
@@ -1224,6 +1230,8 @@ class AnalyticsService {
         if (salaryBucket != null) 'salary_bucket': salaryBucket,
         if (locationBucket != null) 'location_bucket': locationBucket,
         if (feedMode != null) 'feed_mode': feedMode,
+        if (scoreVisible != null) 'score_visible': scoreVisible,
+        if (holdoutVariant != null) 'holdout_variant': holdoutVariant,
       });
 
   /// Pareado com [jobCardDwellEnded]. Marca instante em que card entrou.

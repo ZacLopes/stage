@@ -17,6 +17,7 @@ import 'data/swipe_repository.dart';
 import 'models/application.dart';
 import 'models/job.dart';
 import 'models/user_preferences.dart';
+import 'utils/holdout_gate.dart';
 import 'utils/match_score.dart';
 
 class JobsViewModel extends ChangeNotifier {
@@ -104,6 +105,9 @@ class JobsViewModel extends ChangeNotifier {
           _feedRows.clear();
           _feedModeRaw = feedModeSwipe;
           _exhaustedEmittedRpc = false;
+          // FASE 2 (T2.4): holdout re-resolve pro próximo user.
+          _holdoutVariant = null;
+          _holdoutResolved = false;
           notifyListeners();
           break;
         default:
@@ -541,6 +545,36 @@ class JobsViewModel extends ChangeNotifier {
       _undoStack.remove(job);
       notifyListeners();
     }
+  }
+
+  // ── FASE 2 (T2.4): holdout match_score_visibility_v1 (§5/D3) ────────
+  // Resolvido 1× por sessão, APÓS profilePrefs carregar (a elegibilidade
+  // é a MESMA confidence que decide se o número aparece hoje). Cacheado
+  // pra não dar flicker por card; reset no signOut.
+  String? _holdoutVariant;
+  bool _holdoutResolved = false;
+
+  /// 'percent' | 'hidden' | null (null = não-elegível, confidence low).
+  String? get holdoutVariant => _holdoutVariant;
+
+  /// O que o user vê pré-swipe (banda + chips). True até o holdout
+  /// resolver (failure-safe = controle) e pra não-elegíveis.
+  bool get matchScoreVisible =>
+      !_holdoutResolved || scoreVisibleFor(_holdoutVariant);
+
+  Future<void> resolveMatchScoreHoldout() async {
+    if (_holdoutResolved) return;
+    await ensureProfilePrefsLoaded();
+    final confidence = MatchScoreCalculator.computeConfidence(
+      prefs: _cachedProfilePrefs,
+      skillsCount: _cachedProfileSkillsCount,
+    ).level;
+    _holdoutVariant = await resolveHoldoutVariant(
+      confidence: confidence,
+      getFlag: (key) => Analytics.shared.getFlag(key),
+    );
+    _holdoutResolved = true;
+    notifyListeners();
   }
 
   // ── FASE 2 (T2.3): exaustão honesta + pedido de empresa ─────────────

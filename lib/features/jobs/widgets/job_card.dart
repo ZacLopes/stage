@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/job.dart';
+import '../utils/match_band.dart';
 import '../utils/match_score.dart';
 import '../../../core/theme/theme.dart';
 
@@ -37,6 +38,10 @@ class JobCard extends StatefulWidget {
   /// `confidence == low`. Default lista vazia.
   final List<String> missingDimensions;
 
+  /// FASE 2 (T2.4, holdout §5/D3): false = variante 'hidden' — o ring de
+  /// match some do card PRÉ-SWIPE (banda revelada só no detalhe da vaga).
+  final bool showScore;
+
   const JobCard({
     super.key,
     required this.job,
@@ -45,6 +50,7 @@ class JobCard extends StatefulWidget {
     this.isNoResume = false,
     this.confidence = MatchConfidence.high,
     this.missingDimensions = const [],
+    this.showScore = true,
   });
 
   @override
@@ -430,12 +436,17 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                   ),
                 ),
 
-                // Match ring — 4 estados (precedência de cima pra baixo):
-                //   1. noResume       → CTA "crie seu CV"
-                //   2. pending        → dots animados
-                //   3. confidence low → badge "Análise limitada" (Passo 5)
-                //   4. score real     → ring com %match (com asterisco se medium)
-                widget.isNoResume
+                // Match ring — 5 estados (precedência de cima pra baixo):
+                //   1. holdout hidden → nada pré-swipe (T2.4 §5/D3;
+                //      banda revelada no detalhe da vaga)
+                //   2. noResume       → CTA "crie seu CV"
+                //   3. pending        → dots animados
+                //   4. confidence low → badge "Análise limitada" (Passo 5)
+                //   5. score real     → ring com BANDA (T2.4: o número
+                //      0-100 saiu do pré-swipe; completo só no detalhe)
+                !widget.showScore
+                    ? const SizedBox.shrink()
+                    : widget.isNoResume
                     ? const _NoResumeBadge()
                     : widget.isPending
                     ? _MatchPendingRing()
@@ -462,14 +473,12 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
-                                      // Ring mostra score limpo (sem asterisco).
-                                      // Diferenciação medium/high agora vive no
-                                      // chip _MissingDimensionsCta no body do card
-                                      // (mais autoexplicativo que asterisco).
-                                      '${(_score * _ringAnimation.value).toInt()}%',
+                                      // T2.4 — banda em vez de número
+                                      // (Alta ≥70 / Média 40-69 / Baixa <40).
+                                      matchBandFor(_score).label,
                                       style: const TextStyle(
                                         color: Colors.white,
-                                        fontSize: 14,
+                                        fontSize: 12,
                                         fontWeight: FontWeight.w900,
                                       ),
                                     ),

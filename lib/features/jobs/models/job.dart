@@ -36,6 +36,11 @@ class Job {
   final String? workModelRaw; // 'presencial', 'hibrido', 'remoto'
   final String? jobTypeRaw;   // 'estagio', 'trainee', 'clt_junior', 'temporario'
   final String? area;
+
+  /// FASE 2 (T2.5): `jobs.source` — fonte agregadora ('gupy', 'greenhouse',
+  /// 'email'…; null = cadastro direto). Alimenta o selo "via {source}" do
+  /// detalhe (preparação visual pra classe "Vaga Stage" da F4).
+  final String? source;
   final String? externalUrl; // URL do site da empresa pra aplicar (Greenhouse/Lever/Apify)
   /// Como o candidato aplica: 'url' (legacy — abre externalUrl no browser)
   /// ou 'email' (abre mailto:applicationEmail com applicationSubject).
@@ -80,6 +85,7 @@ class Job {
     this.workModelRaw,
     this.jobTypeRaw,
     this.area,
+    this.source,
     this.externalUrl,
     this.applicationMethod = 'url',
     this.applicationEmail,
@@ -199,6 +205,7 @@ class Job {
       workModelRaw: workModelRaw,
       jobTypeRaw: jobTypeRaw,
       area: json['area'] as String?,
+      source: json['source'] as String?,
       externalUrl: json['external_url'] as String?,
       applicationMethod: (json['application_method'] as String?) ?? 'url',
       applicationEmail: json['application_email'] as String?,
