@@ -1301,7 +1301,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
           ? 'Existem ${vm.totalAvailable} vagas ativas, mas seus\nfiltros estão muito restritivos. Tente afrouxar.'
           : 'Vagas novas entram toda semana.\nA gente te avisa quando chegarem.';
 
-      return Center(
+      // Overflow fix (15/06): em telas mais baixas o estado A (vários botões:
+      // alerta + expandir + pedir empresa + recarregar) passava da altura
+      // disponível → "RenderFlex overflowed". SingleChildScrollView deixa a
+      // tela rolar em vez de estourar. (Centralizava antes; agora alinha ao
+      // topo e rola quando não cabe — aceitável pra empty state.)
+      return SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(
