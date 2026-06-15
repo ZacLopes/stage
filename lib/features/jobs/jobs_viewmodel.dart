@@ -17,6 +17,7 @@ import 'data/swipe_repository.dart';
 import 'models/application.dart';
 import 'models/job.dart';
 import 'models/user_preferences.dart';
+import 'utils/feed_exhaustion.dart';
 import 'utils/holdout_gate.dart';
 import 'utils/match_score.dart';
 
@@ -102,6 +103,7 @@ class JobsViewModel extends ChangeNotifier {
           _matchResultCache.clear();
           _totalAvailable = 0;
           _totalAfterFilters = 0;
+          _totalMatchingCatalog = -1;
           // FASE 2 (T2.2): zera a sessão RPC pro próximo user.
           _feedPager = null;
           _rpcSessionActive = false;
@@ -144,6 +146,10 @@ class JobsViewModel extends ChangeNotifier {
   // "filtros muito restritivos".
   int _totalAvailable = 0;
   int _totalAfterFilters = 0;
+  // Quantas vagas batem com os filtros no catálogo inteiro IGNORANDO swipe.
+  // Distingue "esgotou as relevantes" (>0, feed vazio = A) de "filtros
+  // restritivos" (0 = B). -1 = desconhecido (caminho RPC ainda não fornece).
+  int _totalMatchingCatalog = -1;
 
   // ── FASE 2 (T2.2): feed server-side atrás de feed_list_v1 ───────────
   // Com a flag ON, AMBOS os modos consomem o RPC get_feed_page (D-6):
@@ -260,13 +266,16 @@ class JobsViewModel extends ChangeNotifier {
   /// swiped (saiu do feed).
   Future<Job?> fetchJobById(String id) => _jobRepository.getJobById(id);
 
-  /// Verdadeiro quando há vagas no banco mas os filtros do user excluíram
-  /// todas. UI usa pra mostrar "afrouxe os filtros" em vez de "explorou tudo".
-  bool get filtersAreTooRestrictive =>
-      _totalAvailable > 0 &&
-      _totalAfterFilters == 0 &&
-      _preferences != null &&
-      !_preferences!.isEmpty;
+  /// Verdadeiro quando os filtros do user NÃO batem com NENHUMA vaga do
+  /// catálogo (B), não quando ele apenas esgotou as relevantes swipando todas
+  /// (A). Usa [totalMatchingCatalog] (matches ignorando swipe) — antes usava
+  /// `_totalAfterFilters == 0`, que virava 0 depois de swipar tudo e flipava
+  /// pra B errado (bug 15/06).
+  bool get filtersAreTooRestrictive => feedFiltersTooRestrictive(
+        prefsActive: _preferences != null && !_preferences!.isEmpty,
+        totalAvailable: _totalAvailable,
+        totalMatchingCatalog: _totalMatchingCatalog,
+      );
 
   String? get userId => Supabase.instance.client.auth.currentUser?.id;
 
@@ -388,6 +397,7 @@ class JobsViewModel extends ChangeNotifier {
     );
     var jobs = result.jobs;
     _totalAvailable = result.totalAvailable;
+    _totalMatchingCatalog = result.totalMatchingCatalog;
 
     // Filtro adicional: match score mínimo. Aplicado client-side porque
     // score depende do PAR (user, vaga) e não está na linha de `jobs`.
@@ -479,11 +489,17 @@ class JobsViewModel extends ChangeNotifier {
     } else {
       _jobs = [..._jobs, ...pageJobs];
     }
-    // Diagnóstico pros empty states: totais da 1ª página do RPC. No
-    // caminho RPC `filtersAreTooRestrictive` continua funcionando — o
-    // sentinela do estado B entrega after=0/available>0 sem nenhuma row.
+    // Diagnóstico pros empty states: totais da 1ª página do RPC.
+    // FOLLOW-UP (bug 15/06): o sentinela do RPC só tem after/available
+    // (ambos pós-swipe), então NÃO distingue "esgotou" de "filtros
+    // restritivos" — mesmo bug do legacy. Até `get_feed_page` retornar
+    // `total_matching_catalog` (matches ignorando swipe), deixamos -1 =
+    // desconhecido → `filtersAreTooRestrictive` degrada pra A (esgotou),
+    // que é o caso comum e o erro menos grave. Reativar B no RPC quando a
+    // migration fornecer a contagem (antes do rollout da lista).
     _totalAfterFilters = pager.totalAfterFilters ?? _totalAfterFilters;
     _totalAvailable = pager.totalAvailable ?? _totalAvailable;
+    _totalMatchingCatalog = -1;
     _hasMorePages = pager.hasMore;
   }
 
