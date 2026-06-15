@@ -532,7 +532,7 @@ export function inferArea(title: string, contextHints?: string | null): string {
     // Saúde antes de tudo — vagas tipo "Estágio em Enfermagem" tinham
     // "enferma" pegando matchers genéricos depois e caindo em Produto/
     // Operações/RH errado. 22 vagas mal classificadas em 2026-05-27.
-    ["Saúde", /(enferma|enferm[ae]ir[ao]|medic|m[ée]dic[ao]|farma|farm[áa]cia|farmac[êe]utic|fisio|fisioterap|nutricion|psic[óo]log|psicologia|biom[ée]dic|odont|odontol[óo]gi|veterin|cl[íi]nica|hospital|sa[úu]de|enfermagem|radiolo|terapeut|fonoaudi|esteriliza)/],
+    ["Saúde", /(enferma|enferm[ae]ir[ao]|medic|m[ée]dic[ao]|farma|farm[áa]cia|farmac[êe]utic|fisio|fisioterap|nutri|psic[óo]log|psicologia|biom[ée]dic|odont|odontol[óo]gi|veterin|cl[íi]nica|hospital|sa[úu]de|enfermagem|radiolo|terapeut|fonoaudi|esteriliza|educa[çc][ãa]o f[íi]sica|seguran[çc]a do trabalho)/],
     ["Jurídico", /(jur[íi]dic|direito|advog|advocacia|legal|compliance|contencioso|tribut[áa]rio|paralegal|direito (?:empresarial|trabalhista|c[íi]vel|tribut[áa]rio|penal|consumidor)|escrit[óo]rio de advocacia)/],
     ["Tecnologia", /(engenharia de software|desenvolved|software engineer|backend|frontend|full[- ]?stack|dados|\bdata\b|machine learning|\bml\b|devops|sre|cloud|infraestrutura|\bqa\b|testes?|cybersecurity|segurança da informação|tech|tecnologia|\bti\b|program(?:a[cdr]|ação|ador)|sistemas)/],
     ["Marketing", /(marketing|growth|crm|mídia|branding|comunicação|publicidade|social media)/],
@@ -541,7 +541,7 @@ export function inferArea(title: string, contextHints?: string | null): string {
     // Tokens curtos com \b: "rh"/"hr"/"gente" sem fronteira casavam dentro de
     // "trabalho", "hora", "urgente", "agente", "inteligente" → falso RH.
     ["Recursos Humanos", /(recursos humanos|\brh\b|\bgente\b|people|talent|recruiter|recruta|treinamento|human|\bhr\b|inclus[ãa]o|diversidade)/],
-    ["Operações", /(operações|operations|logística|supply chain|\bcs\b|customer success|atendimento|suporte|opera[cç]ões|supply|compras|suprimentos)/],
+    ["Operações", /(operações|operations|logística|supply chain|\bcs\b|customer success|atendimento|suporte|opera[cç]ões|operacional|supply|compras|suprimentos)/],
     // \b em "pm"/"ux"/"ui": sem fronteira casavam dentro de "auxiliar" (ux),
     // "arquitetura"/"pesquisa" (ui), etc. → falso Produto.
     ["Produto", /(produto|product manager|\bpm\b|design de produto|\bux\b|\bui\b|design|cria[çc][ãa]o|product)/],
@@ -556,7 +556,7 @@ export function inferArea(title: string, contextHints?: string | null): string {
   // ativas não tinham token tech no título). Título sem sinal + descrição só
   // com token fraco → cai em "Geral" honesto, não numa área inventada.
   const descRules: Array<[string, RegExp]> = [
-    ["Saúde", /(enferma|enferm[ae]ir[ao]|medic|m[ée]dic[ao]|farma|farm[áa]cia|farmac[êe]utic|fisioterap|nutricion|psic[óo]log|psicologia|biom[ée]dic|odont|odontol[óo]gi|veterin|cl[íi]nica|hospital|enfermagem|radiolo|fonoaudi|esteriliza)/],
+    ["Saúde", /(enferma|enferm[ae]ir[ao]|medic|m[ée]dic[ao]|farma|farm[áa]cia|farmac[êe]utic|fisio|fisioterap|nutri|psic[óo]log|psicologia|biom[ée]dic|odont|odontol[óo]gi|veterin|cl[íi]nica|hospital|enfermagem|radiolo|terapeut|fonoaudi|esteriliza|educa[çc][ãa]o f[íi]sica|seguran[çc]a do trabalho)/],
     ["Jurídico", /(jur[íi]dic|advog|advocacia|contencioso|paralegal|escrit[óo]rio de advocacia)/],
     // Tecnologia FORTE: só termos inequívocos de tech (sem sistemas/dados/
     // data/tech/tecnologia/ti/testes/qa/cloud/infraestrutura — todos boilerplate).
@@ -567,7 +567,7 @@ export function inferArea(title: string, contextHints?: string | null): string {
     // RH FORTE: sem "gente/people/treinamento/human" (boilerplate).
     ["Recursos Humanos", /(recursos humanos|\brh\b|recruiter|recruta|recrutamento|\bhr\b)/],
     // Operações FORTE: sem "atendimento/suporte/cs" (boilerplate).
-    ["Operações", /(operações|opera[cç]ões|operations|logística|supply chain|suprimentos)/],
+    ["Operações", /(operações|opera[cç]ões|operacional|operations|logística|supply chain|suprimentos)/],
     // Produto FORTE: sem "design/produto/pm/ux/ui" cru (boilerplate).
     ["Produto", /(product manager|design de produto|gest[ãa]o de produto)/],
     ["Engenharia", /(engenharia(?! de software)|engenheir(?!o de software)|edifica[çc])/],

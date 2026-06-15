@@ -84,3 +84,20 @@ Deno.test("controle: outras áreas pelo título", () => {
   assertEquals(inferArea("Analista de Marketing Digital", null), "Marketing");
   assertEquals(inferArea("Estágio em Vendas", null), "Vendas");
 });
+
+// Regressões pegas no dry-run do backfill (15/06) — termos de saúde que o
+// regex antigo não casava ("nutricion" ≠ "nutrição") caíam em
+// Marketing/Finanças/Geral; segurança do trabalho e educação física idem.
+Deno.test("regressão: saúde por título (nutri/educação física/segurança do trabalho)", () => {
+  assertEquals(inferArea("Estágio Em Nutrição", null), "Saúde");
+  assertEquals(inferArea("Estagiário de Nutrição", null), "Saúde");
+  assertEquals(inferArea("Estagiário em Educação Física - João XXIII", null), "Saúde");
+  assertEquals(inferArea("Estagiário de Segurança do Trabalho", null), "Saúde");
+});
+
+Deno.test("regressão: 'Eficiência Operacional' → Operações (não Vendas)", () => {
+  assertEquals(
+    inferArea("ESTAGIARIO NIVEL SUPERIOR - Eficiência Operacional", null),
+    "Operações",
+  );
+});

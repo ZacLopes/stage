@@ -168,8 +168,9 @@ if (!apply) {
 
 // ── Apply: backup local + UPDATE dos diffs ───────────────────────────────
 const ts = new Date().toISOString().replace(/[:.]/g, "-");
-const backupPath =
-  new URL(`./backup_${ts}.json`, import.meta.url).pathname;
+// import.meta.dirname dá o caminho de filesystem DECODIFICADO (import.meta.url
+// percent-encoda espaços/acentos do path "Gameficação Duolingo" → ENOENT).
+const backupPath = `${import.meta.dirname}/backup_${ts}.json`;
 await Deno.writeTextFile(
   backupPath,
   JSON.stringify(
