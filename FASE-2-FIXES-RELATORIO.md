@@ -83,10 +83,32 @@ auto-curam no sync).
 - **Paridade `tools/feed_parity/` 7/7 md5 idênticos** client × RPC pós-backfill
   (área entra nos filtros do feed → garante RPC == client).
 
+## #5 — Exaustão do feed mostrava "filtros restritivos" em vez de "esgotou" (achado no device, 15/06)
+
+Ao swipar TODAS as vagas que batiam com os filtros, o feed flipava (depois de
+segundos, no `tryAutoReload`) pra **"Nenhuma vaga bate com seus filtros / 218
+ativas, afrouxe"** (estado B) — quando o certo é **"você viu as relevantes"**
+(estado A). Causa: `filtersAreTooRestrictive` usava `_totalAfterFilters`
+(pós-swipe), que vira 0 quando os matches são swipados → conflava "esgotou" com
+"filtros zeram tudo".
+
+**Fix** (commit `ab95d2e`): repo legacy passa a contar `totalMatchingCatalog`
+= vagas que batem com os filtros no catálogo inteiro **ignorando swipe** (>0 →
+havia relevantes, é A; 0 → filtros restritivos, é B). Decisão em função pura
+`feedFiltersTooRestrictive` (5 testes). `flutter test` **45 verde** (+5),
+analyze 0/0.
+
+**Follow-up (RPC, antes do rollout da lista):** o sentinela do `get_feed_page`
+também só tem totais pós-swipe → mesmo bug. Por ora o caminho RPC degrada pra
+"desconhecido (-1) → A" (erro menos grave; lista está OFF). Reativar B no RPC
+quando a migration fornecer `total_matching_catalog` (matches ignorando swipe).
+
 ## Pendências do fundador
 
 1. **Device:** abrir a vaga Mills pela LISTA e pelas SALVAS → ring **50%** (= swipe),
    nunca "0% Match razoável"; durante o load, spinner; célula sem chip "Match Alta".
+2. **Device (#5):** swipar até esgotar → deve aparecer "você viu as relevantes" (A),
+   não "filtros muito restritivos" (B).
 
 ## Notas / desvios (o fato venceu)
 
