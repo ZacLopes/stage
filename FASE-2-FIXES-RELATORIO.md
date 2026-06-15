@@ -48,21 +48,18 @@ ativas em `tools/reclassify_active_areas/` (escopado às fontes de descrição-h
 | `check_env_safety` | OK |
 | **#4 dry-run** (local, `inferArea` real sobre prod, fiel ao pipeline) | gupy/brz: **59 vagas** mudam (maioria → "Geral" honesto: 28 Produto→Geral, 11 Tech→Geral, 8 RH→Geral…). **Tech ativas sem token tech no título: 16 → 1** (o 1 restante é `polifinance` "Risco de Mercado", fonte fora de escopo). 127 ativas de greenhouse/polifinance ficam fora (hint ≠ descrição; auto-curam no sync). |
 
-## Pendências do fundador (precisam de credenciais de prod desta sessão ausentes)
+## Deploy — FEITO (15/06)
 
-> **Fato:** o `supabase` CLI deste ambiente está logado numa conta sem acesso
-> ao projeto Stage (`supabase projects list` não lista `gaxfmniffjvwrwyunorl`,
-> embora o repo esteja linkado a ele). Deploy e backfill ficaram para o fundador
-> rodar com o login/serviço corretos. Código já COMMITADO (deploy só de commitado).
+**As 4 functions que embarcam `_shared/jobs.ts` foram deployadas** (de código
+commitado): `sync-jobs-apify`, `sync-jobs-ats`, `sync-jobs-brazil`,
+`ingest-jobs-email` → projeto `gaxfmniffjvwrwyunorl`. `ingest-jobs-email`
+manteve `verify_jwt=false` (config.toml).
+**`check_functions_drift.sh` → OK (25 functions ativas, repo == deployado)** —
+o `inferArea` novo está em produção; a janela repo≠prod fechou no mesmo dia.
 
-1. **Deploy das 4 functions que embarcam `_shared/jobs.ts`** (commit→deploy):
-   `sync-jobs-apify`, `sync-jobs-ats`, `sync-jobs-brazil`, `ingest-jobs-email`.
-   `ingest-jobs-email` tem `verify_jwt=false` no `config.toml` (preservado pelo CLI).
-   ```bash
-   supabase functions deploy sync-jobs-apify sync-jobs-ats sync-jobs-brazil ingest-jobs-email
-   bash scripts/check_functions_drift.sh   # deve voltar OK (até o deploy, drift nas 4 é ESPERADO)
-   ```
-2. **Backfill das ativas** (corrige já; senão o próximo sync auto-corrige as
+## Pendências do fundador
+
+1. **Backfill das ativas** (corrige já; senão o próximo sync auto-corrige as
    vivas na fonte):
    ```bash
    export SERVICE_ROLE=<service-role-key>
@@ -70,10 +67,13 @@ ativas em `tools/reclassify_active_areas/` (escopado às fontes de descrição-h
    deno run --allow-env --allow-net --allow-write tools/reclassify_active_areas/reclassify.ts --apply
    unset SERVICE_ROLE
    ```
-3. **Verificação pós-backfill:** re-rodar a query "Tech ativas sem token tech no
+   (Opcional: com o deploy já feito, rodar os syncs uma vez também re-classifica
+   as ativas vivas na fonte. O backfill é o caminho imediato + cobre as que não
+   reaparecem logo.)
+2. **Verificação pós-backfill:** re-rodar a query "Tech ativas sem token tech no
    título" (deve cair de **17/36 → ~0**; no snapshot de hoje, 16→1) e o harness
    `tools/feed_parity/` (paridade verde pós-mudança de dado).
-4. **Device:** abrir a vaga Mills pela LISTA e pelas SALVAS → ring **50%** (= swipe),
+3. **Device:** abrir a vaga Mills pela LISTA e pelas SALVAS → ring **50%** (= swipe),
    nunca "0% Match razoável"; durante o load, spinner; célula sem chip "Match Alta".
 
 ## Notas / desvios (o fato venceu)
