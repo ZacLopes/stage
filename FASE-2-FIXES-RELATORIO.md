@@ -98,10 +98,15 @@ havia relevantes, é A; 0 → filtros restritivos, é B). Decisão em função p
 `feedFiltersTooRestrictive` (5 testes). `flutter test` **45 verde** (+5),
 analyze 0/0.
 
-**Follow-up (RPC, antes do rollout da lista):** o sentinela do `get_feed_page`
-também só tem totais pós-swipe → mesmo bug. Por ora o caminho RPC degrada pra
-"desconhecido (-1) → A" (erro menos grave; lista está OFF). Reativar B no RPC
-quando a migration fornecer `total_matching_catalog` (matches ignorando swipe).
+**Follow-up RPC — FEITO (commit `5901461`):** `get_feed_page` **v1.3** (migration
+`20260615120000`) retorna `total_matching_catalog` (matches dos filtros
+ignorando swipe). `base` passa a incluir swipadas (flag `is_swiped`) e os
+conjuntos distintos de área/cidade saem do catálogo INTEIRO (corrige "swipou
+todas da área X" → a área sumia → falso B); `scored` filtra `not is_swiped`
+(feed inalterado). Client (FeedPager + JobsViewModel) lê a contagem (tirou o
+-1). Verificado: migration list limpo; mini-test A vs B em prod (esgotou
+after=0/tmc=2; restritivo tmc=0); **feed_parity 7/7** (feed inalterado); perf
+v1.3 13,8/4,5/8,9ms (c/b/a, sem regressão); `test_fase2_feed_rpc` T9/T10.
 
 ## Pendências do fundador
 
