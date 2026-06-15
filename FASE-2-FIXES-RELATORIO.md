@@ -106,7 +106,9 @@ todas da área X" → a área sumia → falso B); `scored` filtra `not is_swiped
 (feed inalterado). Client (FeedPager + JobsViewModel) lê a contagem (tirou o
 -1). Verificado: migration list limpo; mini-test A vs B em prod (esgotou
 after=0/tmc=2; restritivo tmc=0); **feed_parity 7/7** (feed inalterado); perf
-v1.3 13,8/4,5/8,9ms (c/b/a, sem regressão); `test_fase2_feed_rpc` T9/T10.
+v1.3 13,8/4,5/8,9ms (c/b/a, sem regressão); **suíte completa `test_fase2_feed_rpc`
+T0–T10 = `FASE2_TESTS_OK` em prod (rollback)** — gate inteiro verde, não só os
+cenários novos.
 
 ## Pendências do fundador
 
