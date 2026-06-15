@@ -55,6 +55,17 @@ void main() {
     expect(find.text('Área'), findsNothing);
   });
 
+  testWidgets('FASE 2 fixes (#1): célula NÃO mostra chip de banda',
+      (tester) async {
+    // A banda saiu da célula (vinha do ranking server e divergia do match
+    // do detalhe). Só razões ficam. Nenhum "Match Alta/Média/Baixa".
+    await pump(
+      tester,
+      JobsListCell(job: job(), reasonLabels: const ['Área']),
+    );
+    expect(find.textContaining('Match '), findsNothing);
+  });
+
   testWidgets('tap na célula chama onTap (abre detalhe da vaga)',
       (tester) async {
     var tapped = 0;

@@ -58,6 +58,8 @@ class JobsViewModel extends ChangeNotifier {
       _profilePrefsLoaded = false;
       _cachedProfilePrefs = null;
       _cachedProfileSkillsCount = 0;
+      // Prefs/skills mudaram → scores determinísticos cacheados ficam velhos.
+      _matchResultCache.clear();
       notifyListeners();
       // Recarrega profilePrefs em background e re-aplica filtros do feed
       // se o user ainda não setou filtros locais (caso típico: terminou
@@ -97,6 +99,7 @@ class JobsViewModel extends ChangeNotifier {
           _profilePrefsLoaded = false;
           _cachedProfilePrefs = null;
           _cachedProfileSkillsCount = 0;
+          _matchResultCache.clear();
           _totalAvailable = 0;
           _totalAfterFilters = 0;
           // FASE 2 (T2.2): zera a sessão RPC pro próximo user.
@@ -787,6 +790,29 @@ class JobsViewModel extends ChangeNotifier {
   int _cachedProfileSkillsCount = 0;
   int get profileSkillsCount => _cachedProfileSkillsCount;
 
+  // ── FASE 2 fixes (#3): cache de RESULTADOS de match compartilhado ────
+  // O mapa de resultados (jobId→MatchResult RAW, sem confidence) vive aqui
+  // pra que TODAS as superfícies — card do swipe, célula da lista e o
+  // DETALHE (aberto de qualquer ponto) — reusem o MESMO valor. Antes só o
+  // swipe tinha cache local e o detalhe da lista/salvas abria sem match
+  // (mostrava 0%). A sliding-window/prefetch e o _matchInflight FICAM
+  // locais no JobsSwipeScreen — aqui mora SÓ o resultado. Invalida em
+  // ProfileEvents.changes e signOut (prefs velhas = score velho).
+  final Map<String, MatchResult> _matchResultCache = {};
+
+  /// Mapa de resultados compartilhado (RAW, sem confidence). O swipe lê/grava
+  /// direto aqui pra que o detalhe reuse o que o swipe já avaliou (e vice-versa).
+  Map<String, MatchResult> get matchResultCache => _matchResultCache;
+
+  /// Lê o resultado RAW cacheado (ou null). Confidence é aplicado no momento
+  /// da leitura pelo caller (espelho de _resolveMatch do swipe).
+  MatchResult? cachedMatch(String jobId) => _matchResultCache[jobId];
+
+  /// Grava o resultado RAW no cache compartilhado.
+  void cacheMatch(String jobId, MatchResult result) {
+    _matchResultCache[jobId] = result;
+  }
+
   /// Garante que `profilePrefs` está carregado do banco antes do caller
   /// chamar `MatchScoreCalculator.calculate` (que precisa de prefs sync via
   /// [profilePrefs] getter). Sem isso, há race condition após
@@ -895,6 +921,64 @@ class JobsViewModel extends ChangeNotifier {
       _profilePrefsLoaded = true;
     }
     return _cachedProfilePrefs;
+  }
+
+  /// FASE 2 fixes (#3): resolve o match de UMA vaga pro detalhe, em QUALQUER
+  /// ponto de entrada (lista/salvas não passavam match → detalhe mostrava 0%).
+  /// Reusa o cache compartilhado [_matchResultCache] (preenchido pelo swipe) e,
+  /// só se necessário, o cache de IA em `match_analyses`; senão o determinístico
+  /// — MESMO padrão de [_filterByMatchScore], MESMA precedência de [_resolveMatch]
+  /// do swipe (noResume → cache → IA/determinístico).
+  ///
+  /// Precedência (sem N round-trips ao banco):
+  ///   1. [cachedMatch] em memória → retorna na hora (card já visto no swipe,
+  ///      ou 2ª abertura da mesma vaga).
+  ///   2. `fetchCachedMatches` (1 SELECT) → se houver row de IA, cacheia e usa.
+  ///   3. `MatchScoreCalculator.calculate` determinístico → cacheia e usa.
+  ///
+  /// [hasResume] vem do caller (UserViewModel.hasResume) — sem CV/trilha, mostrar
+  /// % é mentira (Cenário C devolve 50 fixo), então retorna noResume (UI → CTA).
+  /// Confidence é aplicado no retorno (resultado cacheado fica RAW).
+  Future<MatchResult> resolveMatchForJob(
+    Job job, {
+    required bool hasResume,
+  }) async {
+    if (!hasResume) return const MatchResult.noResume();
+
+    await ensureProfilePrefsLoaded();
+    final conf = MatchScoreCalculator.computeConfidence(
+      prefs: _cachedProfilePrefs,
+      skillsCount: _cachedProfileSkillsCount,
+    );
+
+    // 1. Cache em memória compartilhado (swipe já avaliou, ou reabertura).
+    final cached = _matchResultCache[job.id];
+    if (cached != null) {
+      return cached.withConfidence(conf.level, conf.missing);
+    }
+
+    // 2. Cache de IA em match_analyses (preciso). 1 SELECT, cacheado depois.
+    try {
+      final ai = (await _aiService.fetchCachedMatches([job.id]))[job.id];
+      if (ai != null) {
+        cacheMatch(job.id, ai);
+        return ai.withConfidence(conf.level, conf.missing);
+      }
+    } catch (e) {
+      print('resolveMatchForJob: fetchCachedMatches falhou, cai p/ determinístico: $e');
+    }
+
+    // 3. Fallback determinístico — mesmo input que o card/filtro usam.
+    final gamificationData = await _fetchGamificationData();
+    final profileText = await _fetchProfileText();
+    final determ = MatchScoreCalculator.calculate(
+      job: job,
+      prefs: _cachedProfilePrefs,
+      gamificationData: gamificationData,
+      profileText: profileText,
+    );
+    cacheMatch(job.id, determ);
+    return determ.withConfidence(conf.level, conf.missing);
   }
 
   // ── Filtros temporários de feed: persistência local ─────────────────

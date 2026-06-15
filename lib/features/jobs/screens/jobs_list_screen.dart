@@ -11,7 +11,6 @@ import '../../../services/notifications_service.dart';
 import '../data/feed_pager.dart';
 import '../jobs_viewmodel.dart';
 import '../models/job.dart';
-import '../utils/match_band.dart';
 import '../widgets/company_request_sheet.dart';
 import 'job_details_sheet.dart';
 
@@ -222,12 +221,13 @@ class _JobsListViewState extends State<JobsListView> {
             },
             child: JobsListCell(
               job: job,
+              // FASE 2 fixes (#1): célula mostra SÓ razões — a banda saiu
+              // (vinha do score do RANKING server e divergia do match do
+              // detalhe, que é IA/determinístico; espec 3.3). Ordenação do
+              // feed segue pelo rank_score; muda só o que se exibe.
               reasonLabels: scoreVisible
                   ? (row?.matchedReasonLabels ?? const [])
                   : const [],
-              band: scoreVisible && row != null
-                  ? matchBandFor(row.score)
-                  : null,
               onTap: () => _openDetails(job),
             ),
           );
@@ -244,16 +244,11 @@ class JobsListCell extends StatelessWidget {
     super.key,
     required this.job,
     required this.reasonLabels,
-    this.band,
     this.onTap,
   });
 
   final Job job;
   final List<String> reasonLabels;
-
-  /// T2.4 — banda do score do RANKING server (D-2: ranking ordena, card
-  /// explica). Null = não mostrar (holdout 'hidden' ou sem prefs).
-  final MatchBand? band;
   final VoidCallback? onTap;
 
   @override
@@ -306,31 +301,7 @@ class JobsListCell extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      _FreshnessBadge(postedDaysAgo: job.postedDaysAgo),
-                      if (band != null) ...[
-                        const SizedBox(height: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: band!.color.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            'Match ${band!.label}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: band!.color,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+                  _FreshnessBadge(postedDaysAgo: job.postedDaysAgo),
                 ],
               ),
               const SizedBox(height: 10),

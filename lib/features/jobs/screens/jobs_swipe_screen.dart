@@ -79,7 +79,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   // Match score (IA) — cache em memória + sliding window
   // ──────────────────────────────────────────────────────────────────
   final AIService _aiService = AIService();
-  final Map<String, MatchResult> _matchCache = {}; // jobId → result
+  // FASE 2 fixes (#3): o MAPA de resultados agora vive no JobsViewModel
+  // (cache compartilhado com o detalhe da lista/salvas — antes o detalhe
+  // aberto fora do swipe não tinha match e mostrava 0%). A sliding-window e o
+  // _matchInflight abaixo FICAM locais — só o RESULTADO é compartilhado.
+  Map<String, MatchResult> get _matchCache =>
+      context.read<JobsViewModel>().matchResultCache;
   final Set<String> _matchInflight = {};            // calls em andamento
   bool _hydrated = false;                           // primeira hidratação rodou?
   int _currentIndex = 0;                            // posição no swiper
