@@ -490,16 +490,13 @@ class JobsViewModel extends ChangeNotifier {
       _jobs = [..._jobs, ...pageJobs];
     }
     // Diagnóstico pros empty states: totais da 1ª página do RPC.
-    // FOLLOW-UP (bug 15/06): o sentinela do RPC só tem after/available
-    // (ambos pós-swipe), então NÃO distingue "esgotou" de "filtros
-    // restritivos" — mesmo bug do legacy. Até `get_feed_page` retornar
-    // `total_matching_catalog` (matches ignorando swipe), deixamos -1 =
-    // desconhecido → `filtersAreTooRestrictive` degrada pra A (esgotou),
-    // que é o caso comum e o erro menos grave. Reativar B no RPC quando a
-    // migration fornecer a contagem (antes do rollout da lista).
+    // get_feed_page v1.3 (#5) retorna total_matching_catalog (matches
+    // ignorando swipe) → distingue "esgotou" (>0 → A) de "filtros
+    // restritivos" (0 → B), igual ao legacy. Null (página > 1ª) preserva
+    // o valor já lido; -1 só se a 1ª página não trouxe (RPC antigo).
     _totalAfterFilters = pager.totalAfterFilters ?? _totalAfterFilters;
     _totalAvailable = pager.totalAvailable ?? _totalAvailable;
-    _totalMatchingCatalog = -1;
+    _totalMatchingCatalog = pager.totalMatchingCatalog ?? _totalMatchingCatalog;
     _hasMorePages = pager.hasMore;
   }
 

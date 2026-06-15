@@ -12,6 +12,7 @@ void main() {
     int score = 0,
     int? taf,
     int? tav,
+    int? tmc,
     bool area = false,
     bool loc = false,
   }) =>
@@ -26,6 +27,7 @@ void main() {
         'reason_salary': false,
         'total_after_filters': taf,
         'total_available': tav,
+        'total_matching_catalog': tmc,
       };
 
   group('FeedPager', () {
@@ -116,13 +118,36 @@ void main() {
               'reason_salary': null,
               'total_after_filters': 0,
               'total_available': 322,
+              'total_matching_catalog': 0, // #5: 0 = filtros restritivos (B)
             }
           ]);
       final rows = await pager.fetchNext();
       expect(rows, isEmpty);
       expect(pager.totalAfterFilters, 0); // "filtros zeraram"
       expect(pager.totalAvailable, 322); // mas o catálogo tem vagas
+      expect(pager.totalMatchingCatalog, 0); // #5: nenhuma vaga bate → B
       expect(pager.hasMore, isFalse);
+    });
+
+    test('#5: total_matching_catalog > 0 com feed vazio = esgotou (A), não B',
+        () async {
+      // sentinela com matching_catalog>0 (havia relevantes, todas swipadas).
+      final pager = FeedPager((params) async => [
+            {
+              'job_id': null,
+              'score': null,
+              'rank_score': null,
+              'reason_area': null,
+              'reason_location': null,
+              'reason_work_model': null,
+              'reason_job_type': null,
+              'total_after_filters': 0,
+              'total_available': 322,
+              'total_matching_catalog': 12,
+            }
+          ]);
+      await pager.fetchNext();
+      expect(pager.totalMatchingCatalog, 12); // >0 → esgotou (A)
     });
 
     test('paginação completa: união das páginas sem overlap (espelho do all-ties)',
