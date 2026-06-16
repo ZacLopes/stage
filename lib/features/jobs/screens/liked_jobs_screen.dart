@@ -20,6 +20,8 @@ import '../job_swipe_context.dart';
 import '../utils/url_utils.dart';
 import '../widgets/application_status_control.dart';
 import '../widgets/expired_job_badge.dart';
+import '../widgets/manual_application_card.dart';
+import '../widgets/manual_application_sheet.dart';
 import '../jobs_viewmodel.dart';
 import 'job_details_sheet.dart';
 import '../../../core/theme/theme.dart';
@@ -284,8 +286,24 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final trackerOn = FeatureFlagsService.instance.isEnabledForUser(
+        FeatureFlagKeys.applicationsTrackerV1,
+        context.read<JobsViewModel>().userId);
     return Scaffold(
       backgroundColor: AppColors.background,
+      // T3.3: FAB de adição manual só na aba Candidaturas (flag ON).
+      floatingActionButton: trackerOn
+          ? FloatingActionButton.extended(
+              onPressed: _addManualApplication,
+              backgroundColor: AppColors.primary,
+              icon: const Icon(Icons.add, color: Colors.white),
+              label: const Text('Adicionar',
+                  style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white)),
+            )
+          : null,
       body: SafeArea(
         child: Consumer<JobsViewModel>(
           builder: (context, vm, _) {
@@ -313,12 +331,13 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
   }
 
   Widget _buildBody(JobsViewModel vm) {
-    if (vm.likedJobsLoading && vm.likedJobs.isEmpty) {
+    final isEmpty = vm.likedJobs.isEmpty && vm.manualApplications.isEmpty;
+    if (vm.likedJobsLoading && isEmpty) {
       return const Center(
         child: CircularProgressIndicator(color: AppColors.brandBlue),
       );
     }
-    if (vm.likedJobs.isEmpty) {
+    if (isEmpty) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: const [
@@ -386,6 +405,21 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
             statusControl: statusControl,
           );
         }
+        if (item is _ManualCardItem) {
+          final app = item.application;
+          final url = app.externalUrl;
+          return ManualApplicationCard(
+            application: app,
+            statusOptions: ApplicationStatus.values
+                .where((s) =>
+                    s != app.status && canTransition(app.type, app.status, s))
+                .toList(),
+            onStatusSelected: (s) => _changeManualStatus(app, s),
+            onOpenLink: (url != null && url.isNotEmpty)
+                ? () => _openManualLink(url)
+                : null,
+          );
+        }
         return const SizedBox.shrink();
       },
     );
@@ -434,10 +468,18 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
   /// preservado dentro do segmento (vaga morta ≠ status da candidatura).
   List<_ListItem> _buildTrackerItems(JobsViewModel vm) {
     final now = DateTime.now();
-    final salvas = <_JobCardItem>[];
-    final enviadas = <_JobCardItem>[];
-    final emProcesso = <_JobCardItem>[];
-    final finalizadas = <_JobCardItem>[];
+    final salvas = <_ListItem>[];
+    final enviadas = <_ListItem>[];
+    final emProcesso = <_ListItem>[];
+    final finalizadas = <_ListItem>[];
+
+    List<_ListItem> bucketFor(ApplicationStatus s) =>
+        switch (segmentForStatus(s)) {
+          ApplicationSegment.salvas || ApplicationSegment.enviadas => enviadas,
+          ApplicationSegment.emProcesso => emProcesso,
+          ApplicationSegment.finalizadas => finalizadas,
+        };
+
     for (final liked in vm.likedJobs) {
       final app = vm.applicationForJob(liked.job.id);
       final deadlineAt = liked.job.deadlineAt;
@@ -448,19 +490,16 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
       if (app == null) {
         salvas.add(item);
       } else {
-        switch (segmentForStatus(app.status)) {
-          case ApplicationSegment.salvas:
-          case ApplicationSegment.enviadas:
-            enviadas.add(item);
-          case ApplicationSegment.emProcesso:
-            emProcesso.add(item);
-          case ApplicationSegment.finalizadas:
-            finalizadas.add(item);
-        }
+        bucketFor(app.status).add(item);
       }
     }
+    // T3.3: candidaturas manuais (sem vaga) entram nos mesmos segmentos.
+    for (final app in vm.manualApplications) {
+      bucketFor(app.status).add(_ManualCardItem(app));
+    }
+
     final items = <_ListItem>[];
-    void section(ApplicationSegment seg, List<_JobCardItem> list, Color color,
+    void section(ApplicationSegment seg, List<_ListItem> list, Color color,
         IconData icon) {
       if (list.isEmpty) return;
       items.add(_SectionHeaderItem(
@@ -490,6 +529,52 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
         const SnackBar(content: Text('Não consegui atualizar o status.')),
       );
     }
+  }
+
+  /// T3.3: status de uma candidatura MANUAL.
+  Future<void> _changeManualStatus(
+      Application app, ApplicationStatus newStatus) async {
+    HapticFeedback.selectionClick();
+    final ok = await context
+        .read<JobsViewModel>()
+        .updateManualApplicationStatus(app: app, newStatus: newStatus);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não consegui atualizar o status.')),
+      );
+    }
+  }
+
+  /// T3.3: abre o link (opcional) de uma candidatura manual, com UTM.
+  Future<void> _openManualLink(String url) async {
+    final uri = decorateOutboundUrl(Uri.parse(url));
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não consegui abrir o link.')),
+      );
+    }
+  }
+
+  /// T3.3: FAB → sheet de adição manual → cria a application type='manual'.
+  Future<void> _addManualApplication() async {
+    HapticFeedback.lightImpact();
+    final input = await showManualApplicationSheet(context);
+    if (input == null || !mounted) return;
+    final ok = await context.read<JobsViewModel>().createManualApplication(
+          company: input.company,
+          title: input.title,
+          url: input.url,
+          status: input.status,
+        );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok
+            ? 'Candidatura adicionada'
+            : 'Não consegui adicionar. Tente de novo.'),
+      ),
+    );
   }
 
   /// Resolve como o user vai aplicar pra essa vaga:
@@ -1137,6 +1222,12 @@ class _JobCardItem extends _ListItem {
   /// status. null no modo legacy (flag OFF) e nas Salvas (liked sem application).
   final Application? application;
   const _JobCardItem(this.liked, {this.isExpired = false, this.application});
+}
+
+/// Fase 3 (T3.3): candidatura manual (sem vaga atrelada).
+class _ManualCardItem extends _ListItem {
+  final Application application;
+  const _ManualCardItem(this.application);
 }
 
 /// Header de seção (sticky-like — não é sticky de verdade, mas visualmente

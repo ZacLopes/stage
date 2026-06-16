@@ -36,6 +36,11 @@ class JobsViewModel extends ChangeNotifier {
   /// legacy (builds antigas ainda escrevem; a bridge do banco converte).
   Map<String, Application> _applicationsByJob = {};
 
+  /// Fase 3 (T3.3): applications manuais (type='manual', job_id null) — não
+  /// têm vaga atrelada, vivem soltas na aba Candidaturas.
+  List<Application> _manualApplications = [];
+  List<Application> get manualApplications => _manualApplications;
+
   /// Listener pra mudanças no auth Supabase. Garante que `init()` rode
   /// assim que o user logar (caso o widget tenha sido construído antes
   /// da sessão estar pronta — race condition que bloqueava o feed até
@@ -1364,6 +1369,8 @@ class JobsViewModel extends ChangeNotifier {
         for (final a in apps)
           if (a.jobId != null) a.jobId!: a,
       };
+      // T3.3: manuais (job_id null) vivem soltas na aba.
+      _manualApplications = apps.where((a) => a.jobId == null).toList();
       _likedJobs = _likedJobs.map((l) {
         final app = _applicationsByJob[l.job.id];
         final isApplied = app != null && app.status.countsAsApplied;
@@ -1546,6 +1553,72 @@ class JobsViewModel extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       print('Error markAppliedFromPrompt: $e');
+    }
+  }
+
+  /// Fase 3 (T3.3): cria uma candidatura manual (FAB da aba). Retorna false se
+  /// falhou. Emite application_created (application_type='manual', R7).
+  Future<bool> createManualApplication({
+    required String company,
+    required String title,
+    String? url,
+    ApplicationStatus status = ApplicationStatus.submitted,
+  }) async {
+    if (userId == null) return false;
+    try {
+      final app = await _applicationsRepository.createManual(
+        userId: userId!,
+        externalCompany: company,
+        externalTitle: title,
+        externalUrl: url,
+        status: status,
+      );
+      _manualApplications = [app, ..._manualApplications];
+      // ignore: unawaited_futures
+      Analytics.shared.applicationCreated(
+        applicationId: app.id,
+        applicationType: app.type.db,
+      );
+      notifyListeners();
+      return true;
+    } catch (e) {
+      print('Error createManualApplication: $e');
+      return false;
+    }
+  }
+
+  /// Fase 3 (T3.3): move o status de uma application MANUAL (sem job_id) — a
+  /// versão por job_id de [updateApplicationStatus] não cobre manuais.
+  Future<bool> updateManualApplicationStatus({
+    required Application app,
+    required ApplicationStatus newStatus,
+  }) async {
+    if (app.status == newStatus || !app.type.userEditableStatus) return false;
+    final idx = _manualApplications.indexWhere((a) => a.id == app.id);
+    if (idx == -1) return false;
+    final prev = _manualApplications[idx];
+    _manualApplications[idx] = prev.copyWith(status: newStatus);
+    notifyListeners();
+    try {
+      final updated = await _applicationsRepository.updateStatus(
+        applicationId: app.id,
+        status: newStatus,
+      );
+      _manualApplications[idx] = updated;
+      // ignore: unawaited_futures
+      Analytics.shared.applicationStateChanged(
+        applicationId: updated.id,
+        applicationType: updated.type.db,
+        fromStatus: prev.status.db,
+        toStatus: updated.status.db,
+      );
+      notifyListeners();
+      return true;
+    } catch (e) {
+      print('Error updateManualApplicationStatus: $e');
+      _manualApplications[idx] = prev;
+      notifyListeners();
+      return false;
     }
   }
 

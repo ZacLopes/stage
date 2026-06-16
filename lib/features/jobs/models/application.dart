@@ -131,6 +131,7 @@ class Application {
   final String? notes;
   final String? externalCompany;
   final String? externalTitle;
+  final String? externalUrl;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -147,6 +148,7 @@ class Application {
     this.notes,
     this.externalCompany,
     this.externalTitle,
+    this.externalUrl,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -166,6 +168,7 @@ class Application {
         notes: json['notes'] as String?,
         externalCompany: json['external_company'] as String?,
         externalTitle: json['external_title'] as String?,
+        externalUrl: json['external_url'] as String?,
         createdAt: DateTime.parse(json['created_at'] as String),
         updatedAt: DateTime.parse(json['updated_at'] as String),
       );
@@ -183,6 +186,7 @@ class Application {
         notes: notes,
         externalCompany: externalCompany,
         externalTitle: externalTitle,
+        externalUrl: externalUrl,
         createdAt: createdAt,
         updatedAt: updatedAt,
       );
