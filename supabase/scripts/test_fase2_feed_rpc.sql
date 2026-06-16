@@ -24,7 +24,7 @@ DECLARE
   v_company uuid;
   j_swiped uuid; j_match uuid; j_remote uuid; j_inactive uuid; j_expired uuid;
   j_sal_low uuid; j_sal_high uuid;
-  v_count int; v_total bigint; v_avail bigint; v_total2 bigint;
+  v_count int; v_total bigint; v_avail bigint; v_total2 bigint; v_tmc bigint;
   v_score int; v_ok boolean;
   v_frozen timestamptz := now();
   v_ids uuid[]; v_ids2 uuid[]; v_all uuid[]; v_page uuid[];
@@ -277,22 +277,22 @@ BEGIN
   ------------------------------------------------------------------
   SELECT array_agg(g.job_id ORDER BY g.ord) INTO v_ids
     FROM get_feed_page(p_limit := 50, p_frozen_at := v_frozen)
-         WITH ORDINALITY g(job_id, score, rank_score, ra, rl, rwm, rjt, rs, taf, tav, ord);
+         WITH ORDINALITY g(job_id, score, rank_score, ra, rl, rwm, rjt, rs, taf, tav, tmc, ord);
   SELECT array_agg(g.job_id ORDER BY g.ord) INTO v_ids2
     FROM get_feed_page(p_limit := 50, p_frozen_at := v_frozen)
-         WITH ORDINALITY g(job_id, score, rank_score, ra, rl, rwm, rjt, rs, taf, tav, ord);
+         WITH ORDINALITY g(job_id, score, rank_score, ra, rl, rwm, rjt, rs, taf, tav, tmc, ord);
   IF v_ids IS DISTINCT FROM v_ids2 THEN
     RAISE EXCEPTION 'T8 FALHOU: mesmo p_frozen_at, ordens diferentes';
   END IF;
   SELECT array_agg(g.job_id ORDER BY g.ord) INTO v_ids2
     FROM get_feed_page(p_limit := 50, p_frozen_at := v_frozen - interval '1 day')
-         WITH ORDINALITY g(job_id, score, rank_score, ra, rl, rwm, rjt, rs, taf, tav, ord);
+         WITH ORDINALITY g(job_id, score, rank_score, ra, rl, rwm, rjt, rs, taf, tav, tmc, ord);
   IF v_ids = v_ids2 THEN
     RAISE EXCEPTION 'T8 FALHOU: dias diferentes deveriam rotacionar a ordem';
   END IF;
   SELECT array_agg(g.job_id ORDER BY g.ord) INTO v_ids2
     FROM get_feed_page(p_limit := 50, p_frozen_at := v_frozen + interval '10 years')
-         WITH ORDINALITY g(job_id, score, rank_score, ra, rl, rwm, rjt, rs, taf, tav, ord);
+         WITH ORDINALITY g(job_id, score, rank_score, ra, rl, rwm, rjt, rs, taf, tav, tmc, ord);
   IF v_ids IS DISTINCT FROM v_ids2 THEN
     RAISE EXCEPTION 'T8 FALHOU: frozen futuro deveria clampar pra now() (= mesma ordem)';
   END IF;
@@ -302,8 +302,9 @@ BEGIN
   -- T9: sentinela do estado B — filtros zeram tudo → 1 row só-totais
   ------------------------------------------------------------------
   v_count := 0;
-  SELECT count(*), min(g.total_after_filters), min(g.total_available)
-    INTO v_count, v_total, v_avail
+  SELECT count(*), min(g.total_after_filters), min(g.total_available),
+         min(g.total_matching_catalog)
+    INTO v_count, v_total, v_avail, v_tmc
     FROM get_feed_page(p_limit := 20,
                        p_filter_work_models := array['__inexistente__']) g;
   IF v_count <> 1 THEN RAISE EXCEPTION 'T9 FALHOU: esperava 1 row sentinela, veio %', v_count; END IF;
@@ -314,7 +315,28 @@ BEGIN
   IF v_total <> 0 OR v_avail = 0 THEN
     RAISE EXCEPTION 'T9 FALHOU: sentinela esperava after=0/available>0, veio %/%', v_total, v_avail;
   END IF;
-  RAISE NOTICE 'T9 ok: sentinela do estado B (after=0, available=%)', v_avail;
+  -- #5: filtro impossível → NENHUMA vaga do catálogo bate → B de verdade.
+  IF v_tmc <> 0 THEN
+    RAISE EXCEPTION 'T9 FALHOU: total_matching_catalog esperava 0 (estado B), veio %', v_tmc;
+  END IF;
+  RAISE NOTICE 'T9 ok: sentinela do estado B (after=0, available=%, matching_catalog=0)', v_avail;
+
+  ------------------------------------------------------------------
+  -- T10: total_matching_catalog IGNORA swipe — distingue "esgotou" (A) de
+  -- "filtros restritivos" (B). Filtrando pela área sandbox, 5 ativas-não-
+  -- expiradas batem (j_swiped, j_match, j_remote, j_sal_low, j_sal_high);
+  -- j_swiped está swipada → after_filters conta 4, matching_catalog conta 5.
+  ------------------------------------------------------------------
+  SELECT min(g.total_after_filters), min(g.total_matching_catalog)
+    INTO v_total, v_tmc
+    FROM get_feed_page(p_limit := 50, p_filter_areas := array[v_sandbox]) g;
+  IF v_total <> 4 THEN
+    RAISE EXCEPTION 'T10 FALHOU: after_filters esperava 4 (exclui swipe), veio %', v_total;
+  END IF;
+  IF v_tmc <> 5 THEN
+    RAISE EXCEPTION 'T10 FALHOU: matching_catalog esperava 5 (ignora swipe), veio %', v_tmc;
+  END IF;
+  RAISE NOTICE 'T10 ok: total_matching_catalog ignora swipe (5 vs after=4) — sinal A vs B';
 
   ------------------------------------------------------------------
   RAISE NOTICE '═══ TODOS OS TESTES PASSARAM — rollback intencional a seguir ═══';

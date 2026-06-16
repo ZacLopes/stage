@@ -75,6 +75,7 @@ class FeedPager {
   bool _started = false;
   int? _totalAfterFilters;
   int? _totalAvailable;
+  int? _totalMatchingCatalog;
   final Set<String> _seenIds = {};
 
   bool get hasMore => _hasMore;
@@ -82,9 +83,13 @@ class FeedPager {
 
   /// Totais da 1ª página (null antes dela chegar). Semântica do RPC:
   /// `totalAfterFilters` = pós-filtros de args; `totalAvailable` = pós
-  /// exclusões básicas (swipes/deadline/ativa), PRÉ filtros.
+  /// exclusões básicas (swipes/deadline/ativa), PRÉ filtros;
+  /// `totalMatchingCatalog` = bate com os filtros no catálogo INTEIRO
+  /// (IGNORANDO swipe) — distingue "esgotou" (>0 → A) de "filtros
+  /// restritivos" (0 → B). Adicionado no get_feed_page v1.3 (#5).
   int? get totalAfterFilters => _totalAfterFilters;
   int? get totalAvailable => _totalAvailable;
+  int? get totalMatchingCatalog => _totalMatchingCatalog;
 
   /// Reinicia a sessão de paginação (pull-to-refresh, troca de filtros ou
   /// de modo). O próximo [fetchNext] congela um `p_frozen_at` novo.
@@ -96,6 +101,7 @@ class FeedPager {
     _started = false;
     _totalAfterFilters = null;
     _totalAvailable = null;
+    _totalMatchingCatalog = null;
     _seenIds.clear();
   }
 
@@ -138,8 +144,10 @@ class FeedPager {
       final m = Map<String, dynamic>.from(item as Map);
       final taf = (m['total_after_filters'] as num?)?.toInt();
       final tav = (m['total_available'] as num?)?.toInt();
+      final tmc = (m['total_matching_catalog'] as num?)?.toInt();
       if (taf != null) _totalAfterFilters ??= taf;
       if (tav != null) _totalAvailable ??= tav;
+      if (tmc != null) _totalMatchingCatalog ??= tmc;
 
       if (m['job_id'] == null) continue; // sentinela do estado B (só totais)
       nonSentinelRows++;

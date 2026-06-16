@@ -17,10 +17,19 @@ class JobFetchResult {
   /// Total que sobrou depois dos filtros do user, antes da paginação.
   final int totalAfterFilters;
 
+  /// Total de vagas ativas (não expiradas) que BATEM com os filtros,
+  /// **ignorando as swipadas**. É o que distingue "esgotou as relevantes"
+  /// (havia matches, você passou por todos → A) de "filtros muito
+  /// restritivos" (nenhuma vaga do catálogo bate → B). Sem isso, depois de
+  /// swipar todas as relevantes o app concluía B errado (matches viravam 0
+  /// por terem sido swipadas). -1 = desconhecido (caminho RPC).
+  final int totalMatchingCatalog;
+
   const JobFetchResult({
     required this.jobs,
     required this.totalAvailable,
     required this.totalAfterFilters,
+    this.totalMatchingCatalog = -1,
   });
 }
 
@@ -76,13 +85,12 @@ class JobRepository {
 
       final List<dynamic> data = response as List;
       final now = DateTime.now();
+      final hasPrefs = preferences != null && !preferences.isEmpty;
 
-      // 3. Parse, filter expired deadlines and swiped, then apply preferences
-      List<Job> jobs = data
+      // 3. Parse TODAS as ativas não-expiradas (swipadas INCLUÍDAS). É a base
+      //    pra distinguir "esgotou as relevantes" de "filtros restritivos".
+      final List<Job> activeNonExpired = data
           .where((json) {
-            // Exclude already swiped jobs
-            if (swipedJobIds.contains(json['id'])) return false;
-            // Exclude expired deadlines
             final deadline = json['deadline'] as String?;
             if (deadline != null) {
               final deadlineDate = DateTime.tryParse(deadline);
@@ -95,10 +103,20 @@ class JobRepository {
           .map((json) => Job.fromJson(Map<String, dynamic>.from(json)))
           .toList();
 
+      // 3b. Quantas batem com os filtros no catálogo INTEIRO (ignorando swipe).
+      //     >0 = havia relevantes (esgotou → A); 0 = filtros zeram tudo (→ B).
+      final totalMatchingCatalog = hasPrefs
+          ? _applyPreferenceFilters(activeNonExpired, preferences).length
+          : activeNonExpired.length;
+
+      // 3c. Disponíveis = não-swipadas.
+      List<Job> jobs =
+          activeNonExpired.where((j) => !swipedJobIds.contains(j.id)).toList();
+
       final totalAvailable = jobs.length;
 
       // 4. Apply preference filters
-      if (preferences != null && !preferences.isEmpty) {
+      if (hasPrefs) {
         jobs = _applyPreferenceFilters(jobs, preferences);
       }
 
@@ -117,6 +135,7 @@ class JobRepository {
           jobs: const [],
           totalAvailable: totalAvailable,
           totalAfterFilters: totalAfterFilters,
+          totalMatchingCatalog: totalMatchingCatalog,
         );
       }
       final end = (start + _pageSize).clamp(0, jobs.length);
@@ -124,6 +143,7 @@ class JobRepository {
         jobs: jobs.sublist(start, end),
         totalAvailable: totalAvailable,
         totalAfterFilters: totalAfterFilters,
+        totalMatchingCatalog: totalMatchingCatalog,
       );
     } catch (e) {
       print('Error fetching jobs: $e');

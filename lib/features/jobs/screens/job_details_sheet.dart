@@ -2,9 +2,12 @@ import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/job.dart';
 import '../utils/match_score.dart';
+import '../jobs_viewmodel.dart';
+import '../../auth/user_viewmodel.dart';
 import '../../../core/theme/theme.dart';
 
 class JobDetailsSheet extends StatefulWidget {
@@ -30,15 +33,34 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
   late final Animation<double> _ringAnim;
   late final Animation<double> _slideAnim;
 
-  /// Score efetivo: prioriza o passado externamente (calculado), fallback
-  /// pro field do model (que hoje é 0).
-  int get _score => widget.match?.score ?? widget.job.matchScore;
+  /// FASE 2 fixes (#3): quando o detalhe é aberto SEM match (lista/salvas),
+  /// resolvemos aqui via [JobsViewModel.resolveMatchForJob] (cache em memória
+  /// → match_analyses → determinístico). Antes esses caminhos abriam com
+  /// match=null e o ring mostrava 0% ("Match razoável") enganoso.
+  MatchResult? _resolved;
+  bool _resolving = false;
+
+  /// Match efetivo: o passado externamente (swipe) tem precedência, EXCETO
+  /// quando vem `pending` (swipe ainda calculando) — aí resolvemos local.
+  MatchResult? get _match {
+    final m = widget.match;
+    if (m != null && !m.isPending) return m;
+    return _resolved;
+  }
+
+  /// True enquanto resolve e ainda não há resultado — ring mostra SPINNER,
+  /// NUNCA "0%" (senão o 0% reaparece no instante de carregamento).
+  bool get _isPending => _match == null && _resolving;
+
+  /// Score efetivo (0 só quando há resultado real de score 0 — pending e
+  /// hideScore são tratados antes de exibir número).
+  int get _score => _match?.score ?? 0;
 
   /// True quando não há análise utilizável — user sem CV/perfil ou sem
   /// preferências configuradas. UI esconde score e renderiza CTA "complete
   /// seu perfil" em vez de mostrar 0%.
   bool get _hideScore =>
-      (widget.match?.isNoResume ?? false) || (widget.match?.isUnknown ?? false);
+      (_match?.isNoResume ?? false) || (_match?.isUnknown ?? false);
 
   // Monocromático: sheet sempre usa brand cyan/blue, independente da faixa
   // de match. Diferenciação vem do número no ring.
@@ -63,6 +85,37 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
       curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
     );
     _animController.forward();
+
+    // #3: sem match passado (lista/salvas) OU passado ainda `pending` (swipe
+    // calculando) → resolve agora. Reusa o cache compartilhado da VM (zero
+    // round-trip se o swipe já avaliou).
+    final passed = widget.match;
+    if (passed == null || passed.isPending) {
+      _resolving = true;
+      _resolveMatch();
+    }
+  }
+
+  Future<void> _resolveMatch() async {
+    final jobsVm = context.read<JobsViewModel>();
+    final hasResume = context.read<UserViewModel>().hasResume;
+    try {
+      final result =
+          await jobsVm.resolveMatchForJob(widget.job, hasResume: hasResume);
+      if (!mounted) return;
+      setState(() {
+        _resolved = result;
+        _resolving = false;
+      });
+    } catch (_) {
+      // Falha catastrófica do resolver → mostra CTA "configure perfil"
+      // (via _hideScore), NUNCA 0%.
+      if (!mounted) return;
+      setState(() {
+        _resolved = const MatchResult.unknown();
+        _resolving = false;
+      });
+    }
   }
 
   @override
@@ -382,9 +435,27 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                       ),
                     ),
 
+                    // #3: enquanto resolve o match (aberto da lista/salvas),
+                    // mostra SPINNER — nunca "0%".
+                    if (_isPending)
+                      Container(
+                        width: 64,
+                        height: 64,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.15),
+                        ),
+                        child: const Padding(
+                          padding: EdgeInsets.all(20),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: Colors.white,
+                          ),
+                        ),
+                      )
                     // Animated ring (esconde quando sem perfil/prefs —
                     // mostrar 0% é enganoso porque sugere análise feita).
-                    if (_hideScore)
+                    else if (_hideScore)
                       Container(
                         width: 64,
                         height: 64,
@@ -488,12 +559,18 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
   }
 
   Widget _buildMatchCard() {
+    // #3: enquanto resolve, card de carregando (nunca "0% Match razoável").
+    if (_isPending) return _buildPendingCard();
+
     // Sem perfil/prefs → renderiza CTA pra completar perfil em vez de
     // mostrar "Match razoável 0%" enganoso. User precisa entender que
     // não dá pra calcular match sem ele ter colocado dados primeiro.
     if (_hideScore) return _buildNoProfileCard();
 
     final score = _score;
+    // #2: faixas alinhadas ao match_band.dart (70/40) + balde HONESTO pra
+    // score baixo/zero — antes tudo <70 caía em "Match razoável — vale
+    // tentar!", o que era enganoso pra match baixo.
     String matchLabel;
     String matchDescription;
     if (score >= 85) {
@@ -502,9 +579,12 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
     } else if (score >= 70) {
       matchLabel = 'Bom match';
       matchDescription = 'Você tem um bom alinhamento com o perfil buscado.';
+    } else if (score >= 40) {
+      matchLabel = 'Match parcial';
+      matchDescription = 'Algumas coisas batem; veja os pontos abaixo.';
     } else {
-      matchLabel = 'Match razoável';
-      matchDescription = 'Há alguns pontos a desenvolver, mas vale tentar!';
+      matchLabel = 'Match baixo';
+      matchDescription = 'Esta vaga foge bastante do seu perfil.';
     }
 
     return AnimatedBuilder(
@@ -583,11 +663,11 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
               ],
             ),
             // Razões do match (quando disponível)
-            if (widget.match != null && widget.match!.reasons.isNotEmpty) ...[
+            if (_match != null && _match!.reasons.isNotEmpty) ...[
               const SizedBox(height: 14),
               Container(height: 1, color: _matchColor.withOpacity(0.15)),
               const SizedBox(height: 12),
-              ...widget.match!.reasons.map((r) => Padding(
+              ..._match!.reasons.map((r) => Padding(
                     padding: const EdgeInsets.only(bottom: 6),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -636,11 +716,55 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
     );
   }
 
+  /// #3: card de carregando enquanto o match resolve (aberto da lista/salvas).
+  /// Spinner + texto neutro — NUNCA "0%".
+  Widget _buildPendingCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            _matchColor.withOpacity(0.08),
+            _matchColor.withOpacity(0.04),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _matchColor.withOpacity(0.25)),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 48,
+            height: 48,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: _matchColor,
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          const Expanded(
+            child: Text(
+              'Calculando seu match…',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
+                fontSize: 15,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Card de "sem análise possível" — substitui o match card quando user
   /// não tem perfil/CV nem preferências. Em vez de mostrar 0% enganoso,
   /// explica o porquê + dá CTA visual claro.
   Widget _buildNoProfileCard() {
-    final isUnknown = widget.match?.isUnknown ?? false;
+    final isUnknown = _match?.isUnknown ?? false;
     final title = isUnknown
         ? 'Configure suas preferências'
         : 'Crie seu currículo pra ver matches';

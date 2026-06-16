@@ -527,11 +527,12 @@ export function isCompanyNameBlacklisted(name: string | null | undefined): boole
  * @param contextHints texto opcional concatenado (departamento, descrição, tags)
  */
 export function inferArea(title: string, contextHints?: string | null): string {
+  // 1ª passada — TÍTULO (sinal confiável): ruleset COMPLETO.
   const rules: Array<[string, RegExp]> = [
     // Saúde antes de tudo — vagas tipo "Estágio em Enfermagem" tinham
     // "enferma" pegando matchers genéricos depois e caindo em Produto/
     // Operações/RH errado. 22 vagas mal classificadas em 2026-05-27.
-    ["Saúde", /(enferma|enferm[ae]ir[ao]|medic|m[ée]dic[ao]|farma|farm[áa]cia|farmac[êe]utic|fisio|fisioterap|nutricion|psic[óo]log|psicologia|biom[ée]dic|odont|odontol[óo]gi|veterin|cl[íi]nica|hospital|sa[úu]de|enfermagem|radiolo|terapeut|fonoaudi)/],
+    ["Saúde", /(enferma|enferm[ae]ir[ao]|medic|m[ée]dic[ao]|farma|farm[áa]cia|farmac[êe]utic|fisio|fisioterap|nutri|psic[óo]log|psicologia|biom[ée]dic|odont|odontol[óo]gi|veterin|cl[íi]nica|hospital|sa[úu]de|enfermagem|radiolo|terapeut|fonoaudi|esteriliza|educa[çc][ãa]o f[íi]sica|seguran[çc]a do trabalho)/],
     ["Jurídico", /(jur[íi]dic|direito|advog|advocacia|legal|compliance|contencioso|tribut[áa]rio|paralegal|direito (?:empresarial|trabalhista|c[íi]vel|tribut[áa]rio|penal|consumidor)|escrit[óo]rio de advocacia)/],
     ["Tecnologia", /(engenharia de software|desenvolved|software engineer|backend|frontend|full[- ]?stack|dados|\bdata\b|machine learning|\bml\b|devops|sre|cloud|infraestrutura|\bqa\b|testes?|cybersecurity|segurança da informação|tech|tecnologia|\bti\b|program(?:a[cdr]|ação|ador)|sistemas)/],
     ["Marketing", /(marketing|growth|crm|mídia|branding|comunicação|publicidade|social media)/],
@@ -539,13 +540,38 @@ export function inferArea(title: string, contextHints?: string | null): string {
     ["Finanças", /(finanças|financeir|controladoria|tesouraria|fp&a|cont[áa]bi|accounting|treasury|investimento|finance|financ|controller|fp&a|auditoria|contas a (?:pagar|receber)|cr[ée]dito)/],
     // Tokens curtos com \b: "rh"/"hr"/"gente" sem fronteira casavam dentro de
     // "trabalho", "hora", "urgente", "agente", "inteligente" → falso RH.
-    ["Recursos Humanos", /(recursos humanos|\brh\b|\bgente\b|people|talent|recruiter|recruta|treinamento|human|\bhr\b)/],
-    ["Operações", /(operações|operations|logística|supply chain|\bcs\b|customer success|atendimento|suporte|opera[cç]ões|supply|compras|suprimentos)/],
+    ["Recursos Humanos", /(recursos humanos|\brh\b|\bgente\b|people|talent|recruiter|recruta|treinamento|human|\bhr\b|inclus[ãa]o|diversidade)/],
+    ["Operações", /(operações|operations|logística|supply chain|\bcs\b|customer success|atendimento|suporte|opera[cç]ões|operacional|supply|compras|suprimentos)/],
     // \b em "pm"/"ux"/"ui": sem fronteira casavam dentro de "auxiliar" (ux),
     // "arquitetura"/"pesquisa" (ui), etc. → falso Produto.
-    ["Produto", /(produto|product manager|\bpm\b|design de produto|\bux\b|\bui\b|design|product)/],
+    ["Produto", /(produto|product manager|\bpm\b|design de produto|\bux\b|\bui\b|design|cria[çc][ãa]o|product)/],
     ["Engenharia", /(engenharia(?! de software)|engenheir(?!o de software)|edifica[çc])/],
     ["Administrativo", /(administrativ|administração|secretaria|admin)/],
+  ];
+
+  // 2ª passada — DESCRIÇÃO (sinal ruidoso): ruleset FORTE. Remove os tokens
+  // de boilerplate que aparecem em quase toda descrição BR e jogavam vaga sem
+  // sinal no título pra área errada — principalmente Tecnologia via
+  // "sistemas/dados/tech/TI/testes/cloud" (FASE 2 fixes #4: 17/36 das Tech
+  // ativas não tinham token tech no título). Título sem sinal + descrição só
+  // com token fraco → cai em "Geral" honesto, não numa área inventada.
+  const descRules: Array<[string, RegExp]> = [
+    ["Saúde", /(enferma|enferm[ae]ir[ao]|medic|m[ée]dic[ao]|farma|farm[áa]cia|farmac[êe]utic|fisio|fisioterap|nutri|psic[óo]log|psicologia|biom[ée]dic|odont|odontol[óo]gi|veterin|cl[íi]nica|hospital|enfermagem|radiolo|terapeut|fonoaudi|esteriliza|educa[çc][ãa]o f[íi]sica|seguran[çc]a do trabalho)/],
+    ["Jurídico", /(jur[íi]dic|advog|advocacia|contencioso|paralegal|escrit[óo]rio de advocacia)/],
+    // Tecnologia FORTE: só termos inequívocos de tech (sem sistemas/dados/
+    // data/tech/tecnologia/ti/testes/qa/cloud/infraestrutura — todos boilerplate).
+    ["Tecnologia", /(engenharia de software|desenvolvedor|desenvolvimento de software|software engineer|back-?end|front-?end|full[- ]?stack|machine learning|\bdevops\b|\bsre\b|cybersecurity|segurança da informação|programa(?:ção|dor))/],
+    ["Marketing", /(marketing|growth|branding|publicidade|social media)/],
+    ["Vendas", /(vendas|sales|comercial|account exec|business development|\bbdr\b|\bsdr\b)/],
+    ["Finanças", /(finanças|financeir|controladoria|tesouraria|fp&a|cont[áa]bi|accounting|treasury|investimento|controller|auditoria|contas a (?:pagar|receber)|cr[ée]dito)/],
+    // RH FORTE: sem "gente/people/treinamento/human" (boilerplate).
+    ["Recursos Humanos", /(recursos humanos|\brh\b|recruiter|recruta|recrutamento|\bhr\b)/],
+    // Operações FORTE: sem "atendimento/suporte/cs" (boilerplate).
+    ["Operações", /(operações|opera[cç]ões|operacional|operations|logística|supply chain|suprimentos)/],
+    // Produto FORTE: sem "design/produto/pm/ux/ui" cru (boilerplate).
+    ["Produto", /(product manager|design de produto|gest[ãa]o de produto)/],
+    ["Engenharia", /(engenharia(?! de software)|engenheir(?!o de software)|edifica[çc])/],
+    ["Administrativo", /(administrativ|administração|secretaria)/],
   ];
 
   // 1ª passada: SÓ o título. O título é o sinal mais confiável da área.
@@ -558,11 +584,9 @@ export function inferArea(title: string, contextHints?: string | null): string {
   for (const [area, re] of rules) if (re.test(titleText)) return area;
 
   // 2ª passada: título não deu sinal (ex.: "Estagiário", "Analista" puro).
-  // Aí sim caímos na descrição — mas REMOVENDO frases de benefício, que
-  // aparecem em quase toda vaga brasileira e não dizem nada sobre a área
-  // (principal fonte dos falsos positivos de "Saúde" via "plano de saúde").
+  // Usa o ruleset FORTE sobre a descrição (sem benefício, sem boilerplate).
   const hintsText = stripBenefitNoise((contextHints ?? "").toLowerCase());
-  for (const [area, re] of rules) if (re.test(hintsText)) return area;
+  for (const [area, re] of descRules) if (re.test(hintsText)) return area;
 
   return "Geral";
 }

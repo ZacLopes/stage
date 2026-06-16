@@ -1,0 +1,287 @@
+[
+  {
+    "id": "30473822-599d-4551-a975-2d87964f8650",
+    "old_area": "Tecnologia",
+    "new_area": "Saúde"
+  },
+  {
+    "id": "43b07883-60b6-453e-b624-e36500352b3f",
+    "old_area": "Tecnologia",
+    "new_area": "Produto"
+  },
+  {
+    "id": "1d1f853a-8c9c-4fba-a763-adba2b9e0dc2",
+    "old_area": "Recursos Humanos",
+    "new_area": "Geral"
+  },
+  {
+    "id": "ef8f3df5-ee48-4cbe-9316-a271ad73c862",
+    "old_area": "Marketing",
+    "new_area": "Geral"
+  },
+  {
+    "id": "f1fe3f94-00ea-4982-8dcb-4210473baef3",
+    "old_area": "Tecnologia",
+    "new_area": "Geral"
+  },
+  {
+    "id": "edc4370e-2bae-45c9-aa20-5d0dc0d19ff2",
+    "old_area": "Recursos Humanos",
+    "new_area": "Geral"
+  },
+  {
+    "id": "9a77026d-656a-4033-be6b-3aebb9c788fc",
+    "old_area": "Tecnologia",
+    "new_area": "Recursos Humanos"
+  },
+  {
+    "id": "9b0f9015-d9a7-4bd3-943e-5ad34561f24b",
+    "old_area": "Tecnologia",
+    "new_area": "Geral"
+  },
+  {
+    "id": "7b1fc9a3-3b4b-4338-81e0-43126a7e1d25",
+    "old_area": "Operações",
+    "new_area": "Geral"
+  },
+  {
+    "id": "24f93d2f-5b34-4e5e-80e9-24f63e77ca5f",
+    "old_area": "Tecnologia",
+    "new_area": "Recursos Humanos"
+  },
+  {
+    "id": "3a3ea795-7cf2-4215-a419-a7ae4093f488",
+    "old_area": "Recursos Humanos",
+    "new_area": "Geral"
+  },
+  {
+    "id": "98c71802-f521-40e5-9c76-2a5a0c9f2ac0",
+    "old_area": "Recursos Humanos",
+    "new_area": "Geral"
+  },
+  {
+    "id": "40f36034-a7b5-438a-bcdd-25656c96cbf7",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "8fa0807d-c280-429d-bdee-b2b4ae66e1a5",
+    "old_area": "Tecnologia",
+    "new_area": "Geral"
+  },
+  {
+    "id": "b85f5ade-64d9-4e71-bad4-3839b281020a",
+    "old_area": "Tecnologia",
+    "new_area": "Geral"
+  },
+  {
+    "id": "61662588-02dc-482e-b9cc-86098c55eec9",
+    "old_area": "Recursos Humanos",
+    "new_area": "Geral"
+  },
+  {
+    "id": "09a395e7-d29c-4dc1-8c38-f06b9c0a3d05",
+    "old_area": "Recursos Humanos",
+    "new_area": "Geral"
+  },
+  {
+    "id": "fe26795d-9ed2-46cd-9c64-3a54ac669d2e",
+    "old_area": "Operações",
+    "new_area": "Saúde"
+  },
+  {
+    "id": "d5d60b72-6935-4dd4-b884-f509ad132b37",
+    "old_area": "Geral",
+    "new_area": "Saúde"
+  },
+  {
+    "id": "9c98b706-a0d7-4e54-acd1-76bef6cb8229",
+    "old_area": "Engenharia",
+    "new_area": "Saúde"
+  },
+  {
+    "id": "dee4e594-0748-4bab-af9f-1ba3bedaeec2",
+    "old_area": "Geral",
+    "new_area": "Operações"
+  },
+  {
+    "id": "a6ca699e-085a-4be6-ab16-844e0b357dfc",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "df7607dc-f278-451f-a83b-f41eac810edc",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "b61d9005-df00-4455-b5b0-a4cfa6dec26a",
+    "old_area": "Tecnologia",
+    "new_area": "Geral"
+  },
+  {
+    "id": "223089fd-f662-4c98-b8be-4141b8a12d01",
+    "old_area": "Tecnologia",
+    "new_area": "Geral"
+  },
+  {
+    "id": "9955d894-29c3-43e0-b8f0-89c03ccd80bf",
+    "old_area": "Tecnologia",
+    "new_area": "Geral"
+  },
+  {
+    "id": "1b1bfc11-3d80-4637-9397-599aa59b8668",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "b314e2bd-66e3-429d-b71a-542b6ee3a3ed",
+    "old_area": "Recursos Humanos",
+    "new_area": "Geral"
+  },
+  {
+    "id": "826f96e6-4b68-43ef-b20b-3e006b5bbaab",
+    "old_area": "Tecnologia",
+    "new_area": "Geral"
+  },
+  {
+    "id": "87421eed-5eb6-4690-857b-a53094939bad",
+    "old_area": "Recursos Humanos",
+    "new_area": "Geral"
+  },
+  {
+    "id": "050e7fb0-c64b-4f0c-83b1-d2028dfad565",
+    "old_area": "Tecnologia",
+    "new_area": "Geral"
+  },
+  {
+    "id": "b8382f5f-8b2f-4c7f-a4c6-241cb35b9f3a",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "cfe2c8f4-55d8-4ce1-8122-cf3ee7063bdd",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "afac2aff-a1ba-4dc7-a19e-7d46d16faa12",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "b6f0f1ed-6505-4aa4-bef4-c4c11be6b47c",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "4728fc88-f071-4060-9b46-55a86ddd7315",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "b8741c2a-72d5-4a4c-96bd-93074d9ace69",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "dcee91f0-363b-4255-aa48-483c1b93e134",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "e866b644-1115-423d-a6b4-56038849d516",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "d94fe72b-97b0-48d4-a637-0ab96df42b4f",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "d7fe20de-52d9-41d8-9ac7-139c96c5fb7d",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "3db44814-f37a-412a-9b9e-41fbe552fec8",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "2c01e4d5-b104-46fa-bf88-1b5d171bac06",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "97de83cc-04c3-49a1-ab57-3c487990c051",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "c1b50554-79c8-4c19-ba87-7465045c9fe1",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "92f397ac-0b05-49f4-8515-7e75eea18264",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "39174f7b-d1bb-42ec-8401-9100f10ea8a9",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "071c294c-15c0-4aa5-be06-f820b40034ad",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "ed6ade42-770f-439c-9506-31aea923232f",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "a31457a4-bc9e-473b-8411-f6cdcfce565a",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "df6143bb-ebce-40a3-a0f2-ec2def8e2f06",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "89abd6be-5458-4ff2-8722-ec07a7563e53",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "6b09653a-a39d-4367-82b3-d3ef579a3881",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "b8ce1849-ed67-4465-a024-76fdb3a7a5be",
+    "old_area": "Tecnologia",
+    "new_area": "Geral"
+  },
+  {
+    "id": "38f57bb5-f135-4c66-a849-422cb327bae5",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "180bc362-1296-46a4-9dbf-96dfb556d936",
+    "old_area": "Produto",
+    "new_area": "Geral"
+  },
+  {
+    "id": "2fa61654-c14e-4a97-ae39-2e4b422c1479",
+    "old_area": "Tecnologia",
+    "new_area": "Operações"
+  }
+]
