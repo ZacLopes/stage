@@ -15,6 +15,7 @@ import '../../auth/user_viewmodel.dart';
 import '../../profile/application/profile_editor_view_model.dart';
 import '../data/swipe_repository.dart';
 import '../job_swipe_context.dart';
+import '../utils/url_utils.dart';
 import '../widgets/expired_job_badge.dart';
 import '../jobs_viewmodel.dart';
 import 'job_details_sheet.dart';
@@ -137,18 +138,49 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
             : 0,
       );
     }
-    final ok = await launchUrl(action.uri, mode: LaunchMode.externalApplication);
+    // T3.4 — UTM na saída: decora SÓ http(s) (mailto passa intacto); preserva
+    // query/UTM da fonte.
+    final launchUri = decorateOutboundUrl(action.uri);
+    final ok = await launchUrl(launchUri, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(action.failureMessage)),
       );
       return;
     }
+    // T3.4 — outbound rastreável (http/https): grava o clique no banco
+    // (outbound_clicks, own-insert) e emite o evento de saída. mailto fica de
+    // fora (sem link externo a rastrear). Fire-and-forget: não bloqueia o apply.
+    if (isTrackableOutbound(launchUri)) {
+      // ignore: unawaited_futures
+      _recordOutboundClick(liked.job.id);
+      // ignore: unawaited_futures
+      Analytics.shared.jobApplyExternalOpened(
+        jobId: liked.job.id,
+        jobSource: liked.job.source,
+      );
+    }
     // Facebook SubmittedApplication — dispara APENAS quando o launchUrl
     // retornou true (cliente externo abriu de fato, intent confirmada). Vale
     // tanto pra site quanto pra cliente de email — em ambos houve ação real.
     // ignore: unawaited_futures
     FacebookEventsService.shared.logSubmittedApplication(jobId: liked.job.id);
+  }
+
+  /// T3.4 — own-insert em `outbound_clicks` (RLS exige user_id = auth.uid).
+  /// Best-effort: falha de rede não pode atrapalhar a candidatura.
+  Future<void> _recordOutboundClick(String jobId) async {
+    try {
+      final client = Supabase.instance.client;
+      final uid = client.auth.currentUser?.id;
+      if (uid == null) return;
+      await client.from('outbound_clicks').insert({
+        'user_id': uid,
+        'job_id': jobId,
+      });
+    } catch (_) {
+      // silencioso — outbound_clicks é telemetria, não bloqueia o fluxo.
+    }
   }
 
   void _toggleApplied(LikedJob liked) {

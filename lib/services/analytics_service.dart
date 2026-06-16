@@ -1047,6 +1047,19 @@ class AnalyticsService {
         if (applicationMethod != null) 'application_method': applicationMethod,
       });
 
+  /// Fase 3 (T3.4, R7): o browser externo abriu de fato (launchUrl==true) num
+  /// apply http(s) — o clique de saída deixa de morrer no PostHog. Reusa a
+  /// constante do catálogo que estava sem emissor; mailto NÃO emite (não há
+  /// link externo a decorar/rastrear).
+  Future<void> jobApplyExternalOpened({
+    required String jobId,
+    String? jobSource,
+  }) =>
+      track(evJobDetailsApplyExternalOpened, props: {
+        'job_id': jobId,
+        if (jobSource != null) 'job_source': jobSource,
+      });
+
   // ── Fase 1 — applications (R7: catálogo + emissor no mesmo PR) ──────
 
   Future<void> applicationCreated({
