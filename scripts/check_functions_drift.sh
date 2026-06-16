@@ -8,7 +8,8 @@
 # diretório da function quanto o _shared/ embarcado no bundle dela.
 #
 # Allowlists:
-#  - arquivos só-no-repo que o bundler não embarca: *.md, sources/types.ts;
+#  - arquivos só-no-repo que o bundler não embarca: *.md, sources/types.ts,
+#    *.test.ts (testes deno colocados ao lado do entrypoint — nunca no bundle);
 #  - functions DEPRECATED ficam fora (parse-cv, parse-cv-pdf, generate-profile
 #    — T0.7; divergência delas é esperada e sem valor comportamental);
 #  - módulos _shared que existem no repo mas a function não importa (aparecem
@@ -52,7 +53,8 @@ for slug in "${ACTIVE[@]}"; do
   # 1. Diretório da function.
   fn_diff=$(diff -r "$REPO_FN/$slug" "$dl/$slug" 2>&1 \
     | grep -v "^Only in $REPO_FN/$slug.*\.md$" \
-    | grep -v "^Only in $REPO_FN/$slug.*: types\.ts$" || true)
+    | grep -v "^Only in $REPO_FN/$slug.*: types\.ts$" \
+    | grep -v "^Only in $REPO_FN/$slug.*\.test\.ts$" || true)
 
   # 2. _shared embarcado no bundle (só os módulos que a function importa).
   sh_diff=""
