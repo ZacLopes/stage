@@ -14,6 +14,7 @@ import '../tutorial/tutorial_keys.dart';
 import '../tutorial/tutorial_step.dart';
 import '../../core/analytics/screen_tracking.dart';
 import '../../services/analytics_service.dart';
+import '../../services/feature_flags_service.dart';
 import '../../services/notifications_service.dart';
 import 'home_viewmodel.dart';
 import '../../core/theme/theme.dart';
@@ -423,7 +424,13 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
                   count: context.watch<JobsViewModel>().pendingCount,
                 ),
               ),
-              label: 'Salvas',
+              // FASE 3 (T3.1): aba vira "Candidaturas" com a flag ON; OFF = Salvas.
+              label: FeatureFlagsService.instance.isEnabledForUser(
+                FeatureFlagKeys.applicationsTrackerV1,
+                Supabase.instance.client.auth.currentUser?.id,
+              )
+                  ? 'Candidaturas'
+                  : 'Salvas',
             ),
             BottomNavigationBarItem(
               icon: const Icon(Icons.description_outlined),

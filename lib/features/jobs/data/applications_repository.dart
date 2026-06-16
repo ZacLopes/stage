@@ -68,6 +68,24 @@ class ApplicationsRepository {
     );
   }
 
+  /// Fase 3 (T3.1): move o status de uma application do próprio usuário (aba
+  /// Candidaturas). A transição é validada no banco (trigger + matriz por
+  /// actor); o client já filtra opções inválidas via [canTransition]. Retorna
+  /// a application atualizada. Só faz sentido pra type manual/external_confirmed
+  /// (stage é read-only pro user — a UI nem oferece).
+  Future<Application> updateStatus({
+    required String applicationId,
+    required ApplicationStatus status,
+  }) async {
+    final updated = await _client
+        .from('applications')
+        .update({'status': status.db})
+        .eq('id', applicationId)
+        .select()
+        .single();
+    return Application.fromJson(Map<String, dynamic>.from(updated));
+  }
+
   /// Desfaz o "apliquei" (toggle off) ou desiste: → withdrawn.
   /// Retorna a application atualizada, ou null se não existia.
   Future<Application?> withdraw({

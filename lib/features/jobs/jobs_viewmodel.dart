@@ -1510,4 +1510,69 @@ class JobsViewModel extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// Fase 3 (T3.1): a application atrelada a uma vaga (ou null se a vaga foi só
+  /// salva, nunca aplicada). Fonte da aba Candidaturas pra segmentar e mostrar
+  /// status.
+  Application? applicationForJob(String jobId) => _applicationsByJob[jobId];
+
+  /// Fase 3 (T3.1): move o status de uma application na aba Candidaturas.
+  /// Só pra type manual/external_confirmed (stage é read-only). Otimista, com
+  /// rollback; emite application_state_changed (R7). Retorna false se falhou.
+  Future<bool> updateApplicationStatus({
+    required String jobId,
+    required ApplicationStatus newStatus,
+  }) async {
+    if (userId == null) return false;
+    final prev = _applicationsByJob[jobId];
+    if (prev == null || prev.status == newStatus) return false;
+    if (!prev.type.userEditableStatus) return false;
+
+    // Otimista.
+    _applicationsByJob[jobId] = prev.copyWith(status: newStatus);
+    _reflectAppliedFromApplication(jobId);
+    notifyListeners();
+
+    try {
+      final updated = await _applicationsRepository.updateStatus(
+        applicationId: prev.id,
+        status: newStatus,
+      );
+      _applicationsByJob[jobId] = updated;
+      _reflectAppliedFromApplication(jobId);
+      // ignore: unawaited_futures
+      Analytics.shared.applicationStateChanged(
+        applicationId: updated.id,
+        applicationType: updated.type.db,
+        fromStatus: prev.status.db,
+        toStatus: updated.status.db,
+        jobId: jobId,
+      );
+      notifyListeners();
+      return true;
+    } catch (e) {
+      print('Error updating application status: $e');
+      _applicationsByJob[jobId] = prev; // rollback
+      _reflectAppliedFromApplication(jobId);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Mantém `LikedJob.applied` em sincronia com a application após mudança de
+  /// status (countsAsApplied — withdrawn/expired desmarcam).
+  void _reflectAppliedFromApplication(String jobId) {
+    final idx = _likedJobs.indexWhere((l) => l.job.id == jobId);
+    if (idx == -1) return;
+    final app = _applicationsByJob[jobId];
+    final isApplied = app != null && app.status.countsAsApplied;
+    final old = _likedJobs[idx];
+    _likedJobs[idx] = LikedJob(
+      swipeId: old.swipeId,
+      job: old.job,
+      applied: isApplied,
+      appliedAt: isApplied ? (app.createdAt) : null,
+      likedAt: old.likedAt,
+    );
+  }
 }
