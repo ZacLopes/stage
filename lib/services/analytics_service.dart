@@ -1060,6 +1060,37 @@ class AnalyticsService {
         if (jobSource != null) 'job_source': jobSource,
       });
 
+  // ── Fase 3 (T3.2): prompt de retorno pós-apply (R7) ─────────────────
+
+  /// Foreground detectou um apply pendente — reusa a constante morta do
+  /// catálogo (sem emissor até agora).
+  Future<void> jobApplyReturned({required String jobId}) =>
+      track(evJobDetailsApplyReturned, props: {'job_id': jobId});
+
+  /// Bottom sheet "Você se candidatou?" exibido.
+  Future<void> applyPromptShown({
+    required String jobId,
+    required bool isReask,
+  }) =>
+      track(evApplyPromptShown, props: {'job_id': jobId, 'is_reask': isReask});
+
+  /// "Sim" — confirmou a candidatura externa (a application_created é emitida
+  /// pela criação no markApplied; este é o marcador do funil do prompt).
+  Future<void> applyConfirmed({required String jobId}) =>
+      track(evApplyConfirmed, props: {'job_id': jobId});
+
+  /// "Não" + motivo — o dado estratégico de fricção por fonte.
+  Future<void> applyAbandonReason({
+    required String jobId,
+    required String reason,
+    String? jobSource,
+  }) =>
+      track(evApplyAbandonReason, props: {
+        'job_id': jobId,
+        'reason': reason,
+        if (jobSource != null) 'job_source': jobSource,
+      });
+
   // ── Fase 1 — applications (R7: catálogo + emissor no mesmo PR) ──────
 
   Future<void> applicationCreated({

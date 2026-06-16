@@ -1516,6 +1516,39 @@ class JobsViewModel extends ChangeNotifier {
   /// status.
   Application? applicationForJob(String jobId) => _applicationsByJob[jobId];
 
+  /// Fase 3 (T3.2): "Sim" no prompt de retorno → cria/reabre a application
+  /// external_confirmed. Não depende de `_likedJobs` estar carregado (o prompt
+  /// dispara no foreground, em qualquer aba) — diferente de [setApplied].
+  Future<void> markAppliedFromPrompt(String jobId) async {
+    if (userId == null) return;
+    try {
+      final result = await _applicationsRepository.markApplied(
+        userId: userId!,
+        jobId: jobId,
+      );
+      _applicationsByJob[jobId] = result.application;
+      if (result.reopened) {
+        // ignore: unawaited_futures
+        Analytics.shared.applicationReopened(
+          applicationId: result.application.id,
+          applicationType: result.application.type.db,
+          jobId: jobId,
+        );
+      } else {
+        // ignore: unawaited_futures
+        Analytics.shared.applicationCreated(
+          applicationId: result.application.id,
+          applicationType: result.application.type.db,
+          jobId: jobId,
+        );
+      }
+      _reflectAppliedFromApplication(jobId);
+      notifyListeners();
+    } catch (e) {
+      print('Error markAppliedFromPrompt: $e');
+    }
+  }
+
   /// Fase 3 (T3.1): move o status de uma application na aba Candidaturas.
   /// Só pra type manual/external_confirmed (stage é read-only). Otimista, com
   /// rollback; emite application_state_changed (R7). Retorna false se falhou.

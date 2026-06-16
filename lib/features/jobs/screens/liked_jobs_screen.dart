@@ -144,6 +144,16 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
     // T3.4 — UTM na saída: decora SÓ http(s) (mailto passa intacto); preserva
     // query/UTM da fonte.
     final launchUri = decorateOutboundUrl(action.uri);
+    // T3.2 — registra o pending_apply pro prompt de retorno em AMBOS os métodos
+    // (site e email — o usuário aplicou nos dois). O HomeScreen pergunta no
+    // próximo foreground.
+    // ignore: unawaited_futures
+    JobSwipeContext.shared.recordPendingApply(
+      jobId: liked.job.id,
+      title: liked.job.title,
+      company: liked.job.companyName,
+      source: liked.job.source,
+    );
     final ok = await launchUrl(launchUri, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

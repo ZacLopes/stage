@@ -8,6 +8,9 @@ import '../resume/resume_viewmodel.dart';
 import '../jobs/screens/jobs_swipe_screen.dart';
 import '../jobs/screens/liked_jobs_screen.dart';
 import '../jobs/jobs_viewmodel.dart';
+import '../jobs/job_swipe_context.dart';
+import '../jobs/utils/pending_apply.dart';
+import '../jobs/widgets/apply_return_prompt_sheet.dart';
 import '../shared/widgets/cv_landing_overlay.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../tutorial/tutorial_keys.dart';
@@ -37,9 +40,19 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
   DateTime? _lastTabEnteredAt = DateTime.now();
   final PageController _pageController = PageController();
 
+  /// FASE 3 (T3.2): observer de foreground pro prompt de retorno pós-apply.
+  /// Vive na camada UI (HomeScreen tem Navigator/context) — o observer do
+  /// analytics_service é só telemetria, sem BuildContext.
+  late final _HomeForegroundObserver _foregroundObserver;
+  bool _applyPromptInFlight = false;
+
   @override
   void initState() {
     super.initState();
+
+    _foregroundObserver =
+        _HomeForegroundObserver(onResumed: _maybeShowApplyPrompt);
+    WidgetsBinding.instance.addObserver(_foregroundObserver);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // Listener de deep-nav tem que entrar antes de qualquer outra coisa
@@ -309,6 +322,7 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(_foregroundObserver);
     // Remove the listeners safely — the viewmodels outlive this widget
     try {
       context.read<HomeViewModel>().removeListener(_onHomeViewModelChange);
@@ -316,6 +330,77 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
     } catch (_) {}
     _pageController.dispose();
     super.dispose();
+  }
+
+  /// FASE 3 (T3.2): no foreground, decide e mostra o prompt de retorno se há um
+  /// apply pendente na janela. Único disparo por vez (`_applyPromptInFlight`).
+  Future<void> _maybeShowApplyPrompt() async {
+    if (_applyPromptInFlight || !mounted) return;
+    // T3.2 atrás da MESMA flag do tracker (applications_tracker_v1). OFF = sem
+    // prompt — o aceite de ≥30% conta a partir da ATIVAÇÃO da flag.
+    final trackerOn = FeatureFlagsService.instance.isEnabledForUser(
+      FeatureFlagKeys.applicationsTrackerV1,
+      Supabase.instance.client.auth.currentUser?.id,
+    );
+    if (!trackerOn) return;
+    final pending = await JobSwipeContext.shared.readPendingApply();
+    if (pending == null || !mounted) return;
+
+    final decision = pendingApplyDecision(pending, DateTime.now());
+    switch (decision) {
+      case PendingApplyDecision.wait:
+        return;
+      case PendingApplyDecision.expired:
+        await JobSwipeContext.shared.clearPendingApply();
+        return;
+      case PendingApplyDecision.show:
+        break;
+    }
+
+    _applyPromptInFlight = true;
+    try {
+      final isReask = pending.reaskAfterMs != null;
+      // ignore: unawaited_futures
+      Analytics.shared.jobApplyReturned(jobId: pending.jobId);
+      // ignore: unawaited_futures
+      Analytics.shared.applyPromptShown(jobId: pending.jobId, isReask: isReask);
+      if (!mounted) return;
+      final outcome = await showApplyReturnPrompt(context, pending: pending);
+      await _handleApplyOutcome(pending, outcome);
+    } finally {
+      _applyPromptInFlight = false;
+    }
+  }
+
+  Future<void> _handleApplyOutcome(
+    PendingApply pending,
+    ApplyPromptOutcome? outcome,
+  ) async {
+    switch (outcome) {
+      case ApplyConfirmed():
+        // ignore: unawaited_futures
+        Analytics.shared.applyConfirmed(jobId: pending.jobId);
+        if (mounted) {
+          await context
+              .read<JobsViewModel>()
+              .markAppliedFromPrompt(pending.jobId);
+        }
+        await JobSwipeContext.shared.clearPendingApply();
+      case ApplyAbandoned(:final reason):
+        // ignore: unawaited_futures
+        Analytics.shared.applyAbandonReason(
+          jobId: pending.jobId,
+          reason: reason.id,
+          jobSource: pending.source,
+        );
+        await JobSwipeContext.shared.clearPendingApply();
+      case ApplyLater():
+        await JobSwipeContext.shared.scheduleReask();
+      case null:
+        // Dispensado (tap fora): mantém o pending — a janela (30min ou reask)
+        // expira sozinha; não re-mostra agressivamente neste foreground.
+        break;
+    }
   }
 
   @override
@@ -505,5 +590,17 @@ class _PendingBadgeIcon extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+/// FASE 3 (T3.2): observer leve de foreground. Classe dedicada (em vez de mixar
+/// WidgetsBindingObserver no State) pra não colidir com o ScreenTrackingMixin.
+class _HomeForegroundObserver with WidgetsBindingObserver {
+  final VoidCallback onResumed;
+  _HomeForegroundObserver({required this.onResumed});
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) onResumed();
   }
 }
