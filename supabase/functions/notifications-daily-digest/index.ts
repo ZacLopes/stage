@@ -30,6 +30,10 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { captureEvent, withEdgeAnalytics } from '../_shared/posthog.ts'
+import {
+  type DigestVariant,
+  planDigestPushes,
+} from './digest_plan.ts'
 
 const CRON_SECRET = Deno.env.get('CRON_SECRET') ?? ''
 const ONESIGNAL_APP_ID = Deno.env.get('ONESIGNAL_APP_ID') ?? ''
@@ -57,40 +61,8 @@ function isAuthorized(req: Request): boolean {
   return (req.headers.get('Authorization') ?? '').startsWith('Bearer ')
 }
 
-interface DigestVariant {
-  title: string
-  message: string
-  /// `intent` vira tag na notificação (segmentação no PostHog opcional).
-  intent: 'cv_adapted_pending_export' | 'phase_continue' | 'new_jobs'
-}
-
-function pickVariant({
-  hasAdaptedNotExported,
-  hasCompletedPhase,
-}: {
-  hasAdaptedNotExported: boolean
-  hasCompletedPhase: boolean
-}): DigestVariant {
-  if (hasAdaptedNotExported) {
-    return {
-      title: '📄 seu CV adaptado tá te esperando',
-      message: 'Volta agora pra baixar antes que esfrie.',
-      intent: 'cv_adapted_pending_export',
-    }
-  }
-  if (hasCompletedPhase) {
-    return {
-      title: '🚀 sua trilha está esperando',
-      message: 'Continua de onde parou e libera a próxima fase.',
-      intent: 'phase_continue',
-    }
-  }
-  return {
-    title: '📬 vagas com match alto chegaram',
-    message: 'Dá uma olhada nas que combinam com você.',
-    intent: 'new_jobs',
-  }
-}
+// DigestVariant + pickVariant + deadlineVariant + planDigestPushes vivem em
+// digest_plan.ts (puro, testável — ver digest_plan.test.ts).
 
 async function sendOneSignalPush(
   externalUserId: string,
@@ -108,7 +80,14 @@ async function sendOneSignalPush(
       channel_for_external_user_ids: 'push',
       headings: { en: variant.title, pt: variant.title },
       contents: { en: variant.message, pt: variant.message },
-      data: { intent: variant.intent, source: 'daily_digest_d1' },
+      data: {
+        intent: variant.intent,
+        // T3.5: prazo é uma 2ª passada da MESMA edge — distingue a origem sem
+        // criar tipo/template de push novo.
+        source: variant.intent === 'saved_deadline_48h'
+          ? 'daily_digest_deadline'
+          : 'daily_digest_d1',
+      },
       // ttl curto — push de retenção perde valor depois de 24h.
       ttl: 86400,
     }),
@@ -217,7 +196,31 @@ serve(withEdgeAnalytics('notifications-daily-digest', async (req) => {
     .eq('completed', true)
   const completedPhaseSet = new Set((phaseRows ?? []).map((r) => r.user_id))
 
-  // 3. Pra cada candidato, escolhe variante e envia.
+  // 2b. T3.5 — cohort de PRAZO: usuários com vaga salva (liked) fechando em ≤48h
+  // e ainda sem application (RPC server-imediato, índice jobs_deadline_active_idx).
+  // Independe da janela D+1 e do cap de 1000 do listUsers — alcança todos.
+  const { data: deadlineRows, error: deadlineErr } = await supabase
+    .rpc('get_saved_jobs_expiring', { p_hours: 48 })
+  if (deadlineErr) {
+    console.error('get_saved_jobs_expiring failed', deadlineErr.message)
+  }
+  let deadlineCohort = (deadlineRows ?? []) as Array<{ user_id: string; n: number }>
+  // Em modo teste (targetEmails), restringe o cohort de prazo aos alvos.
+  if (targetEmails.length > 0) {
+    const targetIds = new Set(candidates.map((u) => u.id))
+    deadlineCohort = deadlineCohort.filter((r) => targetIds.has(r.user_id))
+  }
+
+  // 3. Plano com DEDUPE (prazo > nudge; 1 push/usuário/dia) — lógica pura.
+  const plan = planDigestPushes(
+    candidates.map((u) => ({
+      id: u.id,
+      hasAdaptedNotExported: adaptedSet.has(u.id),
+      hasCompletedPhase: completedPhaseSet.has(u.id),
+    })),
+    deadlineCohort,
+  )
+
   const results: Array<{
     userId: string
     intent: string
@@ -226,25 +229,16 @@ serve(withEdgeAnalytics('notifications-daily-digest', async (req) => {
     onesignalResponse?: string
   }> = []
 
-  for (const u of candidates) {
-    const hasAdaptedNotExported = adaptedSet.has(u.id)
-    const hasCompletedPhase = completedPhaseSet.has(u.id)
-    const variant = pickVariant({ hasAdaptedNotExported, hasCompletedPhase })
-
+  for (const { userId, variant } of plan) {
     if (dryRun) {
-      results.push({
-        userId: u.id,
-        intent: variant.intent,
-        status: 'dry_run',
-        ok: true,
-      })
+      results.push({ userId, intent: variant.intent, status: 'dry_run', ok: true })
       continue
     }
 
     try {
-      const r = await sendOneSignalPush(u.id, variant)
+      const r = await sendOneSignalPush(userId, variant)
       results.push({
-        userId: u.id,
+        userId,
         intent: variant.intent,
         status: r.status,
         ok: r.ok,
@@ -255,13 +249,13 @@ serve(withEdgeAnalytics('notifications-daily-digest', async (req) => {
       })
     } catch (e) {
       results.push({
-        userId: u.id,
+        userId,
         intent: variant.intent,
         status: 500,
         ok: false,
         onesignalResponse: String(e).slice(0, 300),
       })
-      console.error('OneSignal send failed for', u.id, e)
+      console.error('OneSignal send failed for', userId, e)
     }
   }
 
@@ -280,6 +274,7 @@ serve(withEdgeAnalytics('notifications-daily-digest', async (req) => {
     properties: {
       cron: 'notifications-daily-digest',
       candidates: candidates.length,
+      deadline_candidates: deadlineCohort.length,
       pushes_sent: sent,
       pushes_failed: failed,
       dry_run: dryRun,
@@ -292,6 +287,7 @@ serve(withEdgeAnalytics('notifications-daily-digest', async (req) => {
 
   return jsonResponse({
     candidates: candidates.length,
+    deadlineCandidates: deadlineCohort.length,
     sent,
     dryRun,
     windowHoursStart,

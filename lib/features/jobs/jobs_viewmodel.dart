@@ -36,6 +36,11 @@ class JobsViewModel extends ChangeNotifier {
   /// legacy (builds antigas ainda escrevem; a bridge do banco converte).
   Map<String, Application> _applicationsByJob = {};
 
+  /// Fase 3 (T3.3): applications manuais (type='manual', job_id null) — não
+  /// têm vaga atrelada, vivem soltas na aba Candidaturas.
+  List<Application> _manualApplications = [];
+  List<Application> get manualApplications => _manualApplications;
+
   /// Listener pra mudanças no auth Supabase. Garante que `init()` rode
   /// assim que o user logar (caso o widget tenha sido construído antes
   /// da sessão estar pronta — race condition que bloqueava o feed até
@@ -1364,6 +1369,8 @@ class JobsViewModel extends ChangeNotifier {
         for (final a in apps)
           if (a.jobId != null) a.jobId!: a,
       };
+      // T3.3: manuais (job_id null) vivem soltas na aba.
+      _manualApplications = apps.where((a) => a.jobId == null).toList();
       _likedJobs = _likedJobs.map((l) {
         final app = _applicationsByJob[l.job.id];
         final isApplied = app != null && app.status.countsAsApplied;
@@ -1509,5 +1516,169 @@ class JobsViewModel extends ChangeNotifier {
       _likedJobs[idx] = old;
       notifyListeners();
     }
+  }
+
+  /// Fase 3 (T3.1): a application atrelada a uma vaga (ou null se a vaga foi só
+  /// salva, nunca aplicada). Fonte da aba Candidaturas pra segmentar e mostrar
+  /// status.
+  Application? applicationForJob(String jobId) => _applicationsByJob[jobId];
+
+  /// Fase 3 (T3.2): "Sim" no prompt de retorno → cria/reabre a application
+  /// external_confirmed. Não depende de `_likedJobs` estar carregado (o prompt
+  /// dispara no foreground, em qualquer aba) — diferente de [setApplied].
+  Future<void> markAppliedFromPrompt(String jobId) async {
+    if (userId == null) return;
+    try {
+      final result = await _applicationsRepository.markApplied(
+        userId: userId!,
+        jobId: jobId,
+      );
+      _applicationsByJob[jobId] = result.application;
+      if (result.reopened) {
+        // ignore: unawaited_futures
+        Analytics.shared.applicationReopened(
+          applicationId: result.application.id,
+          applicationType: result.application.type.db,
+          jobId: jobId,
+        );
+      } else {
+        // ignore: unawaited_futures
+        Analytics.shared.applicationCreated(
+          applicationId: result.application.id,
+          applicationType: result.application.type.db,
+          jobId: jobId,
+        );
+      }
+      _reflectAppliedFromApplication(jobId);
+      notifyListeners();
+    } catch (e) {
+      print('Error markAppliedFromPrompt: $e');
+    }
+  }
+
+  /// Fase 3 (T3.3): cria uma candidatura manual (FAB da aba). Retorna false se
+  /// falhou. Emite application_created (application_type='manual', R7).
+  Future<bool> createManualApplication({
+    required String company,
+    required String title,
+    String? url,
+    ApplicationStatus status = ApplicationStatus.submitted,
+  }) async {
+    if (userId == null) return false;
+    try {
+      final app = await _applicationsRepository.createManual(
+        userId: userId!,
+        externalCompany: company,
+        externalTitle: title,
+        externalUrl: url,
+        status: status,
+      );
+      _manualApplications = [app, ..._manualApplications];
+      // ignore: unawaited_futures
+      Analytics.shared.applicationCreated(
+        applicationId: app.id,
+        applicationType: app.type.db,
+      );
+      notifyListeners();
+      return true;
+    } catch (e) {
+      print('Error createManualApplication: $e');
+      return false;
+    }
+  }
+
+  /// Fase 3 (T3.3): move o status de uma application MANUAL (sem job_id) — a
+  /// versão por job_id de [updateApplicationStatus] não cobre manuais.
+  Future<bool> updateManualApplicationStatus({
+    required Application app,
+    required ApplicationStatus newStatus,
+  }) async {
+    if (app.status == newStatus || !app.type.userEditableStatus) return false;
+    final idx = _manualApplications.indexWhere((a) => a.id == app.id);
+    if (idx == -1) return false;
+    final prev = _manualApplications[idx];
+    _manualApplications[idx] = prev.copyWith(status: newStatus);
+    notifyListeners();
+    try {
+      final updated = await _applicationsRepository.updateStatus(
+        applicationId: app.id,
+        status: newStatus,
+      );
+      _manualApplications[idx] = updated;
+      // ignore: unawaited_futures
+      Analytics.shared.applicationStateChanged(
+        applicationId: updated.id,
+        applicationType: updated.type.db,
+        fromStatus: prev.status.db,
+        toStatus: updated.status.db,
+      );
+      notifyListeners();
+      return true;
+    } catch (e) {
+      print('Error updateManualApplicationStatus: $e');
+      _manualApplications[idx] = prev;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Fase 3 (T3.1): move o status de uma application na aba Candidaturas.
+  /// Só pra type manual/external_confirmed (stage é read-only). Otimista, com
+  /// rollback; emite application_state_changed (R7). Retorna false se falhou.
+  Future<bool> updateApplicationStatus({
+    required String jobId,
+    required ApplicationStatus newStatus,
+  }) async {
+    if (userId == null) return false;
+    final prev = _applicationsByJob[jobId];
+    if (prev == null || prev.status == newStatus) return false;
+    if (!prev.type.userEditableStatus) return false;
+
+    // Otimista.
+    _applicationsByJob[jobId] = prev.copyWith(status: newStatus);
+    _reflectAppliedFromApplication(jobId);
+    notifyListeners();
+
+    try {
+      final updated = await _applicationsRepository.updateStatus(
+        applicationId: prev.id,
+        status: newStatus,
+      );
+      _applicationsByJob[jobId] = updated;
+      _reflectAppliedFromApplication(jobId);
+      // ignore: unawaited_futures
+      Analytics.shared.applicationStateChanged(
+        applicationId: updated.id,
+        applicationType: updated.type.db,
+        fromStatus: prev.status.db,
+        toStatus: updated.status.db,
+        jobId: jobId,
+      );
+      notifyListeners();
+      return true;
+    } catch (e) {
+      print('Error updating application status: $e');
+      _applicationsByJob[jobId] = prev; // rollback
+      _reflectAppliedFromApplication(jobId);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Mantém `LikedJob.applied` em sincronia com a application após mudança de
+  /// status (countsAsApplied — withdrawn/expired desmarcam).
+  void _reflectAppliedFromApplication(String jobId) {
+    final idx = _likedJobs.indexWhere((l) => l.job.id == jobId);
+    if (idx == -1) return;
+    final app = _applicationsByJob[jobId];
+    final isApplied = app != null && app.status.countsAsApplied;
+    final old = _likedJobs[idx];
+    _likedJobs[idx] = LikedJob(
+      swipeId: old.swipeId,
+      job: old.job,
+      applied: isApplied,
+      appliedAt: isApplied ? (app.createdAt) : null,
+      likedAt: old.likedAt,
+    );
   }
 }

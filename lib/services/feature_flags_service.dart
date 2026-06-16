@@ -135,4 +135,9 @@ class FeatureFlagKeys {
   /// swipe por snapshot). OFF = caminho legacy intocado (rollback).
   /// Seed na migration 20260612120200; rollout 10→50→100 pós-2.4.0.
   static const String feedListV1 = 'feed_list_v1';
+
+  /// FASE 3 (T3.1/T3.2/T3.3): aba Candidaturas (4 segmentos) + prompt de
+  /// retorno + adição manual. OFF = aba Salvas atual (3 buckets) intocada.
+  /// Seed na migration 20260616140000; rollout 10→50→100 decidido pelo fundador.
+  static const String applicationsTrackerV1 = 'applications_tracker_v1';
 }

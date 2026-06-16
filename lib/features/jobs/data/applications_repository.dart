@@ -68,6 +68,51 @@ class ApplicationsRepository {
     );
   }
 
+  /// Fase 3 (T3.3): adição manual de candidatura (FAB da aba). INSERT
+  /// type='manual', job_id=null (passa o CHECK applications_job_or_manual);
+  /// external_company/title obrigatórios (CHECK applications_manual_fields);
+  /// link e status iniciais opcionais.
+  Future<Application> createManual({
+    required String userId,
+    required String externalCompany,
+    required String externalTitle,
+    String? externalUrl,
+    ApplicationStatus status = ApplicationStatus.submitted,
+  }) async {
+    final inserted = await _client
+        .from('applications')
+        .insert({
+          'user_id': userId,
+          'type': ApplicationType.manual.db,
+          'status': status.db,
+          'external_company': externalCompany,
+          'external_title': externalTitle,
+          if (externalUrl != null && externalUrl.isNotEmpty)
+            'external_url': externalUrl,
+        })
+        .select()
+        .single();
+    return Application.fromJson(Map<String, dynamic>.from(inserted));
+  }
+
+  /// Fase 3 (T3.1): move o status de uma application do próprio usuário (aba
+  /// Candidaturas). A transição é validada no banco (trigger + matriz por
+  /// actor); o client já filtra opções inválidas via [canTransition]. Retorna
+  /// a application atualizada. Só faz sentido pra type manual/external_confirmed
+  /// (stage é read-only pro user — a UI nem oferece).
+  Future<Application> updateStatus({
+    required String applicationId,
+    required ApplicationStatus status,
+  }) async {
+    final updated = await _client
+        .from('applications')
+        .update({'status': status.db})
+        .eq('id', applicationId)
+        .select()
+        .single();
+    return Application.fromJson(Map<String, dynamic>.from(updated));
+  }
+
   /// Desfaz o "apliquei" (toggle off) ou desiste: → withdrawn.
   /// Retorna a application atualizada, ou null se não existia.
   Future<Application?> withdraw({

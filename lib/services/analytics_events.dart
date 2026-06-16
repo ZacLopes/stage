@@ -544,6 +544,20 @@ const String evApplicationStateChanged = 'application_state_changed';
 /// application_id, application_type, job_id?.
 const String evApplicationReopened = 'application_reopened';
 
+// ── Fase 3 (T3.2): prompt de retorno pós-apply ──────────────────────────
+/// Bottom sheet "Você se candidatou?" foi exibido no foreground. Props:
+/// job_id, is_reask (bool — 2ª chance pós "Depois").
+const String evApplyPromptShown = 'apply_prompt_shown';
+
+/// Usuário respondeu "Sim" no prompt → application external_confirmed criada/
+/// reaberta. Props: job_id (o application_created já é emitido pela criação).
+const String evApplyConfirmed = 'apply_confirmed';
+
+/// Usuário respondeu "Não" + escolheu motivo de abandono. O DADO ESTRATÉGICO
+/// (fricção por fonte). Props: job_id, reason
+/// (processo_longo|vaga_fechada|pediram_demais|so_olhando), job_source.
+const String evApplyAbandonReason = 'apply_abandon_reason';
+
 // ════════════════════════════════════════════════════════════════════
 // Allowlist agregada — usada pelo wrapper pra rejeitar nomes não-catalogados.
 // ════════════════════════════════════════════════════════════════════
@@ -555,6 +569,8 @@ const String evApplicationReopened = 'application_reopened';
 const Set<String> kAllowedEventNames = {
   // Fase 1 — applications
   evApplicationCreated, evApplicationStateChanged, evApplicationReopened,
+  // Fase 3 — prompt de retorno (T3.2)
+  evApplyPromptShown, evApplyConfirmed, evApplyAbandonReason,
   // B.1
   evAppOpened, evAppFirstOpenEver, evAuthSignupLandingShown,
   evAuthSignupMethodChosen, evAuthSignupStarted, evAuthSignupCompleted,

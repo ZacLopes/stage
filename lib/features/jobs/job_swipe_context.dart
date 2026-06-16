@@ -31,11 +31,14 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'utils/pending_apply.dart';
+
 class JobSwipeContext {
   JobSwipeContext._();
   static final JobSwipeContext shared = JobSwipeContext._();
 
   static const _kStorageKey = 'job_swipe_context_v1';
+  static const _kPendingApplyKey = 'pending_apply_v1';
   static const _kTtl = Duration(days: 30);
 
   Map<String, _Entry>? _cache;
@@ -136,6 +139,71 @@ class JobSwipeContext {
   Future<int?> adaptedAtMs(String jobId) async {
     final cache = await _load();
     return cache[jobId]?.adaptedAtMs;
+  }
+
+  // ── FASE 3 (T3.2): pending_apply — slot único do prompt de retorno ────────
+  // Slot separado do mapa por-vaga (key própria): é "o último apply aguardando
+  // o prompt". Gravado no apply; lido no foreground; limpo após responder.
+
+  /// Grava o pending_apply (sobrescreve um anterior — só o último importa).
+  Future<void> recordPendingApply({
+    required String jobId,
+    required String title,
+    required String company,
+    String? source,
+  }) async {
+    final p = PendingApply(
+      jobId: jobId,
+      title: title,
+      company: company,
+      source: source,
+      tsMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    await _writePendingApply(p);
+  }
+
+  /// Lê o pending_apply atual (ou null se não há / inválido).
+  Future<PendingApply?> readPendingApply() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_kPendingApplyKey);
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      return PendingApply.fromJson(Map<String, dynamic>.from(decoded));
+    } catch (e) {
+      if (kDebugMode) debugPrint('[JobSwipeContext] readPendingApply failed: $e');
+      return null;
+    }
+  }
+
+  /// Limpa o pending_apply (após Sim/Não, ou quando expira).
+  Future<void> clearPendingApply() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_kPendingApplyKey);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[JobSwipeContext] clearPendingApply failed: $e');
+    }
+  }
+
+  /// "Depois": agenda a re-pergunta única pra +24h (mantém o resto do slot).
+  Future<void> scheduleReask() async {
+    final p = await readPendingApply();
+    if (p == null) return;
+    final reaskAfter = DateTime.now()
+        .add(kPendingApplyReaskAfter)
+        .millisecondsSinceEpoch;
+    await _writePendingApply(p.withReask(reaskAfter));
+  }
+
+  Future<void> _writePendingApply(PendingApply p) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kPendingApplyKey, jsonEncode(p.toJson()));
+    } catch (e) {
+      if (kDebugMode) debugPrint('[JobSwipeContext] writePendingApply failed: $e');
+    }
   }
 }
 

@@ -42,11 +42,58 @@ enum ApplicationStatus {
 
   bool get isTerminal => this == hired || this == expired;
 
+  /// Rótulo pt-BR pra UI (aba Candidaturas, chip de status).
+  String get label => switch (this) {
+        submitted => 'Enviada',
+        inReview => 'Em análise',
+        shortlisted => 'Pré-selecionado',
+        interview => 'Entrevista',
+        offer => 'Proposta',
+        hired => 'Contratado',
+        rejected => 'Recusada',
+        withdrawn => 'Retirada',
+        expired => 'Expirada',
+      };
+
   /// "Conta como aplicada" pra UI (bucket "Já apliquei" e contadores):
   /// qualquer estado vivo do pipeline. withdrawn/expired não contam;
   /// rejected conta (o user aplicou — o desfecho foi negativo).
   bool get countsAsApplied => this != withdrawn && this != expired;
 }
+
+/// Segmentos da aba Candidaturas (Fase 3 T3.1). Decisão do fundador: 4
+/// segmentos (Entrevistas só na F4). "Salvas" não é um status — é liked SEM
+/// application; os outros 3 derivam do status via [segmentForStatus].
+enum ApplicationSegment {
+  salvas,
+  enviadas,
+  emProcesso,
+  finalizadas;
+
+  String get label => switch (this) {
+        salvas => 'Salvas',
+        enviadas => 'Enviadas',
+        emProcesso => 'Em processo',
+        finalizadas => 'Finalizadas',
+      };
+}
+
+/// Mapa status→segmento (PLANO-FASE-3 §2/D1, decisão do arquiteto):
+/// Enviadas = submitted · Em processo = in_review|shortlisted|interview|offer ·
+/// Finalizadas = hired|rejected|withdrawn|expired.
+ApplicationSegment segmentForStatus(ApplicationStatus s) => switch (s) {
+      ApplicationStatus.submitted => ApplicationSegment.enviadas,
+      ApplicationStatus.inReview ||
+      ApplicationStatus.shortlisted ||
+      ApplicationStatus.interview ||
+      ApplicationStatus.offer =>
+        ApplicationSegment.emProcesso,
+      ApplicationStatus.hired ||
+      ApplicationStatus.rejected ||
+      ApplicationStatus.withdrawn ||
+      ApplicationStatus.expired =>
+        ApplicationSegment.finalizadas,
+    };
 
 enum ApplicationType {
   stage,
@@ -64,6 +111,11 @@ enum ApplicationType {
         externalConfirmed => 'external_confirmed',
         manual => 'manual',
       };
+
+  /// O usuário move o próprio pipeline só em manual/external_confirmed; `stage`
+  /// é read-only pra ele (quem move é a empresa/ops na F4). Espelha a matriz
+  /// da F1 — a UI só não oferece os controles.
+  bool get userEditableStatus => this != stage;
 }
 
 class Application {
@@ -79,6 +131,7 @@ class Application {
   final String? notes;
   final String? externalCompany;
   final String? externalTitle;
+  final String? externalUrl;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -95,6 +148,7 @@ class Application {
     this.notes,
     this.externalCompany,
     this.externalTitle,
+    this.externalUrl,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -114,6 +168,7 @@ class Application {
         notes: json['notes'] as String?,
         externalCompany: json['external_company'] as String?,
         externalTitle: json['external_title'] as String?,
+        externalUrl: json['external_url'] as String?,
         createdAt: DateTime.parse(json['created_at'] as String),
         updatedAt: DateTime.parse(json['updated_at'] as String),
       );
@@ -131,6 +186,7 @@ class Application {
         notes: notes,
         externalCompany: externalCompany,
         externalTitle: externalTitle,
+        externalUrl: externalUrl,
         createdAt: createdAt,
         updatedAt: updatedAt,
       );

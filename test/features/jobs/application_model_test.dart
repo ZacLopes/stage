@@ -127,4 +127,48 @@ void main() {
       );
     });
   });
+
+  group('segmentForStatus — aba Candidaturas (Fase 3 T3.1, 4 segmentos)', () {
+    test('Enviadas = submitted', () {
+      expect(segmentForStatus(ApplicationStatus.submitted),
+          ApplicationSegment.enviadas);
+    });
+
+    test('Em processo = in_review/shortlisted/interview/offer', () {
+      for (final s in [
+        ApplicationStatus.inReview,
+        ApplicationStatus.shortlisted,
+        ApplicationStatus.interview,
+        ApplicationStatus.offer,
+      ]) {
+        expect(segmentForStatus(s), ApplicationSegment.emProcesso,
+            reason: '$s deveria ser Em processo');
+      }
+    });
+
+    test('Finalizadas = hired/rejected/withdrawn/expired', () {
+      for (final s in [
+        ApplicationStatus.hired,
+        ApplicationStatus.rejected,
+        ApplicationStatus.withdrawn,
+        ApplicationStatus.expired,
+      ]) {
+        expect(segmentForStatus(s), ApplicationSegment.finalizadas,
+            reason: '$s deveria ser Finalizadas');
+      }
+    });
+
+    test('labels em pt-BR', () {
+      expect(ApplicationSegment.salvas.label, 'Salvas');
+      expect(ApplicationSegment.enviadas.label, 'Enviadas');
+      expect(ApplicationSegment.emProcesso.label, 'Em processo');
+      expect(ApplicationSegment.finalizadas.label, 'Finalizadas');
+    });
+
+    test('userEditableStatus: stage é read-only; manual/external editáveis', () {
+      expect(ApplicationType.stage.userEditableStatus, isFalse);
+      expect(ApplicationType.manual.userEditableStatus, isTrue);
+      expect(ApplicationType.externalConfirmed.userEditableStatus, isTrue);
+    });
+  });
 }

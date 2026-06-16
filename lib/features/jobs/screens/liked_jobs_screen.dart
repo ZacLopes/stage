@@ -11,11 +11,17 @@ import '../../../core/utils/display_name.dart';
 import '../../../services/analytics_events.dart';
 import '../../../services/analytics_service.dart';
 import '../../../services/facebook_events_service.dart';
+import '../../../services/feature_flags_service.dart';
+import '../models/application.dart';
 import '../../auth/user_viewmodel.dart';
 import '../../profile/application/profile_editor_view_model.dart';
 import '../data/swipe_repository.dart';
 import '../job_swipe_context.dart';
+import '../utils/url_utils.dart';
+import '../widgets/application_status_control.dart';
 import '../widgets/expired_job_badge.dart';
+import '../widgets/manual_application_card.dart';
+import '../widgets/manual_application_sheet.dart';
 import '../jobs_viewmodel.dart';
 import 'job_details_sheet.dart';
 import '../../../core/theme/theme.dart';
@@ -137,18 +143,59 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
             : 0,
       );
     }
-    final ok = await launchUrl(action.uri, mode: LaunchMode.externalApplication);
+    // T3.4 — UTM na saída: decora SÓ http(s) (mailto passa intacto); preserva
+    // query/UTM da fonte.
+    final launchUri = decorateOutboundUrl(action.uri);
+    // T3.2 — registra o pending_apply pro prompt de retorno em AMBOS os métodos
+    // (site e email — o usuário aplicou nos dois). O HomeScreen pergunta no
+    // próximo foreground.
+    // ignore: unawaited_futures
+    JobSwipeContext.shared.recordPendingApply(
+      jobId: liked.job.id,
+      title: liked.job.title,
+      company: liked.job.companyName,
+      source: liked.job.source,
+    );
+    final ok = await launchUrl(launchUri, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(action.failureMessage)),
       );
       return;
     }
+    // T3.4 — outbound rastreável (http/https): grava o clique no banco
+    // (outbound_clicks, own-insert) e emite o evento de saída. mailto fica de
+    // fora (sem link externo a rastrear). Fire-and-forget: não bloqueia o apply.
+    if (isTrackableOutbound(launchUri)) {
+      // ignore: unawaited_futures
+      _recordOutboundClick(liked.job.id);
+      // ignore: unawaited_futures
+      Analytics.shared.jobApplyExternalOpened(
+        jobId: liked.job.id,
+        jobSource: liked.job.source,
+      );
+    }
     // Facebook SubmittedApplication — dispara APENAS quando o launchUrl
     // retornou true (cliente externo abriu de fato, intent confirmada). Vale
     // tanto pra site quanto pra cliente de email — em ambos houve ação real.
     // ignore: unawaited_futures
     FacebookEventsService.shared.logSubmittedApplication(jobId: liked.job.id);
+  }
+
+  /// T3.4 — own-insert em `outbound_clicks` (RLS exige user_id = auth.uid).
+  /// Best-effort: falha de rede não pode atrapalhar a candidatura.
+  Future<void> _recordOutboundClick(String jobId) async {
+    try {
+      final client = Supabase.instance.client;
+      final uid = client.auth.currentUser?.id;
+      if (uid == null) return;
+      await client.from('outbound_clicks').insert({
+        'user_id': uid,
+        'job_id': jobId,
+      });
+    } catch (_) {
+      // silencioso — outbound_clicks é telemetria, não bloqueia o fluxo.
+    }
   }
 
   void _toggleApplied(LikedJob liked) {
@@ -239,8 +286,24 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final trackerOn = FeatureFlagsService.instance.isEnabledForUser(
+        FeatureFlagKeys.applicationsTrackerV1,
+        context.read<JobsViewModel>().userId);
     return Scaffold(
       backgroundColor: AppColors.background,
+      // T3.3: FAB de adição manual só na aba Candidaturas (flag ON).
+      floatingActionButton: trackerOn
+          ? FloatingActionButton.extended(
+              onPressed: _addManualApplication,
+              backgroundColor: AppColors.primary,
+              icon: const Icon(Icons.add, color: Colors.white),
+              label: const Text('Adicionar',
+                  style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white)),
+            )
+          : null,
       body: SafeArea(
         child: Consumer<JobsViewModel>(
           builder: (context, vm, _) {
@@ -268,12 +331,13 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
   }
 
   Widget _buildBody(JobsViewModel vm) {
-    if (vm.likedJobsLoading && vm.likedJobs.isEmpty) {
+    final isEmpty = vm.likedJobs.isEmpty && vm.manualApplications.isEmpty;
+    if (vm.likedJobsLoading && isEmpty) {
       return const Center(
         child: CircularProgressIndicator(color: AppColors.brandBlue),
       );
     }
-    if (vm.likedJobs.isEmpty) {
+    if (isEmpty) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: const [
@@ -283,65 +347,13 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
       );
     }
 
-    // Agrupa em 3 buckets pra UX de acompanhamento:
-    // - pending: ainda não aplicou E vaga viva (mais ação a fazer)
-    // - applied: já aplicou E vaga viva (acompanhamento positivo)
-    // - expired: prazo expirou OU a vaga foi desativada pelo sync
-    //   (is_active=false — 69% dos applied históricos apontavam pra vaga
-    //   morta sem nenhum aviso na UI; Fase 1 T1.4/E5). Link externo pode
-    //   estar morto — o card ganha badge e a ação vira arquivar.
-    final now = DateTime.now();
-    final pending = <LikedJob>[];
-    final applied = <LikedJob>[];
-    final expired = <LikedJob>[];
-    for (final liked in vm.likedJobs) {
-      final deadlineAt = liked.job.deadlineAt;
-      final isExpired = !liked.job.isActive ||
-          (deadlineAt != null && deadlineAt.isBefore(now));
-      if (isExpired) {
-        expired.add(liked);
-      } else if (liked.applied) {
-        applied.add(liked);
-      } else {
-        pending.add(liked);
-      }
-    }
-
-    // Constrói lista achatada de items (headers + cards) pra um único ListView.
-    final items = <_ListItem>[];
-    if (pending.isNotEmpty) {
-      items.add(_SectionHeaderItem(
-        title: 'Ainda não apliquei',
-        count: pending.length,
-        color: AppColors.brandBlue,
-        icon: Icons.pending_outlined,
-      ));
-      for (final l in pending) {
-        items.add(_JobCardItem(l));
-      }
-    }
-    if (applied.isNotEmpty) {
-      items.add(_SectionHeaderItem(
-        title: 'Já apliquei',
-        count: applied.length,
-        color: AppColors.primary,
-        icon: Icons.check_circle_outline_rounded,
-      ));
-      for (final l in applied) {
-        items.add(_JobCardItem(l));
-      }
-    }
-    if (expired.isNotEmpty) {
-      items.add(_SectionHeaderItem(
-        title: 'Expiradas',
-        count: expired.length,
-        color: AppColors.textDisabled,
-        icon: Icons.event_busy_outlined,
-      ));
-      for (final l in expired) {
-        items.add(_JobCardItem(l, isExpired: true));
-      }
-    }
+    // FASE 3 (T3.1): com applications_tracker_v1 ON, agrupa em 4 segmentos
+    // (Salvas/Enviadas/Em processo/Finalizadas) sobre applications; OFF = os 3
+    // buckets legacy (pending/applied/expired) intocados.
+    final trackerOn = FeatureFlagsService.instance
+        .isEnabledForUser(FeatureFlagKeys.applicationsTrackerV1, vm.userId);
+    final items =
+        trackerOn ? _buildTrackerItems(vm) : _buildLegacyItems(vm);
 
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -366,6 +378,20 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
         if (item is _JobCardItem) {
           final liked = item.liked;
           final action = _resolveApplyAction(liked);
+          final app = item.application;
+          // T3.1: chip/menu de status só pra application editável pelo user
+          // (manual/external_confirmed; stage é read-only).
+          final statusControl = (app != null && app.type.userEditableStatus)
+              ? ApplicationStatusControl(
+                  status: app.status,
+                  options: ApplicationStatus.values
+                      .where((s) =>
+                          s != app.status &&
+                          canTransition(app.type, app.status, s))
+                      .toList(),
+                  onSelected: (s) => _changeStatus(liked, s),
+                )
+              : null;
           return _LikedJobCard(
             liked: liked,
             isExpired: item.isExpired,
@@ -376,10 +402,178 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
                 : null,
             applyAction: action,
             onRemove: () => _confirmAndRemove(liked),
+            statusControl: statusControl,
+          );
+        }
+        if (item is _ManualCardItem) {
+          final app = item.application;
+          final url = app.externalUrl;
+          return ManualApplicationCard(
+            application: app,
+            statusOptions: ApplicationStatus.values
+                .where((s) =>
+                    s != app.status && canTransition(app.type, app.status, s))
+                .toList(),
+            onStatusSelected: (s) => _changeManualStatus(app, s),
+            onOpenLink: (url != null && url.isNotEmpty)
+                ? () => _openManualLink(url)
+                : null,
           );
         }
         return const SizedBox.shrink();
       },
+    );
+  }
+
+  /// Legacy (flag OFF): 3 buckets pending/applied/expired (E5 / Fase 1 T1.4).
+  List<_ListItem> _buildLegacyItems(JobsViewModel vm) {
+    final now = DateTime.now();
+    final pending = <LikedJob>[];
+    final applied = <LikedJob>[];
+    final expired = <LikedJob>[];
+    for (final liked in vm.likedJobs) {
+      final deadlineAt = liked.job.deadlineAt;
+      final isExpired = !liked.job.isActive ||
+          (deadlineAt != null && deadlineAt.isBefore(now));
+      if (isExpired) {
+        expired.add(liked);
+      } else if (liked.applied) {
+        applied.add(liked);
+      } else {
+        pending.add(liked);
+      }
+    }
+    final items = <_ListItem>[];
+    void section(String title, List<LikedJob> list, Color color, IconData icon,
+        {bool exp = false}) {
+      if (list.isEmpty) return;
+      items.add(_SectionHeaderItem(
+          title: title, count: list.length, color: color, icon: icon));
+      for (final l in list) {
+        items.add(_JobCardItem(l, isExpired: exp));
+      }
+    }
+
+    section('Ainda não apliquei', pending, AppColors.brandBlue,
+        Icons.pending_outlined);
+    section('Já apliquei', applied, AppColors.primary,
+        Icons.check_circle_outline_rounded);
+    section('Expiradas', expired, AppColors.textDisabled,
+        Icons.event_busy_outlined, exp: true);
+    return items;
+  }
+
+  /// FASE 3 (T3.1): 4 segmentos sobre `applications`. Salvas = liked SEM
+  /// application; os outros 3 via [segmentForStatus]. Badge "Expirada" segue
+  /// preservado dentro do segmento (vaga morta ≠ status da candidatura).
+  List<_ListItem> _buildTrackerItems(JobsViewModel vm) {
+    final now = DateTime.now();
+    final salvas = <_ListItem>[];
+    final enviadas = <_ListItem>[];
+    final emProcesso = <_ListItem>[];
+    final finalizadas = <_ListItem>[];
+
+    List<_ListItem> bucketFor(ApplicationStatus s) =>
+        switch (segmentForStatus(s)) {
+          ApplicationSegment.salvas || ApplicationSegment.enviadas => enviadas,
+          ApplicationSegment.emProcesso => emProcesso,
+          ApplicationSegment.finalizadas => finalizadas,
+        };
+
+    for (final liked in vm.likedJobs) {
+      final app = vm.applicationForJob(liked.job.id);
+      final deadlineAt = liked.job.deadlineAt;
+      final isExpired = !liked.job.isActive ||
+          (deadlineAt != null && deadlineAt.isBefore(now));
+      final item =
+          _JobCardItem(liked, isExpired: isExpired, application: app);
+      if (app == null) {
+        salvas.add(item);
+      } else {
+        bucketFor(app.status).add(item);
+      }
+    }
+    // T3.3: candidaturas manuais (sem vaga) entram nos mesmos segmentos.
+    for (final app in vm.manualApplications) {
+      bucketFor(app.status).add(_ManualCardItem(app));
+    }
+
+    final items = <_ListItem>[];
+    void section(ApplicationSegment seg, List<_ListItem> list, Color color,
+        IconData icon) {
+      if (list.isEmpty) return;
+      items.add(_SectionHeaderItem(
+          title: seg.label, count: list.length, color: color, icon: icon));
+      items.addAll(list);
+    }
+
+    section(ApplicationSegment.salvas, salvas, AppColors.brandBlue,
+        Icons.bookmark_outline_rounded);
+    section(ApplicationSegment.enviadas, enviadas, AppColors.primary,
+        Icons.send_outlined);
+    section(ApplicationSegment.emProcesso, emProcesso, AppColors.brandCyan,
+        Icons.timelapse_outlined);
+    section(ApplicationSegment.finalizadas, finalizadas,
+        AppColors.textDisabled, Icons.flag_outlined);
+    return items;
+  }
+
+  /// T3.1: aplica a transição de status escolhida no chip/menu da aba.
+  Future<void> _changeStatus(LikedJob liked, ApplicationStatus newStatus) async {
+    HapticFeedback.selectionClick();
+    final ok = await context
+        .read<JobsViewModel>()
+        .updateApplicationStatus(jobId: liked.job.id, newStatus: newStatus);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não consegui atualizar o status.')),
+      );
+    }
+  }
+
+  /// T3.3: status de uma candidatura MANUAL.
+  Future<void> _changeManualStatus(
+      Application app, ApplicationStatus newStatus) async {
+    HapticFeedback.selectionClick();
+    final ok = await context
+        .read<JobsViewModel>()
+        .updateManualApplicationStatus(app: app, newStatus: newStatus);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não consegui atualizar o status.')),
+      );
+    }
+  }
+
+  /// T3.3: abre o link (opcional) de uma candidatura manual, com UTM.
+  Future<void> _openManualLink(String url) async {
+    final uri = decorateOutboundUrl(Uri.parse(url));
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não consegui abrir o link.')),
+      );
+    }
+  }
+
+  /// T3.3: FAB → sheet de adição manual → cria a application type='manual'.
+  Future<void> _addManualApplication() async {
+    HapticFeedback.lightImpact();
+    final input = await showManualApplicationSheet(context);
+    if (input == null || !mounted) return;
+    final ok = await context.read<JobsViewModel>().createManualApplication(
+          company: input.company,
+          title: input.title,
+          url: input.url,
+          status: input.status,
+        );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok
+            ? 'Candidatura adicionada'
+            : 'Não consegui adicionar. Tente de novo.'),
+      ),
     );
   }
 
@@ -619,6 +813,10 @@ class _LikedJobCard extends StatelessWidget {
   /// é histórico, não ação possível.
   final bool isExpired;
 
+  /// FASE 3 (T3.1): chip/menu de status da candidatura (aba Candidaturas). null
+  /// no modo legacy e em vagas só salvas / type stage.
+  final Widget? statusControl;
+
   const _LikedJobCard({
     required this.liked,
     required this.onTap,
@@ -627,6 +825,7 @@ class _LikedJobCard extends StatelessWidget {
     required this.applyAction,
     required this.onRemove,
     this.isExpired = false,
+    this.statusControl,
   });
 
   @override
@@ -733,6 +932,10 @@ class _LikedJobCard extends StatelessWidget {
                   _CardMenu(onRemove: onRemove),
                 ],
               ),
+              if (statusControl != null) ...[
+                const SizedBox(height: 10),
+                Align(alignment: Alignment.centerLeft, child: statusControl!),
+              ],
               const SizedBox(height: 12),
               // Botões empilhados — labels longos ("Enviar CV por email",
               // "Marcar como aplicada") não cabiam em Row 50/50, ellipsis
@@ -1014,7 +1217,17 @@ class _SectionHeaderItem extends _ListItem {
 class _JobCardItem extends _ListItem {
   final LikedJob liked;
   final bool isExpired;
-  const _JobCardItem(this.liked, {this.isExpired = false});
+
+  /// Fase 3 (T3.1): a application atrelada (tracker) — alimenta o chip/menu de
+  /// status. null no modo legacy (flag OFF) e nas Salvas (liked sem application).
+  final Application? application;
+  const _JobCardItem(this.liked, {this.isExpired = false, this.application});
+}
+
+/// Fase 3 (T3.3): candidatura manual (sem vaga atrelada).
+class _ManualCardItem extends _ListItem {
+  final Application application;
+  const _ManualCardItem(this.application);
 }
 
 /// Header de seção (sticky-like — não é sticky de verdade, mas visualmente

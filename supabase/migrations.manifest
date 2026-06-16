@@ -91,3 +91,6 @@
 20260612130000_get_feed_page_v1_1_perf.sql
 20260612140000_get_feed_page_v1_2_rank_round.sql
 20260615120000_get_feed_page_v1_3_matching_catalog.sql
+20260616120000_outbound_clicks.sql
+20260616130000_digest_deadline_cohort.sql
+20260616140000_seed_applications_tracker_v1.sql
