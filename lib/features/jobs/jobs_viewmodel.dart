@@ -865,13 +865,27 @@ class JobsViewModel extends ChangeNotifier {
               .from('profile_other_locations')
               .select('city')
               .eq('user_id', uid),
-          client.from('profile_skills').select('user_id').eq('user_id', uid),
+          client.from('profile_skills').select('canonical_skill_id, name').eq('user_id', uid),
         ]);
 
         final jp = results[0] as Map<String, dynamic>?;
         final dtList = (results[1] as List).cast<dynamic>();
         final olList = (results[2] as List).cast<dynamic>();
-        _cachedProfileSkillsCount = (results[3] as List).length;
+        // Conta skills DISTINTAS por canônica (taxonomia P5): 3 grafias da
+        // mesma skill = 1, não 3 — fragmentação para de inflar a confiança.
+        // Sem canônica (cauda), cai no nome normalizado.
+        final distinctSkills = <String>{};
+        for (final row in (results[3] as List)) {
+          final m = row as Map;
+          final canon = m['canonical_skill_id']?.toString();
+          final name = (m['name']?.toString() ?? '').trim().toLowerCase();
+          if (canon != null && canon.isNotEmpty) {
+            distinctSkills.add('c:$canon');
+          } else if (name.isNotEmpty) {
+            distinctSkills.add('n:$name');
+          }
+        }
+        _cachedProfileSkillsCount = distinctSkills.length;
 
         final areas = dtList
             .map((row) => (row as Map)['title']?.toString() ?? '')
