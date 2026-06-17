@@ -80,11 +80,28 @@ class _ApplyReturnPromptSheetState extends State<_ApplyReturnPromptSheet> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          if (!_showReasons)
-            ..._buildAskView(context, p)
-          else
-            ..._buildReasonsView(context),
+          const SizedBox(height: 14),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 240),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeIn,
+            transitionBuilder: (child, anim) => FadeTransition(
+              opacity: anim,
+              child: SizeTransition(
+                sizeFactor: anim,
+                axisAlignment: -1,
+                child: child,
+              ),
+            ),
+            child: Column(
+              key: ValueKey(_showReasons),
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: _showReasons
+                  ? _buildReasonsView(context)
+                  : _buildAskView(context, p),
+            ),
+          ),
         ],
       ),
     );
@@ -94,8 +111,22 @@ class _ApplyReturnPromptSheetState extends State<_ApplyReturnPromptSheet> {
     final titleText =
         p.title.isNotEmpty ? p.title : 'a vaga';
     return [
+      Center(
+        child: Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.10),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(Icons.work_outline_rounded,
+              size: 28, color: AppColors.primary),
+        ),
+      ),
+      const SizedBox(height: 14),
       Text(
         'Você se candidatou?',
+        textAlign: TextAlign.center,
         style: TextStyle(
           fontFamily: 'Outfit',
           fontSize: 20,
@@ -106,6 +137,9 @@ class _ApplyReturnPromptSheetState extends State<_ApplyReturnPromptSheet> {
       const SizedBox(height: 6),
       Text(
         p.company.isNotEmpty ? '$titleText · ${p.company}' : titleText,
+        textAlign: TextAlign.center,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
         style: TextStyle(
           fontFamily: 'Inter',
           fontSize: 14,
