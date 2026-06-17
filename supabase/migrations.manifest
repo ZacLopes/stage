@@ -98,3 +98,4 @@
 20260617120000_skills_taxonomy.sql
 20260617130000_seed_skills_typeahead_v1.sql
 20260617140000_admin_area_facet.sql
+20260617150000_profile_completeness_recompute.sql
