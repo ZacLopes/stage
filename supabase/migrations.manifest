@@ -95,3 +95,4 @@
 20260616130000_digest_deadline_cohort.sql
 20260616140000_seed_applications_tracker_v1.sql
 20260616150000_get_feed_page_v1_4_no_salary.sql
+20260617120000_skills_taxonomy.sql
