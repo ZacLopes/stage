@@ -26,7 +26,7 @@ const corsHeaders = {
 }
 
 const MODEL = 'gpt-4o-mini'
-const PROMPT_VERSION = 'v11' // bump quando alterar SYSTEM_PROMPT (invalida cache); v11 = salário removido do match (2026-06-16)
+const PROMPT_VERSION = 'v12' // bump quando alterar SYSTEM_PROMPT (invalida cache); v11 = salário removido; v12 = skills técnicas vs soft (taxonomia P5, 2026-06-17)
 const CACHE_TTL_DAYS = 30
 // Subido de 100 → 300 em 2026-05-26 porque PROMPT_VERSION bumps em sequência
 // (v5→v9) invalidaram cache de todos os jobs visíveis no app, forçando
@@ -273,7 +273,7 @@ async function buildProfileText(client: any, userId: string): Promise<string> {
       client.from('profile_personal').select('headline,summary,first_name,last_name').eq('user_id', userId).maybeSingle(),
       client.from('profile_experiences').select('title,company,location,profile_bullets(text)').eq('user_id', userId),
       client.from('profile_education').select('institution,degree,profile_education_majors(name),profile_education_minors(name),profile_education_activities(text)').eq('user_id', userId),
-      client.from('profile_skills').select('name').eq('user_id', userId),
+      client.from('profile_skills').select('name, skills_catalog(canonical_name, category)').eq('user_id', userId),
       client.from('profile_languages').select('name').eq('user_id', userId),
       client.from('profile_certifications').select('name,issuer').eq('user_id', userId),
       client.from('profile_projects').select('name,description,profile_project_bullets(text)').eq('user_id', userId),
@@ -288,8 +288,25 @@ async function buildProfileText(client: any, userId: string): Promise<string> {
       if (p.headline) lines.push(String(p.headline))
       if (p.summary) lines.push(String(p.summary))
     }
-    for (const s of (skillsR.data ?? [])) {
-      if (s?.name) lines.push(String(s.name))
+    // Skills agrupadas por categoria canônica (taxonomia P5): técnicas
+    // (hard+tool) e comportamentais (soft) saem ROTULADAS e separadas, pra IA
+    // casar requisito técnico só contra as técnicas. Skill sem canônica (cauda)
+    // entra em "outras" pra não perder o sinal de overlap com o CV.
+    {
+      const technical = new Set<string>()
+      const soft = new Set<string>()
+      const other: string[] = []
+      for (const s of (skillsR.data ?? [])) {
+        const cat = s?.skills_catalog?.category
+        const canon = s?.skills_catalog?.canonical_name
+        if (canon && (cat === 'hard' || cat === 'tool')) technical.add(String(canon))
+        else if (canon && cat === 'soft') soft.add(String(canon))
+        else if (canon && cat === 'language') technical.add(String(canon))
+        else if (s?.name) other.push(String(s.name))
+      }
+      if (technical.size > 0) lines.push(`Skills técnicas: ${[...technical].join(', ')}`)
+      if (soft.size > 0) lines.push(`Skills comportamentais (soft): ${[...soft].join(', ')}`)
+      if (other.length > 0) lines.push(`Outras skills declaradas: ${other.join(', ')}`)
     }
     for (const exp of (experiencesR.data ?? [])) {
       if (exp?.title) lines.push(String(exp.title))
@@ -391,6 +408,13 @@ COMO AVALIAR cada dimensão (Cenário A/B):
 - matched=true: o dado DO CANDIDATO bate com o requisito da vaga. Some o weight.
 - matched=false, weight=0: o candidato NÃO declarou esse dado (não penalize, mas também não some).
 - matched=false, weight>0: o candidato declarou MAS não bate (raro — só quando há conflito explícito).
+
+REGRA CRÍTICA — DIMENSÃO SKILLS (peso 10) É TÉCNICA:
+A dimensão "Skills" compara as "Skills técnicas" do candidato (linguagens, ferramentas,
+conhecimentos) com os requisitos TÉCNICOS da vaga. As "Skills comportamentais (soft)"
+(ex.: comunicação, trabalho em equipe, proatividade, organização) são CONTEXTO —
+NÃO contam como match de skill técnica e NÃO inflam o peso de Skills. Se o candidato
+só tem soft skills e a vaga pede técnico, Skills matched=false, weight=0.
 
 REGRA CRÍTICA — LISTAS DE PREFERÊNCIAS (areas/locations/work_models/job_types):
 Quando o candidato declarou MÚLTIPLOS valores numa lista (ex: work_models=["remoto", "presencial"]),

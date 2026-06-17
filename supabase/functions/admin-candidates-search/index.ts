@@ -29,13 +29,14 @@ interface SearchFilters {
   institutionText?: string;
   city?: string;
   skills?: string[];
+  skillIds?: string[]; // skills canônicas (skills_catalog.id) — faceta limpa, AND
   minCompleteness?: number;
   activeWithinDays?: number;
   hasCv?: boolean;
 }
 
 interface SearchBody {
-  action?: 'search' | 'save_list';
+  action?: 'search' | 'save_list' | 'skills_catalog';
   filters?: SearchFilters;
   limit?: number;
   offset?: number;
@@ -93,7 +94,16 @@ async function resolveCandidateIds(
     sets.push(new Set((r.data ?? []).map((row: { user_id: string }) => row.user_id)));
   }
 
-  // Skills: semântica AND — candidato precisa bater TODOS os termos.
+  // Skills canônicas (faceta): semântica AND — bate TODAS as skills escolhidas.
+  // Filtra por canonical_skill_id, então "Excel" pega todas as grafias.
+  for (const sid of f.skillIds ?? []) {
+    if (!sid) continue;
+    const r = await supabase.from('profile_skills').select('user_id').eq('canonical_skill_id', sid);
+    if (r.error) throw new AdminHttpError(500, 'search_skill_ids_failed', r.error.message);
+    sets.push(new Set((r.data ?? []).map((row: { user_id: string }) => row.user_id)));
+  }
+
+  // Skills texto-livre (legacy/cauda fora do catálogo): AND por substring.
   for (const term of f.skills ?? []) {
     if (!term.trim()) continue;
     const r = await supabase.from('profile_skills').select('user_id').ilike('name', ilike(term));
@@ -138,7 +148,9 @@ async function hydrate(supabase: AdminSupabase, ids: string[]) {
     supabase.from('profile_personal')
       .select('user_id, location_city, location_state, completeness_score, onboarding_completed_at')
       .in('user_id', ids),
-    supabase.from('profile_skills').select('user_id, name').in('user_id', ids),
+    supabase.from('profile_skills')
+      .select('user_id, name, skills_catalog(canonical_name, category)')
+      .in('user_id', ids),
     supabase.from('profile_education').select('user_id, institution, education_level').in('user_id', ids),
     supabase.from('candidate_data_sharing_consents').select('user_id, status').in('user_id', ids),
   ]);
@@ -148,10 +160,22 @@ async function hydrate(supabase: AdminSupabase, ids: string[]) {
     (r: { user_id: string; status: string }) => [r.user_id, r.status],
   ));
   const skills = new Map<string, string[]>();
-  for (const r of (skillsR.data ?? []) as Array<{ user_id: string; name: string }>) {
+  const canonicalSkills = new Map<string, Array<{ name: string; category: string }>>();
+  for (
+    const r of (skillsR.data ?? []) as Array<
+      { user_id: string; name: string; skills_catalog: { canonical_name: string; category: string } | null }
+    >
+  ) {
     const list = skills.get(r.user_id) ?? [];
     if (list.length < 6) list.push(r.name);
     skills.set(r.user_id, list);
+    if (r.skills_catalog) {
+      const cl = canonicalSkills.get(r.user_id) ?? [];
+      if (!cl.some((x) => x.name === r.skills_catalog!.canonical_name)) {
+        cl.push({ name: r.skills_catalog.canonical_name, category: r.skills_catalog.category });
+      }
+      canonicalSkills.set(r.user_id, cl);
+    }
   }
   const institutions = new Map<string, string[]>();
   for (const r of (eduR.data ?? []) as Array<{ user_id: string; institution: string }>) {
@@ -174,6 +198,7 @@ async function hydrate(supabase: AdminSupabase, ids: string[]) {
       completeness: pp?.completeness_score ?? 0,
       onboardingCompletedAt: pp?.onboarding_completed_at ?? null,
       skills: skills.get(uid) ?? [],
+      canonicalSkills: canonicalSkills.get(uid) ?? [],
       institutions: institutions.get(uid) ?? [],
       consentStatus: consent.get(uid) ?? 'not_asked',
     };
@@ -212,6 +237,22 @@ serve(withEdgeAnalytics('admin-candidates-search', async (req) => {
       }).catch(() => {});
 
       return jsonResponse({ total: ids.length, offset, limit, candidates });
+    }
+
+    if (action === 'skills_catalog') {
+      // Alimenta a faceta de skill canônica do picker. Ordenado por categoria
+      // e nome (técnicas — hard/tool — primeiro, depois soft/idioma).
+      const r = await ctx.supabase
+        .from('skills_catalog')
+        .select('id, canonical_name, category');
+      if (r.error) throw new AdminHttpError(500, 'skills_catalog_failed', r.error.message);
+      const order: Record<string, number> = { hard: 0, tool: 1, language: 2, soft: 3 };
+      const catalog = ((r.data ?? []) as Array<{ id: string; canonical_name: string; category: string }>)
+        .map((c) => ({ id: c.id, name: c.canonical_name, category: c.category }))
+        .sort((a, b) =>
+          (order[a.category] ?? 9) - (order[b.category] ?? 9) || a.name.localeCompare(b.name)
+        );
+      return jsonResponse({ catalog });
     }
 
     if (action === 'save_list') {

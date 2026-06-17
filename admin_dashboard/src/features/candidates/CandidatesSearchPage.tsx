@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Search, Save, ShieldCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Search, Save, ShieldCheck, X } from 'lucide-react';
 import { invokeAdmin } from '../../lib/api';
 import { Badge, Button, Card, Field, Input } from '../../components/ui';
 
@@ -8,6 +8,17 @@ import { Badge, Button, Card, Field, Input } from '../../components/ui';
 // candidato (admin-users update_consent, com nota de evidência) → salvar
 // como lista (candidate_list_requests + items 'pending') → aprovação e
 // export CSV consent-gated seguem no fluxo existente da página Listas.
+
+interface CanonicalSkill {
+  name: string;
+  category: 'hard' | 'tool' | 'soft' | 'language';
+}
+
+interface CatalogSkill {
+  id: string;
+  name: string;
+  category: CanonicalSkill['category'];
+}
 
 interface Candidate {
   userId: string;
@@ -19,9 +30,24 @@ interface Candidate {
   state: string | null;
   completeness: number;
   skills: string[];
+  canonicalSkills: CanonicalSkill[];
   institutions: string[];
   consentStatus: 'not_asked' | 'granted' | 'denied' | 'revoked';
 }
+
+const categoryLabel: Record<CanonicalSkill['category'], string> = {
+  hard: 'Técnicas',
+  tool: 'Ferramentas',
+  language: 'Idiomas',
+  soft: 'Comportamentais',
+};
+
+const categoryTone: Record<CanonicalSkill['category'], 'blue' | 'green' | 'amber' | 'slate'> = {
+  hard: 'blue',
+  tool: 'green',
+  language: 'amber',
+  soft: 'slate',
+};
 
 interface SearchResponse {
   total: number;
@@ -45,6 +71,14 @@ export function CandidatesSearchPage() {
   const [minCompleteness, setMinCompleteness] = useState('');
   const [activeDays, setActiveDays] = useState('');
   const [hasCv, setHasCv] = useState(false);
+  const [catalog, setCatalog] = useState<CatalogSkill[]>([]);
+  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    invokeAdmin<{ catalog: CatalogSkill[] }>('admin-candidates-search', { action: 'skills_catalog' })
+      .then((d) => setCatalog(d.catalog ?? []))
+      .catch(() => {});
+  }, []);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +98,7 @@ export function CandidatesSearchPage() {
       if (city.trim()) filters.city = city.trim();
       const skills = skillsRaw.split(',').map((s) => s.trim()).filter(Boolean);
       if (skills.length > 0) filters.skills = skills;
+      if (selectedSkillIds.length > 0) filters.skillIds = selectedSkillIds;
       const mc = Number.parseInt(minCompleteness, 10);
       if (Number.isFinite(mc) && mc > 0) filters.minCompleteness = mc;
       const ad = Number.parseInt(activeDays, 10);
@@ -182,6 +217,57 @@ export function CandidatesSearchPage() {
             </Button>
           </div>
         </div>
+        <div className="mt-3 border-t pt-3">
+          <Field label="Skills do catálogo (faceta — todas precisam bater)">
+            <select
+              value=""
+              onChange={(e) => {
+                const id = e.target.value;
+                if (id && !selectedSkillIds.includes(id)) {
+                  setSelectedSkillIds((prev) => [...prev, id]);
+                }
+              }}
+              className="h-9 w-full rounded-md border border-border bg-white px-3 text-sm outline-none ring-brand/20 focus:ring-4"
+            >
+              <option value="">Adicionar skill…</option>
+              {(['hard', 'tool', 'language', 'soft'] as const).map((cat) => {
+                const items = catalog.filter(
+                  (s) => s.category === cat && !selectedSkillIds.includes(s.id),
+                );
+                if (items.length === 0) return null;
+                return (
+                  <optgroup key={cat} label={categoryLabel[cat]}>
+                    {items.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </optgroup>
+                );
+              })}
+            </select>
+          </Field>
+          {selectedSkillIds.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {selectedSkillIds.map((id) => {
+                const s = catalog.find((x) => x.id === id);
+                return (
+                  <span
+                    key={id}
+                    className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700"
+                  >
+                    {s?.name ?? id}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSkillIds((prev) => prev.filter((x) => x !== id))}
+                      className="text-slate-400 hover:text-rose-600"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </Card>
 
       {error && <Card className="border-red-200 bg-red-50 text-sm text-red-700">{error}</Card>}
@@ -229,7 +315,17 @@ export function CandidatesSearchPage() {
                     <td className="py-2 pr-4">{c.course || '—'}</td>
                     <td className="py-2 pr-4">{c.institutions.join(', ') || '—'}</td>
                     <td className="py-2 pr-4">{c.city || '—'}</td>
-                    <td className="py-2 pr-4 text-xs">{c.skills.join(', ') || '—'}</td>
+                    <td className="py-2 pr-4 text-xs">
+                      {c.canonicalSkills.length > 0 ? (
+                        <div className="flex max-w-xs flex-wrap gap-1">
+                          {c.canonicalSkills.slice(0, 6).map((s) => (
+                            <Badge key={s.name} tone={categoryTone[s.category]}>{s.name}</Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">{c.skills.join(', ') || '—'}</span>
+                      )}
+                    </td>
                     <td className="py-2 pr-4">{c.completeness}</td>
                     <td className="py-2 pr-4">
                       <div className="flex items-center gap-2">
