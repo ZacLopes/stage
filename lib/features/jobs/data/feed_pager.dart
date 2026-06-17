@@ -28,7 +28,6 @@ class FeedPageRow {
   final bool reasonLocation;
   final bool reasonWorkModel;
   final bool reasonJobType;
-  final bool reasonSalary;
 
   const FeedPageRow({
     required this.jobId,
@@ -38,7 +37,6 @@ class FeedPageRow {
     required this.reasonLocation,
     required this.reasonWorkModel,
     required this.reasonJobType,
-    required this.reasonSalary,
   });
 
   factory FeedPageRow.fromMap(Map<String, dynamic> m) => FeedPageRow(
@@ -49,7 +47,6 @@ class FeedPageRow {
         reasonLocation: (m['reason_location'] as bool?) ?? false,
         reasonWorkModel: (m['reason_work_model'] as bool?) ?? false,
         reasonJobType: (m['reason_job_type'] as bool?) ?? false,
-        reasonSalary: (m['reason_salary'] as bool?) ?? false,
       );
 
   /// Labels das razões que CASARAM — chips da célula da lista.
@@ -58,7 +55,6 @@ class FeedPageRow {
         if (reasonLocation) 'Local',
         if (reasonWorkModel) 'Modelo',
         if (reasonJobType) 'Tipo',
-        if (reasonSalary) 'Salário',
       ];
 }
 
@@ -113,7 +109,6 @@ class FeedPager {
     List<String>? locations,
     List<String>? workModels,
     List<String>? jobTypes,
-    int? minSalary,
   }) async {
     if (!_hasMore) return const [];
     _frozenAt ??= DateTime.now().toUtc();
@@ -133,7 +128,6 @@ class FeedPager {
         'p_filter_work_models': workModels,
       if (jobTypes != null && jobTypes.isNotEmpty)
         'p_filter_job_types': jobTypes,
-      if (minSalary != null && minSalary > 0) 'p_min_salary': minSalary,
     };
 
     final raw = await _rpc(params);

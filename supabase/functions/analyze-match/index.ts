@@ -26,7 +26,7 @@ const corsHeaders = {
 }
 
 const MODEL = 'gpt-4o-mini'
-const PROMPT_VERSION = 'v10' // bump quando alterar SYSTEM_PROMPT (invalida cache)
+const PROMPT_VERSION = 'v11' // bump quando alterar SYSTEM_PROMPT (invalida cache); v11 = salário removido do match (2026-06-16)
 const CACHE_TTL_DAYS = 30
 // Subido de 100 → 300 em 2026-05-26 porque PROMPT_VERSION bumps em sequência
 // (v5→v9) invalidaram cache de todos os jobs visíveis no app, forçando
@@ -100,13 +100,11 @@ function hasNoPrefs(prefs: any): boolean {
   const locs = prefs.locations
   const wm = prefs.work_models
   const jt = prefs.job_types
-  const ms = prefs.min_salary
   return (
     (!Array.isArray(areas) || areas.length === 0) &&
     (!Array.isArray(locs) || locs.length === 0) &&
     (!Array.isArray(wm) || wm.length === 0) &&
-    (!Array.isArray(jt) || jt.length === 0) &&
-    (ms == null || ms === 0)
+    (!Array.isArray(jt) || jt.length === 0)
   )
 }
 
@@ -130,7 +128,6 @@ async function pickPrefsForHash(
     locations: safe(prefs?.locations),
     work_models: safe(prefs?.work_models),
     job_types: safe(prefs?.job_types),
-    min_salary: safe(prefs?.min_salary),
     skills: safe(whoIAm.skills),
     summary: safe(whoIAm.summary),
     interests: safe(whoIAm.interests),
@@ -158,7 +155,6 @@ async function pickPrefsForHash(
  *   - primary_location_city + others   → locations[]
  *   - work_mode (text[])               → work_models[]
  *   - job_types (text[])               → job_types[]
- *   - (sem equivalente)                → min_salary = null
  *
  * Retorna o mesmo shape que `user_preferences` pra não mudar o resto
  * da edge function.
@@ -241,8 +237,6 @@ async function loadPrefs(client: any, userId: string): Promise<any> {
       locations: relLocations.length > 0 ? relLocations : (legacy.locations ?? []),
       work_models: relWorkModes.length > 0 ? relWorkModes : (legacy.work_models ?? []),
       job_types: relJobTypes.length > 0 ? relJobTypes : (legacy.job_types ?? []),
-      // min_salary não existe no relacional ainda — mantém o legacy.
-      min_salary: legacy.min_salary ?? null,
       // min_match_score afeta filtro client-side, não o prompt. Passa adiante.
       min_match_score: legacy.min_match_score ?? null,
     }
@@ -370,9 +364,10 @@ REGRA #2 (CRÍTICA) — NÃO INVENTE DADOS DO CANDIDATO:
 ═══════════════════════════════════════════════════════════════════
 ESTRATÉGIA (escolha o cenário ANTES de pontuar):
 
-CENÁRIO A — candidato TEM preferências declaradas (áreas/cidades/modelo/tipo/salário):
-  Pesos: Área 30, Tipo 20, Localização 15, Modelo 15, Salário 10, Skills 10.
+CENÁRIO A — candidato TEM preferências declaradas (áreas/cidades/modelo/tipo):
+  Pesos: Área 30, Tipo 20, Localização 15, Modelo 15, Skills 10.
   Avalie SOMENTE contra os dados que o candidato declarou.
+  (Salário NÃO é dimensão de match — o app não coleta expectativa salarial.)
 
 CENÁRIO B — candidato SEM preferências MAS COM perfil (CV importado, skills, sobre, interesses):
   Use APENAS o CV/perfil como fonte de verdade do candidato.
@@ -381,7 +376,7 @@ CENÁRIO B — candidato SEM preferências MAS COM perfil (CV importado, skills,
 
 CENÁRIO C — candidato SEM preferências E SEM perfil (cadastro incompleto):
   CRITÉRIO ESTRITO PARA ATIVAR:
-    - TODAS as preferências estão vazias: areas=[], locations=[], work_models=[], job_types=[], min_salary=null
+    - TODAS as preferências estão vazias: areas=[], locations=[], work_models=[], job_types=[]
     - E TODO o perfil está vazio: sem skills, sem summary, sem interesses, sem CV importado, sem perfil estruturado.
   Se QUALQUER uma das prefs OU do perfil tem valor (mesmo que só "Modelos preferidos: ['remote']"
   ou só "Skills: ['excel']"), você JÁ TEM dado — use CENÁRIO A.
@@ -431,7 +426,6 @@ OUTPUT (correto):
   {"label":"Tipo","matched":true,"weight":20,"detail":"Estágio é o tipo que você procura."},
   {"label":"Localização","matched":true,"weight":15,"detail":"São Paulo é a cidade que você prefere."},
   {"label":"Modelo","matched":true,"weight":15,"detail":"Remoto bate com sua preferência."},
-  {"label":"Salário","matched":false,"weight":0,"detail":"Você não definiu mínimo de salário."},
   {"label":"Skills","matched":false,"weight":0,"detail":"Você não declarou skills específicas para comparar."}
 ]}
 NOTA: 30+20+15+15 = 80. NÃO arredondar pra 85 ou 90.
@@ -445,13 +439,12 @@ OUTPUT (correto):
   {"label":"Tipo","matched":true,"weight":20,"detail":"Estágio é compatível."},
   {"label":"Localização","matched":false,"weight":0,"detail":"Você não declarou cidade preferida."},
   {"label":"Modelo","matched":false,"weight":0,"detail":"Você não declarou modelo de trabalho preferido."},
-  {"label":"Salário","matched":false,"weight":0,"detail":"Você não definiu mínimo de salário."},
   {"label":"Skills","matched":false,"weight":0,"detail":"Você não declarou skills para comparação."}
 ]}
 NOTA: 30+20 = 50. NÃO inflar para 70, 85 ou 100 só porque a única dimensão que existe bateu.
 
 # Exemplo 3 — Cenário C, sem dado (ATIVAR APENAS quando TUDO vazio)
-INPUT: areas=[], locations=[], work_models=[], job_types=[], min_salary=null, sem whoIAm, sem skills, sem CV
+INPUT: areas=[], locations=[], work_models=[], job_types=[], sem whoIAm, sem skills, sem CV
        vaga: qualquer
 OUTPUT (correto):
 {"score": 50, "reasons": [
@@ -459,7 +452,7 @@ OUTPUT (correto):
 ]}
 
 # Exemplo 4 — Cenário A com SÓ 1 dimensão (NÃO é Cenário C!)
-INPUT: areas=[], locations=[], work_models=["remoto"], job_types=[], min_salary=null
+INPUT: areas=[], locations=[], work_models=["remoto"], job_types=[]
        perfil tem skills=["Excel"]
        vaga: "Estágio Marketing", modelo="presencial"
 OUTPUT (correto — usa CENÁRIO A com SÓ as dimensões que existem):
@@ -468,7 +461,6 @@ OUTPUT (correto — usa CENÁRIO A com SÓ as dimensões que existem):
   {"label":"Tipo","matched":false,"weight":0,"detail":"Você não declarou tipo de vaga preferido."},
   {"label":"Localização","matched":false,"weight":0,"detail":"Você não declarou cidade preferida."},
   {"label":"Modelo","matched":false,"weight":15,"detail":"Você prefere remoto, mas a vaga é presencial."},
-  {"label":"Salário","matched":false,"weight":0,"detail":"Você não definiu mínimo de salário."},
   {"label":"Skills","matched":false,"weight":10,"detail":"Excel não aparece nos requisitos desta vaga."}
 ]}
 NOTA: 0 matched=true → score 0. NÃO retornar "Sem perfil" só porque a maioria está vazia — o user JÁ DECLAROU "remoto" e "Excel".
@@ -529,11 +521,6 @@ function buildUserPrompt(opts: {
     lines.push(`Cidades preferidas: ${JSON.stringify(prefs?.locations ?? [])}`)
     lines.push(`Modelos preferidos: ${JSON.stringify(prefs?.work_models ?? [])}`)
     lines.push(`Tipos preferidos: ${JSON.stringify(prefs?.job_types ?? [])}`)
-    if (prefs?.min_salary && prefs.min_salary > 0) {
-      lines.push(`Salário mínimo: R$ ${(prefs.min_salary / 100).toFixed(0)}`)
-    } else {
-      lines.push('Salário mínimo: não definido')
-    }
     // whoIAm.derived legacy só entra se NÃO temos profile_text — o
     // profile_text das tabelas relacionais é fonte mais rica e atualizada.
     // Pra users históricos sem migração profile-first, whoIAm.derived ainda
@@ -564,13 +551,6 @@ function buildUserPrompt(opts: {
   const locParts = [cityForPrompt, stateForPrompt].filter((s) => s.length > 0)
   lines.push(`Localização: ${locParts.join(', ') || 'não informada'}`)
   lines.push(`Modelo: ${job.work_model}`)
-  if (job.salary_min || job.salary_max) {
-    const min = job.salary_min ? `R$ ${(job.salary_min / 100).toFixed(0)}` : '?'
-    const max = job.salary_max ? `R$ ${(job.salary_max / 100).toFixed(0)}` : ''
-    lines.push(`Salário: ${min}${max ? ` - ${max}` : ''}`)
-  } else {
-    lines.push('Salário: a combinar')
-  }
 
   const reqs = Array.isArray(job.requirements) ? job.requirements.slice(0, 10) : []
   lines.push(`Requisitos: ${JSON.stringify(reqs)}`)

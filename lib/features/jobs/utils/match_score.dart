@@ -147,8 +147,11 @@ class MatchReason {
 /// - Tipo de vaga:   20 pontos
 /// - Cidade:         15 pontos (remoto sempre passa)
 /// - Modelo:         15 pontos
-/// - Salário:        10 pontos
 /// - Skills (texto): 10 pontos (proporcional)
+///
+/// Salário foi removido como dimensão de match (decisão founder 2026-06-16):
+/// o app não coleta mais expectativa salarial do usuário. O salário DA VAGA
+/// segue exibido nos cards, só não pontua o match.
 ///
 /// Sem preferências configuradas → fallback de 75 com nota explicativa
 /// (não quero mostrar 50% pra todo mundo zerado).
@@ -241,21 +244,7 @@ class MatchScoreCalculator {
       ));
     }
 
-    // ── 5. Salário (10) — só conta se o user configurou explicitamente ──
-    if (prefs.minSalary != null && prefs.minSalary! > 0) {
-      final matched = job.salaryMin != null && job.salaryMin! >= prefs.minSalary!;
-      const weight = 10;
-      totalWeight += weight;
-      if (matched) score += weight;
-      reasons.add(MatchReason(
-        label: 'Salário',
-        matched: matched,
-        weight: weight,
-        detail: job.salaryRange,
-      ));
-    }
-
-    // ── 6. Skills/CV × requisitos da vaga (10, proporcional) ──────
+    // ── 5. Skills/CV × requisitos da vaga (10, proporcional) ──────
     // Aceita 2 fontes pra perfil do user: skills estruturadas da trilha
     // (gamification_data.whoIAm.derived.*) E pseudo-texto agregado das
     // tabelas profile_* (skills, bullets, summary, certifications,
@@ -287,11 +276,13 @@ class MatchScoreCalculator {
   }
 
   /// Calcula nível de confiança do match score baseado em QUANTAS dimensões
-  /// o user declarou (Passo 5 do plano match-score, 2026-05-27).
+  /// o user declarou (Passo 5 do plano match-score, 2026-05-27;
+  /// recalibrado em 2026-06-16 com a remoção de salário).
   ///
-  /// - ≥ 5 dimensões → `high`: UI mostra score numérico normal.
-  /// - 3-4 dimensões → `medium`: UI mostra score + label "Estimativa parcial".
-  /// - < 3 dimensões → `low`: UI esconde número, mostra "Análise limitada"
+  /// São 5 dimensões vivas (salário saiu). Limiar = "faltar no máximo 1":
+  /// - ≥ 4 dimensões → `high`: UI mostra score numérico normal.
+  /// - 2-3 dimensões → `medium`: UI mostra score + label "Estimativa parcial".
+  /// - < 2 dimensões → `low`: UI esconde número, mostra "Análise limitada"
   ///   + CTA com as dimensões faltantes.
   ///
   /// Dimensões consideradas:
@@ -299,7 +290,6 @@ class MatchScoreCalculator {
   ///   - Tipo de vaga (`prefs.jobTypes`)
   ///   - Cidade (`prefs.locations`)
   ///   - Modelo de trabalho (`prefs.workModels`)
-  ///   - Salário (`prefs.minSalary > 0`)
   ///   - Skills (`skillsCount >= 3` — 1 ou 2 skills isoladas não bastam pra
   ///     considerar "dimensão preenchida" porque keyword overlap fica ruidoso)
   ///
@@ -339,13 +329,6 @@ class MatchScoreCalculator {
       missing.add('modelo de trabalho');
     }
 
-    final hasSalary = prefs != null && prefs.minSalary != null && prefs.minSalary! > 0;
-    if (hasSalary) {
-      filled++;
-    } else {
-      missing.add('salário mínimo');
-    }
-
     final hasSkills = skillsCount >= 3;
     if (hasSkills) {
       filled++;
@@ -353,10 +336,11 @@ class MatchScoreCalculator {
       missing.add('skills');
     }
 
+    // 5 dimensões vivas (salário removido). high = faltar no máximo 1.
     final MatchConfidence level;
-    if (filled >= 5) {
+    if (filled >= 4) {
       level = MatchConfidence.high;
-    } else if (filled >= 3) {
+    } else if (filled >= 2) {
       level = MatchConfidence.medium;
     } else {
       level = MatchConfidence.low;

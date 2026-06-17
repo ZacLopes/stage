@@ -192,13 +192,4 @@ class FilterHelpers {
     return userJobTypes.contains(jobType);
   }
 
-  /// Compara salário mínimo. **Permissivo no null da vaga**: muitas vagas
-  /// externas (Greenhouse, Lever) não publicam salário, e excluí-las
-  /// silenciosamente quando o user seta um mínimo é o que mais zerava feed.
-  /// Em vez disso, deixa passar e o usuário decide ao abrir o detalhe.
-  static bool isSalaryMatch(int? jobSalaryMin, int? userMinSalary) {
-    if (userMinSalary == null || userMinSalary <= 0) return true;
-    if (jobSalaryMin == null) return true; // permissivo
-    return jobSalaryMin >= userMinSalary;
-  }
 }
