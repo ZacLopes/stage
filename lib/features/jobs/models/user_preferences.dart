@@ -5,7 +5,6 @@ class UserJobPreferences {
   final List<String> locations;
   final List<String> workModels;
   final List<String> jobTypes;
-  final int? minSalary; // in centavos
 
   /// Match score mínimo (0-100). Vagas com score abaixo disso são ocultadas
   /// do feed. Avaliado client-side combinando match_analyses cacheado + score
@@ -19,7 +18,6 @@ class UserJobPreferences {
     this.locations = const [],
     this.workModels = const [],
     this.jobTypes = const [],
-    this.minSalary,
     this.minMatchScore,
   });
 
@@ -31,7 +29,6 @@ class UserJobPreferences {
       locations: _parseStringList(json['locations']),
       workModels: _parseStringList(json['work_models']),
       jobTypes: _parseStringList(json['job_types']),
-      minSalary: json['min_salary'] as int?,
       minMatchScore: json['min_match_score'] as int?,
     );
   }
@@ -43,7 +40,6 @@ class UserJobPreferences {
       'locations': locations.isEmpty ? null : locations,
       'work_models': workModels.isEmpty ? null : workModels,
       'job_types': jobTypes.isEmpty ? null : jobTypes,
-      'min_salary': minSalary,
       'min_match_score': minMatchScore,
       'updated_at': DateTime.now().toIso8601String(),
     };
@@ -56,9 +52,7 @@ class UserJobPreferences {
     List<String>? locations,
     List<String>? workModels,
     List<String>? jobTypes,
-    int? minSalary,
     int? minMatchScore,
-    bool clearMinSalary = false,
     bool clearMinMatchScore = false,
   }) {
     return UserJobPreferences(
@@ -68,7 +62,6 @@ class UserJobPreferences {
       locations: locations ?? this.locations,
       workModels: workModels ?? this.workModels,
       jobTypes: jobTypes ?? this.jobTypes,
-      minSalary: clearMinSalary ? null : (minSalary ?? this.minSalary),
       minMatchScore:
           clearMinMatchScore ? null : (minMatchScore ?? this.minMatchScore),
     );
@@ -79,7 +72,6 @@ class UserJobPreferences {
       locations.isEmpty &&
       workModels.isEmpty &&
       jobTypes.isEmpty &&
-      minSalary == null &&
       minMatchScore == null;
 
   /// Quantas dimensões de filtro estão ativas. Cada dimensão conta 1 ponto
@@ -91,7 +83,6 @@ class UserJobPreferences {
     if (locations.isNotEmpty) n++;
     if (workModels.isNotEmpty) n++;
     if (jobTypes.isNotEmpty) n++;
-    if (minSalary != null) n++;
     if (minMatchScore != null) n++;
     return n;
   }

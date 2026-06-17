@@ -473,7 +473,6 @@ class JobsViewModel extends ChangeNotifier {
         locations: prefs?.locations,
         workModels: prefs?.workModels,
         jobTypes: prefs?.jobTypes,
-        minSalary: prefs?.minSalary,
       );
       for (final row in rows) {
         _feedRows[row.jobId] = row;
@@ -925,10 +924,6 @@ class JobsViewModel extends ChangeNotifier {
             locations: locations,
             workModels: workModes,
             jobTypes: jobTypes,
-            // min_salary não existe em profile_job_preferences (decisão founder
-            // 2026-05-27). Salário fica fora da identidade; se o user quiser
-            // filtrar por salário, usa filtros temporários do feed.
-            minSalary: null,
           );
         }
       }

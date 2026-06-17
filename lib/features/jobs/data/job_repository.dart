@@ -219,7 +219,6 @@ class JobRepository {
         workModelRaw: job.workModelRaw,
       );
       if (!locationOk) return false;
-      if (!FilterHelpers.isSalaryMatch(job.salaryMin, prefs.minSalary)) return false;
       return true;
     }).toList();
   }

@@ -17,11 +17,13 @@ import '../../auth/user_viewmodel.dart';
 import '../../profile/application/profile_editor_view_model.dart';
 import '../data/swipe_repository.dart';
 import '../job_swipe_context.dart';
+import '../models/job.dart';
 import '../utils/url_utils.dart';
-import '../widgets/application_status_control.dart';
 import '../widgets/expired_job_badge.dart';
 import '../widgets/manual_application_card.dart';
 import '../widgets/manual_application_sheet.dart';
+import '../widgets/tracker_job_card.dart';
+import '../widgets/tracker_segment_bar.dart';
 import '../jobs_viewmodel.dart';
 import 'job_details_sheet.dart';
 import '../../../core/theme/theme.dart';
@@ -37,6 +39,9 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
     with ScreenTrackingMixin {
   @override
   String get screenName => 'jobs_liked';
+
+  /// FASE 3 (T3.1 redesign): segmento selecionado na aba Candidaturas.
+  ApplicationSegment _selectedSegment = ApplicationSegment.salvas;
 
   /// Mostra banner explicativo de "como aplicar" na primeira visita pós-
   /// celebração de "primeira vaga salva". Persiste o estado em
@@ -310,6 +315,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
             return Column(
               children: [
                 _Header(
+                  title: trackerOn ? 'Candidaturas' : 'Vagas Salvas',
                   liked: vm.likedCount,
                   applied: vm.appliedCount,
                 ),
@@ -347,20 +353,17 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
       );
     }
 
-    // FASE 3 (T3.1): com applications_tracker_v1 ON, agrupa em 4 segmentos
-    // (Salvas/Enviadas/Em processo/Finalizadas) sobre applications; OFF = os 3
-    // buckets legacy (pending/applied/expired) intocados.
     final trackerOn = FeatureFlagsService.instance
         .isEnabledForUser(FeatureFlagKeys.applicationsTrackerV1, vm.userId);
-    final items =
-        trackerOn ? _buildTrackerItems(vm) : _buildLegacyItems(vm);
+    if (trackerOn) return _buildTrackerView(vm);
 
+    // Legacy (flag OFF): 3 buckets pending/applied/expired num único ListView.
+    final items = _buildLegacyItems(vm);
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       physics: const AlwaysScrollableScrollPhysics(),
       itemCount: items.length,
       separatorBuilder: (_, index) {
-        // Espaçamento maior antes de section header (separação visual de bucket)
         final next = index + 1 < items.length ? items[index + 1] : null;
         if (next is _SectionHeaderItem) return const SizedBox(height: 20);
         return const SizedBox(height: 10);
@@ -378,50 +381,194 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
         if (item is _JobCardItem) {
           final liked = item.liked;
           final action = _resolveApplyAction(liked);
-          final app = item.application;
-          // T3.1: chip/menu de status só pra application editável pelo user
-          // (manual/external_confirmed; stage é read-only).
-          final statusControl = (app != null && app.type.userEditableStatus)
-              ? ApplicationStatusControl(
-                  status: app.status,
-                  options: ApplicationStatus.values
-                      .where((s) =>
-                          s != app.status &&
-                          canTransition(app.type, app.status, s))
-                      .toList(),
-                  onSelected: (s) => _changeStatus(liked, s),
-                )
-              : null;
           return _LikedJobCard(
             liked: liked,
             isExpired: item.isExpired,
             onTap: () => _openJobDetails(liked),
             onToggleApplied: () => _toggleApplied(liked),
-            onOpenLink: action != null
-                ? () => _openApplication(action, liked)
-                : null,
+            onOpenLink:
+                action != null ? () => _openApplication(action, liked) : null,
             applyAction: action,
             onRemove: () => _confirmAndRemove(liked),
-            statusControl: statusControl,
-          );
-        }
-        if (item is _ManualCardItem) {
-          final app = item.application;
-          final url = app.externalUrl;
-          return ManualApplicationCard(
-            application: app,
-            statusOptions: ApplicationStatus.values
-                .where((s) =>
-                    s != app.status && canTransition(app.type, app.status, s))
-                .toList(),
-            onStatusSelected: (s) => _changeManualStatus(app, s),
-            onOpenLink: (url != null && url.isNotEmpty)
-                ? () => _openManualLink(url)
-                : null,
           );
         }
         return const SizedBox.shrink();
       },
+    );
+  }
+
+  // ── FASE 3 (T3.1 redesign): aba Candidaturas com segmented control ────────
+
+  /// Agrupa as entradas (liked + manuais) nos 4 segmentos. Salvas = liked sem
+  /// application; demais via status (com 'salvas' do status caindo em Enviadas).
+  Map<ApplicationSegment, List<_ListItem>> _trackerBySegment(JobsViewModel vm) {
+    final now = DateTime.now();
+    final map = {for (final s in ApplicationSegment.values) s: <_ListItem>[]};
+    ApplicationSegment segOf(ApplicationStatus s) {
+      final seg = segmentForStatus(s);
+      return seg == ApplicationSegment.salvas
+          ? ApplicationSegment.enviadas
+          : seg;
+    }
+
+    for (final liked in vm.likedJobs) {
+      final app = vm.applicationForJob(liked.job.id);
+      final deadlineAt = liked.job.deadlineAt;
+      final isExpired = !liked.job.isActive ||
+          (deadlineAt != null && deadlineAt.isBefore(now));
+      final item = _JobCardItem(liked, isExpired: isExpired, application: app);
+      map[app == null ? ApplicationSegment.salvas : segOf(app.status)]!
+          .add(item);
+    }
+    for (final app in vm.manualApplications) {
+      map[segOf(app.status)]!.add(_ManualCardItem(app));
+    }
+    return map;
+  }
+
+  Widget _buildTrackerView(JobsViewModel vm) {
+    final bySeg = _trackerBySegment(vm);
+    final counts = {for (final e in bySeg.entries) e.key: e.value.length};
+    final selected = _selectedSegment;
+    final items = bySeg[selected] ?? const [];
+
+    return Column(
+      children: [
+        const SizedBox(height: 2),
+        TrackerSegmentBar(
+          selected: selected,
+          counts: counts,
+          onSelected: (s) => setState(() => _selectedSegment = s),
+        ),
+        const SizedBox(height: 10),
+        Expanded(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 260),
+            switchInCurve: Curves.easeOutCubic,
+            transitionBuilder: (child, anim) => FadeTransition(
+              opacity: anim,
+              child: SlideTransition(
+                position: Tween(
+                  begin: const Offset(0.03, 0),
+                  end: Offset.zero,
+                ).animate(anim),
+                child: child,
+              ),
+            ),
+            child: items.isEmpty
+                ? _segmentEmpty(selected)
+                : ListView.separated(
+                    key: ValueKey(selected),
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount: items.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) =>
+                        _trackerCard(vm, items[index]),
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _segmentEmpty(ApplicationSegment seg) {
+    final msg = switch (seg) {
+      ApplicationSegment.salvas => 'Nenhuma vaga salva ainda.\nCurta vagas no feed para acompanhá-las aqui.',
+      ApplicationSegment.enviadas => 'Nenhuma candidatura enviada ainda.',
+      ApplicationSegment.emProcesso => 'Nada em processo no momento.',
+      ApplicationSegment.finalizadas => 'Nada finalizado ainda.',
+    };
+    return ListView(
+      key: ValueKey('empty_$seg'),
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        const SizedBox(height: 80),
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Text(
+              msg,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  height: 1.5,
+                  color: AppColors.textTertiary),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _trackerCard(JobsViewModel vm, _ListItem item) {
+    if (item is _JobCardItem) {
+      final liked = item.liked;
+      final app = item.application;
+      if (app == null) {
+        // Salvas → CTA Aplicar + ações no "···".
+        final action = _resolveApplyAction(liked);
+        return TrackerJobCard(
+          job: liked.job,
+          application: null,
+          isExpired: item.isExpired,
+          onTap: () => _openJobDetails(liked),
+          applyLabel: action?.label,
+          applyIcon: action?.icon,
+          onApply: action != null ? () => _openApplication(action, liked) : null,
+          onMarkApplied: () => _markAppliedManually(liked),
+          onRemove: () => _confirmAndRemove(liked),
+        );
+      }
+      // Acompanhamento → status + ver vaga.
+      final editable = app.type.userEditableStatus;
+      final link = _jobLink(liked.job);
+      return TrackerJobCard(
+        job: liked.job,
+        application: app,
+        isExpired: item.isExpired,
+        onTap: () => _openJobDetails(liked),
+        onOpenLink: link != null ? () => _openManualLink(link) : null,
+        statusOptions: editable ? _validTransitions(app) : const [],
+        onStatusChange: editable ? (s) => _changeStatus(liked, s) : null,
+      );
+    }
+    if (item is _ManualCardItem) {
+      final app = item.application;
+      final url = app.externalUrl;
+      return ManualApplicationCard(
+        application: app,
+        statusOptions: _validTransitions(app),
+        onStatusSelected: (s) => _changeManualStatus(app, s),
+        onOpenLink:
+            (url != null && url.isNotEmpty) ? () => _openManualLink(url) : null,
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  List<ApplicationStatus> _validTransitions(Application app) =>
+      ApplicationStatus.values
+          .where((s) =>
+              s != app.status && canTransition(app.type, app.status, s))
+          .toList();
+
+  String? _jobLink(Job job) {
+    if (job.externalUrl != null && job.externalUrl!.isNotEmpty) {
+      return job.externalUrl;
+    }
+    final web = job.company?.website;
+    if (web != null && web.isNotEmpty) return web;
+    return null;
+  }
+
+  Future<void> _markAppliedManually(LikedJob liked) async {
+    HapticFeedback.lightImpact();
+    await context.read<JobsViewModel>().setApplied(liked.job.id, true);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Movida para Enviadas')),
     );
   }
 
@@ -460,61 +607,6 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
         Icons.check_circle_outline_rounded);
     section('Expiradas', expired, AppColors.textDisabled,
         Icons.event_busy_outlined, exp: true);
-    return items;
-  }
-
-  /// FASE 3 (T3.1): 4 segmentos sobre `applications`. Salvas = liked SEM
-  /// application; os outros 3 via [segmentForStatus]. Badge "Expirada" segue
-  /// preservado dentro do segmento (vaga morta ≠ status da candidatura).
-  List<_ListItem> _buildTrackerItems(JobsViewModel vm) {
-    final now = DateTime.now();
-    final salvas = <_ListItem>[];
-    final enviadas = <_ListItem>[];
-    final emProcesso = <_ListItem>[];
-    final finalizadas = <_ListItem>[];
-
-    List<_ListItem> bucketFor(ApplicationStatus s) =>
-        switch (segmentForStatus(s)) {
-          ApplicationSegment.salvas || ApplicationSegment.enviadas => enviadas,
-          ApplicationSegment.emProcesso => emProcesso,
-          ApplicationSegment.finalizadas => finalizadas,
-        };
-
-    for (final liked in vm.likedJobs) {
-      final app = vm.applicationForJob(liked.job.id);
-      final deadlineAt = liked.job.deadlineAt;
-      final isExpired = !liked.job.isActive ||
-          (deadlineAt != null && deadlineAt.isBefore(now));
-      final item =
-          _JobCardItem(liked, isExpired: isExpired, application: app);
-      if (app == null) {
-        salvas.add(item);
-      } else {
-        bucketFor(app.status).add(item);
-      }
-    }
-    // T3.3: candidaturas manuais (sem vaga) entram nos mesmos segmentos.
-    for (final app in vm.manualApplications) {
-      bucketFor(app.status).add(_ManualCardItem(app));
-    }
-
-    final items = <_ListItem>[];
-    void section(ApplicationSegment seg, List<_ListItem> list, Color color,
-        IconData icon) {
-      if (list.isEmpty) return;
-      items.add(_SectionHeaderItem(
-          title: seg.label, count: list.length, color: color, icon: icon));
-      items.addAll(list);
-    }
-
-    section(ApplicationSegment.salvas, salvas, AppColors.brandBlue,
-        Icons.bookmark_outline_rounded);
-    section(ApplicationSegment.enviadas, enviadas, AppColors.primary,
-        Icons.send_outlined);
-    section(ApplicationSegment.emProcesso, emProcesso, AppColors.brandCyan,
-        Icons.timelapse_outlined);
-    section(ApplicationSegment.finalizadas, finalizadas,
-        AppColors.textDisabled, Icons.flag_outlined);
     return items;
   }
 
@@ -664,9 +756,14 @@ class _ApplyAction {
 }
 
 class _Header extends StatelessWidget {
+  final String title;
   final int liked;
   final int applied;
-  const _Header({required this.liked, required this.applied});
+  const _Header({
+    required this.title,
+    required this.liked,
+    required this.applied,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -681,8 +778,8 @@ class _Header extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Vagas Salvas',
-                  style: TextStyle(fontFamily: 'Outfit', 
+                  title,
+                  style: TextStyle(fontFamily: 'Outfit',
                     fontSize: 26,
                     fontWeight: FontWeight.w700,
                     color: AppColors.textPrimary,
@@ -813,10 +910,6 @@ class _LikedJobCard extends StatelessWidget {
   /// é histórico, não ação possível.
   final bool isExpired;
 
-  /// FASE 3 (T3.1): chip/menu de status da candidatura (aba Candidaturas). null
-  /// no modo legacy e em vagas só salvas / type stage.
-  final Widget? statusControl;
-
   const _LikedJobCard({
     required this.liked,
     required this.onTap,
@@ -825,7 +918,6 @@ class _LikedJobCard extends StatelessWidget {
     required this.applyAction,
     required this.onRemove,
     this.isExpired = false,
-    this.statusControl,
   });
 
   @override
@@ -932,10 +1024,6 @@ class _LikedJobCard extends StatelessWidget {
                   _CardMenu(onRemove: onRemove),
                 ],
               ),
-              if (statusControl != null) ...[
-                const SizedBox(height: 10),
-                Align(alignment: Alignment.centerLeft, child: statusControl!),
-              ],
               const SizedBox(height: 12),
               // Botões empilhados — labels longos ("Enviar CV por email",
               // "Marcar como aplicada") não cabiam em Row 50/50, ellipsis

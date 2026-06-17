@@ -33,7 +33,6 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
   Set<String> _selectedLocations = {};
   Set<String> _selectedWorkModels = {};
   Set<String> _selectedJobTypes = {};
-  int? _minSalary; // em centavos
   int? _minMatchScore; // 0-100, null = sem filtro
   bool _loaded = false;
   bool _saving = false;
@@ -103,7 +102,6 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
         _selectedLocations = Set<String>.from(prefs.locations);
         _selectedWorkModels = Set<String>.from(prefs.workModels);
         _selectedJobTypes = Set<String>.from(prefs.jobTypes);
-        _minSalary = prefs.minSalary;
         _minMatchScore = prefs.minMatchScore;
       });
     }
@@ -116,7 +114,6 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
     if (_selectedLocations.isNotEmpty) n++;
     if (_selectedWorkModels.isNotEmpty) n++;
     if (_selectedJobTypes.isNotEmpty) n++;
-    if (_minSalary != null && _minSalary! > 0) n++;
     if (_minMatchScore != null && _minMatchScore! > 0) n++;
     return n;
   }
@@ -129,14 +126,12 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
           _selectedLocations.isNotEmpty ||
           _selectedWorkModels.isNotEmpty ||
           _selectedJobTypes.isNotEmpty ||
-          (_minSalary != null && _minSalary! > 0) ||
           (_minMatchScore != null && _minMatchScore! > 0);
     }
     return !_setEq(_selectedAreas, prefs.areas.toSet()) ||
         !_setEq(_selectedLocations, prefs.locations.toSet()) ||
         !_setEq(_selectedWorkModels, prefs.workModels.toSet()) ||
         !_setEq(_selectedJobTypes, prefs.jobTypes.toSet()) ||
-        _minSalary != prefs.minSalary ||
         _minMatchScore != prefs.minMatchScore;
   }
 
@@ -164,7 +159,6 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
         locations: _selectedLocations.toList(),
         workModels: _selectedWorkModels.toList(),
         jobTypes: _selectedJobTypes.toList(),
-        minSalary: _minSalary,
         minMatchScore: _minMatchScore,
       );
       await vm.savePreferences(prefs);
@@ -188,7 +182,6 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
       _selectedLocations = {};
       _selectedWorkModels = {};
       _selectedJobTypes = {};
-      _minSalary = null;
       _minMatchScore = null;
     });
   }
@@ -287,8 +280,6 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
                 ),
                 const SizedBox(height: 16),
                 _buildMatchScoreSection(),
-                const SizedBox(height: 16),
-                _buildSalarySection(),
                 const SizedBox(height: 8),
               ],
             ),
@@ -689,146 +680,6 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
                         fontSize: 11,
                         color: _textMuted,
                         fontWeight: FontWeight.w600)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Salary section ─────────────────────────────────────────────────
-  Widget _buildSalarySection() {
-    final hasValue = _minSalary != null && _minSalary! > 0;
-    final reaisDouble = (_minSalary ?? 0) / 100.0;
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      _indigo.withOpacity(0.12),
-                      _purple.withOpacity(0.12),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.payments_outlined, size: 18, color: _indigo),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Bolsa mínima',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: _textPrimary,
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Vagas sem salário publicado também aparecem',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _textMuted,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (hasValue)
-                IconButton(
-                  icon: const Icon(Icons.close_rounded, size: 18),
-                  color: _textMuted,
-                  onPressed: () {
-                    HapticFeedback.selectionClick();
-                    setState(() => _minSalary = null);
-                  },
-                  splashRadius: 18,
-                  tooltip: 'Limpar',
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Valor grande estilizado
-          Center(
-            child: ShaderMask(
-              shaderCallback: (bounds) => hasValue
-                  ? _gradient.createShader(bounds)
-                  : const LinearGradient(colors: [_textMuted, _textMuted])
-                      .createShader(bounds),
-              child: Text(
-                hasValue
-                    ? 'R\$ ${reaisDouble.toInt()}'
-                    : 'A combinar',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.8,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 4),
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: _indigo,
-              inactiveTrackColor: _border,
-              thumbColor: Colors.white,
-              overlayColor: _indigo.withOpacity(0.12),
-              trackHeight: 4,
-              thumbShape: const RoundSliderThumbShape(
-                enabledThumbRadius: 10,
-                elevation: 4,
-              ),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
-            ),
-            child: Slider(
-              value: reaisDouble.clamp(0.0, 10000.0),
-              min: 0,
-              max: 10000,
-              divisions: 100,
-              onChanged: (val) {
-                HapticFeedback.selectionClick();
-                setState(() {
-                  _minSalary = val > 0 ? (val * 100).toInt() : null;
-                });
-              },
-            ),
-          ),
-          // Limites laterais
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
-                Text('R\$ 0', style: TextStyle(fontSize: 11, color: _textMuted, fontWeight: FontWeight.w600)),
-                Text('R\$ 10.000', style: TextStyle(fontSize: 11, color: _textMuted, fontWeight: FontWeight.w600)),
               ],
             ),
           ),

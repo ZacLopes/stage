@@ -97,8 +97,8 @@ void main(List<String> args) {
         workModels.isEmpty &&
         jobTypes.isEmpty);
 
-    // _applyPreferenceFilters (job_repository.dart:161-176); minSalary é
-    // null no relacional (morreu no merge F1 — fato B9 do plano).
+    // _applyPreferenceFilters (job_repository.dart); salário foi removido como
+    // dimensão de match/filtro em 2026-06-16 (decisão founder).
     if (hasPrefs) {
       candidates = candidates.where((j) {
         final workModelRaw = j['work_model'] as String?;
@@ -117,9 +117,6 @@ void main(List<String> args) {
           jobState: j['location_state'] as String?,
           workModelRaw: workModelRaw,
         )) {
-          return false;
-        }
-        if (!FilterHelpers.isSalaryMatch(j['salary_min'] as int?, null)) {
           return false;
         }
         return true;

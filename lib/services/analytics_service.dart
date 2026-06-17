@@ -1137,14 +1137,12 @@ class AnalyticsService {
     required int areasCount,
     required int locationsCount,
     required int? minMatchScore,
-    required int? minSalary,
   }) =>
       track(evFilterApplied, props: {
         'screen': 'jobs_feed',
         'areas_count': areasCount,
         'locations_count': locationsCount,
         if (minMatchScore != null) 'min_match_score': minMatchScore,
-        if (minSalary != null) 'min_salary': minSalary,
       });
 
   // ── Adaptação de CV (IA) ────────────────────────────────────────────

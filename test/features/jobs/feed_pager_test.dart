@@ -24,7 +24,6 @@ void main() {
         'reason_location': loc,
         'reason_work_model': false,
         'reason_job_type': false,
-        'reason_salary': false,
         'total_after_filters': taf,
         'total_available': tav,
         'total_matching_catalog': tmc,
@@ -74,13 +73,11 @@ void main() {
         locations: const [],
         workModels: const [],
         jobTypes: const [],
-        minSalary: 0,
       );
       expect(sent.containsKey('p_filter_areas'), isFalse);
       expect(sent.containsKey('p_filter_locations'), isFalse);
       expect(sent.containsKey('p_filter_work_models'), isFalse);
       expect(sent.containsKey('p_filter_job_types'), isFalse);
-      expect(sent.containsKey('p_min_salary'), isFalse);
     });
 
     test('filtros preenchidos viajam como args (resolução D-8 é do caller)',
@@ -95,13 +92,11 @@ void main() {
         locations: const ['São Paulo'],
         workModels: const ['remoto'],
         jobTypes: const ['estagio'],
-        minSalary: 200000,
       );
       expect(sent['p_filter_areas'], ['Tecnologia']);
       expect(sent['p_filter_locations'], ['São Paulo']);
       expect(sent['p_filter_work_models'], ['remoto']);
       expect(sent['p_filter_job_types'], ['estagio']);
-      expect(sent['p_min_salary'], 200000);
     });
 
     test('sentinela do estado B: 1 row job_id null → só totais, sem mais páginas',
@@ -115,7 +110,6 @@ void main() {
               'reason_location': null,
               'reason_work_model': null,
               'reason_job_type': null,
-              'reason_salary': null,
               'total_after_filters': 0,
               'total_available': 322,
               'total_matching_catalog': 0, // #5: 0 = filtros restritivos (B)
