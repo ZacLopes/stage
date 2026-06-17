@@ -96,3 +96,4 @@
 20260616140000_seed_applications_tracker_v1.sql
 20260616150000_get_feed_page_v1_4_no_salary.sql
 20260617120000_skills_taxonomy.sql
+20260617130000_seed_skills_typeahead_v1.sql

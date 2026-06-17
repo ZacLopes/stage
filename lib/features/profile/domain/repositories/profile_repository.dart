@@ -53,6 +53,10 @@ abstract class ProfileRepository {
   Future<void> deleteSkill(String id);
   Future<void> replaceSkills(String userId, List<String> names);
 
+  /// Nomes canônicos do `skills_catalog` (taxonomia P5) — sugestões do typeahead
+  /// no editor de skills. Vocabulário pequeno (~165); carregado uma vez.
+  Future<List<String>> getSkillCatalogNames();
+
   Future<List<Certification>> getCertifications(String userId);
   Future<Certification> addCertification(Certification cert);
   Future<Certification> updateCertification(Certification cert);

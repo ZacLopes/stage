@@ -112,6 +112,30 @@ class _EditListModalState extends State<EditListModal> {
     setState(() => _items.remove(item));
   }
 
+  // Typeahead (P5 Fase C): sugere canônicas do catálogo conforme digita.
+  // Acento-insensível e case-insensível; exclui já-adicionados; teto de 6.
+  // Sem suggestions (flag OFF) → bloco não renderiza, input texto-livre normal.
+  static String _fold(String s) => s.toLowerCase().replaceAll(RegExp('[áàâã]'), 'a').replaceAll(RegExp('[éê]'), 'e').replaceAll('í', 'i').replaceAll(RegExp('[óôõ]'), 'o').replaceAll('ú', 'u').replaceAll('ç', 'c');
+
+  List<String> get _filteredSuggestions {
+    final q = _fold(_input.text.trim());
+    if (q.isEmpty || widget.suggestions.isEmpty) return const [];
+    final added = _items.map(_fold).toSet();
+    final out = <String>[];
+    for (final s in widget.suggestions) {
+      if (out.length >= 6) break;
+      final fs = _fold(s);
+      if (fs.contains(q) && !added.contains(fs)) out.add(s);
+    }
+    return out;
+  }
+
+  void _addSuggestion(String s) {
+    if (!_items.contains(s)) setState(() => _items.add(s));
+    _input.clear();
+    _focus.requestFocus();
+  }
+
   void _save() {
     final v = _input.text.trim();
     final finalList = (v.isNotEmpty && !_items.contains(v)) ? [..._items, v] : _items;
@@ -198,6 +222,43 @@ class _EditListModalState extends State<EditListModal> {
                   ),
                 ],
               ),
+              if (_filteredSuggestions.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _filteredSuggestions
+                        .map(
+                          (s) => GestureDetector(
+                            onTap: () => _addSuggestion(s),
+                            behavior: HitTestBehavior.opaque,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: _kChipBg,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: _kBorderColor),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.add_rounded, size: 14, color: _kAccent),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    s,
+                                    style: const TextStyle(fontSize: 13, color: _kTextColor, fontWeight: FontWeight.w500),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
+              ],
               const SizedBox(height: 28),
               if (_items.isEmpty)
                 Expanded(
