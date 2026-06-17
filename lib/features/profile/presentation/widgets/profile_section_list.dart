@@ -211,6 +211,7 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
         title: 'Editar Skills',
         inputLabel: 'Skill',
         initialItems: names,
+        suggestions: vm.skillSuggestions,
         onSave: vm.replaceSkills,
       ),
       children: names.isEmpty ? const [] : [_ChipList(items: names)],

@@ -383,6 +383,17 @@ class ProfileRepositorySupabase implements ProfileRepository {
   }
 
   @override
+  Future<List<String>> getSkillCatalogNames() async {
+    final rows = await _client
+        .from('skills_catalog')
+        .select('canonical_name')
+        .order('canonical_name');
+    return (rows as List)
+        .map((r) => (r as Map<String, dynamic>)['canonical_name'] as String)
+        .toList();
+  }
+
+  @override
   Future<Skill> addSkill(Skill skill) async {
     final row = await _client
         .from('profile_skills')

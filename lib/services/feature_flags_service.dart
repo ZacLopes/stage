@@ -140,4 +140,10 @@ class FeatureFlagKeys {
   /// retorno + adição manual. OFF = aba Salvas atual (3 buckets) intocada.
   /// Seed na migration 20260616140000; rollout 10→50→100 decidido pelo fundador.
   static const String applicationsTrackerV1 = 'applications_tracker_v1';
+
+  /// Taxonomia de skills (P5, Fase C): typeahead canônico no editor de skills
+  /// (sugere do skills_catalog). OFF = input texto-livre atual. Seed na migration
+  /// 20260617130000. O trigger no banco já normaliza todo write — o typeahead
+  /// só reduz nova fragmentação na origem.
+  static const String skillsTypeaheadV1 = 'skills_typeahead_v1';
 }

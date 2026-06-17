@@ -12,6 +12,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../services/feature_flags_service.dart';
 import '../../../services/profile_events.dart';
 import '../domain/entities/entities.dart';
 import '../domain/repositories/profile_repository.dart';
@@ -30,6 +31,7 @@ class ProfileEditorViewModel extends ChangeNotifier {
   List<Education> _education = [];
   List<Language> _languages = [];
   List<Skill> _skills = [];
+  List<String> _skillSuggestions = [];
   List<Certification> _certifications = [];
   List<Project> _projects = [];
   List<Interest> _interests = [];
@@ -46,6 +48,11 @@ class ProfileEditorViewModel extends ChangeNotifier {
   List<Education> get education => List.unmodifiable(_education);
   List<Language> get languages => List.unmodifiable(_languages);
   List<Skill> get skills => List.unmodifiable(_skills);
+
+  /// Sugestões do typeahead de skills (nomes canônicos do skills_catalog).
+  /// Vazio quando a flag `skills_typeahead_v1` está OFF p/ o user → EditListModal
+  /// cai no input texto-livre atual. P5 Fase C.
+  List<String> get skillSuggestions => List.unmodifiable(_skillSuggestions);
   List<Certification> get certifications => List.unmodifiable(_certifications);
   List<Project> get projects => List.unmodifiable(_projects);
   List<Interest> get interests => List.unmodifiable(_interests);
@@ -134,6 +141,21 @@ class ProfileEditorViewModel extends ChangeNotifier {
       _projects = results[6] as List<Project>;
       _interests = results[7] as List<Interest>;
       _awards = results[8] as List<Award>;
+
+      // P5 Fase C: typeahead de skills atrás da flag. Carrega o catálogo canônico
+      // só quando ON p/ o user (vocabulário pequeno, ~165). OFF = sugestões
+      // vazias → EditListModal mantém o input texto-livre atual.
+      if (FeatureFlagsService.instance
+          .isEnabledForUser(FeatureFlagKeys.skillsTypeaheadV1, userId)) {
+        try {
+          _skillSuggestions = await _repo.getSkillCatalogNames();
+        } catch (e) {
+          _skillSuggestions = [];
+          debugPrint('[ProfileEditorViewModel] skill catalog load failed: $e');
+        }
+      } else {
+        _skillSuggestions = [];
+      }
     } catch (e) {
       _lastError = 'Erro ao carregar perfil: $e';
       debugPrint('[ProfileEditorViewModel] load error: $e');
