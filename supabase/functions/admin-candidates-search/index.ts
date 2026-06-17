@@ -28,6 +28,10 @@ interface SearchFilters {
   institutionId?: string;
   institutionText?: string;
   city?: string;
+  areas?: string[]; // área de interesse (profile_desired_titles.title) — OR entre elas
+  semesterMin?: number; // profile_education.current_semester
+  semesterMax?: number;
+  educationLevel?: string; // 'college' | 'school'
   skills?: string[];
   skillIds?: string[]; // skills canônicas (skills_catalog.id) — faceta limpa, AND
   minCompleteness?: number;
@@ -36,7 +40,7 @@ interface SearchFilters {
 }
 
 interface SearchBody {
-  action?: 'search' | 'save_list' | 'skills_catalog';
+  action?: 'search' | 'save_list' | 'skills_catalog' | 'areas_catalog';
   filters?: SearchFilters;
   limit?: number;
   offset?: number;
@@ -94,6 +98,34 @@ async function resolveCandidateIds(
     sets.push(new Set((r.data ?? []).map((row: { user_id: string }) => row.user_id)));
   }
 
+  // Área de interesse (profile_desired_titles): OR entre as áreas escolhidas
+  // (candidato com QUALQUER uma serve), AND vs as outras dimensões.
+  if ((f.areas ?? []).filter((a) => a && a.trim()).length > 0) {
+    const r = await supabase.from('profile_desired_titles').select('user_id')
+      .in('title', f.areas!.filter((a) => a && a.trim()));
+    if (r.error) throw new AdminHttpError(500, 'search_areas_failed', r.error.message);
+    sets.push(new Set((r.data ?? []).map((row: { user_id: string }) => row.user_id)));
+  }
+
+  // Semestre (faixa) + nível de educação — sobre profile_education (candidato
+  // com QUALQUER row de educação na faixa/nível serve).
+  if (typeof f.semesterMin === 'number' || typeof f.semesterMax === 'number') {
+    let q = supabase.from('profile_education').select('user_id')
+      .not('current_semester', 'is', null);
+    if (typeof f.semesterMin === 'number') q = q.gte('current_semester', f.semesterMin);
+    if (typeof f.semesterMax === 'number') q = q.lte('current_semester', f.semesterMax);
+    const r = await q;
+    if (r.error) throw new AdminHttpError(500, 'search_semester_failed', r.error.message);
+    sets.push(new Set((r.data ?? []).map((row: { user_id: string }) => row.user_id)));
+  }
+
+  if (f.educationLevel && f.educationLevel.trim()) {
+    const r = await supabase.from('profile_education').select('user_id')
+      .eq('education_level', f.educationLevel.trim());
+    if (r.error) throw new AdminHttpError(500, 'search_level_failed', r.error.message);
+    sets.push(new Set((r.data ?? []).map((row: { user_id: string }) => row.user_id)));
+  }
+
   // Skills canônicas (faceta): semântica AND — bate TODAS as skills escolhidas.
   // Filtra por canonical_skill_id, então "Excel" pega todas as grafias.
   for (const sid of f.skillIds ?? []) {
@@ -143,7 +175,7 @@ type AdminSupabase = any;
 
 async function hydrate(supabase: AdminSupabase, ids: string[]) {
   if (ids.length === 0) return [];
-  const [profilesR, personalR, skillsR, eduR, consentsR] = await Promise.all([
+  const [profilesR, personalR, skillsR, eduR, areasR, consentsR] = await Promise.all([
     supabase.from('user_profiles').select('id, name, email, course, semester').in('id', ids),
     supabase.from('profile_personal')
       .select('user_id, location_city, location_state, completeness_score, onboarding_completed_at')
@@ -151,7 +183,10 @@ async function hydrate(supabase: AdminSupabase, ids: string[]) {
     supabase.from('profile_skills')
       .select('user_id, name, skills_catalog(canonical_name, category)')
       .in('user_id', ids),
-    supabase.from('profile_education').select('user_id, institution, education_level').in('user_id', ids),
+    supabase.from('profile_education')
+      .select('user_id, institution, education_level, current_semester')
+      .in('user_id', ids),
+    supabase.from('profile_desired_titles').select('user_id, title').in('user_id', ids),
     supabase.from('candidate_data_sharing_consents').select('user_id, status').in('user_id', ids),
   ]);
 
@@ -178,10 +213,28 @@ async function hydrate(supabase: AdminSupabase, ids: string[]) {
     }
   }
   const institutions = new Map<string, string[]>();
-  for (const r of (eduR.data ?? []) as Array<{ user_id: string; institution: string }>) {
+  const eduLevel = new Map<string, string>();
+  const currentSemester = new Map<string, number>();
+  for (
+    const r of (eduR.data ?? []) as Array<
+      { user_id: string; institution: string; education_level: string | null; current_semester: number | null }
+    >
+  ) {
     const list = institutions.get(r.user_id) ?? [];
     if (r.institution && !list.includes(r.institution)) list.push(r.institution);
     institutions.set(r.user_id, list);
+    if (r.education_level && !eduLevel.has(r.user_id)) eduLevel.set(r.user_id, r.education_level);
+    if (typeof r.current_semester === 'number') {
+      const prev = currentSemester.get(r.user_id);
+      // mostra o semestre mais avançado entre as formações
+      if (prev === undefined || r.current_semester > prev) currentSemester.set(r.user_id, r.current_semester);
+    }
+  }
+  const areas = new Map<string, string[]>();
+  for (const r of (areasR.data ?? []) as Array<{ user_id: string; title: string }>) {
+    const list = areas.get(r.user_id) ?? [];
+    if (r.title && !list.includes(r.title)) list.push(r.title);
+    areas.set(r.user_id, list);
   }
 
   return ((profilesR.data ?? []) as Array<Record<string, unknown>>).map((p) => {
@@ -199,6 +252,9 @@ async function hydrate(supabase: AdminSupabase, ids: string[]) {
       onboardingCompletedAt: pp?.onboarding_completed_at ?? null,
       skills: skills.get(uid) ?? [],
       canonicalSkills: canonicalSkills.get(uid) ?? [],
+      areas: areas.get(uid) ?? [],
+      currentSemester: currentSemester.get(uid) ?? null,
+      educationLevel: eduLevel.get(uid) ?? null,
       institutions: institutions.get(uid) ?? [],
       consentStatus: consent.get(uid) ?? 'not_asked',
     };
@@ -253,6 +309,15 @@ serve(withEdgeAnalytics('admin-candidates-search', async (req) => {
           (order[a.category] ?? 9) - (order[b.category] ?? 9) || a.name.localeCompare(b.name)
         );
       return jsonResponse({ catalog });
+    }
+
+    if (action === 'areas_catalog') {
+      // Faceta de área pro picker (via RPC — distinct + contagem, lista completa).
+      const r = await ctx.supabase.rpc('admin_area_facet');
+      if (r.error) throw new AdminHttpError(500, 'areas_catalog_failed', r.error.message);
+      const areas = ((r.data ?? []) as Array<{ title: string; users: number }>)
+        .map((a) => ({ title: a.title, users: Number(a.users) }));
+      return jsonResponse({ areas });
     }
 
     if (action === 'save_list') {

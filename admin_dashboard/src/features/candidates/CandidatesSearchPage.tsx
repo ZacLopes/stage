@@ -20,6 +20,11 @@ interface CatalogSkill {
   category: CanonicalSkill['category'];
 }
 
+interface AreaFacet {
+  title: string;
+  users: number;
+}
+
 interface Candidate {
   userId: string;
   name: string;
@@ -31,6 +36,9 @@ interface Candidate {
   completeness: number;
   skills: string[];
   canonicalSkills: CanonicalSkill[];
+  areas: string[];
+  currentSemester: number | null;
+  educationLevel: string | null;
   institutions: string[];
   consentStatus: 'not_asked' | 'granted' | 'denied' | 'revoked';
 }
@@ -73,10 +81,18 @@ export function CandidatesSearchPage() {
   const [hasCv, setHasCv] = useState(false);
   const [catalog, setCatalog] = useState<CatalogSkill[]>([]);
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
+  const [areaFacet, setAreaFacet] = useState<AreaFacet[]>([]);
+  const [selectedAreas, setSelectedAreas] = useState<string[]>([]);
+  const [semMin, setSemMin] = useState('');
+  const [semMax, setSemMax] = useState('');
+  const [eduLevel, setEduLevel] = useState('');
 
   useEffect(() => {
     invokeAdmin<{ catalog: CatalogSkill[] }>('admin-candidates-search', { action: 'skills_catalog' })
       .then((d) => setCatalog(d.catalog ?? []))
+      .catch(() => {});
+    invokeAdmin<{ areas: AreaFacet[] }>('admin-candidates-search', { action: 'areas_catalog' })
+      .then((d) => setAreaFacet(d.areas ?? []))
       .catch(() => {});
   }, []);
 
@@ -99,6 +115,12 @@ export function CandidatesSearchPage() {
       const skills = skillsRaw.split(',').map((s) => s.trim()).filter(Boolean);
       if (skills.length > 0) filters.skills = skills;
       if (selectedSkillIds.length > 0) filters.skillIds = selectedSkillIds;
+      if (selectedAreas.length > 0) filters.areas = selectedAreas;
+      const smin = Number.parseInt(semMin, 10);
+      if (Number.isFinite(smin) && smin > 0) filters.semesterMin = smin;
+      const smax = Number.parseInt(semMax, 10);
+      if (Number.isFinite(smax) && smax > 0) filters.semesterMax = smax;
+      if (eduLevel) filters.educationLevel = eduLevel;
       const mc = Number.parseInt(minCompleteness, 10);
       if (Number.isFinite(mc) && mc > 0) filters.minCompleteness = mc;
       const ad = Number.parseInt(activeDays, 10);
@@ -195,6 +217,23 @@ export function CandidatesSearchPage() {
           <Field label="Cidade">
             <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="São Paulo" />
           </Field>
+          <Field label="Semestre (de)">
+            <Input value={semMin} onChange={(e) => setSemMin(e.target.value)} placeholder="1" />
+          </Field>
+          <Field label="Semestre (até)">
+            <Input value={semMax} onChange={(e) => setSemMax(e.target.value)} placeholder="8" />
+          </Field>
+          <Field label="Nível">
+            <select
+              value={eduLevel}
+              onChange={(e) => setEduLevel(e.target.value)}
+              className="h-9 w-full rounded-md border border-border bg-white px-3 text-sm outline-none ring-brand/20 focus:ring-4"
+            >
+              <option value="">Todos</option>
+              <option value="college">Superior</option>
+              <option value="school">Médio</option>
+            </select>
+          </Field>
           <Field label="Skills (vírgula = E)">
             <Input value={skillsRaw} onChange={(e) => setSkillsRaw(e.target.value)} placeholder="excel, sql" />
           </Field>
@@ -216,6 +255,46 @@ export function CandidatesSearchPage() {
               {loading ? 'Buscando…' : 'Buscar'}
             </Button>
           </div>
+        </div>
+        <div className="mt-3 border-t pt-3">
+          <Field label="Área de interesse (faceta — candidato com qualquer uma)">
+            <select
+              value=""
+              onChange={(e) => {
+                const t = e.target.value;
+                if (t && !selectedAreas.includes(t)) setSelectedAreas((p) => [...p, t]);
+              }}
+              className="h-9 w-full rounded-md border border-border bg-white px-3 text-sm outline-none ring-brand/20 focus:ring-4"
+            >
+              <option value="">Adicionar área…</option>
+              {areaFacet
+                .filter((a) => !selectedAreas.includes(a.title))
+                .map((a) => (
+                  <option key={a.title} value={a.title}>
+                    {a.title} ({a.users})
+                  </option>
+                ))}
+            </select>
+          </Field>
+          {selectedAreas.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {selectedAreas.map((t) => (
+                <span
+                  key={t}
+                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700"
+                >
+                  {t}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAreas((p) => p.filter((x) => x !== t))}
+                    className="text-slate-400 hover:text-rose-600"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <div className="mt-3 border-t pt-3">
           <Field label="Skills do catálogo (faceta — todas precisam bater)">
@@ -291,6 +370,7 @@ export function CandidatesSearchPage() {
                   <th className="py-2 pr-2"></th>
                   <th className="py-2 pr-4">Candidato</th>
                   <th className="py-2 pr-4">Curso</th>
+                  <th className="py-2 pr-4">Área</th>
                   <th className="py-2 pr-4">Instituição</th>
                   <th className="py-2 pr-4">Cidade</th>
                   <th className="py-2 pr-4">Skills</th>
@@ -312,7 +392,34 @@ export function CandidatesSearchPage() {
                       <div className="font-medium text-slate-800">{c.name || '—'}</div>
                       <div className="text-xs text-slate-400">{c.email}</div>
                     </td>
-                    <td className="py-2 pr-4">{c.course || '—'}</td>
+                    <td className="py-2 pr-4">
+                      <div>{c.course || '—'}</div>
+                      {(c.currentSemester != null || c.educationLevel) && (
+                        <div className="text-xs text-slate-400">
+                          {[
+                            c.currentSemester != null ? `${c.currentSemester}º sem` : null,
+                            c.educationLevel === 'college'
+                              ? 'Superior'
+                              : c.educationLevel === 'school'
+                              ? 'Médio'
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2 pr-4 text-xs">
+                      {c.areas.length > 0 ? (
+                        <div className="flex max-w-[10rem] flex-wrap gap-1">
+                          {c.areas.slice(0, 4).map((a) => (
+                            <Badge key={a} tone="blue">{a}</Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
                     <td className="py-2 pr-4">{c.institutions.join(', ') || '—'}</td>
                     <td className="py-2 pr-4">{c.city || '—'}</td>
                     <td className="py-2 pr-4 text-xs">
