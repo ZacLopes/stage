@@ -31,6 +31,7 @@ import { captureEvent, withEdgeAnalytics } from "../_shared/posthog.ts";
 import type { SourceAdapter, SourceRow, SyncStats } from "./sources/types.ts";
 import * as greenhouse from "./sources/greenhouse.ts";
 import * as lever from "./sources/lever.ts";
+import * as inhire from "./sources/inhire.ts";
 
 const CRON_SECRET = Deno.env.get("CRON_SECRET") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -44,6 +45,7 @@ const TOTAL_BUDGET_MS = 120_000;
 const SOURCE_ADAPTERS: Record<string, { name: string; sync: SourceAdapter }> = {
   greenhouse: { name: greenhouse.SOURCE_NAME, sync: greenhouse.sync },
   lever: { name: lever.SOURCE_NAME, sync: lever.sync },
+  inhire: { name: inhire.SOURCE_NAME, sync: inhire.sync },
 };
 
 serve(withEdgeAnalytics('sync-jobs-ats', async (req: Request) => {

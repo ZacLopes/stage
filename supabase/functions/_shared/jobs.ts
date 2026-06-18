@@ -90,6 +90,20 @@ export function decodeEntities(s: string): string {
       .replace(/&Atilde;/g, "Ã")
       .replace(/&Otilde;/g, "Õ")
       .replace(/&Ccedil;/g, "Ç")
+      // Circunflexo/grave + ordinais comuns em PT — o InHire (e outros ATS)
+      // emitem muito &ecirc;/&ocirc;/&agrave; ("voc&ecirc;", "exper&iacute;&ecirc;ncia").
+      .replace(/&acirc;/g, "â")
+      .replace(/&ecirc;/g, "ê")
+      .replace(/&ocirc;/g, "ô")
+      .replace(/&agrave;/g, "à")
+      .replace(/&Acirc;/g, "Â")
+      .replace(/&Ecirc;/g, "Ê")
+      .replace(/&Ocirc;/g, "Ô")
+      .replace(/&Agrave;/g, "À")
+      .replace(/&ordf;/g, "ª")
+      .replace(/&ordm;/g, "º")
+      .replace(/&bull;/g, "•")
+      .replace(/&middot;/g, "·")
       .replace(/&amp;/g, "&"); // por último pra não dupla-decodificar
   } while (result !== prev);
   return result;
