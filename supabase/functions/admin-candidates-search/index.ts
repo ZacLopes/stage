@@ -64,8 +64,14 @@ async function resolveCandidateIds(
 ): Promise<string[]> {
   const sets: Array<Set<string>> = [];
 
-  // Base: todo mundo com perfil relacional (profile_personal).
-  let base = supabase.from('profile_personal').select('user_id');
+  // Base: todo mundo com perfil relacional (profile_personal), ordenado por
+  // completude DESC (P8 — perfis mais completos primeiro na shortlist; o
+  // completeness_score agora é real, P3). A interseção por Set preserva a ordem
+  // de inserção, então o resultado final sai ordenado por completude.
+  // NOTA: PostgREST corta em 1000 rows → busca cobre os 1000 MAIS COMPLETOS
+  // (subconjunto certo p/ shortlist; universo é ~1.7k).
+  let base = supabase.from('profile_personal').select('user_id')
+    .order('completeness_score', { ascending: false });
   if (f.city && f.city.trim()) base = base.ilike('location_city', ilike(f.city));
   if (typeof f.minCompleteness === 'number' && f.minCompleteness > 0) {
     base = base.gte('completeness_score', f.minCompleteness);
