@@ -146,4 +146,13 @@ class FeatureFlagKeys {
   /// 20260617130000. O trigger no banco já normaliza todo write — o typeahead
   /// só reduz nova fragmentação na origem.
   static const String skillsTypeaheadV1 = 'skills_typeahead_v1';
+
+  /// Remoção reversível da trilha gamificada (estilo Duolingo) da aba Currículo.
+  /// OFF (default failure-safe) = card "Construir pela trilha" escondido → a aba
+  /// fica só com "Importar CV"; o passo equivalente do tutorial também some. ON
+  /// (enabled + 100%) = trilha volta na hora, sem rebuild. O código da trilha
+  /// continua no app (congelado, R6) — só o entry point da aba Currículo é
+  /// gateado. A trilha no ONBOARDING (TwoDoorsScreen) NÃO é afetada. Binário
+  /// (use isGloballyEnabled, sem A/B). Seed na migration 20260622120000.
+  static const String resumeTrailEnabled = 'resume_trail_enabled';
 }

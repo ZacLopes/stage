@@ -101,3 +101,4 @@
 20260617150000_profile_completeness_recompute.sql
 20260618184100_inhire_source.sql
 20260618190000_inhire_more_tenants.sql
+20260622120000_seed_resume_trail_enabled.sql

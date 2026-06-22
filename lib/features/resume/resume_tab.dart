@@ -7,6 +7,7 @@ import '../tutorial/tutorial_keys.dart';
 import 'resume_viewmodel.dart';
 import 'widgets/import_cv_button.dart';
 import '../../services/cv_import_service.dart';
+import '../../services/feature_flags_service.dart';
 import '../../core/widgets/pii_mask.dart';
 import '../../core/theme/theme.dart';
 
@@ -140,11 +141,31 @@ class _ResumeTabState extends State<ResumeTab> {
     final hasImportedBefore = profileVM.savedResumes
         .any((r) => r.title.startsWith(kImportedResumeBaseTitle));
 
+    // Remoção reversível da trilha (flag binária remota). OFF (default) = card
+    // "Construir pela trilha" escondido → aba fica só com Importar CV. Voltar =
+    // ligar resume_trail_enabled no banco (sem rebuild). Onboarding não afetado.
+    final trailEnabled = FeatureFlagsService.instance
+        .isGloballyEnabled(FeatureFlagKeys.resumeTrailEnabled);
+
+    final heroTitle = isCourseCompleted
+        ? 'Seu currículo já está pronto'
+        : (trailEnabled
+            ? 'Dois jeitos de ter seu CV pronto'
+            : 'Comece seu currículo');
+    final heroSubtitle = isCourseCompleted
+        ? (trailEnabled
+            ? 'Atualize pela trilha ou suba uma nova versão.'
+            : 'Suba uma nova versão quando quiser.')
+        : (trailEnabled
+            ? 'Escolha o caminho que faz mais sentido agora.'
+            : 'Importe seu PDF e desbloqueie adaptação por vaga e match.');
+
     // Layout: tamanhos naturais (sem Expanded interno), espaço extra
     // distribuído ENTRE os blocos via spaceBetween. Em telas grandes
     // ganha respiro; em telas pequenas continua compacto.
     return Column(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      mainAxisAlignment:
+          trailEnabled ? MainAxisAlignment.spaceBetween : MainAxisAlignment.start,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // Hero
@@ -196,9 +217,7 @@ class _ResumeTabState extends State<ResumeTab> {
               ),
               const SizedBox(height: 8),
               Text(
-                isCourseCompleted
-                    ? 'Seu currículo já está pronto'
-                    : 'Dois jeitos de ter seu CV pronto',
+                heroTitle,
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 20,
@@ -210,9 +229,7 @@ class _ResumeTabState extends State<ResumeTab> {
               ),
               const SizedBox(height: 6),
               Text(
-                isCourseCompleted
-                    ? 'Atualize pela trilha ou suba uma nova versão.'
-                    : 'Escolha o caminho que faz mais sentido agora.',
+                heroSubtitle,
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.85),
                   fontSize: 12.5,
@@ -224,35 +241,39 @@ class _ResumeTabState extends State<ResumeTab> {
           ),
         ),
 
-        // Card Trilha — tamanho natural
-        KeyedSubtree(
-          key: TutorialKeys.trailCard,
-          child: _buildPathCard(
-            badge: isCourseCompleted ? 'JORNADA CONCLUÍDA' : 'RECOMENDADO',
-            badgeColor: AppColors.success,
-            icon: Icons.route_rounded,
-            iconBg: indigo,
-            title: isCourseCompleted
-                ? 'Atualizar pela trilha'
-                : 'Construir pela trilha',
-            description: isCourseCompleted
-                ? 'Volte às fases pra atualizar — o CV é regerado e salvo no Perfil.'
-                : 'Responda perguntas estilo Duolingo. A IA monta seu CV com bullets Harvard.',
-            highlights: isCourseCompleted
-                ? const [
-                    'Reabra qualquer fase pra editar',
-                    'Cada finalização vira nova versão',
-                  ]
-                : const [
-                    'Sem precisar escrever bullets',
-                    'Templates ATS-friendly',
-                  ],
-            ctaLabel: isCourseCompleted ? 'Abrir trilha' : 'Continuar trilha',
-            ctaIcon: Icons.arrow_forward_rounded,
-            onCtaTap: _enterTracks,
-            ctaVariant: _CtaVariant.gradient,
-          ),
-        ),
+        // Card Trilha — escondido quando a flag resume_trail_enabled está OFF
+        // (remoção reversível). Espaçador no lugar pra não colar o import no hero.
+        if (trailEnabled)
+          KeyedSubtree(
+            key: TutorialKeys.trailCard,
+            child: _buildPathCard(
+              badge: isCourseCompleted ? 'JORNADA CONCLUÍDA' : 'RECOMENDADO',
+              badgeColor: AppColors.success,
+              icon: Icons.route_rounded,
+              iconBg: indigo,
+              title: isCourseCompleted
+                  ? 'Atualizar pela trilha'
+                  : 'Construir pela trilha',
+              description: isCourseCompleted
+                  ? 'Volte às fases pra atualizar — o CV é regerado e salvo no Perfil.'
+                  : 'Responda perguntas estilo Duolingo. A IA monta seu CV com bullets Harvard.',
+              highlights: isCourseCompleted
+                  ? const [
+                      'Reabra qualquer fase pra editar',
+                      'Cada finalização vira nova versão',
+                    ]
+                  : const [
+                      'Sem precisar escrever bullets',
+                      'Templates ATS-friendly',
+                    ],
+              ctaLabel: isCourseCompleted ? 'Abrir trilha' : 'Continuar trilha',
+              ctaIcon: Icons.arrow_forward_rounded,
+              onCtaTap: _enterTracks,
+              ctaVariant: _CtaVariant.gradient,
+            ),
+          )
+        else
+          const SizedBox(height: 16),
 
         // Card Import — tamanho natural
         KeyedSubtree(
