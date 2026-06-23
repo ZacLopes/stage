@@ -13,42 +13,36 @@
 import '../../profile/application/profile_gaps.dart';
 import '../domain/conversation_step.dart';
 
-/// Lacunas que esta fase (Increment 2) sabe coletar conversacionalmente.
-/// `experience` → Increment 3 · `summary` → Increment 4 (gerado, não perguntado).
-/// `educationStatus` fica de fora: já é coletado no onboarding (com instituição
-/// e curso); re-perguntar só o status aqui geraria um registro pobre. Área/
-/// modalidade/tipo/cidade entram só pra RECUPERAR quem veio do bypass sem elas.
-const Set<LacunaKey> kPlannableGaps = {
-  LacunaKey.area,
-  LacunaKey.workMode,
-  LacunaKey.jobType,
-  LacunaKey.city,
-  LacunaKey.skills,
-  LacunaKey.languages,
-};
-
-/// Monta o plano conversacional a partir das lacunas. Vazio quando não há nada
-/// (dentre o que esta fase cobre) pra coletar.
-List<ConversationStep> buildConversationPlan(ProfileGaps gaps) {
+/// Monta o plano conversacional a partir das lacunas. [addressed] são os
+/// trechos já abordados antes (memória [TrilhaProgress]) — pulados pra não
+/// re-perguntar. Vazio quando não há nada novo pra coletar.
+///
+/// `educationStatus` fica de fora (já vem do onboarding); experiência tem fluxo
+/// dinâmico próprio; resumo é gerado (Inc 4), não perguntado.
+List<ConversationStep> buildConversationPlan(
+  ProfileGaps gaps, {
+  Set<String> addressed = const {},
+}) {
   final missing = gaps.missing.map((l) => l.key).toSet();
-  final prefsAndSkills = missing.intersection(kPlannableGaps);
-  final wantsExperience = missing.contains(LacunaKey.experience);
-  if (prefsAndSkills.isEmpty && !wantsExperience) return const [];
+  // Pergunta um trecho só se a lacuna existe E ele ainda não foi abordado
+  // (memória — evita re-perguntar skills/experiência toda vez que abre).
+  bool wants(LacunaKey key, String segment) =>
+      missing.contains(key) && !addressed.contains(segment);
 
-  return [
-    _intro(),
-    // Preferências (cliques rápidos) primeiro.
-    if (missing.contains(LacunaKey.area)) _area(),
-    if (missing.contains(LacunaKey.workMode)) _workMode(),
-    if (missing.contains(LacunaKey.jobType)) _jobType(),
-    if (missing.contains(LacunaKey.city)) _city(),
+  final steps = <ConversationStep>[
+    // Preferências (cliques rápidos).
+    if (wants(LacunaKey.area, 'area')) _area(),
+    if (wants(LacunaKey.workMode, 'workmode')) _workMode(),
+    if (wants(LacunaKey.jobType, 'jobtype')) _jobType(),
+    if (wants(LacunaKey.city, 'city')) _city(),
     // Substância leve.
-    if (missing.contains(LacunaKey.skills)) _skills(),
-    if (missing.contains(LacunaKey.languages)) _languages(),
-    // Experiência (DINÂMICA): o coração — entrevista um campo por vez, com loop
-    // "adicionar outra?". Cada item gera profile_experiences + 1 bullet.
-    if (wantsExperience) _experienceGate(),
+    if (wants(LacunaKey.skills, 'skills')) _skills(),
+    if (wants(LacunaKey.languages, 'languages')) _languages(),
+    // Experiência (DINÂMICA): entrevista um campo por vez, loop "adicionar outra?".
+    if (wants(LacunaKey.experience, 'experience')) _experienceGate(),
   ];
+  if (steps.isEmpty) return const [];
+  return [_intro(), ...steps];
 }
 
 bool _answeredYes(StepAnswer a) => a.value is List && (a.value as List).contains('yes');

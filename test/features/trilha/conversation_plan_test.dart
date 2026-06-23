@@ -105,5 +105,28 @@ void main() {
         expect(step.aiMessages.first.trim(), isNotEmpty);
       }
     });
+
+    test('memória: trechos abordados são pulados (não re-pergunta)', () {
+      // Tudo falta, mas skills e experiência já foram abordados antes.
+      final plan =
+          buildConversationPlan(gaps(), addressed: {'skills', 'experience'});
+      final ids = plan.map((s) => s.id);
+      expect(ids, isNot(contains('gap.skills')));
+      expect(ids, isNot(contains('exp.gate')));
+      expect(ids, contains('gap.area')); // os outros ainda são perguntados
+    });
+
+    test('memória: tudo abordado → plano vazio', () {
+      final plan = buildConversationPlan(gaps(), addressed: {
+        'area',
+        'workmode',
+        'jobtype',
+        'city',
+        'skills',
+        'languages',
+        'experience',
+      });
+      expect(plan, isEmpty);
+    });
   });
 }
