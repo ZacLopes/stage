@@ -15,6 +15,7 @@ import '../resume/widgets/template_thumbnail_generator_screen.dart';
 import '../trilha/application/conversation_controller.dart';
 import '../trilha/demo/demo_conversation.dart';
 import '../trilha/presentation/conversation_screen.dart';
+import '../trilha/presentation/trilha_loader_screen.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../../core/utils/app_notifications.dart';
 import '../../services/analytics_events.dart';
@@ -358,6 +359,21 @@ class _SettingsScreenState extends State<SettingsScreen>
                             controller:
                                 ConversationController(buildDemoConversation()),
                           ),
+                        ),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  _SettingsTile(
+                    icon: Icons.auto_awesome_motion_rounded,
+                    title: 'Trilha de coleta (REAL — grava no perfil)',
+                    subtitle: 'Adaptativa: pergunta só o que falta e salva em profile_*',
+                    iconColor: AppColors.success,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const TrilhaLoaderScreen(),
                         ),
                       );
                     },

@@ -15,12 +15,14 @@ import '../domain/conversation_step.dart';
 
 /// Lacunas que esta fase (Increment 2) sabe coletar conversacionalmente.
 /// `experience` → Increment 3 · `summary` → Increment 4 (gerado, não perguntado).
+/// `educationStatus` fica de fora: já é coletado no onboarding (com instituição
+/// e curso); re-perguntar só o status aqui geraria um registro pobre. Área/
+/// modalidade/tipo/cidade entram só pra RECUPERAR quem veio do bypass sem elas.
 const Set<LacunaKey> kPlannableGaps = {
   LacunaKey.area,
   LacunaKey.workMode,
   LacunaKey.jobType,
   LacunaKey.city,
-  LacunaKey.educationStatus,
   LacunaKey.skills,
   LacunaKey.languages,
 };
@@ -39,7 +41,6 @@ List<ConversationStep> buildConversationPlan(ProfileGaps gaps) {
     if (toCollect.contains(LacunaKey.workMode)) _workMode(),
     if (toCollect.contains(LacunaKey.jobType)) _jobType(),
     if (toCollect.contains(LacunaKey.city)) _city(),
-    if (toCollect.contains(LacunaKey.educationStatus)) _educationStatus(),
     // Substância leve.
     if (toCollect.contains(LacunaKey.skills)) _skills(),
     if (toCollect.contains(LacunaKey.languages)) _languages(),
@@ -121,20 +122,6 @@ ConversationStep _city() => ConversationStep.single(
         hint: 'Cidade e estado',
         maxLength: 60,
         minLines: 1,
-      ),
-    );
-
-ConversationStep _educationStatus() => ConversationStep.single(
-      id: 'gap.education',
-      aiMessage: 'Em que momento de estudo você está agora?',
-      input: const ChoiceInput(
-        options: [
-          StepOption(id: 'school', label: 'Na escola'),
-          StepOption(id: 'college', label: 'Na faculdade'),
-          StepOption(id: 'paused', label: 'Tranquei a faculdade'),
-          StepOption(id: 'graduated', label: 'Já me formei'),
-          StepOption(id: 'not_studying', label: 'Não estou estudando'),
-        ],
       ),
     );
 

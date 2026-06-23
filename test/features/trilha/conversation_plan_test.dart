@@ -30,7 +30,7 @@ void main() {
       );
 
   group('buildConversationPlan', () {
-    test('perfil oco: pergunta tudo o que esta fase cobre (intro + 7)', () {
+    test('perfil oco: pergunta tudo o que esta fase cobre (intro + 6)', () {
       final plan = buildConversationPlan(gaps());
       final ids = plan.map((s) => s.id).toList();
       expect(ids.first, 'intro');
@@ -41,12 +41,13 @@ void main() {
           'gap.workmode',
           'gap.jobtype',
           'gap.city',
-          'gap.education',
           'gap.skills',
           'gap.languages',
         ]),
       );
-      expect(plan, hasLength(8)); // intro + 7
+      // Educação NÃO é coletada aqui (já vem do onboarding).
+      expect(ids, isNot(contains('gap.education')));
+      expect(plan, hasLength(7)); // intro + 6
     });
 
     test('perfil completo (só faltam experiência/resumo): plano vazio', () {
