@@ -5,6 +5,8 @@
 // é a fonte da verdade da progressão; esta tela traduz isso num fio de bolhas
 // que aparece com timing humano (indicador de digitação, revelação gradual).
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/theme.dart';
@@ -51,6 +53,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
   bool _typing = false;
   bool _inputVisible = false;
   bool _finished = false;
+
+  /// Progresso exibido — NUNCA regride. A trilha é dinâmica (passos são
+  /// injetados no loop de experiência), então o denominador cresce; sem isso a
+  /// barra pularia pra trás. Mantemos o máximo já atingido.
+  double _shownProgress = 0.0;
 
   ConversationController get _c => widget.controller;
 
@@ -108,6 +115,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     // Write-back (defensivo no controller).
     await _c.submit(answer);
     if (!mounted) return;
+    _shownProgress = math.max(_shownProgress, _c.progress);
 
     // Reação da IA ao que foi respondido.
     final ack = step.acknowledgement;
@@ -198,7 +206,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
           ClipRRect(
             borderRadius: AppRadius.brPill,
             child: LinearProgressIndicator(
-              value: _finished ? 1.0 : _c.progress,
+              value: _finished ? 1.0 : _shownProgress,
               minHeight: 6,
               backgroundColor: AppColors.border,
               valueColor:
