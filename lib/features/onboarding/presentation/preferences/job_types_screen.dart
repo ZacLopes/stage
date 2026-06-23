@@ -72,28 +72,6 @@ class _JobTypesScreenState extends State<JobTypesScreen> {
     );
   }
 
-  Future<void> _skip() async {
-    if (_saving) return;
-    // ignore: unawaited_futures
-    Analytics.shared.onboardingPrefStepSkipped(
-      step: 5,
-      stepName: 'job_types',
-    );
-    final vm = context.read<PreferencesViewModel>();
-    setState(() => _saving = true);
-    final ok = await saveWithRetry(
-      context: context,
-      operation: () => vm.setJobTypes(_selected.toList()),
-    );
-    if (!mounted) return;
-    setState(() => _saving = false);
-    if (!ok) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const OnboardingCompleteScreen()),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return OnboardingScaffold(
@@ -102,13 +80,6 @@ class _JobTypesScreenState extends State<JobTypesScreen> {
       progress: 0.94,
       continueLabel: _saving ? 'Salvando…' : 'Continuar',
       onContinue: (_selected.isEmpty || _saving) ? null : _next,
-      skipButton: (_selected.isNotEmpty || _saving)
-          ? null
-          : TextButton(
-              onPressed: _skip,
-              style: TextButton.styleFrom(foregroundColor: AppColors.textTertiary),
-              child: const Text('Pular etapa'),
-            ),
       child: Column(
         children: _options.map((tuple) {
           final value = tuple.$1;
