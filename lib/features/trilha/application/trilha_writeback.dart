@@ -57,6 +57,9 @@ class TrilhaWriteback {
       case 'gap.languages':
         await _saveLanguages(_ids(answer));
         break;
+      case 'gap.availability':
+        await _saveAvailability(_ids(answer));
+        break;
       default:
         break; // 'intro' e desconhecidos
     }
@@ -149,6 +152,15 @@ class TrilhaWriteback {
     await _repo.addCertification(
       Certification(id: '', userId: userId, name: name),
     );
+  }
+
+  // ── Disponibilidade → profile_personal.availability ──────────────────────
+  Future<void> _saveAvailability(List<String> ids) async {
+    final id = ids.isNotEmpty ? ids.first.trim() : '';
+    if (id.isEmpty) return;
+    final existing =
+        await _repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
+    await _repo.upsertPersonal(existing.copyWith(availability: id));
   }
 
   // ── Habilidades → profile_skills (merge dedup) ───────────────────────────

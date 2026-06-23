@@ -44,6 +44,7 @@ List<ConversationStep> buildConversationPlan(
     if (wants(LacunaKey.linkedin, 'linkedin')) _linkedinGate(),
     if (wants(LacunaKey.certifications, 'certifications')) _certGate(),
     if (wants(LacunaKey.projects, 'projects')) _projectGate(),
+    if (wants(LacunaKey.availability, 'availability')) _availabilityStep(),
   ];
   if (steps.isEmpty) return const [];
   return [_intro(), ...steps];
@@ -379,3 +380,17 @@ List<ConversationStep> _projectItem(int n) => [
         expand: (a) => _answeredYes(a) ? _projectItem(n + 1) : const [],
       ),
     ];
+
+// ── Extra: Disponibilidade ───────────────────────────────────────────────────
+
+ConversationStep _availabilityStep() => ConversationStep.single(
+      id: 'gap.availability',
+      aiMessage: 'Por último: quando você poderia começar?',
+      input: const ChoiceInput(options: [
+        StepOption(id: 'immediate', label: 'Imediatamente'),
+        StepOption(id: 'within_month', label: 'Em até 1 mês'),
+        StepOption(id: 'after_graduation', label: 'Após me formar'),
+        StepOption(id: 'flexible', label: 'Tenho flexibilidade'),
+      ]),
+      acknowledgement: 'Perfeito, anotado!',
+    );

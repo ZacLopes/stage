@@ -30,6 +30,7 @@ class PersonalInfo {
   final String? locationStreetAddress;
   final String? linkedinUrl;
   final String? website;
+  final String? availability;
   final String? attributionSource;
   final ProfileSource? profileSource;
   final int completenessScore;
@@ -55,6 +56,7 @@ class PersonalInfo {
     this.locationStreetAddress,
     this.linkedinUrl,
     this.website,
+    this.availability,
     this.attributionSource,
     this.profileSource,
     this.completenessScore = 0,
@@ -98,6 +100,7 @@ class PersonalInfo {
       'location_street_address': locationStreetAddress,
       'linkedin_url': linkedinUrl,
       'website': website,
+      'availability': availability,
       'attribution_source': attributionSource,
       'profile_source': _profileSourceToDb(profileSource),
       'completeness_score': completenessScore,
@@ -126,6 +129,7 @@ class PersonalInfo {
       locationStreetAddress: map['location_street_address'] as String?,
       linkedinUrl: map['linkedin_url'] as String?,
       website: map['website'] as String?,
+      availability: map['availability'] as String?,
       attributionSource: map['attribution_source'] as String?,
       profileSource: _profileSourceFromDb(map['profile_source'] as String?),
       completenessScore: (map['completeness_score'] as num?)?.toInt() ?? 0,
@@ -157,6 +161,7 @@ class PersonalInfo {
     String? locationStreetAddress,
     String? linkedinUrl,
     String? website,
+    String? availability,
     String? attributionSource,
     ProfileSource? profileSource,
     int? completenessScore,
@@ -182,6 +187,7 @@ class PersonalInfo {
       locationStreetAddress: locationStreetAddress ?? this.locationStreetAddress,
       linkedinUrl: linkedinUrl ?? this.linkedinUrl,
       website: website ?? this.website,
+      availability: availability ?? this.availability,
       attributionSource: attributionSource ?? this.attributionSource,
       profileSource: profileSource ?? this.profileSource,
       completenessScore: completenessScore ?? this.completenessScore,

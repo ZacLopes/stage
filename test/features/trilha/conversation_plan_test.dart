@@ -20,6 +20,7 @@ void main() {
     bool hasLinkedin = true, // extras default "presentes" pra não poluir os
     bool hasCertifications = true, // testes do core; testes de extra passam false
     bool hasProjects = true,
+    bool hasAvailability = true,
   }) =>
       analyzeProfileGaps(
         hasArea: hasArea,
@@ -34,6 +35,7 @@ void main() {
         hasLinkedin: hasLinkedin,
         hasCertifications: hasCertifications,
         hasProjects: hasProjects,
+        hasAvailability: hasAvailability,
       );
 
   group('buildConversationPlan', () {
@@ -100,9 +102,14 @@ void main() {
         hasLinkedin: false,
         hasCertifications: false,
         hasProjects: false,
+        hasAvailability: false,
       ));
       final ids = plan.map((s) => s.id);
-      expect(ids, containsAll(['linkedin.gate', 'cert.gate', 'project.gate']));
+      expect(
+        ids,
+        containsAll(
+            ['linkedin.gate', 'cert.gate', 'project.gate', 'gap.availability']),
+      );
       // gate expande na resposta "sim".
       final certGate = plan.firstWhere((s) => s.id == 'cert.gate');
       final yes = certGate.expand!(StepAnswer.choice(

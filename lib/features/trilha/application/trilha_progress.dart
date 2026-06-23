@@ -50,6 +50,8 @@ class TrilhaProgress {
         return 'skills';
       case 'gap.languages':
         return 'languages';
+      case 'gap.availability':
+        return 'availability';
       case 'exp.gate':
         return 'experience';
       case 'linkedin.gate':

@@ -242,5 +242,10 @@ void main() {
       await wb.save(choice('project.0.more', ['no']));
       expect(repo.addedProjects, isEmpty);
     });
+
+    test('disponibilidade: grava o id da opção em profile_personal', () async {
+      await wb.save(choice('gap.availability', ['within_month']));
+      expect(repo.upsertedPersonal?.availability, 'within_month');
+    });
   });
 }
