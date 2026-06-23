@@ -17,6 +17,7 @@ class TrilhaWriteback {
   /// Acumula os campos de cada experiência (coletados em passos separados) até
   /// ter o suficiente pra gravar. Chave = índice 'n' do passo 'exp.{n}.*'.
   final Map<int, _ExpBuffer> _expBuffers = {};
+  final Map<int, _ProjBuffer> _projBuffers = {};
 
   TrilhaWriteback(this._repo, this.userId);
 
@@ -28,6 +29,10 @@ class TrilhaWriteback {
     }
     if (answer.stepId.startsWith('cert.') && answer.stepId.endsWith('.name')) {
       await _saveCertification(_text(answer));
+      return;
+    }
+    if (answer.stepId.startsWith('project.')) {
+      await _handleProject(answer);
       return;
     }
     switch (answer.stepId) {
@@ -257,6 +262,41 @@ class TrilhaWriteback {
     _expBuffers.remove(n);
   }
 
+  // ── Projetos → profile_projects (acumula name + desc) ────────────────────
+  Future<void> _handleProject(StepAnswer a) async {
+    final parts = a.stepId.split('.'); // project.{n}.{field}
+    if (parts.length < 3) return; // 'project.gate'
+    final n = int.tryParse(parts[1]);
+    if (n == null) return;
+    final buf = _projBuffers.putIfAbsent(n, () => _ProjBuffer());
+    switch (parts[2]) {
+      case 'name':
+        buf.name = _text(a);
+        break;
+      case 'desc':
+        buf.desc = _text(a);
+        await _saveProject(n, buf);
+        break;
+      // 'more' → controle, no-op
+    }
+  }
+
+  Future<void> _saveProject(int n, _ProjBuffer buf) async {
+    final name = buf.name?.trim() ?? '';
+    if (name.isEmpty) {
+      _projBuffers.remove(n);
+      return;
+    }
+    final desc = buf.desc?.trim();
+    await _repo.addProject(Project(
+      id: '',
+      userId: userId,
+      name: name,
+      description: (desc != null && desc.isNotEmpty) ? desc : null,
+    ));
+    _projBuffers.remove(n);
+  }
+
   DateTime? _parseMonth(String yyyymm) {
     final m = RegExp(r'^(\d{4})-(\d{2})$').firstMatch(yyyymm.trim());
     if (m == null) return null;
@@ -277,4 +317,10 @@ class _ExpBuffer {
   DateTime? end;
   bool? isCurrent;
   String? ofazia;
+}
+
+/// Buffer dos campos de um projeto em construção.
+class _ProjBuffer {
+  String? name;
+  String? desc;
 }

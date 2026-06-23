@@ -43,6 +43,7 @@ List<ConversationStep> buildConversationPlan(
     // Extras (Tier 3): só pergunta se faltam e não foram abordados.
     if (wants(LacunaKey.linkedin, 'linkedin')) _linkedinGate(),
     if (wants(LacunaKey.certifications, 'certifications')) _certGate(),
+    if (wants(LacunaKey.projects, 'projects')) _projectGate(),
   ];
   if (steps.isEmpty) return const [];
   return [_intro(), ...steps];
@@ -325,5 +326,56 @@ List<ConversationStep> _certItem(int n) => [
           StepOption(id: 'no', label: 'Não, é só'),
         ]),
         expand: (a) => _answeredYes(a) ? _certItem(n + 1) : const [],
+      ),
+    ];
+
+// ── Extra: Projetos (dinâmico) ───────────────────────────────────────────────
+
+ConversationStep _projectGate() => ConversationStep(
+      id: 'project.gate',
+      aiMessages: const [
+        'Você fez algum projeto pessoal, acadêmico ou freelance? (app, TCC, '
+            'iniciativa, freela…) Conta muito, especialmente com pouca '
+            'experiência formal.',
+      ],
+      input: const ChoiceInput(options: [
+        StepOption(id: 'yes', label: 'Já sim'),
+        StepOption(id: 'no', label: 'Não'),
+      ]),
+      expand: (a) => _answeredYes(a) ? _projectItem(0) : const [],
+    );
+
+List<ConversationStep> _projectItem(int n) => [
+      ConversationStep.single(
+        id: 'project.$n.name',
+        aiMessage: n == 0 ? 'Qual o nome do projeto?' : 'E o nome desse?',
+        input: const GuidedTextInput(
+          example: 'App de finanças pessoais',
+          hint: 'Nome do projeto',
+          maxLength: 80,
+          minLines: 1,
+        ),
+      ),
+      ConversationStep(
+        id: 'project.$n.desc',
+        aiMessages: const [
+          'Em poucas palavras: o que era e o que você fez? Pode ser do seu jeito.',
+        ],
+        input: const GuidedTextInput(
+          example:
+              'Criei um app em Flutter pra controlar gastos; teve 200 downloads',
+          maxLength: 240,
+          minLines: 3,
+        ),
+        acknowledgement: 'Massa! Isso enriquece bastante seu perfil. ✨',
+      ),
+      ConversationStep.single(
+        id: 'project.$n.more',
+        aiMessage: 'Quer adicionar outro projeto?',
+        input: const ChoiceInput(options: [
+          StepOption(id: 'yes', label: 'Sim, tenho mais'),
+          StepOption(id: 'no', label: 'Não, é só'),
+        ]),
+        expand: (a) => _answeredYes(a) ? _projectItem(n + 1) : const [],
       ),
     ];

@@ -33,6 +33,7 @@ enum LacunaKey {
   // Tier 3 — extras (PLANO-FASE-6: certs/projetos/LinkedIn).
   linkedin,
   certifications,
+  projects,
 }
 
 /// Skills mínimas pra um perfil contar como "tem habilidades" — abaixo disso o
@@ -121,6 +122,7 @@ ProfileGaps analyzeProfileGaps({
   required bool hasSummary,
   bool hasLinkedin = false,
   bool hasCertifications = false,
+  bool hasProjects = false,
 }) {
   final list = <Lacuna>[
     // Tier 1 — filtros duros, ordem do mais barato (clique) ao mais "rico".
@@ -192,6 +194,12 @@ ProfileGaps analyzeProfileGaps({
       label: 'Certificações',
       filled: hasCertifications,
     ),
+    Lacuna(
+      key: LacunaKey.projects,
+      tier: LacunaTier.tier3,
+      label: 'Projetos',
+      filled: hasProjects,
+    ),
   ];
   return ProfileGaps(list);
 }
@@ -227,5 +235,6 @@ ProfileGaps profileGapsFromData({
     hasSummary: personal?.summary?.trim().isNotEmpty ?? false,
     hasLinkedin: personal?.linkedinUrl?.trim().isNotEmpty ?? false,
     hasCertifications: snapshot.certifications.isNotEmpty,
+    hasProjects: snapshot.projects.isNotEmpty,
   );
 }

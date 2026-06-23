@@ -88,6 +88,13 @@ class _FakeRepo implements ProfileRepository {
     return c;
   }
 
+  final List<Project> addedProjects = [];
+  @override
+  Future<Project> addProject(Project p) async {
+    addedProjects.add(p);
+    return p;
+  }
+
   @override
   dynamic noSuchMethod(Invocation i) =>
       throw UnimplementedError('${i.memberName} não deveria ser chamado');
@@ -219,6 +226,21 @@ void main() {
       await wb.save(choice('cert.0.more', ['no']));
       expect(repo.addedCerts, isEmpty);
       expect(repo.upsertedPersonal, isNull);
+    });
+
+    test('projeto: acumula name + desc e grava', () async {
+      await wb.save(StepAnswer.text('project.0.name', 'App de finanças'));
+      expect(repo.addedProjects, isEmpty); // ainda falta a descrição
+      await wb.save(
+          StepAnswer.text('project.0.desc', 'Criei em Flutter, 200 downloads'));
+      expect(repo.addedProjects.map((p) => p.name), ['App de finanças']);
+      expect(repo.addedProjects.first.description, 'Criei em Flutter, 200 downloads');
+    });
+
+    test('project.gate e .more: no-op de controle', () async {
+      await wb.save(choice('project.gate', ['yes']));
+      await wb.save(choice('project.0.more', ['no']));
+      expect(repo.addedProjects, isEmpty);
     });
   });
 }

@@ -56,6 +56,8 @@ class TrilhaProgress {
         return 'linkedin';
       case 'cert.gate':
         return 'certifications';
+      case 'project.gate':
+        return 'projects';
     }
     return null;
   }
