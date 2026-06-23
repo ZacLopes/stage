@@ -86,5 +86,45 @@ void main() {
       expect(a.value, 'organizei um evento');
       expect(a.displayText, 'organizei um evento');
     });
+
+    test('expand injeta passos dinâmicos logo após a resposta', () async {
+      final steps = [
+        ConversationStep.single(
+          id: 'gate',
+          aiMessage: 'mais?',
+          input: const ChoiceInput(options: [StepOption(id: 'yes', label: 'Sim')]),
+          expand: (a) => [
+            ConversationStep.single(
+              id: 'extra',
+              aiMessage: 'extra',
+              input: const ChoiceInput(options: [StepOption(id: 'ok', label: 'Ok')]),
+            ),
+          ],
+        ),
+      ];
+      final c = ConversationController(steps);
+      expect(c.totalSteps, 1);
+      await c.submit(
+          StepAnswer.choice('gate', const [StepOption(id: 'yes', label: 'Sim')]));
+      // O passo injetado virou o atual; a trilha não terminou.
+      expect(c.current?.id, 'extra');
+      expect(c.totalSteps, 2);
+      expect(c.isDone, false);
+    });
+
+    test('expand vazio: nada injetado, trilha segue normal', () async {
+      final steps = [
+        ConversationStep.single(
+          id: 'gate',
+          aiMessage: 'mais?',
+          input: const ChoiceInput(options: [StepOption(id: 'no', label: 'Não')]),
+          expand: (a) => const [],
+        ),
+      ];
+      final c = ConversationController(steps);
+      await c.submit(
+          StepAnswer.choice('gate', const [StepOption(id: 'no', label: 'Não')]));
+      expect(c.isDone, true);
+    });
   });
 }

@@ -56,6 +56,31 @@ class _FakeRepo implements ProfileRepository {
     return p;
   }
 
+  final List<Experience> addedExps = [];
+  final List<Bullet> addedBullets = [];
+  int _expSeq = 0;
+  @override
+  Future<Experience> addExperience(Experience e) async {
+    final saved = Experience(
+      id: 'exp${_expSeq++}',
+      userId: e.userId,
+      title: e.title,
+      company: e.company,
+      startDate: e.startDate,
+      endDate: e.endDate,
+      isCurrent: e.isCurrent,
+      needsReview: e.needsReview,
+    );
+    addedExps.add(saved);
+    return saved;
+  }
+
+  @override
+  Future<Bullet> addBullet(Bullet b) async {
+    addedBullets.add(b);
+    return b;
+  }
+
   @override
   dynamic noSuchMethod(Invocation i) =>
       throw UnimplementedError('${i.memberName} não deveria ser chamado');
@@ -121,6 +146,53 @@ void main() {
       expect(repo.upsertedPrefs, isNull);
       expect(repo.upsertedPersonal, isNull);
       expect(repo.addedLangs, isEmpty);
+    });
+
+    test('experiência: acumula os campos e grava experiência + bullet', () async {
+      await wb.save(StepAnswer.text('exp.0.company', 'Magalu'));
+      await wb.save(StepAnswer.text('exp.0.role', 'Estagiário'));
+      await wb.save(StepAnswer.monthYear('exp.0.start', 2024, 3));
+      await wb.save(choice('exp.0.current', ['no']));
+      await wb.save(StepAnswer.monthYear('exp.0.end', 2024, 12));
+      // Ainda não gravou — falta o "o que fazia".
+      expect(repo.addedExps, isEmpty);
+
+      await wb.save(StepAnswer.text('exp.0.ofazia', 'Cuidava das redes sociais'));
+      expect(repo.addedExps, hasLength(1));
+      final e = repo.addedExps.first;
+      expect(e.company, 'Magalu');
+      expect(e.title, 'Estagiário');
+      expect(e.startDate, DateTime(2024, 3, 1));
+      expect(e.endDate, DateTime(2024, 12, 1));
+      expect(e.isCurrent, false);
+      expect(repo.addedBullets, hasLength(1));
+      expect(repo.addedBullets.first.text, 'Cuidava das redes sociais');
+      expect(repo.addedBullets.first.experienceId, e.id);
+    });
+
+    test('experiência atual: sem data de fim, isCurrent true', () async {
+      await wb.save(StepAnswer.text('exp.0.company', 'Stage'));
+      await wb.save(StepAnswer.text('exp.0.role', 'Dev'));
+      await wb.save(StepAnswer.monthYear('exp.0.start', 2025, 1));
+      await wb.save(choice('exp.0.current', ['yes']));
+      await wb.save(StepAnswer.text('exp.0.ofazia', 'Codo bastante'));
+      final e = repo.addedExps.single;
+      expect(e.isCurrent, true);
+      expect(e.endDate, isNull);
+    });
+
+    test('exp.gate e exp.N.more: no-op (controle de fluxo)', () async {
+      await wb.save(choice('exp.gate', ['yes']));
+      await wb.save(choice('exp.0.more', ['no']));
+      expect(repo.addedExps, isEmpty);
+      expect(repo.addedBullets, isEmpty);
+    });
+
+    test('experiência incompleta (sem cargo): não grava', () async {
+      await wb.save(StepAnswer.text('exp.0.company', 'Magalu'));
+      await wb.save(StepAnswer.monthYear('exp.0.start', 2024, 3));
+      await wb.save(StepAnswer.text('exp.0.ofazia', 'algo'));
+      expect(repo.addedExps, isEmpty); // faltou role
     });
   });
 }

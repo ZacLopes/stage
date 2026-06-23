@@ -30,7 +30,7 @@ class ConversationController extends ChangeNotifier {
   final Future<void> Function(StepAnswer answer)? onAnswer;
 
   ConversationController(List<ConversationStep> steps, {this.onAnswer})
-      : _steps = List.unmodifiable(steps);
+      : _steps = List.of(steps);
 
   int _index = 0;
   final List<ConversationExchange> _history = [];
@@ -81,6 +81,15 @@ class ConversationController extends ChangeNotifier {
 
     _history.add(ConversationExchange(step: step, answer: answer));
     _index++;
+
+    // Passos DINÂMICOS: o passo pode injetar follow-ups (loops "adicionar
+    // outra?", ramos condicionais) logo após a posição atual.
+    final expand = step.expand;
+    if (expand != null) {
+      final more = expand(answer);
+      if (more.isNotEmpty) _steps.insertAll(_index, more);
+    }
+
     _saving = false;
     notifyListeners();
   }

@@ -14,10 +14,18 @@ class TrilhaWriteback {
   final ProfileRepository _repo;
   final String userId;
 
+  /// Acumula os campos de cada experiência (coletados em passos separados) até
+  /// ter o suficiente pra gravar. Chave = índice 'n' do passo 'exp.{n}.*'.
+  final Map<int, _ExpBuffer> _expBuffers = {};
+
   TrilhaWriteback(this._repo, this.userId);
 
   /// Grava uma resposta. Passos sem mapeamento (ex.: 'intro') são no-op.
   Future<void> save(StepAnswer answer) async {
+    if (answer.stepId.startsWith('exp.')) {
+      await _handleExperience(answer);
+      return;
+    }
     switch (answer.stepId) {
       case 'gap.area':
         await _saveAreas(_ids(answer));
@@ -166,4 +174,82 @@ class TrilhaWriteback {
     }
     return null;
   }
+
+  // ── Experiência → profile_experiences + 1 bullet (acumula campos) ────────
+  Future<void> _handleExperience(StepAnswer a) async {
+    final parts = a.stepId.split('.'); // exp.{n}.{field}
+    if (parts.length < 3) return; // 'exp.gate' etc.
+    final n = int.tryParse(parts[1]);
+    if (n == null) return;
+    final field = parts[2];
+    final buf = _expBuffers.putIfAbsent(n, () => _ExpBuffer());
+    switch (field) {
+      case 'company':
+        buf.company = _text(a);
+        break;
+      case 'role':
+        buf.role = _text(a);
+        break;
+      case 'start':
+        buf.start = _parseMonth(_text(a));
+        break;
+      case 'current':
+        buf.isCurrent = _yes(a);
+        break;
+      case 'end':
+        buf.end = _parseMonth(_text(a));
+        break;
+      case 'ofazia':
+        buf.ofazia = _text(a);
+        await _saveExperience(n, buf);
+        break;
+      // 'more' → controle de fluxo, no-op
+    }
+  }
+
+  Future<void> _saveExperience(int n, _ExpBuffer buf) async {
+    final company = buf.company?.trim() ?? '';
+    final role = buf.role?.trim() ?? '';
+    if (company.isEmpty || role.isEmpty || buf.start == null) {
+      _expBuffers.remove(n);
+      return;
+    }
+    final exp = Experience(
+      id: '',
+      userId: userId,
+      title: role,
+      company: company,
+      startDate: buf.start!,
+      endDate: buf.isCurrent == true ? null : buf.end,
+      isCurrent: buf.isCurrent == true,
+      needsReview: true, // veio da trilha; refino do bullet pela IA vem depois
+    );
+    final saved = await _repo.addExperience(exp);
+    final raw = buf.ofazia?.trim() ?? '';
+    if (raw.isNotEmpty) {
+      await _repo.addBullet(Bullet(id: '', experienceId: saved.id, text: raw));
+    }
+    _expBuffers.remove(n);
+  }
+
+  DateTime? _parseMonth(String yyyymm) {
+    final m = RegExp(r'^(\d{4})-(\d{2})$').firstMatch(yyyymm.trim());
+    if (m == null) return null;
+    final month = int.parse(m.group(2)!);
+    if (month < 1 || month > 12) return null;
+    return DateTime(int.parse(m.group(1)!), month, 1);
+  }
+
+  bool _yes(StepAnswer a) =>
+      a.value is List && (a.value as List).contains('yes');
+}
+
+/// Buffer temporário dos campos de uma experiência em construção.
+class _ExpBuffer {
+  String? company;
+  String? role;
+  DateTime? start;
+  DateTime? end;
+  bool? isCurrent;
+  String? ofazia;
 }

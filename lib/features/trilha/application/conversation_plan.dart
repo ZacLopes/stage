@@ -31,21 +31,27 @@ const Set<LacunaKey> kPlannableGaps = {
 /// (dentre o que esta fase cobre) pra coletar.
 List<ConversationStep> buildConversationPlan(ProfileGaps gaps) {
   final missing = gaps.missing.map((l) => l.key).toSet();
-  final toCollect = missing.intersection(kPlannableGaps);
-  if (toCollect.isEmpty) return const [];
+  final prefsAndSkills = missing.intersection(kPlannableGaps);
+  final wantsExperience = missing.contains(LacunaKey.experience);
+  if (prefsAndSkills.isEmpty && !wantsExperience) return const [];
 
   return [
     _intro(),
     // Preferências (cliques rápidos) primeiro.
-    if (toCollect.contains(LacunaKey.area)) _area(),
-    if (toCollect.contains(LacunaKey.workMode)) _workMode(),
-    if (toCollect.contains(LacunaKey.jobType)) _jobType(),
-    if (toCollect.contains(LacunaKey.city)) _city(),
+    if (missing.contains(LacunaKey.area)) _area(),
+    if (missing.contains(LacunaKey.workMode)) _workMode(),
+    if (missing.contains(LacunaKey.jobType)) _jobType(),
+    if (missing.contains(LacunaKey.city)) _city(),
     // Substância leve.
-    if (toCollect.contains(LacunaKey.skills)) _skills(),
-    if (toCollect.contains(LacunaKey.languages)) _languages(),
+    if (missing.contains(LacunaKey.skills)) _skills(),
+    if (missing.contains(LacunaKey.languages)) _languages(),
+    // Experiência (DINÂMICA): o coração — entrevista um campo por vez, com loop
+    // "adicionar outra?". Cada item gera profile_experiences + 1 bullet.
+    if (wantsExperience) _experienceGate(),
   ];
 }
+
+bool _answeredYes(StepAnswer a) => a.value is List && (a.value as List).contains('yes');
 
 // ── Passos ──────────────────────────────────────────────────────────────────
 
@@ -172,3 +178,93 @@ ConversationStep _languages() => ConversationStep.single(
         ],
       ),
     );
+
+// ── Experiência (dinâmica) ───────────────────────────────────────────────────
+
+ConversationStep _experienceGate() => ConversationStep(
+      id: 'exp.gate',
+      aiMessages: const [
+        'Agora a parte que mais conta pras empresas: suas experiências.',
+        'Você já trabalhou, estagiou, fez algum projeto ou voluntariado? Vale '
+            'qualquer coisa — mesmo curta, informal ou sem salário.',
+      ],
+      input: const ChoiceInput(options: [
+        StepOption(id: 'yes', label: 'Já sim'),
+        StepOption(id: 'no', label: 'Ainda não'),
+      ]),
+      expand: (a) => _answeredYes(a) ? _experienceItem(0) : const [],
+    );
+
+List<ConversationStep> _experienceItem(int n) => [
+      ConversationStep.single(
+        id: 'exp.$n.company',
+        aiMessage: n == 0
+            ? 'Bora! Qual foi a empresa ou organização?'
+            : 'E a empresa/organização dessa?',
+        input: const GuidedTextInput(
+          example: 'Magazine Luiza',
+          hint: 'Nome da empresa',
+          maxLength: 80,
+          minLines: 1,
+        ),
+      ),
+      ConversationStep.single(
+        id: 'exp.$n.role',
+        aiMessage: 'Qual era seu cargo ou função lá?',
+        input: const GuidedTextInput(
+          example: 'Estagiário de Marketing',
+          hint: 'Seu cargo',
+          maxLength: 80,
+          minLines: 1,
+        ),
+      ),
+      ConversationStep.single(
+        id: 'exp.$n.start',
+        aiMessage: 'Quando você começou?',
+        input: const MonthYearInput(),
+      ),
+      ConversationStep.single(
+        id: 'exp.$n.current',
+        aiMessage: 'Você ainda está nessa experiência?',
+        input: const ChoiceInput(options: [
+          StepOption(id: 'yes', label: 'Sim, ainda estou'),
+          StepOption(id: 'no', label: 'Não, já saí'),
+        ]),
+        expand: (a) => _answeredYes(a)
+            ? _experienceTail(n)
+            : [_endStep(n), ..._experienceTail(n)],
+      ),
+    ];
+
+ConversationStep _endStep(int n) => ConversationStep.single(
+      id: 'exp.$n.end',
+      aiMessage: 'E quando terminou?',
+      input: const MonthYearInput(),
+    );
+
+List<ConversationStep> _experienceTail(int n) => [
+      ConversationStep(
+        id: 'exp.$n.ofazia',
+        aiMessages: const [
+          'Agora o mais importante: o que você fazia lá? Conta 1-2 coisas '
+              'concretas, do seu jeito — eu organizo depois. 😉',
+        ],
+        input: const GuidedTextInput(
+          example:
+              'Cuidava das redes sociais e criei posts que aumentaram o engajamento',
+          maxLength: 240,
+          minLines: 3,
+        ),
+        acknowledgement:
+            'Show! Vou guardar isso pra montar um bullet caprichado no seu CV. ✨',
+      ),
+      ConversationStep.single(
+        id: 'exp.$n.more',
+        aiMessage: 'Quer adicionar outra experiência?',
+        input: const ChoiceInput(options: [
+          StepOption(id: 'yes', label: 'Sim, tenho mais'),
+          StepOption(id: 'no', label: 'Não, é só essa'),
+        ]),
+        expand: (a) => _answeredYes(a) ? _experienceItem(n + 1) : const [],
+      ),
+    ];

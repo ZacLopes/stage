@@ -30,6 +30,8 @@ class StepInputView extends StatefulWidget {
 class _StepInputViewState extends State<StepInputView> {
   final Set<String> _selectedIds = {};
   final TextEditingController _textController = TextEditingController();
+  int? _myMonth;
+  int? _myYear;
 
   @override
   void initState() {
@@ -44,6 +46,8 @@ class _StepInputViewState extends State<StepInputView> {
     if (old.step.id != widget.step.id) {
       _selectedIds.clear();
       _textController.clear();
+      _myMonth = null;
+      _myYear = null;
     }
   }
 
@@ -59,6 +63,7 @@ class _StepInputViewState extends State<StepInputView> {
     return switch (input) {
       ChoiceInput() => _buildChoice(input),
       GuidedTextInput() => _buildGuidedText(input),
+      MonthYearInput() => _buildMonthYear(input),
     };
   }
 
@@ -153,6 +158,87 @@ class _StepInputViewState extends State<StepInputView> {
               : () => widget.onSubmit(StepAnswer.text(widget.step.id, text)),
         ),
       ],
+    );
+  }
+
+  // ── Mês/Ano ──────────────────────────────────────────────────────────────
+  static const _monthLabels = [
+    'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
+    'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
+  ];
+
+  Widget _buildMonthYear(MonthYearInput input) {
+    final nowYear = DateTime.now().year;
+    final years = [for (var y = nowYear; y >= nowYear - input.yearsBack; y--) y];
+    final ready = _myMonth != null && _myYear != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _picker<int>(
+                hint: 'Mês',
+                value: _myMonth,
+                items: [
+                  for (var m = 1; m <= 12; m++)
+                    DropdownMenuItem(value: m, child: Text(_monthLabels[m - 1])),
+                ],
+                onChanged:
+                    widget.enabled ? (v) => setState(() => _myMonth = v) : null,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: _picker<int>(
+                hint: 'Ano',
+                value: _myYear,
+                items: [
+                  for (final y in years)
+                    DropdownMenuItem(value: y, child: Text('$y')),
+                ],
+                onChanged:
+                    widget.enabled ? (v) => setState(() => _myYear = v) : null,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.base),
+        PrimaryButton(
+          label: 'Confirmar',
+          onPressed: (ready && widget.enabled)
+              ? () => widget.onSubmit(
+                  StepAnswer.monthYear(widget.step.id, _myYear!, _myMonth!))
+              : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _picker<T>({
+    required String hint,
+    required T? value,
+    required List<DropdownMenuItem<T>> items,
+    required ValueChanged<T?>? onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.brMd,
+        border: Border.all(color: AppColors.border),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<T>(
+          isExpanded: true,
+          value: value,
+          hint: Text(hint,
+              style:
+                  AppTextStyles.bodyMd.copyWith(color: AppColors.textTertiary)),
+          items: items,
+          onChanged: onChanged,
+        ),
+      ),
     );
   }
 }

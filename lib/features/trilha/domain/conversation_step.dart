@@ -71,6 +71,16 @@ class GuidedTextInput extends StepInput {
   });
 }
 
+/// Seletor inline de mês + ano. Garante uma data real (1º dia do mês escolhido)
+/// — usado quando o campo exige DateTime (ex.: início de experiência).
+@immutable
+class MonthYearInput extends StepInput {
+  /// Quantos anos pra trás oferecer (default 15).
+  final int yearsBack;
+
+  const MonthYearInput({this.yearsBack = 15});
+}
+
 /// Um passo da conversa: a(s) fala(s) da IA + a entrada esperada + uma reação
 /// opcional da IA após responder (o "Massa!" que dá calor de conversa).
 @immutable
@@ -89,11 +99,18 @@ class ConversationStep {
   /// a IA segue direto pro próximo passo sem comentar.
   final String? acknowledgement;
 
+  /// Passos DINÂMICOS: dada a resposta deste passo, devolve passos a inserir
+  /// logo em seguida na fila. É o que permite loops (ex.: "adicionar outra
+  /// experiência?" → injeta mais um item) e ramos condicionais. Nulo = sem
+  /// expansão.
+  final List<ConversationStep> Function(StepAnswer answer)? expand;
+
   const ConversationStep({
     required this.id,
     required this.aiMessages,
     required this.input,
     this.acknowledgement,
+    this.expand,
   });
 
   /// Conveniência: passo com uma única bolha de fala.
@@ -102,11 +119,13 @@ class ConversationStep {
     required String aiMessage,
     required StepInput input,
     String? acknowledgement,
+    List<ConversationStep> Function(StepAnswer answer)? expand,
   }) : this(
           id: id,
           aiMessages: [aiMessage],
           input: input,
           acknowledgement: acknowledgement,
+          expand: expand,
         );
 }
 
@@ -138,5 +157,15 @@ class StepAnswer {
   factory StepAnswer.text(String stepId, String text) {
     final t = text.trim();
     return StepAnswer(stepId: stepId, value: t, displayText: t);
+  }
+
+  /// Resposta de mês/ano. `value` = 'YYYY-MM' (1º dia do mês na gravação).
+  factory StepAnswer.monthYear(String stepId, int year, int month) {
+    final mm = month.toString().padLeft(2, '0');
+    return StepAnswer(
+      stepId: stepId,
+      value: '$year-$mm',
+      displayText: '$mm/$year',
+    );
   }
 }
