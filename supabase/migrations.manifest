@@ -106,3 +106,4 @@
 20260623150000_trilha_coleta_flag.sql
 20260623180000_profile_personal_availability.sql
 20260623190000_profile_guided_progress.sql
+20260623200000_completeness_recalibrate_b.sql
