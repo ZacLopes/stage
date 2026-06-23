@@ -373,7 +373,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => const TrilhaLoaderScreen(),
+                          builder: (_) => const TrilhaLoaderScreen(source: 'dev'),
                         ),
                       );
                     },

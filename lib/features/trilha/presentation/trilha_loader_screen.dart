@@ -7,6 +7,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../services/analytics_events.dart';
+import '../../../services/analytics_service.dart';
 import '../../../core/theme/theme.dart';
 import '../../../core/widgets/widgets.dart';
 import '../application/conversation_controller.dart';
@@ -14,11 +16,19 @@ import '../application/trilha_session.dart';
 import 'conversation_screen.dart';
 
 class TrilhaLoaderScreen extends StatefulWidget {
-  const TrilhaLoaderScreen({super.key, this.userId, this.onCompleted});
+  const TrilhaLoaderScreen({
+    super.key,
+    this.userId,
+    this.onCompleted,
+    this.source = 'hub',
+  });
 
   /// Se nulo, usa o usuário autenticado atual.
   final String? userId;
   final VoidCallback? onCompleted;
+
+  /// De onde a trilha foi aberta (telemetria): hub | post_onboarding | dev.
+  final String source;
 
   @override
   State<TrilhaLoaderScreen> createState() => _TrilhaLoaderScreenState();
@@ -30,7 +40,16 @@ class _TrilhaLoaderScreenState extends State<TrilhaLoaderScreen> {
   @override
   void initState() {
     super.initState();
-    _future = _load();
+    _future = _load().then((controller) {
+      if (controller.totalSteps > 0) {
+        // ignore: unawaited_futures
+        Analytics.shared.track(evTrilhaColetaStarted, props: {
+          'source': widget.source,
+          'total_steps': controller.totalSteps,
+        });
+      }
+      return controller;
+    });
   }
 
   Future<ConversationController> _load() {
@@ -59,7 +78,17 @@ class _TrilhaLoaderScreenState extends State<TrilhaLoaderScreen> {
         }
         return ConversationScreen(
           controller: controller,
-          onCompleted: widget.onCompleted,
+          onCompleted: () {
+            // ignore: unawaited_futures
+            Analytics.shared.track(evTrilhaColetaCompleted,
+                props: {'answered': controller.answeredCount});
+            widget.onCompleted?.call();
+          },
+          onAbandoned: (answered, total) {
+            // ignore: unawaited_futures
+            Analytics.shared.track(evTrilhaColetaAbandoned,
+                props: {'answered': answered, 'total': total});
+          },
         );
       },
     );

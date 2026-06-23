@@ -35,6 +35,7 @@ class ConversationScreen extends StatefulWidget {
     required this.controller,
     this.title = 'Vamos completar seu perfil',
     this.onCompleted,
+    this.onAbandoned,
   });
 
   final ConversationController controller;
@@ -42,6 +43,9 @@ class ConversationScreen extends StatefulWidget {
 
   /// Chamado quando a trilha termina (todos os passos respondidos).
   final VoidCallback? onCompleted;
+
+  /// Chamado se a tela fecha ANTES de concluir (com ao menos 1 resposta dada).
+  final void Function(int answered, int total)? onAbandoned;
 
   @override
   State<ConversationScreen> createState() => _ConversationScreenState();
@@ -69,6 +73,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   @override
   void dispose() {
+    if (!_finished && _c.answeredCount > 0) {
+      widget.onAbandoned?.call(_c.answeredCount, _c.totalSteps);
+    }
     _scroll.dispose();
     super.dispose();
   }

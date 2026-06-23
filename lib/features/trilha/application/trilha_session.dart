@@ -5,6 +5,8 @@
 // abordado) → cria o ConversationController com o write-back plugado (grava em
 // profile_* e marca cada trecho como abordado).
 
+import '../../../services/analytics_events.dart';
+import '../../../services/analytics_service.dart';
 import '../../../services/profile_snapshot_service.dart';
 import '../../profile/application/profile_gaps.dart';
 import '../../profile/data/repositories/profile_repository_supabase.dart';
@@ -44,5 +46,12 @@ Future<ConversationController> buildTrilhaController(
     await writeback.save(answer);
     // Marca o trecho como abordado pra não re-perguntar nas próximas aberturas.
     await prog.markFromStep(userId, answer.stepId);
+    // Telemetria (5c): conta os trechos respondidos.
+    final segment = TrilhaProgress.segmentForStep(answer.stepId);
+    if (segment != null) {
+      // ignore: unawaited_futures
+      Analytics.shared
+          .track(evTrilhaColetaStepAnswered, props: {'segment': segment});
+    }
   });
 }

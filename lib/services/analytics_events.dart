@@ -559,6 +559,33 @@ const String evApplyConfirmed = 'apply_confirmed';
 const String evApplyAbandonReason = 'apply_abandon_reason';
 
 // ════════════════════════════════════════════════════════════════════
+// PLANO-FASE-6 T6.3 — Trilha de coleta conversacional (5c telemetria)
+// ════════════════════════════════════════════════════════════════════
+
+/// Trilha de coleta aberta COM lacunas. Props: source (hub|post_onboarding),
+/// total_steps.
+const String evTrilhaColetaStarted = 'trilha_coleta_started';
+
+/// Um trecho foi respondido. Props: segment
+/// (area|workmode|jobtype|city|skills|languages|experience).
+const String evTrilhaColetaStepAnswered = 'trilha_coleta_step_answered';
+
+/// Trilha concluída (todos os passos). Props: answered.
+const String evTrilhaColetaCompleted = 'trilha_coleta_completed';
+
+/// Trilha fechada antes de concluir. Props: answered, total.
+const String evTrilhaColetaAbandoned = 'trilha_coleta_abandoned';
+
+/// Convite pós-onboarding exibido (não-importador, flag on).
+const String evTrilhaColetaInviteShown = 'trilha_coleta_invite_shown';
+
+/// Convite aceito ("Completar com a IA").
+const String evTrilhaColetaInviteAccepted = 'trilha_coleta_invite_accepted';
+
+/// Convite recusado ("Agora não").
+const String evTrilhaColetaInviteDismissed = 'trilha_coleta_invite_dismissed';
+
+// ════════════════════════════════════════════════════════════════════
 // Allowlist agregada — usada pelo wrapper pra rejeitar nomes não-catalogados.
 // ════════════════════════════════════════════════════════════════════
 
@@ -718,4 +745,8 @@ const Set<String> kAllowedEventNames = {
   evPdfGenerated, evProfileTabChanged, evOnboardingAllSetContinued,
   evCultureFitPromptOpened, evCultureFitQuestionAnswered,
   evCultureFitCompleted,
+  // PLANO-FASE-6 T6.3 — trilha de coleta
+  evTrilhaColetaStarted, evTrilhaColetaStepAnswered, evTrilhaColetaCompleted,
+  evTrilhaColetaAbandoned, evTrilhaColetaInviteShown,
+  evTrilhaColetaInviteAccepted, evTrilhaColetaInviteDismissed,
 };
