@@ -13,6 +13,7 @@ import 'resume_detail_screen.dart';
 import 'presentation/widgets/personal_info_form.dart';
 import 'presentation/widgets/preferences_tab.dart';
 import 'presentation/widgets/profile_section_list.dart';
+import '../trilha/presentation/trilha_entry_card.dart';
 import '../../data/models/models.dart';
 import '../../core/widgets/pii_mask.dart';
 import '../../core/theme/theme.dart';
@@ -690,6 +691,7 @@ class _InfoTabState extends State<_InfoTab> {
               children: [
                 _header(vm),
                 const SizedBox(height: 16),
+                const TrilhaEntryCard(),
                 _personalCard(vm),
                 const SizedBox(height: 12),
                 const ProfileSectionList(

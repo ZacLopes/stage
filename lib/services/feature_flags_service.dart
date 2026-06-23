@@ -24,7 +24,9 @@ class FeatureFlagsService {
   FeatureFlagsService._internal();
   static final FeatureFlagsService instance = FeatureFlagsService._internal();
 
-  final SupabaseClient _client = Supabase.instance.client;
+  // Lazy: só é tocado no refresh() (carga do banco). Deferir evita exigir o
+  // Supabase inicializado só pra ler flags do cache (e quebra em testes).
+  late final SupabaseClient _client = Supabase.instance.client;
 
   /// Cache: feature_key → (enabled, rollout_pct)
   final Map<String, _FlagState> _cache = {};
@@ -165,4 +167,9 @@ class FeatureFlagKeys {
   /// true com enabled+100). Seed na migration 20260623120000.
   static const String legacyCompletionScreenEnabled =
       'legacy_completion_screen_enabled';
+
+  /// Trilha de coleta conversacional (PLANO-FASE-6 T6.3): mostra o card
+  /// "Completar com a IA" no hub do Perfil. Default OFF (escondido); rollout
+  /// 10→50→100 via app_feature_flags. Seed na migration 20260623150000.
+  static const String trilhaColetaV1 = 'trilha_coleta_v1';
 }

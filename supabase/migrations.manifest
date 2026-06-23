@@ -103,3 +103,4 @@
 20260618190000_inhire_more_tenants.sql
 20260622120000_seed_resume_trail_enabled.sql
 20260623120000_legacy_completion_screen_flag.sql
+20260623150000_trilha_coleta_flag.sql
