@@ -155,4 +155,14 @@ class FeatureFlagKeys {
   /// gateado. A trilha no ONBOARDING (TwoDoorsScreen) NÃO é afetada. Binário
   /// (use isGloballyEnabled, sem A/B). Seed na migration 20260622120000.
   static const String resumeTrailEnabled = 'resume_trail_enabled';
+
+  /// KILL-SWITCH (bugfix perfis ocos): restaura a `CompletionScreen` legacy como
+  /// fallback de roteamento pós-login. Default OFF ⇒ o fallback vai pro
+  /// onboarding que COLETA dados (`TwoDoorsScreen`). Ligar (enabled + 100%) só
+  /// pra rollback de emergência se a mudança de roteamento causar regressão.
+  /// Failure-safe ao contrário dos outros flags: ausente/não-carregada ⇒ fix
+  /// ligado (lido via [FeatureFlagsService.isGloballyEnabled], que só retorna
+  /// true com enabled+100). Seed na migration 20260623120000.
+  static const String legacyCompletionScreenEnabled =
+      'legacy_completion_screen_enabled';
 }
