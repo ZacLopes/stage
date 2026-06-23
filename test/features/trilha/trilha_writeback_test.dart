@@ -81,6 +81,13 @@ class _FakeRepo implements ProfileRepository {
     return b;
   }
 
+  final List<Certification> addedCerts = [];
+  @override
+  Future<Certification> addCertification(Certification c) async {
+    addedCerts.add(c);
+    return c;
+  }
+
   @override
   dynamic noSuchMethod(Invocation i) =>
       throw UnimplementedError('${i.memberName} não deveria ser chamado');
@@ -193,6 +200,25 @@ void main() {
       await wb.save(StepAnswer.monthYear('exp.0.start', 2024, 3));
       await wb.save(StepAnswer.text('exp.0.ofazia', 'algo'));
       expect(repo.addedExps, isEmpty); // faltou role
+    });
+
+    test('linkedin: grava o link em profile_personal', () async {
+      await wb.save(StepAnswer.text('linkedin.url', 'linkedin.com/in/zac'));
+      expect(repo.upsertedPersonal?.linkedinUrl, 'linkedin.com/in/zac');
+    });
+
+    test('certificação: grava o nome', () async {
+      await wb.save(StepAnswer.text('cert.0.name', 'TOEFL'));
+      await wb.save(StepAnswer.text('cert.1.name', 'Google Ads'));
+      expect(repo.addedCerts.map((c) => c.name), ['TOEFL', 'Google Ads']);
+    });
+
+    test('gates (cert/linkedin) e .more: no-op de controle', () async {
+      await wb.save(choice('cert.gate', ['yes']));
+      await wb.save(choice('linkedin.gate', ['yes']));
+      await wb.save(choice('cert.0.more', ['no']));
+      expect(repo.addedCerts, isEmpty);
+      expect(repo.upsertedPersonal, isNull);
     });
   });
 }

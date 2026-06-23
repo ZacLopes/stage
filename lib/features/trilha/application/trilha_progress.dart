@@ -52,6 +52,10 @@ class TrilhaProgress {
         return 'languages';
       case 'exp.gate':
         return 'experience';
+      case 'linkedin.gate':
+        return 'linkedin';
+      case 'cert.gate':
+        return 'certifications';
     }
     return null;
   }

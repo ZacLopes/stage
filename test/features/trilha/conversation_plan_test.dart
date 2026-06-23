@@ -17,6 +17,8 @@ void main() {
     int experienceCount = 0,
     int languagesCount = 0,
     bool hasSummary = false,
+    bool hasLinkedin = true, // extras default "presentes" pra não poluir os
+    bool hasCertifications = true, // testes do core; testes de extra passam false
   }) =>
       analyzeProfileGaps(
         hasArea: hasArea,
@@ -28,6 +30,8 @@ void main() {
         experienceCount: experienceCount,
         languagesCount: languagesCount,
         hasSummary: hasSummary,
+        hasLinkedin: hasLinkedin,
+        hasCertifications: hasCertifications,
       );
 
   group('buildConversationPlan', () {
@@ -79,6 +83,28 @@ void main() {
         languagesCount: 1,
       ));
       expect(plan.map((s) => s.id), ['intro', 'gap.skills']);
+    });
+
+    test('extras: pergunta LinkedIn e certificações quando faltam', () {
+      final plan = buildConversationPlan(gaps(
+        hasArea: true,
+        hasWorkMode: true,
+        hasJobType: true,
+        hasCity: true,
+        hasEducationStatus: true,
+        skillsCount: 5,
+        experienceCount: 1,
+        languagesCount: 1,
+        hasLinkedin: false,
+        hasCertifications: false,
+      ));
+      final ids = plan.map((s) => s.id);
+      expect(ids, containsAll(['linkedin.gate', 'cert.gate']));
+      // gate expande na resposta "sim".
+      final certGate = plan.firstWhere((s) => s.id == 'cert.gate');
+      final yes = certGate.expand!(StepAnswer.choice(
+          'cert.gate', const [StepOption(id: 'yes', label: 'Sim')]));
+      expect(yes.map((s) => s.id), contains('cert.0.name'));
     });
 
     test('nunca inclui passo de resumo (gerado, não perguntado)', () {

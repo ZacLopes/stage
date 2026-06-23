@@ -40,6 +40,9 @@ List<ConversationStep> buildConversationPlan(
     if (wants(LacunaKey.languages, 'languages')) _languages(),
     // Experiência (DINÂMICA): entrevista um campo por vez, loop "adicionar outra?".
     if (wants(LacunaKey.experience, 'experience')) _experienceGate(),
+    // Extras (Tier 3): só pergunta se faltam e não foram abordados.
+    if (wants(LacunaKey.linkedin, 'linkedin')) _linkedinGate(),
+    if (wants(LacunaKey.certifications, 'certifications')) _certGate(),
   ];
   if (steps.isEmpty) return const [];
   return [_intro(), ...steps];
@@ -260,5 +263,67 @@ List<ConversationStep> _experienceTail(int n) => [
           StepOption(id: 'no', label: 'Não, é só essa'),
         ]),
         expand: (a) => _answeredYes(a) ? _experienceItem(n + 1) : const [],
+      ),
+    ];
+
+// ── Extras: LinkedIn + Certificações ─────────────────────────────────────────
+
+ConversationStep _linkedinGate() => ConversationStep(
+      id: 'linkedin.gate',
+      aiMessages: const ['Você tem um perfil no LinkedIn?'],
+      input: const ChoiceInput(options: [
+        StepOption(id: 'yes', label: 'Tenho'),
+        StepOption(id: 'no', label: 'Não tenho'),
+      ]),
+      expand: (a) => _answeredYes(a)
+          ? [
+              ConversationStep.single(
+                id: 'linkedin.url',
+                aiMessage:
+                    'Cola o link aqui — recrutadores adoram dar uma olhada.',
+                input: const GuidedTextInput(
+                  example: 'linkedin.com/in/seunome',
+                  hint: 'Link do seu LinkedIn',
+                  maxLength: 120,
+                  minLines: 1,
+                ),
+                acknowledgement: 'Anotado! 🔗',
+              ),
+            ]
+          : const [],
+    );
+
+ConversationStep _certGate() => ConversationStep(
+      id: 'cert.gate',
+      aiMessages: const [
+        'Tem alguma certificação ou curso que valha destacar? (TOEFL, Google, '
+            'Excel avançado…)',
+      ],
+      input: const ChoiceInput(options: [
+        StepOption(id: 'yes', label: 'Tenho'),
+        StepOption(id: 'no', label: 'Não tenho'),
+      ]),
+      expand: (a) => _answeredYes(a) ? _certItem(0) : const [],
+    );
+
+List<ConversationStep> _certItem(int n) => [
+      ConversationStep.single(
+        id: 'cert.$n.name',
+        aiMessage: n == 0 ? 'Qual?' : 'E qual a próxima?',
+        input: const GuidedTextInput(
+          example: 'Inglês — TOEFL (2024)',
+          hint: 'Nome da certificação',
+          maxLength: 100,
+          minLines: 1,
+        ),
+      ),
+      ConversationStep.single(
+        id: 'cert.$n.more',
+        aiMessage: 'Tem mais alguma?',
+        input: const ChoiceInput(options: [
+          StepOption(id: 'yes', label: 'Sim, tenho mais'),
+          StepOption(id: 'no', label: 'Não, é só'),
+        ]),
+        expand: (a) => _answeredYes(a) ? _certItem(n + 1) : const [],
       ),
     ];

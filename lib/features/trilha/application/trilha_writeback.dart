@@ -26,9 +26,16 @@ class TrilhaWriteback {
       await _handleExperience(answer);
       return;
     }
+    if (answer.stepId.startsWith('cert.') && answer.stepId.endsWith('.name')) {
+      await _saveCertification(_text(answer));
+      return;
+    }
     switch (answer.stepId) {
       case 'gap.area':
         await _saveAreas(_ids(answer));
+        break;
+      case 'linkedin.url':
+        await _saveLinkedin(_text(answer));
         break;
       case 'gap.workmode':
         await _saveWorkMode(_ids(answer));
@@ -119,6 +126,24 @@ class TrilhaWriteback {
       locationState: state ?? existing.locationState,
       locationCountry: existing.locationCountry ?? 'BR',
     ));
+  }
+
+  // ── LinkedIn → profile_personal.linkedin_url ─────────────────────────────
+  Future<void> _saveLinkedin(String raw) async {
+    final url = raw.trim();
+    if (url.isEmpty) return;
+    final existing =
+        await _repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
+    await _repo.upsertPersonal(existing.copyWith(linkedinUrl: url));
+  }
+
+  // ── Certificação → profile_certifications ────────────────────────────────
+  Future<void> _saveCertification(String raw) async {
+    final name = raw.trim();
+    if (name.isEmpty) return;
+    await _repo.addCertification(
+      Certification(id: '', userId: userId, name: name),
+    );
   }
 
   // ── Habilidades → profile_skills (merge dedup) ───────────────────────────
