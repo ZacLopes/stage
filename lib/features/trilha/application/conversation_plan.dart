@@ -1,0 +1,187 @@
+// Construtor do PLANO da trilha (PLANO-FASE-6 T6.3, Increment 2).
+//
+// Dado o que falta no perfil (cérebro de lacunas — [ProfileGaps]), monta a fila
+// de [ConversationStep] — ADAPTATIVO: só inclui passos pros campos ausentes, na
+// ordem do mais barato (clique) ao mais rico. A entrevista de experiência
+// (Increment 3) e o resumo por IA (Increment 4) são tratados à parte; aqui
+// cobrimos habilidades, idiomas e as preferências/educação que ficaram em
+// aberto (ex.: perfis que vieram do bypass sem preferências).
+//
+// Os `id`s dos passos e das opções são estáveis — o write-back (Increment 2b)
+// roteia por eles pra gravar em profile_*.
+
+import '../../profile/application/profile_gaps.dart';
+import '../domain/conversation_step.dart';
+
+/// Lacunas que esta fase (Increment 2) sabe coletar conversacionalmente.
+/// `experience` → Increment 3 · `summary` → Increment 4 (gerado, não perguntado).
+const Set<LacunaKey> kPlannableGaps = {
+  LacunaKey.area,
+  LacunaKey.workMode,
+  LacunaKey.jobType,
+  LacunaKey.city,
+  LacunaKey.educationStatus,
+  LacunaKey.skills,
+  LacunaKey.languages,
+};
+
+/// Monta o plano conversacional a partir das lacunas. Vazio quando não há nada
+/// (dentre o que esta fase cobre) pra coletar.
+List<ConversationStep> buildConversationPlan(ProfileGaps gaps) {
+  final missing = gaps.missing.map((l) => l.key).toSet();
+  final toCollect = missing.intersection(kPlannableGaps);
+  if (toCollect.isEmpty) return const [];
+
+  return [
+    _intro(),
+    // Preferências (cliques rápidos) primeiro.
+    if (toCollect.contains(LacunaKey.area)) _area(),
+    if (toCollect.contains(LacunaKey.workMode)) _workMode(),
+    if (toCollect.contains(LacunaKey.jobType)) _jobType(),
+    if (toCollect.contains(LacunaKey.city)) _city(),
+    if (toCollect.contains(LacunaKey.educationStatus)) _educationStatus(),
+    // Substância leve.
+    if (toCollect.contains(LacunaKey.skills)) _skills(),
+    if (toCollect.contains(LacunaKey.languages)) _languages(),
+  ];
+}
+
+// ── Passos ──────────────────────────────────────────────────────────────────
+
+ConversationStep _intro() => ConversationStep.single(
+      id: 'intro',
+      aiMessage:
+          'Que bom te ver por aqui! Vou te fazer umas perguntas rapidinhas pra '
+          'deixar seu perfil forte o bastante pras empresas te acharem. Pode ser?',
+      input: const ChoiceInput(
+        options: [StepOption(id: 'go', label: 'Pode! 🚀')],
+      ),
+    );
+
+ConversationStep _area() => ConversationStep.single(
+      id: 'gap.area',
+      aiMessage:
+          'Em quais áreas você quer atuar? Escolhe até 3 — é o que mais pesa '
+          'pra te conectar com as vagas certas.',
+      input: const ChoiceInput(
+        multi: true,
+        maxSelections: 3,
+        options: [
+          StepOption(id: 'Tecnologia', label: 'Tecnologia'),
+          StepOption(id: 'Engenharia', label: 'Engenharia'),
+          StepOption(id: 'Design', label: 'Design'),
+          StepOption(id: 'Produto', label: 'Produto'),
+          StepOption(id: 'Marketing', label: 'Marketing'),
+          StepOption(id: 'Vendas', label: 'Vendas'),
+          StepOption(id: 'Finanças', label: 'Finanças'),
+          StepOption(id: 'Recursos Humanos', label: 'Recursos Humanos'),
+          StepOption(id: 'Operações', label: 'Operações'),
+          StepOption(id: 'Jurídico', label: 'Jurídico'),
+          StepOption(id: 'Administrativo', label: 'Administrativo'),
+          StepOption(id: 'Saúde', label: 'Saúde'),
+          StepOption(id: 'Geral', label: 'Ainda explorando'),
+        ],
+      ),
+      acknowledgement: 'Anotado! Já dá pra mirar nas vagas dessas áreas.',
+    );
+
+ConversationStep _workMode() => ConversationStep.single(
+      id: 'gap.workmode',
+      aiMessage: 'Como você prefere trabalhar? (pode marcar mais de um)',
+      input: const ChoiceInput(
+        multi: true,
+        options: [
+          StepOption(id: 'remote', label: 'Remoto'),
+          StepOption(id: 'hybrid', label: 'Híbrido'),
+          StepOption(id: 'inPerson', label: 'Presencial'),
+        ],
+      ),
+    );
+
+ConversationStep _jobType() => ConversationStep.single(
+      id: 'gap.jobtype',
+      aiMessage: 'Que tipo de vaga te interessa? (pode marcar mais de um)',
+      input: const ChoiceInput(
+        multi: true,
+        options: [
+          StepOption(id: 'internship', label: 'Estágio'),
+          StepOption(id: 'trainee', label: 'Trainee'),
+          StepOption(id: 'juniorFullTime', label: 'CLT Júnior'),
+          StepOption(id: 'temporary', label: 'Temporário'),
+        ],
+      ),
+    );
+
+ConversationStep _city() => ConversationStep.single(
+      id: 'gap.city',
+      aiMessage:
+          'Em qual cidade você está? Uso isso pra te mostrar vagas próximas.',
+      input: const GuidedTextInput(
+        example: 'São Paulo, SP',
+        hint: 'Cidade e estado',
+        maxLength: 60,
+        minLines: 1,
+      ),
+    );
+
+ConversationStep _educationStatus() => ConversationStep.single(
+      id: 'gap.education',
+      aiMessage: 'Em que momento de estudo você está agora?',
+      input: const ChoiceInput(
+        options: [
+          StepOption(id: 'school', label: 'Na escola'),
+          StepOption(id: 'college', label: 'Na faculdade'),
+          StepOption(id: 'paused', label: 'Tranquei a faculdade'),
+          StepOption(id: 'graduated', label: 'Já me formei'),
+          StepOption(id: 'not_studying', label: 'Não estou estudando'),
+        ],
+      ),
+    );
+
+ConversationStep _skills() => ConversationStep.single(
+      id: 'gap.skills',
+      aiMessage:
+          'Agora suas habilidades — toque em tudo que você manja. Quanto mais, '
+          'mais vagas conseguem te encontrar.',
+      input: const ChoiceInput(
+        multi: true,
+        options: [
+          StepOption(id: 'Excel', label: 'Excel'),
+          StepOption(id: 'Pacote Office', label: 'Pacote Office'),
+          StepOption(id: 'Power BI', label: 'Power BI'),
+          StepOption(id: 'SQL', label: 'SQL'),
+          StepOption(id: 'Python', label: 'Python'),
+          StepOption(id: 'Análise de dados', label: 'Análise de dados'),
+          StepOption(id: 'Canva', label: 'Canva'),
+          StepOption(id: 'Photoshop', label: 'Photoshop'),
+          StepOption(id: 'Figma', label: 'Figma'),
+          StepOption(id: 'Marketing digital', label: 'Marketing digital'),
+          StepOption(id: 'Redes sociais', label: 'Redes sociais'),
+          StepOption(id: 'Vendas', label: 'Vendas'),
+          StepOption(id: 'Atendimento ao cliente', label: 'Atendimento ao cliente'),
+          StepOption(id: 'Comunicação', label: 'Comunicação'),
+          StepOption(id: 'Trabalho em equipe', label: 'Trabalho em equipe'),
+          StepOption(id: 'Gestão de projetos', label: 'Gestão de projetos'),
+        ],
+      ),
+      acknowledgement: 'Boa! Essas habilidades já te abrem portas. 💪',
+    );
+
+ConversationStep _languages() => ConversationStep.single(
+      id: 'gap.languages',
+      aiMessage:
+          'Quais idiomas você manja, além do português? (se nenhum, pode pular '
+          'tocando em "Só português")',
+      input: const ChoiceInput(
+        multi: true,
+        options: [
+          StepOption(id: 'none', label: 'Só português'),
+          StepOption(id: 'Inglês', label: 'Inglês'),
+          StepOption(id: 'Espanhol', label: 'Espanhol'),
+          StepOption(id: 'Francês', label: 'Francês'),
+          StepOption(id: 'Alemão', label: 'Alemão'),
+          StepOption(id: 'Italiano', label: 'Italiano'),
+          StepOption(id: 'Mandarim', label: 'Mandarim'),
+        ],
+      ),
+    );
