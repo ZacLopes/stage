@@ -27,7 +27,8 @@ Future<ConversationController> buildTrilhaController(
 }) async {
   final repo = repository ?? ProfileRepositorySupabase();
   final snapSvc = snapshotService ?? ProfileSnapshotService();
-  final prog = progress ?? TrilhaProgress();
+  // Híbrido: retomada entre devices via profile_guided_progress (failure-safe).
+  final prog = progress ?? TrilhaProgress(repository: repo);
 
   final snapshot = await snapSvc.loadSnapshot(userId);
   final prefs = await repo.getJobPreferences(userId);

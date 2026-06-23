@@ -1,30 +1,65 @@
-// Memória da trilha (PLANO-FASE-6 T6.3, fix de re-pergunta).
+// Memória da trilha (PLANO-FASE-6 T6.3 + T6.6 Increment 6).
 //
 // A trilha é dirigida por lacunas, mas lacuna ≠ "ainda não perguntei". Sem
 // memória, trechos que geram pouco/nenhum dado (ex.: 2 skills < limiar de 3, ou
-// "não tenho experiência") seriam re-perguntados toda vez. Aqui guardamos, por
+// "não tenho experiência") seriam re-perguntados toda vez. Guardamos, por
 // usuário, quais TRECHOS já foram abordados — pra não repetir.
 //
-// Persistência local no device (SharedPreferences) como primeiro passo; o sync
-// server-side (retomada entre devices) entra no Increment 6 (profile_guided_progress).
+// HÍBRIDO (Increment 6): o device-local (SharedPreferences) é a fonte
+// failure-safe e instantânea; o servidor (profile_guided_progress) dá a
+// retomada ENTRE devices. Regras:
+//   - addressed: une local + servidor; semeia o cache local com o que veio do
+//     servidor; se o servidor falhar, cai no local (nunca trava a trilha).
+//   - mark: grava local primeiro (sempre), depois best-effort no servidor.
+// Sem repositório injetado (testes/uso offline), funciona 100% local — igual
+// ao comportamento anterior.
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../profile/domain/repositories/profile_repository.dart';
+
 class TrilhaProgress {
+  /// Espelho server-side (retomada entre devices). Nulo ⇒ só local.
+  final ProfileRepository? _repo;
+
+  TrilhaProgress({ProfileRepository? repository}) : _repo = repository;
+
   static String _key(String userId) => 'trilha_addressed_$userId';
 
-  /// Trechos já abordados por [userId].
+  /// Trechos já abordados por [userId] — união do cache local com o servidor.
+  /// Failure-safe: erro de rede cai no cache local.
   Future<Set<String>> addressed(String userId) async {
-    final prefs = await SharedPreferences.getInstance();
-    return (prefs.getStringList(_key(userId)) ?? const <String>[]).toSet();
+    final local = await _localAddressed(userId);
+    final repo = _repo;
+    if (repo == null) return local;
+    try {
+      final server = await repo.getGuidedProgress(userId);
+      final merged = {...local, ...server};
+      // Semeia o cache local com o que veio do servidor (outros devices).
+      if (merged.length != local.length) {
+        await _writeLocal(userId, merged);
+      }
+      return merged;
+    } catch (_) {
+      return local; // failure-safe
+    }
   }
 
-  /// Marca um trecho como abordado.
+  /// Marca um trecho como abordado: local primeiro (failure-safe), servidor
+  /// best-effort (sincroniza entre devices quando a rede coopera).
   Future<void> mark(String userId, String segment) async {
-    final prefs = await SharedPreferences.getInstance();
-    final set = (prefs.getStringList(_key(userId)) ?? <String>[]).toSet()
-      ..add(segment);
-    await prefs.setStringList(_key(userId), set.toList());
+    final local = await _localAddressed(userId);
+    if (!local.contains(segment)) {
+      await _writeLocal(userId, {...local, segment});
+    }
+    final repo = _repo;
+    if (repo != null) {
+      try {
+        await repo.markGuidedProgress(userId, segment);
+      } catch (_) {
+        // Fica só no local deste device; sincroniza na próxima marcação online.
+      }
+    }
   }
 
   /// Marca o trecho correspondente ao passo respondido (no-op pra passos de
@@ -62,5 +97,16 @@ class TrilhaProgress {
         return 'projects';
     }
     return null;
+  }
+
+  // ── Cache local (SharedPreferences) ──────────────────────────────────────
+  Future<Set<String>> _localAddressed(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getStringList(_key(userId)) ?? const <String>[]).toSet();
+  }
+
+  Future<void> _writeLocal(String userId, Set<String> set) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_key(userId), set.toList());
   }
 }

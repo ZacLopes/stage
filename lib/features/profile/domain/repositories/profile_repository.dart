@@ -107,4 +107,13 @@ abstract class ProfileRepository {
   // Completeness
   // ──────────────────────────────────────────────────────────────────────
   Future<int> getCompletenessScore(String userId);
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Progresso da trilha de coleta (retomada entre devices) — profile_guided_progress
+  // ──────────────────────────────────────────────────────────────────────
+  /// Segmentos da trilha já abordados por [userId] (server-side).
+  Future<Set<String>> getGuidedProgress(String userId);
+
+  /// Marca [segment] como abordado. Idempotente (ON CONFLICT DO NOTHING).
+  Future<void> markGuidedProgress(String userId, String segment);
 }
