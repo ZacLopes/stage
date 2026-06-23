@@ -12,6 +12,9 @@ import '../profile/application/profile_editor_view_model.dart';
 import 'change_password_screen.dart';
 import '../resume/widgets/ai_consent_modal.dart';
 import '../resume/widgets/template_thumbnail_generator_screen.dart';
+import '../trilha/application/conversation_controller.dart';
+import '../trilha/demo/demo_conversation.dart';
+import '../trilha/presentation/conversation_screen.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../../core/utils/app_notifications.dart';
 import '../../services/analytics_events.dart';
@@ -338,6 +341,24 @@ class _SettingsScreenState extends State<SettingsScreen>
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (_) => const TemplateThumbnailGeneratorScreen()),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  _SettingsTile(
+                    icon: Icons.auto_awesome_rounded,
+                    title: 'Trilha de coleta (preview)',
+                    subtitle: 'Demonstração conversacional — Increment 1',
+                    iconColor: AppColors.primary,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ConversationScreen(
+                            controller:
+                                ConversationController(buildDemoConversation()),
+                          ),
+                        ),
                       );
                     },
                   ),

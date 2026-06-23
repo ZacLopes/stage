@@ -1,0 +1,142 @@
+// Modelo de domínio da Trilha de Coleta conversacional (PLANO-FASE-6 T6.3).
+//
+// A trilha é uma CONVERSA: a IA "fala" (uma ou mais bolhas), apresenta um
+// WIDGET de entrada inline, o usuário responde, a IA reage e puxa o próximo
+// passo. Este arquivo define o vocabulário desses passos — puro, sem Flutter,
+// pra ser testável e reaproveitável pelo motor [ConversationController] e pela
+// camada de UI.
+//
+// Os tipos de entrada ([StepInput]) mapeiam, na camada de apresentação, pros
+// widgets inline (chips, texto guiado, etc.) — reaproveitando o design system.
+
+import 'package:flutter/foundation.dart';
+
+/// Uma opção de escolha (chip / tile). `icon` é opcional (nome do ícone
+/// material resolvido na UI — mantemos o domínio livre de Flutter).
+@immutable
+class StepOption {
+  final String id;
+  final String label;
+
+  /// Subtítulo opcional (ex.: "Pra quem ainda tá na faculdade").
+  final String? subtitle;
+
+  const StepOption({required this.id, required this.label, this.subtitle});
+
+  @override
+  bool operator ==(Object other) =>
+      other is StepOption && other.id == id && other.label == label;
+
+  @override
+  int get hashCode => Object.hash(id, label);
+}
+
+/// O que um passo pede ao usuário. Variantes selam o conjunto — a UI faz um
+/// switch exaustivo pra renderizar o widget inline certo.
+@immutable
+sealed class StepInput {
+  const StepInput();
+}
+
+/// Escolha em chips/tiles. `multi=false` → escolha única (avança ao tocar).
+/// `multi=true` → multisseleção com botão de confirmar; `maxSelections` limita.
+@immutable
+class ChoiceInput extends StepInput {
+  final List<StepOption> options;
+  final bool multi;
+  final int? maxSelections;
+
+  const ChoiceInput({
+    required this.options,
+    this.multi = false,
+    this.maxSelections,
+  });
+}
+
+/// Texto livre GUIADO — sempre com exemplo concreto pra matar a "página em
+/// branco". A IA depois organiza (ex.: vira bullets). `example` aparece como
+/// placeholder/dica; `maxLength` limita pra forçar concisão.
+@immutable
+class GuidedTextInput extends StepInput {
+  final String? hint;
+  final String example;
+  final int maxLength;
+  final int minLines;
+
+  const GuidedTextInput({
+    required this.example,
+    this.hint,
+    this.maxLength = 280,
+    this.minLines = 2,
+  });
+}
+
+/// Um passo da conversa: a(s) fala(s) da IA + a entrada esperada + uma reação
+/// opcional da IA após responder (o "Massa!" que dá calor de conversa).
+@immutable
+class ConversationStep {
+  /// Identificador estável — usado pra write-back (rota pro profile_*) e pra
+  /// retomada (profile_guided_progress).
+  final String id;
+
+  /// O que a IA fala antes da entrada. Pode ser mais de uma bolha em sequência.
+  final List<String> aiMessages;
+
+  /// O widget de entrada inline.
+  final StepInput input;
+
+  /// Reação curta da IA depois que o usuário responde (opcional). Quando nula,
+  /// a IA segue direto pro próximo passo sem comentar.
+  final String? acknowledgement;
+
+  const ConversationStep({
+    required this.id,
+    required this.aiMessages,
+    required this.input,
+    this.acknowledgement,
+  });
+
+  /// Conveniência: passo com uma única bolha de fala.
+  ConversationStep.single({
+    required String id,
+    required String aiMessage,
+    required StepInput input,
+    String? acknowledgement,
+  }) : this(
+          id: id,
+          aiMessages: [aiMessage],
+          input: input,
+          acknowledgement: acknowledgement,
+        );
+}
+
+/// A resposta do usuário a um passo. `value` carrega o dado bruto (`List<String>`
+/// pra escolha, `String` pra texto) pro write-back; `displayText` é como a
+/// resposta aparece na bolha do usuário no fio da conversa.
+@immutable
+class StepAnswer {
+  final String stepId;
+  final Object value;
+  final String displayText;
+
+  const StepAnswer({
+    required this.stepId,
+    required this.value,
+    required this.displayText,
+  });
+
+  /// Resposta de escolha (1+ opções).
+  factory StepAnswer.choice(String stepId, List<StepOption> selected) {
+    return StepAnswer(
+      stepId: stepId,
+      value: selected.map((o) => o.id).toList(),
+      displayText: selected.map((o) => o.label).join(', '),
+    );
+  }
+
+  /// Resposta de texto guiado.
+  factory StepAnswer.text(String stepId, String text) {
+    final t = text.trim();
+    return StepAnswer(stepId: stepId, value: t, displayText: t);
+  }
+}
