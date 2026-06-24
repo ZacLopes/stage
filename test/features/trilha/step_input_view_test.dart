@@ -269,4 +269,51 @@ void main() {
     await tester.pump();
     expect(find.text('Continuar (1)'), findsNothing);
   });
+
+  testWidgets('escolha única, 1 opção: vira CTA (botão) e submete', (tester) async {
+    StepAnswer? captured;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StepInputView(
+          step: const ConversationStep(
+            id: 'intro',
+            aiMessages: ['x'],
+            input: ChoiceInput(options: [StepOption(id: 'go', label: 'Pode!')]),
+          ),
+          onSubmit: (a) => captured = a,
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(find.text('Pode!'), findsOneWidget);
+    await tester.tap(find.text('Pode!'));
+    await tester.pump();
+    expect(captured!.value, ['go']);
+  });
+
+  testWidgets('escolha única, 2+ opções: tiles, toque submete', (tester) async {
+    StepAnswer? captured;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StepInputView(
+          step: const ConversationStep(
+            id: 'exp.gate',
+            aiMessages: ['x'],
+            input: ChoiceInput(options: [
+              StepOption(id: 'yes', label: 'Tenho'),
+              StepOption(id: 'no', label: 'Não tenho'),
+            ]),
+          ),
+          onSubmit: (a) => captured = a,
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(find.text('Tenho'), findsOneWidget);
+    expect(find.text('Não tenho'), findsOneWidget);
+    await tester.tap(find.text('Tenho'));
+    await tester.pump();
+    expect(captured, isNotNull);
+    expect(captured!.value, ['yes']);
+  });
 }

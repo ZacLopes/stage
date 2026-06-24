@@ -4,6 +4,7 @@
 // (AppChip, PrimaryButton, AppTextField). PLANO-FASE-6 T6.3.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../../../../core/theme/theme.dart';
 import '../../../../core/widgets/widgets.dart';
@@ -95,8 +96,36 @@ class _StepInputViewState extends State<StepInputView> {
     };
   }
 
-  // ── Escolha (chips) ──────────────────────────────────────────────────────
+  // ── Escolha ──────────────────────────────────────────────────────────────
   Widget _buildChoice(ChoiceInput input) {
+    // Escolha ÚNICA (tocar já avança): 1 opção = CTA de largura cheia; 2+ =
+    // tiles empilhados. Adeus chip solto no canto.
+    if (!input.multi) {
+      if (input.options.length == 1) {
+        final o = input.options.first;
+        return PrimaryButton(
+          label: o.label,
+          onPressed: widget.enabled ? () => _onChipTap(input, o) : null,
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < input.options.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.sm),
+            _OptionTile(
+              label: input.options[i].label,
+              subtitle: input.options[i].subtitle,
+              onTap: widget.enabled
+                  ? () => _onChipTap(input, input.options[i])
+                  : null,
+            ),
+          ],
+        ],
+      );
+    }
+
+    // Multisseleção: chips + botão de confirmar (com contador).
     final chips = Wrap(
       spacing: AppSpacing.sm,
       runSpacing: AppSpacing.sm,
@@ -106,28 +135,22 @@ class _StepInputViewState extends State<StepInputView> {
           label: o.label,
           selected: selected,
           disabled: !widget.enabled ||
-              (input.multi &&
-                  !selected &&
+              (!selected &&
                   input.maxSelections != null &&
                   _selectedIds.length >= input.maxSelections!),
           onTap: () => _onChipTap(input, o),
         );
       }).toList(),
     );
-
-    if (!input.multi) {
-      // Escolha única: tocar já avança — sem botão.
-      return chips;
-    }
-
-    // Multisseleção: chips + botão de confirmar.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         chips,
         const SizedBox(height: AppSpacing.base),
         PrimaryButton(
-          label: 'Continuar',
+          label: _selectedIds.isEmpty
+              ? 'Continuar'
+              : 'Continuar (${_selectedIds.length})',
           onPressed: (_selectedIds.isEmpty || !widget.enabled)
               ? null
               : () => _submitChoice(input),
@@ -492,6 +515,90 @@ class _AnimatedChipState extends State<_AnimatedChip> {
         opacity: visible ? 1.0 : 0.0,
         duration: const Duration(milliseconds: 180),
         child: widget.child,
+      ),
+    );
+  }
+}
+
+/// Opção de escolha única como tile de largura cheia (rótulo + subtítulo
+/// opcional), com mola no toque + haptic. Mais "intencional" que um chip solto
+/// quando há 2+ opções.
+class _OptionTile extends StatefulWidget {
+  const _OptionTile({required this.label, this.subtitle, this.onTap});
+
+  final String label;
+  final String? subtitle;
+  final VoidCallback? onTap;
+
+  @override
+  State<_OptionTile> createState() => _OptionTileState();
+}
+
+class _OptionTileState extends State<_OptionTile> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.onTap != null;
+    return AnimatedScale(
+      scale: _pressed ? 0.98 : 1.0,
+      duration: const Duration(milliseconds: 110),
+      curve: Curves.easeOut,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: AppRadius.brLg,
+        child: InkWell(
+          onTap: enabled
+              ? () {
+                  HapticFeedback.selectionClick();
+                  widget.onTap!();
+                }
+              : null,
+          onHighlightChanged:
+              enabled ? (v) => setState(() => _pressed = v) : null,
+          borderRadius: AppRadius.brLg,
+          splashFactory: NoSplash.splashFactory,
+          highlightColor: Colors.transparent,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.base,
+              vertical: AppSpacing.base,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: AppRadius.brLg,
+              border: Border.all(color: AppColors.borderStrong),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.label,
+                        style: AppTextStyles.titleSm
+                            .copyWith(color: AppColors.textPrimary),
+                      ),
+                      if (widget.subtitle != null &&
+                          widget.subtitle!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.subtitle!,
+                          style: AppTextStyles.bodySm
+                              .copyWith(color: AppColors.textTertiary),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const Icon(Icons.arrow_forward_rounded,
+                    size: 18, color: AppColors.textTertiary),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
