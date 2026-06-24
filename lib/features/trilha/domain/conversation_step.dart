@@ -81,6 +81,37 @@ class MonthYearInput extends StepInput {
   const MonthYearInput({this.yearsBack = 15});
 }
 
+/// Multisseleção "meio-termo" (skills/áreas/etc.): chips SUGERIDOS (reconhecer,
+/// rápido) + BUSCA no catálogo (typeahead, ajuda a completar) + ADICIONAR LIVRE
+/// (autonomia — nunca trava). O backend canoniza o texto livre (skill_aliases),
+/// então o usuário escreve do jeito dele. Resposta = StepAnswer.choice (cada
+/// item vira StepOption id=label=nome). Reutilizável entre passos.
+@immutable
+class SuggestPickInput extends StepInput {
+  /// Chips iniciais (reconhecimento). Podem ser personalizados (ex.: pela área).
+  final List<String> suggestions;
+
+  /// Fonte do typeahead (ex.: skills_catalog canônicas). Filtrada localmente.
+  final List<String> catalog;
+
+  /// Permite adicionar um termo fora do catálogo (texto livre). True por padrão.
+  final bool allowFreeText;
+
+  /// Limite opcional de seleções (null = sem limite).
+  final int? maxSelections;
+
+  /// Placeholder do campo de busca.
+  final String searchHint;
+
+  const SuggestPickInput({
+    required this.suggestions,
+    this.catalog = const [],
+    this.allowFreeText = true,
+    this.maxSelections,
+    this.searchHint = 'Buscar ou adicionar…',
+  });
+}
+
 /// Um passo da conversa: a(s) fala(s) da IA + a entrada esperada + uma reação
 /// opcional da IA após responder (o "Massa!" que dá calor de conversa).
 @immutable

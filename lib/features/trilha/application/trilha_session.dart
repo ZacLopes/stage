@@ -13,6 +13,7 @@ import '../../profile/data/repositories/profile_repository_supabase.dart';
 import '../../profile/domain/repositories/profile_repository.dart';
 import 'conversation_controller.dart';
 import 'conversation_plan.dart';
+import 'skill_suggestions.dart';
 import 'trilha_progress.dart';
 import 'trilha_writeback.dart';
 
@@ -40,7 +41,23 @@ Future<ConversationController> buildTrilhaController(
     prefs: prefs,
     desiredTitles: desired,
   );
-  final plan = buildConversationPlan(gaps, addressed: addressed);
+
+  // Pro passo de skills: catálogo (typeahead) + sugestões pela área. Só busca o
+  // catálogo se skills é mesmo uma lacuna a perguntar (evita round-trip à toa).
+  final needsSkills =
+      gaps.missing.any((l) => l.key == LacunaKey.skills) &&
+          !addressed.contains('skills');
+  final skillCatalog = needsSkills ? await _safeSkillCatalog(repo) : const <String>[];
+  final skillSuggestions = needsSkills
+      ? suggestedSkillsForAreas(desired.map((d) => d.title).toList())
+      : const <String>[];
+
+  final plan = buildConversationPlan(
+    gaps,
+    addressed: addressed,
+    skillSuggestions: skillSuggestions,
+    skillCatalog: skillCatalog,
+  );
   final writeback = TrilhaWriteback(repo, userId);
 
   return ConversationController(plan, onAnswer: (answer) async {
@@ -55,4 +72,15 @@ Future<ConversationController> buildTrilhaController(
           .track(evTrilhaColetaStepAnswered, props: {'segment': segment});
     }
   });
+}
+
+/// Lê os nomes canônicos do skills_catalog (fonte do typeahead). Failure-safe:
+/// erro/sem rede ⇒ lista vazia (a busca fica sem catálogo, mas chips + texto
+/// livre seguem funcionando).
+Future<List<String>> _safeSkillCatalog(ProfileRepository repo) async {
+  try {
+    return await repo.getSkillCatalogNames();
+  } catch (_) {
+    return const [];
+  }
 }

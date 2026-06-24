@@ -64,6 +64,7 @@ class _StepInputViewState extends State<StepInputView> {
       ChoiceInput() => _buildChoice(input),
       GuidedTextInput() => _buildGuidedText(input),
       MonthYearInput() => _buildMonthYear(input),
+      SuggestPickInput() => _buildSuggestPick(input),
     };
   }
 
@@ -131,6 +132,123 @@ class _StepInputViewState extends State<StepInputView> {
   void _submitChoice(ChoiceInput input) {
     final selected =
         input.options.where((o) => _selectedIds.contains(o.id)).toList();
+    if (selected.isEmpty) return;
+    widget.onSubmit(StepAnswer.choice(widget.step.id, selected));
+  }
+
+  // ── Sugestões + busca no catálogo + adicionar livre ──────────────────────
+  // O "meio-termo": chips sugeridos (reconhecer) + typeahead local sobre o
+  // catálogo (ajudar a completar) + adicionar qualquer termo (autonomia, nunca
+  // trava). Aqui `_selectedIds` guarda NOMES (não ids de opção). O listener do
+  // _textController (initState) re-renderiza a cada tecla → filtro ao vivo.
+  Widget _buildSuggestPick(SuggestPickInput input) {
+    final query = _textController.text.trim();
+    final lower = query.toLowerCase();
+    final atMax = input.maxSelections != null &&
+        _selectedIds.length >= input.maxSelections!;
+
+    // Pool = sugestões + catálogo, dedup case-insensitive (sugestões primeiro).
+    final seen = <String>{};
+    final pool = <String>[];
+    for (final s in [...input.suggestions, ...input.catalog]) {
+      final k = s.toLowerCase().trim();
+      if (k.isEmpty || seen.contains(k)) continue;
+      seen.add(k);
+      pool.add(s);
+    }
+    bool isPicked(String s) =>
+        _selectedIds.any((p) => p.toLowerCase() == s.toLowerCase());
+
+    final searching = query.isNotEmpty;
+    final options = searching
+        ? pool.where((s) => s.toLowerCase().contains(lower) && !isPicked(s)).take(10).toList()
+        : pool.where((s) => !isPicked(s)).take(12).toList();
+    final exact = pool.any((s) => s.toLowerCase() == lower) || isPicked(query);
+    final showFreeAdd = input.allowFreeText && searching && !exact && !atMax;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Selecionadas (toque pra remover).
+        if (_selectedIds.isNotEmpty) ...[
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: _selectedIds
+                .map((name) => AppChip(
+                      label: name,
+                      selected: true,
+                      onTap: widget.enabled ? () => _togglePick(name) : null,
+                    ))
+                .toList(),
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
+        // Busca.
+        AppTextField(
+          controller: _textController,
+          hint: input.searchHint,
+          prefixIcon: const Icon(Icons.search_rounded,
+              size: 20, color: AppColors.textTertiary),
+          enabled: widget.enabled && !atMax,
+        ),
+        // "+ Adicionar 'X'" (texto livre — o backend canoniza).
+        if (showFreeAdd)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: GhostButton(
+              label: 'Adicionar "$query"',
+              icon: Icons.add_rounded,
+              onPressed: () => _addPick(query),
+            ),
+          ),
+        // Resultados (buscando) ou sugestões (vazio) — toque pra adicionar.
+        if (options.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: options
+                .map((s) => AppChip(
+                      label: s,
+                      icon: searching ? null : Icons.add_rounded,
+                      disabled: !widget.enabled || atMax,
+                      onTap: () => _addPick(s),
+                    ))
+                .toList(),
+          ),
+        ],
+        const SizedBox(height: AppSpacing.base),
+        PrimaryButton(
+          label: _selectedIds.isEmpty
+              ? 'Continuar'
+              : 'Continuar (${_selectedIds.length})',
+          onPressed: (_selectedIds.isEmpty || !widget.enabled)
+              ? null
+              : _submitSuggestPick,
+        ),
+      ],
+    );
+  }
+
+  void _addPick(String name) {
+    final n = name.trim();
+    if (n.isEmpty || !widget.enabled) return;
+    if (_selectedIds.any((p) => p.toLowerCase() == n.toLowerCase())) return;
+    setState(() {
+      _selectedIds.add(n);
+      _textController.clear();
+    });
+  }
+
+  void _togglePick(String name) {
+    setState(() =>
+        _selectedIds.removeWhere((p) => p.toLowerCase() == name.toLowerCase()));
+  }
+
+  void _submitSuggestPick() {
+    final selected =
+        _selectedIds.map((n) => StepOption(id: n, label: n)).toList();
     if (selected.isEmpty) return;
     widget.onSubmit(StepAnswer.choice(widget.step.id, selected));
   }

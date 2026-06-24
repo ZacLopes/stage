@@ -12,6 +12,7 @@
 
 import '../../profile/application/profile_gaps.dart';
 import '../domain/conversation_step.dart';
+import 'skill_suggestions.dart';
 
 /// Monta o plano conversacional a partir das lacunas. [addressed] são os
 /// trechos já abordados antes (memória [TrilhaProgress]) — pulados pra não
@@ -22,6 +23,8 @@ import '../domain/conversation_step.dart';
 List<ConversationStep> buildConversationPlan(
   ProfileGaps gaps, {
   Set<String> addressed = const {},
+  List<String> skillSuggestions = const [],
+  List<String> skillCatalog = const [],
 }) {
   final missing = gaps.missing.map((l) => l.key).toSet();
   // Pergunta um trecho só se a lacuna existe E ele ainda não foi abordado
@@ -36,7 +39,7 @@ List<ConversationStep> buildConversationPlan(
     if (wants(LacunaKey.jobType, 'jobtype')) _jobType(),
     if (wants(LacunaKey.city, 'city')) _city(),
     // Substância leve.
-    if (wants(LacunaKey.skills, 'skills')) _skills(),
+    if (wants(LacunaKey.skills, 'skills')) _skills(skillSuggestions, skillCatalog),
     if (wants(LacunaKey.languages, 'languages')) _languages(),
     // Experiência (DINÂMICA): entrevista um campo por vez, loop "adicionar outra?".
     if (wants(LacunaKey.experience, 'experience')) _experienceGate(),
@@ -131,34 +134,23 @@ ConversationStep _city() => ConversationStep.single(
       ),
     );
 
-ConversationStep _skills() => ConversationStep.single(
-      id: 'gap.skills',
-      aiMessage:
-          'Agora suas habilidades — toque em tudo que você manja. Quanto mais, '
-          'mais vagas conseguem te encontrar.',
-      input: const ChoiceInput(
-        multi: true,
-        options: [
-          StepOption(id: 'Excel', label: 'Excel'),
-          StepOption(id: 'Pacote Office', label: 'Pacote Office'),
-          StepOption(id: 'Power BI', label: 'Power BI'),
-          StepOption(id: 'SQL', label: 'SQL'),
-          StepOption(id: 'Python', label: 'Python'),
-          StepOption(id: 'Análise de dados', label: 'Análise de dados'),
-          StepOption(id: 'Canva', label: 'Canva'),
-          StepOption(id: 'Photoshop', label: 'Photoshop'),
-          StepOption(id: 'Figma', label: 'Figma'),
-          StepOption(id: 'Marketing digital', label: 'Marketing digital'),
-          StepOption(id: 'Redes sociais', label: 'Redes sociais'),
-          StepOption(id: 'Vendas', label: 'Vendas'),
-          StepOption(id: 'Atendimento ao cliente', label: 'Atendimento ao cliente'),
-          StepOption(id: 'Comunicação', label: 'Comunicação'),
-          StepOption(id: 'Trabalho em equipe', label: 'Trabalho em equipe'),
-          StepOption(id: 'Gestão de projetos', label: 'Gestão de projetos'),
-        ],
-      ),
-      acknowledgement: 'Boa! Essas habilidades já te abrem portas. 💪',
-    );
+ConversationStep _skills(List<String> suggestions, List<String> catalog) {
+  // Chips sugeridos (personalizados pela área); fallback genérico se vazio.
+  final chips =
+      suggestions.isNotEmpty ? suggestions : suggestedSkillsForAreas(const []);
+  return ConversationStep.single(
+    id: 'gap.skills',
+    aiMessage:
+        'Agora suas habilidades — toque nas que você manja, busca outras ou '
+        'escreve do seu jeito. Quanto mais, mais vagas te encontram.',
+    input: SuggestPickInput(
+      suggestions: chips,
+      catalog: catalog,
+      searchHint: 'Buscar habilidade ou adicionar a sua…',
+    ),
+    acknowledgement: 'Boa! Essas habilidades já te abrem portas. 💪',
+  );
+}
 
 ConversationStep _languages() => ConversationStep.single(
       id: 'gap.languages',
