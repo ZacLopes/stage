@@ -91,6 +91,26 @@ void main() {
       expect(plan.map((s) => s.id), ['intro', 'gap.skills']);
     });
 
+    test('com suggester: gap.skills expande pro passo de sugestão da IA', () {
+      final plan = buildConversationPlan(
+        gaps(
+          hasArea: true,
+          hasWorkMode: true,
+          hasJobType: true,
+          hasCity: true,
+          hasEducationStatus: true,
+          skillsCount: 0,
+          experienceCount: 1,
+          languagesCount: 1,
+        ),
+        skillSuggester: () async => const ['Power BI'],
+      );
+      final skills = plan.firstWhere((s) => s.id == 'gap.skills');
+      final more = skills.expand!(StepAnswer.choice(
+          'gap.skills', const [StepOption(id: 'Excel', label: 'Excel')]));
+      expect(more.map((s) => s.id), ['gap.skills.more']);
+    });
+
     test('extras: pergunta LinkedIn, certificações e projetos quando faltam', () {
       final plan = buildConversationPlan(gaps(
         hasArea: true,

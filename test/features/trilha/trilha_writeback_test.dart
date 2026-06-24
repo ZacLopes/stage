@@ -135,6 +135,11 @@ void main() {
       expect(repo.replacedSkills, ['Excel', 'Python']); // Excel não duplica
     });
 
+    test('gap.skills.more (sugestão da IA) também grava skills', () async {
+      await wb.save(choice('gap.skills.more', ['Power BI', 'SQL']));
+      expect(repo.replacedSkills, ['Power BI', 'SQL']);
+    });
+
     test('modalidade: mapeia ids → WorkMode', () async {
       await wb.save(choice('gap.workmode', ['remote', 'hybrid']));
       expect(repo.upsertedPrefs?.workMode, [WorkMode.remote, WorkMode.hybrid]);

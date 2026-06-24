@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:career_gamification/features/trilha/domain/conversation_step.dart';
@@ -83,5 +85,61 @@ void main() {
     expect(captured, isNotNull);
     expect(captured!.stepId, 'gap.skills');
     expect(captured!.value, ['Excel', 'Python']); // value = nomes
+  });
+
+  testWidgets('AsyncSuggestInput: carrega sugestões da IA e deixa adicionar',
+      (tester) async {
+    final completer = Completer<List<String>>();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StepInputView(
+          step: ConversationStep(
+            id: 'gap.skills.more',
+            aiMessages: const ['x'],
+            input: AsyncSuggestInput(load: () => completer.future),
+          ),
+          onSubmit: (_) {},
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    completer.complete(['Power BI', 'SQL']);
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Power BI'), findsOneWidget);
+    await tester.tap(find.text('Power BI'));
+    await tester.pump();
+    expect(find.text('Continuar (1)'), findsOneWidget);
+  });
+
+  testWidgets('AsyncSuggestInput: sem sugestões → "Pular" submete vazio',
+      (tester) async {
+    StepAnswer? captured;
+    final completer = Completer<List<String>>();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StepInputView(
+          step: ConversationStep(
+            id: 'gap.skills.more',
+            aiMessages: const ['x'],
+            input: AsyncSuggestInput(load: () => completer.future),
+          ),
+          onSubmit: (a) => captured = a,
+        ),
+      ),
+    ));
+    await tester.pump();
+    completer.complete(const []);
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Pular'), findsOneWidget);
+    await tester.tap(find.text('Pular'));
+    await tester.pump();
+    expect(captured, isNotNull);
+    expect(captured!.value, isEmpty);
   });
 }

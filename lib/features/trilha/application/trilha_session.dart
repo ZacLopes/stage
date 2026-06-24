@@ -5,6 +5,7 @@
 // abordado) → cria o ConversationController com o write-back plugado (grava em
 // profile_* e marca cada trecho como abordado).
 
+import '../../../services/ai_service.dart';
 import '../../../services/analytics_events.dart';
 import '../../../services/analytics_service.dart';
 import '../../../services/profile_snapshot_service.dart';
@@ -57,6 +58,9 @@ Future<ConversationController> buildTrilhaController(
     addressed: addressed,
     skillSuggestions: skillSuggestions,
     skillCatalog: skillCatalog,
+    // Depois de marcar skills, a IA sugere mais algumas pelo perfil (opcional).
+    skillSuggester:
+        needsSkills ? () => AIService().suggestProfileSkills() : null,
   );
   final writeback = TrilhaWriteback(repo, userId);
 

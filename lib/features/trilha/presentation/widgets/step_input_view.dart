@@ -33,22 +33,32 @@ class _StepInputViewState extends State<StepInputView> {
   int? _myMonth;
   int? _myYear;
 
+  /// Carregamento das sugestões assíncronas (AsyncSuggestInput) do passo atual.
+  Future<List<String>>? _suggestFuture;
+
   @override
   void initState() {
     super.initState();
     _textController.addListener(() => setState(() {}));
+    _maybeStartAsyncLoad();
   }
 
   @override
   void didUpdateWidget(StepInputView old) {
     super.didUpdateWidget(old);
-    // Passo novo → limpa o estado de seleção/texto.
+    // Passo novo → limpa o estado de seleção/texto e (re)dispara o load async.
     if (old.step.id != widget.step.id) {
       _selectedIds.clear();
       _textController.clear();
       _myMonth = null;
       _myYear = null;
+      _maybeStartAsyncLoad();
     }
+  }
+
+  void _maybeStartAsyncLoad() {
+    final input = widget.step.input;
+    _suggestFuture = input is AsyncSuggestInput ? input.load() : null;
   }
 
   @override
@@ -65,6 +75,7 @@ class _StepInputViewState extends State<StepInputView> {
       GuidedTextInput() => _buildGuidedText(input),
       MonthYearInput() => _buildMonthYear(input),
       SuggestPickInput() => _buildSuggestPick(input),
+      AsyncSuggestInput() => _buildAsyncSuggest(input),
     };
   }
 
@@ -220,12 +231,13 @@ class _StepInputViewState extends State<StepInputView> {
         ],
         const SizedBox(height: AppSpacing.base),
         PrimaryButton(
-          label: _selectedIds.isEmpty
-              ? 'Continuar'
-              : 'Continuar (${_selectedIds.length})',
-          onPressed: (_selectedIds.isEmpty || !widget.enabled)
-              ? null
-              : _submitSuggestPick,
+          label: _selectedIds.isNotEmpty
+              ? 'Continuar (${_selectedIds.length})'
+              : (input.allowEmpty ? 'Pular' : 'Continuar'),
+          onPressed:
+              (!widget.enabled || (_selectedIds.isEmpty && !input.allowEmpty))
+                  ? null
+                  : () => _submitSuggestPick(input),
         ),
       ],
     );
@@ -246,11 +258,55 @@ class _StepInputViewState extends State<StepInputView> {
         _selectedIds.removeWhere((p) => p.toLowerCase() == name.toLowerCase()));
   }
 
-  void _submitSuggestPick() {
+  void _submitSuggestPick(SuggestPickInput input) {
+    if (_selectedIds.isEmpty) {
+      if (!input.allowEmpty) return;
+      // Passo opcional (sugestão da IA) → segue sem adicionar.
+      widget.onSubmit(StepAnswer(
+          stepId: widget.step.id, value: const <String>[], displayText: 'Pular'));
+      return;
+    }
     final selected =
         _selectedIds.map((n) => StepOption(id: n, label: n)).toList();
-    if (selected.isEmpty) return;
     widget.onSubmit(StepAnswer.choice(widget.step.id, selected));
+  }
+
+  // ── Sugestões assíncronas (IA) ───────────────────────────────────────────
+  // Mostra "carregando" enquanto a IA pensa; depois renderiza as sugestões como
+  // um picker OPCIONAL (pode pular). Failure-safe: load() devolve [] em erro.
+  Widget _buildAsyncSuggest(AsyncSuggestInput input) {
+    return FutureBuilder<List<String>>(
+      future: _suggestFuture,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return Row(
+            children: [
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Text(
+                  input.loadingHint,
+                  style: AppTextStyles.bodyMd
+                      .copyWith(color: AppColors.textSecondary),
+                ),
+              ),
+            ],
+          );
+        }
+        final suggestions = snap.data ?? const <String>[];
+        // Picker opcional (pode pular), com busca/texto livre sobre o catálogo.
+        return _buildSuggestPick(SuggestPickInput(
+          suggestions: suggestions,
+          catalog: input.catalog,
+          allowEmpty: true,
+          searchHint: 'Buscar ou adicionar a sua…',
+        ));
+      },
+    );
   }
 
   // ── Texto guiado ─────────────────────────────────────────────────────────

@@ -533,4 +533,26 @@ class AIService {
       return null; // não propaga: o resumo é um "plus", não pode travar a trilha
     }
   }
+
+  /// Sugestões de skills por IA a partir do perfil (curso/experiência/área + o
+  /// que já foi marcado). Failure-safe: lista vazia em erro/sem sugestão — o
+  /// passo de sugestão da trilha simplesmente não aparece.
+  Future<List<String>> suggestProfileSkills() async {
+    try {
+      final response =
+          await _client.functions.invoke('suggest-profile-skills');
+      if (response.status != 200) return const [];
+      final data = response.data;
+      if (data is! Map) return const [];
+      final list = data['skills'];
+      if (list is! List) return const [];
+      return list
+          .whereType<String>()
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+    } catch (e) {
+      return const [];
+    }
+  }
 }

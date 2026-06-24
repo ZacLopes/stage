@@ -25,6 +25,7 @@ List<ConversationStep> buildConversationPlan(
   Set<String> addressed = const {},
   List<String> skillSuggestions = const [],
   List<String> skillCatalog = const [],
+  Future<List<String>> Function()? skillSuggester,
 }) {
   final missing = gaps.missing.map((l) => l.key).toSet();
   // Pergunta um trecho só se a lacuna existe E ele ainda não foi abordado
@@ -39,7 +40,8 @@ List<ConversationStep> buildConversationPlan(
     if (wants(LacunaKey.jobType, 'jobtype')) _jobType(),
     if (wants(LacunaKey.city, 'city')) _city(),
     // Substância leve.
-    if (wants(LacunaKey.skills, 'skills')) _skills(skillSuggestions, skillCatalog),
+    if (wants(LacunaKey.skills, 'skills'))
+      _skills(skillSuggestions, skillCatalog, skillSuggester),
     if (wants(LacunaKey.languages, 'languages')) _languages(),
     // Experiência (DINÂMICA): entrevista um campo por vez, loop "adicionar outra?".
     if (wants(LacunaKey.experience, 'experience')) _experienceGate(),
@@ -134,7 +136,11 @@ ConversationStep _city() => ConversationStep.single(
       ),
     );
 
-ConversationStep _skills(List<String> suggestions, List<String> catalog) {
+ConversationStep _skills(
+  List<String> suggestions,
+  List<String> catalog,
+  Future<List<String>> Function()? suggester,
+) {
   // Chips sugeridos (personalizados pela área); fallback genérico se vazio.
   final chips =
       suggestions.isNotEmpty ? suggestions : suggestedSkillsForAreas(const []);
@@ -149,8 +155,22 @@ ConversationStep _skills(List<String> suggestions, List<String> catalog) {
       searchHint: 'Buscar habilidade ou adicionar a sua…',
     ),
     acknowledgement: 'Boa! Essas habilidades já te abrem portas. 💪',
+    // Depois de marcar, a IA sugere mais algumas pelo perfil (passo opcional).
+    expand: suggester == null
+        ? null
+        : (_) => [_skillsAiSuggest(suggester, catalog)],
   );
 }
+
+ConversationStep _skillsAiSuggest(
+        Future<List<String>> Function() suggester, List<String> catalog) =>
+    ConversationStep.single(
+      id: 'gap.skills.more',
+      aiMessage:
+          'Deixa eu te ajudar a lembrar de mais algumas, com base no seu perfil…',
+      input: AsyncSuggestInput(load: suggester, catalog: catalog),
+      acknowledgement: 'Perfil ficando completo! 🙌',
+    );
 
 ConversationStep _languages() => ConversationStep.single(
       id: 'gap.languages',

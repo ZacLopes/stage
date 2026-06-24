@@ -35,6 +35,11 @@ class TrilhaWriteback {
       await _handleProject(answer);
       return;
     }
+    // 'gap.skills' (escolha) e 'gap.skills.more' (sugestão da IA) → mesmas skills.
+    if (answer.stepId.startsWith('gap.skills')) {
+      await _saveSkills(_ids(answer));
+      return;
+    }
     switch (answer.stepId) {
       case 'gap.area':
         await _saveAreas(_ids(answer));
@@ -50,9 +55,6 @@ class TrilhaWriteback {
         break;
       case 'gap.city':
         await _saveCity(_text(answer));
-        break;
-      case 'gap.skills':
-        await _saveSkills(_ids(answer));
         break;
       case 'gap.languages':
         await _saveLanguages(_ids(answer));

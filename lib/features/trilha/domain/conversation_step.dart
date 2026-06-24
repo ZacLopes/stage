@@ -103,12 +103,35 @@ class SuggestPickInput extends StepInput {
   /// Placeholder do campo de busca.
   final String searchHint;
 
+  /// Permite confirmar com 0 selecionados (ex.: passo de sugestão da IA, que é
+  /// opcional → vira "Pular"). Default false (skills exige ao menos 1).
+  final bool allowEmpty;
+
   const SuggestPickInput({
     required this.suggestions,
     this.catalog = const [],
     this.allowFreeText = true,
     this.maxSelections,
     this.searchHint = 'Buscar ou adicionar…',
+    this.allowEmpty = false,
+  });
+}
+
+/// Passo cujas sugestões são CARREGADAS de forma assíncrona (ex.: a IA sugere
+/// skills a partir do perfil + do que a pessoa marcou). A UI mostra "carregando",
+/// chama [load] uma vez e renderiza as sugestões como um picker (opcional →
+/// pode pular). [load] é failure-safe: lista vazia ⇒ "nada a sugerir". Domínio
+/// sem Flutter: só uma função que devolve nomes.
+@immutable
+class AsyncSuggestInput extends StepInput {
+  final Future<List<String>> Function() load;
+  final List<String> catalog;
+  final String loadingHint;
+
+  const AsyncSuggestInput({
+    required this.load,
+    this.catalog = const [],
+    this.loadingHint = 'Procurando sugestões pra você…',
   });
 }
 
