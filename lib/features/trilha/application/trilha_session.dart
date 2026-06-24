@@ -61,6 +61,15 @@ Future<ConversationController> buildTrilhaController(
     // Depois de marcar skills, a IA sugere mais algumas pelo perfil (opcional).
     skillSuggester:
         needsSkills ? () => AIService().suggestProfileSkills() : null,
+    // Sugestões de skills pela ÁREA — lidas na hora do passo (capta a área
+    // escolhida DENTRO da trilha, não só a do onboarding).
+    skillSuggestionsLoader: needsSkills
+        ? () async => suggestedSkillsForAreas(
+              (await repo.getDesiredTitles(userId))
+                  .map((d) => d.title)
+                  .toList(),
+            )
+        : null,
   );
   final writeback = TrilhaWriteback(repo, userId);
 

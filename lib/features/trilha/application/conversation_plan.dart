@@ -26,6 +26,7 @@ List<ConversationStep> buildConversationPlan(
   List<String> skillSuggestions = const [],
   List<String> skillCatalog = const [],
   Future<List<String>> Function()? skillSuggester,
+  Future<List<String>> Function()? skillSuggestionsLoader,
 }) {
   final missing = gaps.missing.map((l) => l.key).toSet();
   // Pergunta um trecho só se a lacuna existe E ele ainda não foi abordado
@@ -41,7 +42,8 @@ List<ConversationStep> buildConversationPlan(
     if (wants(LacunaKey.city, 'city')) _city(),
     // Substância leve.
     if (wants(LacunaKey.skills, 'skills'))
-      _skills(skillSuggestions, skillCatalog, skillSuggester),
+      _skills(skillSuggestions, skillCatalog, skillSuggester,
+          skillSuggestionsLoader),
     if (wants(LacunaKey.languages, 'languages')) _languages(),
     // Experiência (DINÂMICA): entrevista um campo por vez, loop "adicionar outra?".
     if (wants(LacunaKey.experience, 'experience')) _experienceGate(),
@@ -140,8 +142,10 @@ ConversationStep _skills(
   List<String> suggestions,
   List<String> catalog,
   Future<List<String>> Function()? suggester,
+  Future<List<String>> Function()? suggestionsLoader,
 ) {
-  // Chips sugeridos (personalizados pela área); fallback genérico se vazio.
+  // Chips sugeridos (personalizados pela área); fallback genérico se vazio. O
+  // loader (se houver) atualiza pela área escolhida DENTRO da trilha.
   final chips =
       suggestions.isNotEmpty ? suggestions : suggestedSkillsForAreas(const []);
   return ConversationStep.single(
@@ -153,6 +157,7 @@ ConversationStep _skills(
       suggestions: chips,
       catalog: catalog,
       searchHint: 'Buscar habilidade ou adicionar a sua…',
+      suggestionsLoader: suggestionsLoader,
     ),
     acknowledgement: 'Boa! Essas habilidades já te abrem portas. 💪',
     // Depois de marcar, a IA sugere mais algumas pelo perfil (passo opcional).

@@ -142,4 +142,36 @@ void main() {
     expect(captured, isNotNull);
     expect(captured!.value, isEmpty);
   });
+
+  testWidgets('suggestionsLoader substitui o placeholder estático (pela área)',
+      (tester) async {
+    final completer = Completer<List<String>>();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StepInputView(
+          step: ConversationStep(
+            id: 'gap.skills',
+            aiMessages: const ['x'],
+            input: SuggestPickInput(
+              suggestions: const ['Excel', 'Pacote Office'], // placeholder
+              suggestionsLoader: () => completer.future,
+            ),
+          ),
+          onSubmit: (_) {},
+        ),
+      ),
+    ));
+    await tester.pump();
+    // Placeholder estático aparece antes do loader resolver.
+    expect(find.text('Excel'), findsOneWidget);
+
+    // Loader resolve com sugestões pela área (ex.: Tecnologia).
+    completer.complete(['Python', 'SQL']);
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Python'), findsOneWidget);
+    expect(find.text('SQL'), findsOneWidget);
+    expect(find.text('Excel'), findsNothing); // substituiu o placeholder
+  });
 }

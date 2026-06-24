@@ -107,6 +107,12 @@ class SuggestPickInput extends StepInput {
   /// opcional → vira "Pular"). Default false (skills exige ao menos 1).
   final bool allowEmpty;
 
+  /// Carrega as sugestões de forma assíncrona quando o passo é exibido (ex.:
+  /// skills personalizadas pela ÁREA escolhida na própria trilha, que só existe
+  /// DEPOIS do passo de área). Se presente, o resultado substitui [suggestions]
+  /// — que vira placeholder até carregar. Failure-safe (erro mantém o estático).
+  final Future<List<String>> Function()? suggestionsLoader;
+
   const SuggestPickInput({
     required this.suggestions,
     this.catalog = const [],
@@ -114,6 +120,7 @@ class SuggestPickInput extends StepInput {
     this.maxSelections,
     this.searchHint = 'Buscar ou adicionar…',
     this.allowEmpty = false,
+    this.suggestionsLoader,
   });
 }
 

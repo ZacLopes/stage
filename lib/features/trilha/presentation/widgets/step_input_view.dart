@@ -36,6 +36,10 @@ class _StepInputViewState extends State<StepInputView> {
   /// Carregamento das sugestões assíncronas (AsyncSuggestInput) do passo atual.
   Future<List<String>>? _suggestFuture;
 
+  /// Sugestões carregadas por SuggestPickInput.suggestionsLoader (ex.: skills
+  /// pela área). Nulo enquanto carrega → usa o placeholder estático.
+  List<String>? _loadedSuggestions;
+
   @override
   void initState() {
     super.initState();
@@ -59,6 +63,14 @@ class _StepInputViewState extends State<StepInputView> {
   void _maybeStartAsyncLoad() {
     final input = widget.step.input;
     _suggestFuture = input is AsyncSuggestInput ? input.load() : null;
+    _loadedSuggestions = null;
+    if (input is SuggestPickInput && input.suggestionsLoader != null) {
+      input.suggestionsLoader!().then((r) {
+        if (mounted) setState(() => _loadedSuggestions = r);
+      }).catchError((_) {
+        // mantém o placeholder estático
+      });
+    }
   }
 
   @override
@@ -158,10 +170,15 @@ class _StepInputViewState extends State<StepInputView> {
     final atMax = input.maxSelections != null &&
         _selectedIds.length >= input.maxSelections!;
 
+    // Sugestões efetivas: as carregadas (ex.: pela área) substituem o estático.
+    final effectiveSuggestions =
+        (_loadedSuggestions != null && _loadedSuggestions!.isNotEmpty)
+            ? _loadedSuggestions!
+            : input.suggestions;
     // Pool = sugestões + catálogo, dedup case-insensitive (sugestões primeiro).
     final seen = <String>{};
     final pool = <String>[];
-    for (final s in [...input.suggestions, ...input.catalog]) {
+    for (final s in [...effectiveSuggestions, ...input.catalog]) {
       final k = s.toLowerCase().trim();
       if (k.isEmpty || seen.contains(k)) continue;
       seen.add(k);
