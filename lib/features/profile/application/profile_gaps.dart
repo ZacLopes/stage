@@ -35,6 +35,7 @@ enum LacunaKey {
   certifications,
   projects,
   availability,
+  interests,
 }
 
 /// Skills mínimas pra um perfil contar como "tem habilidades" — abaixo disso o
@@ -125,6 +126,7 @@ ProfileGaps analyzeProfileGaps({
   bool hasCertifications = false,
   bool hasProjects = false,
   bool hasAvailability = false,
+  bool hasInterests = false,
 }) {
   final list = <Lacuna>[
     // Tier 1 — filtros duros, ordem do mais barato (clique) ao mais "rico".
@@ -208,6 +210,12 @@ ProfileGaps analyzeProfileGaps({
       label: 'Disponibilidade',
       filled: hasAvailability,
     ),
+    Lacuna(
+      key: LacunaKey.interests,
+      tier: LacunaTier.tier3,
+      label: 'Interesses',
+      filled: hasInterests,
+    ),
   ];
   return ProfileGaps(list);
 }
@@ -245,5 +253,6 @@ ProfileGaps profileGapsFromData({
     hasCertifications: snapshot.certifications.isNotEmpty,
     hasProjects: snapshot.projects.isNotEmpty,
     hasAvailability: personal?.availability?.trim().isNotEmpty ?? false,
+    hasInterests: snapshot.interests.isNotEmpty,
   );
 }

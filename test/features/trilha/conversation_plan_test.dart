@@ -21,6 +21,7 @@ void main() {
     bool hasCertifications = true, // testes do core; testes de extra passam false
     bool hasProjects = true,
     bool hasAvailability = true,
+    bool hasInterests = true,
   }) =>
       analyzeProfileGaps(
         hasArea: hasArea,
@@ -36,6 +37,7 @@ void main() {
         hasCertifications: hasCertifications,
         hasProjects: hasProjects,
         hasAvailability: hasAvailability,
+        hasInterests: hasInterests,
       );
 
   group('buildConversationPlan', () {
@@ -103,13 +105,24 @@ void main() {
         hasCertifications: false,
         hasProjects: false,
         hasAvailability: false,
+        hasInterests: false,
       ));
       final ids = plan.map((s) => s.id);
       expect(
         ids,
-        containsAll(
-            ['linkedin.gate', 'cert.gate', 'project.gate', 'gap.availability']),
+        containsAll([
+          'linkedin.gate',
+          'cert.gate',
+          'project.gate',
+          'interests.gate',
+          'gap.availability',
+        ]),
       );
+      // O gate de interesses expande pro multi-select na resposta "sim".
+      final interestsGate = plan.firstWhere((s) => s.id == 'interests.gate');
+      final yesInterests = interestsGate.expand!(StepAnswer.choice(
+          'interests.gate', const [StepOption(id: 'yes', label: 'Sim')]));
+      expect(yesInterests.map((s) => s.id), contains('gap.interests'));
       // gate expande na resposta "sim".
       final certGate = plan.firstWhere((s) => s.id == 'cert.gate');
       final yes = certGate.expand!(StepAnswer.choice(

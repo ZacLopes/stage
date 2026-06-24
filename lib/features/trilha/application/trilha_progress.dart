@@ -95,6 +95,8 @@ class TrilhaProgress {
         return 'certifications';
       case 'project.gate':
         return 'projects';
+      case 'interests.gate':
+        return 'interests';
     }
     return null;
   }

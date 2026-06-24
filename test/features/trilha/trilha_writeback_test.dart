@@ -95,6 +95,15 @@ class _FakeRepo implements ProfileRepository {
     return p;
   }
 
+  List<Interest> interests = [];
+  List<String>? replacedInterests;
+  @override
+  Future<List<Interest>> getInterests(String userId) async => interests;
+  @override
+  Future<void> replaceInterests(String userId, List<String> names) async {
+    replacedInterests = names;
+  }
+
   @override
   dynamic noSuchMethod(Invocation i) =>
       throw UnimplementedError('${i.memberName} não deveria ser chamado');
@@ -246,6 +255,18 @@ void main() {
     test('disponibilidade: grava o id da opção em profile_personal', () async {
       await wb.save(choice('gap.availability', ['within_month']));
       expect(repo.upsertedPersonal?.availability, 'within_month');
+    });
+
+    test('interesses: grava os temas escolhidos (merge dedup)', () async {
+      repo.interests = [const Interest(id: '1', userId: 'u1', name: 'Tecnologia')];
+      await wb.save(choice('gap.interests', ['Tecnologia', 'Sustentabilidade']));
+      // Tecnologia já existe → não duplica; só adiciona Sustentabilidade.
+      expect(repo.replacedInterests, ['Tecnologia', 'Sustentabilidade']);
+    });
+
+    test('interests.gate: no-op de controle', () async {
+      await wb.save(choice('interests.gate', ['yes']));
+      expect(repo.replacedInterests, isNull);
     });
   });
 }

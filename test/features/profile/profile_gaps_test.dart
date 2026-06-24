@@ -96,6 +96,7 @@ void main() {
         hasCertifications: true,
         hasProjects: true,
         hasAvailability: true,
+        hasInterests: true,
       );
       expect(full.completionPercent, 100);
       expect(full.missing, isEmpty);

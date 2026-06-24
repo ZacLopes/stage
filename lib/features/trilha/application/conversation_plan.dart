@@ -44,6 +44,7 @@ List<ConversationStep> buildConversationPlan(
     if (wants(LacunaKey.linkedin, 'linkedin')) _linkedinGate(),
     if (wants(LacunaKey.certifications, 'certifications')) _certGate(),
     if (wants(LacunaKey.projects, 'projects')) _projectGate(),
+    if (wants(LacunaKey.interests, 'interests')) _interestsGate(),
     if (wants(LacunaKey.availability, 'availability')) _availabilityStep(),
   ];
   if (steps.isEmpty) return const [];
@@ -393,4 +394,48 @@ ConversationStep _availabilityStep() => ConversationStep.single(
         StepOption(id: 'flexible', label: 'Tenho flexibilidade'),
       ]),
       acknowledgement: 'Perfeito, anotado!',
+    );
+
+// ── Extra: Interesses / temas (fit cultural) ─────────────────────────────────
+
+ConversationStep _interestsGate() => ConversationStep(
+      id: 'interests.gate',
+      aiMessages: const [
+        'Quer marcar alguns temas ou causas que te interessam? Ajuda a te '
+            'conectar com empresas com a sua cara. (opcional)',
+      ],
+      input: const ChoiceInput(options: [
+        StepOption(id: 'yes', label: 'Bora'),
+        StepOption(id: 'no', label: 'Agora não'),
+      ]),
+      expand: (a) => _answeredYes(a)
+          ? [
+              ConversationStep.single(
+                id: 'gap.interests',
+                aiMessage: 'Toque nos temas que combinam com você:',
+                input: const ChoiceInput(multi: true, options: [
+                  StepOption(id: 'Sustentabilidade', label: 'Sustentabilidade'),
+                  StepOption(id: 'Tecnologia', label: 'Tecnologia'),
+                  StepOption(id: 'Educação', label: 'Educação'),
+                  StepOption(id: 'Saúde', label: 'Saúde'),
+                  StepOption(id: 'Finanças', label: 'Finanças'),
+                  StepOption(id: 'Inovação', label: 'Inovação'),
+                  StepOption(
+                      id: 'Diversidade & inclusão',
+                      label: 'Diversidade & inclusão'),
+                  StepOption(
+                      id: 'Empreendedorismo', label: 'Empreendedorismo'),
+                  StepOption(id: 'Marketing', label: 'Marketing'),
+                  StepOption(id: 'Design', label: 'Design'),
+                  StepOption(id: 'Dados & IA', label: 'Dados & IA'),
+                  StepOption(id: 'Meio ambiente', label: 'Meio ambiente'),
+                  StepOption(id: 'Impacto social', label: 'Impacto social'),
+                  StepOption(id: 'Cultura & arte', label: 'Cultura & arte'),
+                  StepOption(id: 'Esportes', label: 'Esportes'),
+                  StepOption(id: 'Agronegócio', label: 'Agronegócio'),
+                ]),
+                acknowledgement: 'Curti! Isso ajuda no fit cultural. ✨',
+              ),
+            ]
+          : const [],
     );

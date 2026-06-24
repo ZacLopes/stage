@@ -60,6 +60,9 @@ class TrilhaWriteback {
       case 'gap.availability':
         await _saveAvailability(_ids(answer));
         break;
+      case 'gap.interests':
+        await _saveInterests(_ids(answer));
+        break;
       default:
         break; // 'intro' e desconhecidos
     }
@@ -174,6 +177,22 @@ class TrilhaWriteback {
     if (toAdd.isEmpty) return;
     await _repo.replaceSkills(userId, [
       ...existing.map((s) => s.name),
+      ...toAdd.map((n) => n.trim()),
+    ]);
+  }
+
+  // ── Interesses → profile_interests (merge dedup) ─────────────────────────
+  Future<void> _saveInterests(List<String> names) async {
+    final clean =
+        names.where((n) => n.trim().isNotEmpty && n != 'none').toList();
+    if (clean.isEmpty) return;
+    final existing = await _repo.getInterests(userId);
+    final have = existing.map((i) => i.name.toLowerCase().trim()).toSet();
+    final toAdd =
+        clean.where((n) => !have.contains(n.toLowerCase().trim())).toList();
+    if (toAdd.isEmpty) return;
+    await _repo.replaceInterests(userId, [
+      ...existing.map((i) => i.name),
       ...toAdd.map((n) => n.trim()),
     ]);
   }
