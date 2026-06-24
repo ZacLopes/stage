@@ -72,29 +72,32 @@ ConversationStep _intro() => ConversationStep.single(
       ),
     );
 
+/// Áreas sugeridas (chips). O usuário também pode buscar ou escrever a sua.
+const List<String> _kAreaSuggestions = [
+  'Tecnologia', 'Engenharia', 'Design', 'Produto', 'Marketing', 'Vendas',
+  'Finanças', 'Recursos Humanos', 'Operações', 'Jurídico', 'Administrativo',
+  'Saúde',
+];
+
+/// Catálogo estendido só pra busca (áreas comuns além das sugeridas).
+const List<String> _kAreaCatalog = [
+  ..._kAreaSuggestions,
+  'Educação', 'Comunicação', 'Logística', 'Agronegócio', 'Audiovisual',
+  'Sustentabilidade', 'Dados', 'Pesquisa', 'Consultoria', 'Eventos', 'Moda',
+  'Gastronomia', 'Turismo', 'Construção civil', 'Meio ambiente', 'Pública',
+];
+
 ConversationStep _area() => ConversationStep.single(
       id: 'gap.area',
       aiMessage:
-          'Em quais áreas você quer atuar? Escolhe até 3 — é o que mais pesa '
-          'pra te conectar com as vagas certas.',
-      input: const ChoiceInput(
-        multi: true,
+          'Em quais áreas você quer atuar? Toque nas que combinam, busca ou '
+          'escreve a sua — escolhe até 3. É o que mais pesa pra te conectar com '
+          'as vagas certas.',
+      input: const SuggestPickInput(
+        suggestions: _kAreaSuggestions,
+        catalog: _kAreaCatalog,
         maxSelections: 3,
-        options: [
-          StepOption(id: 'Tecnologia', label: 'Tecnologia'),
-          StepOption(id: 'Engenharia', label: 'Engenharia'),
-          StepOption(id: 'Design', label: 'Design'),
-          StepOption(id: 'Produto', label: 'Produto'),
-          StepOption(id: 'Marketing', label: 'Marketing'),
-          StepOption(id: 'Vendas', label: 'Vendas'),
-          StepOption(id: 'Finanças', label: 'Finanças'),
-          StepOption(id: 'Recursos Humanos', label: 'Recursos Humanos'),
-          StepOption(id: 'Operações', label: 'Operações'),
-          StepOption(id: 'Jurídico', label: 'Jurídico'),
-          StepOption(id: 'Administrativo', label: 'Administrativo'),
-          StepOption(id: 'Saúde', label: 'Saúde'),
-          StepOption(id: 'Geral', label: 'Ainda explorando'),
-        ],
+        searchHint: 'Buscar ou escrever sua área…',
       ),
       acknowledgement: 'Anotado! Já dá pra mirar nas vagas dessas áreas.',
     );

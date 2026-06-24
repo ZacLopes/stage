@@ -275,13 +275,22 @@ class _ConversationScreenState extends State<ConversationScreen> {
   Widget _thread() {
     final children = <Widget>[
       for (var i = 0; i < _items.length; i++)
-        _items[i].kind == _ItemKind.ai
-            // Avatar só na 1ª fala de um bloco da IA (agrupa o turno).
-            ? AiBubble(
-                text: _items[i].text,
-                showAvatar: i == 0 || _items[i - 1].kind != _ItemKind.ai,
-              )
-            : UserBubble(text: _items[i].text),
+        Padding(
+          // Respiro: pouco entre falas do MESMO turno, mais quando o turno muda.
+          padding: EdgeInsets.only(
+            bottom:
+                (i < _items.length - 1 && _items[i + 1].kind == _items[i].kind)
+                    ? AppSpacing.sm
+                    : AppSpacing.lg,
+          ),
+          child: _items[i].kind == _ItemKind.ai
+              // Avatar só na 1ª fala de um bloco da IA (agrupa o turno).
+              ? AiBubble(
+                  text: _items[i].text,
+                  showAvatar: i == 0 || _items[i - 1].kind != _ItemKind.ai,
+                )
+              : UserBubble(text: _items[i].text),
+        ),
       // "Digitando" entra/sai com fade (a bolha já desliza pelo _Entrance).
       AnimatedSwitcher(
         duration: const Duration(milliseconds: 200),
@@ -290,7 +299,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
         transitionBuilder: (child, anim) =>
             FadeTransition(opacity: anim, child: child),
         child: _typing
-            ? const TypingBubble(key: ValueKey('typing'))
+            ? const Padding(
+                key: ValueKey('typing'),
+                padding: EdgeInsets.only(bottom: AppSpacing.lg),
+                child: TypingBubble(),
+              )
             : const SizedBox(key: ValueKey('no-typing')),
       ),
       if (_finished) _completionCard(),
