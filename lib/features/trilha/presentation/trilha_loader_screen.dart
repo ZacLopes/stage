@@ -67,31 +67,43 @@ class _TrilhaLoaderScreenState extends State<TrilhaLoaderScreen> {
     return FutureBuilder<ConversationController>(
       future: _future,
       builder: (context, snap) {
+        final Widget body;
         if (snap.connectionState != ConnectionState.done) {
-          return _scaffold(_loading());
+          body = KeyedSubtree(
+              key: const ValueKey('loading'), child: _scaffold(_loading()));
+        } else if (snap.hasError) {
+          body = KeyedSubtree(
+              key: const ValueKey('error'), child: _scaffold(_error()));
+        } else if (snap.data!.totalSteps == 0) {
+          body = KeyedSubtree(
+              key: const ValueKey('allset'), child: _scaffold(_allSet()));
+        } else {
+          final controller = snap.data!;
+          body = ConversationScreen(
+            key: const ValueKey('conversation'),
+            controller: controller,
+            onCompleted: () {
+              // ignore: unawaited_futures
+              Analytics.shared.track(evTrilhaColetaCompleted,
+                  props: {'answered': controller.answeredCount});
+              widget.onCompleted?.call();
+            },
+            onAbandoned: (answered, total) {
+              // ignore: unawaited_futures
+              Analytics.shared.track(evTrilhaColetaAbandoned,
+                  props: {'answered': answered, 'total': total});
+            },
+            // Ao concluir, a IA monta o resumo+headline (failure-safe).
+            onFinalize: () => AIService().generateProfileSummary(),
+          );
         }
-        if (snap.hasError) {
-          return _scaffold(_error());
-        }
-        final controller = snap.data!;
-        if (controller.totalSteps == 0) {
-          return _scaffold(_allSet());
-        }
-        return ConversationScreen(
-          controller: controller,
-          onCompleted: () {
-            // ignore: unawaited_futures
-            Analytics.shared.track(evTrilhaColetaCompleted,
-                props: {'answered': controller.answeredCount});
-            widget.onCompleted?.call();
-          },
-          onAbandoned: (answered, total) {
-            // ignore: unawaited_futures
-            Analytics.shared.track(evTrilhaColetaAbandoned,
-                props: {'answered': answered, 'total': total});
-          },
-          // Ao concluir, a IA monta o resumo+headline do perfil (failure-safe).
-          onFinalize: () => AIService().generateProfileSummary(),
+        // Cross-fade suave entre preparar → conversa/tudo certo/erro.
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 320),
+          switchInCurve: Curves.easeOutCubic,
+          transitionBuilder: (child, anim) =>
+              FadeTransition(opacity: anim, child: child),
+          child: body,
         );
       },
     );
@@ -143,8 +155,15 @@ class _TrilhaLoaderScreenState extends State<TrilhaLoaderScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.verified_rounded,
-                  color: AppColors.success, size: 48),
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 0, end: 1),
+                duration: const Duration(milliseconds: 520),
+                curve: Curves.easeOutBack,
+                builder: (context, t, child) =>
+                    Transform.scale(scale: t.clamp(0.0, 1.2), child: child),
+                child: const Icon(Icons.verified_rounded,
+                    color: AppColors.success, size: 48),
+              ),
               const SizedBox(height: AppSpacing.md),
               Text(
                 'Seu perfil já está ótimo! 🎉',

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:career_gamification/features/trilha/domain/conversation_step.dart';
+import 'package:career_gamification/features/trilha/presentation/widgets/chat_bubbles.dart';
 import 'package:career_gamification/features/trilha/presentation/widgets/step_input_view.dart';
 
 /// Cobre o SuggestPickInput — o "meio-termo" de skills: chips sugeridos +
@@ -103,7 +104,7 @@ void main() {
       ),
     ));
     await tester.pump();
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(TypingDots), findsOneWidget);
 
     completer.complete(['Power BI', 'SQL']);
     await tester.pump();

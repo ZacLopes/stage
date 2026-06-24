@@ -18,8 +18,14 @@ import 'widgets/step_input_view.dart';
 
 /// Ritmo da conversa (ajustável). Curto o bastante pra não cansar, longo o
 /// bastante pra parecer que a IA "pensa".
-const Duration _typingDuration = Duration(milliseconds: 750);
-const Duration _betweenMessages = Duration(milliseconds: 320);
+/// Tempo de "digitando" proporcional ao tamanho da fala (parece que a IA
+/// realmente escreve aquilo) — piso/teto curtos pra não cansar.
+Duration _typingFor(String msg) =>
+    Duration(milliseconds: (msg.length * 16).clamp(420, 1200).toInt());
+
+/// Micro-pausa depois de cada fala, também proporcional ao tamanho.
+Duration _pauseFor(String msg) =>
+    Duration(milliseconds: (msg.length * 4).clamp(200, 460).toInt());
 
 enum _ItemKind { ai, user }
 
@@ -102,7 +108,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
       _typing = true;
     });
     _scrollToEnd();
-    await Future.delayed(_typingDuration);
+    await Future.delayed(
+        _typingFor(step.aiMessages.isNotEmpty ? step.aiMessages.first : ''));
     if (!mounted) return;
     setState(() => _typing = false);
 
@@ -110,7 +117,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       if (!mounted) return;
       setState(() => _items.add(_ChatItem(_ItemKind.ai, msg)));
       _scrollToEnd();
-      await Future.delayed(_betweenMessages);
+      await Future.delayed(_pauseFor(msg));
     }
     if (!mounted) return;
     setState(() => _inputVisible = true);
@@ -138,14 +145,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
     if (ack != null && ack.trim().isNotEmpty) {
       setState(() => _typing = true);
       _scrollToEnd();
-      await Future.delayed(_typingDuration);
+      await Future.delayed(_typingFor(ack));
       if (!mounted) return;
       setState(() {
         _typing = false;
         _items.add(_ChatItem(_ItemKind.ai, ack));
       });
       _scrollToEnd();
-      await Future.delayed(_betweenMessages);
+      await Future.delayed(_pauseFor(ack));
       if (!mounted) return;
     }
 
@@ -186,10 +193,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
   void _scrollToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.hasClients) return;
+      final target = _scroll.position.maxScrollExtent;
+      final delta = (target - _scroll.offset).abs();
+      final ms = (200 + delta * 0.5).clamp(220, 440).toInt();
       _scroll.animateTo(
-        _scroll.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeOut,
+        target,
+        duration: Duration(milliseconds: ms),
+        curve: Curves.easeOutCubic,
       );
     });
   }
@@ -241,14 +251,20 @@ class _ConversationScreenState extends State<ConversationScreen> {
             ],
           ),
           const SizedBox(height: AppSpacing.xs),
-          ClipRRect(
-            borderRadius: AppRadius.brPill,
-            child: LinearProgressIndicator(
-              value: _finished ? 1.0 : _shownProgress,
-              minHeight: 6,
-              backgroundColor: AppColors.border,
-              valueColor:
-                  const AlwaysStoppedAnimation<Color>(AppColors.success),
+          // Anima suave até o novo valor (não pula em degraus).
+          TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: _finished ? 1.0 : _shownProgress),
+            duration: const Duration(milliseconds: 450),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, _) => ClipRRect(
+              borderRadius: AppRadius.brPill,
+              child: LinearProgressIndicator(
+                value: value,
+                minHeight: 6,
+                backgroundColor: AppColors.border,
+                valueColor:
+                    const AlwaysStoppedAnimation<Color>(AppColors.success),
+              ),
             ),
           ),
         ],
@@ -258,11 +274,25 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   Widget _thread() {
     final children = <Widget>[
-      for (final item in _items)
-        item.kind == _ItemKind.ai
-            ? AiBubble(text: item.text)
-            : UserBubble(text: item.text),
-      if (_typing) const TypingBubble(),
+      for (var i = 0; i < _items.length; i++)
+        _items[i].kind == _ItemKind.ai
+            // Avatar só na 1ª fala de um bloco da IA (agrupa o turno).
+            ? AiBubble(
+                text: _items[i].text,
+                showAvatar: i == 0 || _items[i - 1].kind != _ItemKind.ai,
+              )
+            : UserBubble(text: _items[i].text),
+      // "Digitando" entra/sai com fade (a bolha já desliza pelo _Entrance).
+      AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeIn,
+        transitionBuilder: (child, anim) =>
+            FadeTransition(opacity: anim, child: child),
+        child: _typing
+            ? const TypingBubble(key: ValueKey('typing'))
+            : const SizedBox(key: ValueKey('no-typing')),
+      ),
       if (_finished) _completionCard(),
     ];
     return ListView(
@@ -280,116 +310,153 @@ class _ConversationScreenState extends State<ConversationScreen> {
   Widget _completionCard() {
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.base),
-      child: AppCard(
-        variant: AppCardVariant.gradient,
-        child: Column(
-          children: [
-            if (_finalizing) ...[
-              const SizedBox(
-                width: 28,
-                height: 28,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.onPrimary),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                'Montando seu resumo com a IA…',
-                textAlign: TextAlign.center,
-                style:
-                    AppTextStyles.bodyMd.copyWith(color: AppColors.onPrimary),
-              ),
-            ] else ...[
-              const Icon(Icons.celebration_rounded,
-                  color: AppColors.onPrimary, size: 36),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                'Perfil mais forte! 🎉',
-                style:
-                    AppTextStyles.titleMd.copyWith(color: AppColors.onPrimary),
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                _generatedSummary != null
-                    ? 'A IA criou um resumo pro seu perfil:'
-                    : 'Quanto mais completo, mais empresas conseguem te achar.',
-                textAlign: TextAlign.center,
-                style:
-                    AppTextStyles.bodyMd.copyWith(color: AppColors.onPrimary),
-              ),
-              if (_generatedSummary != null) ...[
-                const SizedBox(height: AppSpacing.sm),
-                Container(
-                  width: double.infinity,
-                  padding: AppSpacing.allMd,
-                  decoration: BoxDecoration(
-                    color: AppColors.onPrimary.withValues(alpha: 0.15),
-                    borderRadius: AppRadius.brMd,
-                  ),
-                  child: Text(
-                    _generatedSummary!,
-                    style: AppTextStyles.bodySm
-                        .copyWith(color: AppColors.onPrimary),
-                  ),
-                ),
-              ],
-            ],
-          ],
+      // Entrada de celebração: fade + leve scale.
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0, end: 1),
+        duration: const Duration(milliseconds: 360),
+        curve: Curves.easeOutCubic,
+        builder: (context, t, child) => Opacity(
+          opacity: t.clamp(0.0, 1.0),
+          child: Transform.scale(scale: 0.94 + 0.06 * t, child: child),
+        ),
+        child: AppCard(
+          variant: AppCardVariant.gradient,
+          // Montando → pronto com cross-fade + altura animada.
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            switchInCurve: Curves.easeOutCubic,
+            transitionBuilder: (child, anim) => FadeTransition(
+              opacity: anim,
+              child: SizeTransition(
+                  sizeFactor: anim, axisAlignment: -1, child: child),
+            ),
+            child: _finalizing ? _finalizingBlock() : _doneBlock(),
+          ),
         ),
       ),
     );
   }
 
+  Widget _finalizingBlock() {
+    return Column(
+      key: const ValueKey('finalizing'),
+      children: [
+        const TypingDots(color: AppColors.onPrimary),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          'Montando seu resumo com a IA…',
+          textAlign: TextAlign.center,
+          style: AppTextStyles.bodyMd.copyWith(color: AppColors.onPrimary),
+        ),
+      ],
+    );
+  }
+
+  Widget _doneBlock() {
+    return Column(
+      key: const ValueKey('done'),
+      children: [
+        // O ícone "estoura" com leve overshoot.
+        TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0, end: 1),
+          duration: const Duration(milliseconds: 460),
+          curve: Curves.easeOutBack,
+          builder: (context, t, child) =>
+              Transform.scale(scale: t.clamp(0.0, 1.2), child: child),
+          child: const Icon(Icons.celebration_rounded,
+              color: AppColors.onPrimary, size: 36),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          'Perfil mais forte! 🎉',
+          style: AppTextStyles.titleMd.copyWith(color: AppColors.onPrimary),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          _generatedSummary != null
+              ? 'A IA criou um resumo pro seu perfil:'
+              : 'Quanto mais completo, mais empresas conseguem te achar.',
+          textAlign: TextAlign.center,
+          style: AppTextStyles.bodyMd.copyWith(color: AppColors.onPrimary),
+        ),
+        if (_generatedSummary != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Container(
+            width: double.infinity,
+            padding: AppSpacing.allMd,
+            decoration: BoxDecoration(
+              color: AppColors.onPrimary.withValues(alpha: 0.15),
+              borderRadius: AppRadius.brMd,
+            ),
+            child: Text(
+              _generatedSummary!,
+              style: AppTextStyles.bodySm.copyWith(color: AppColors.onPrimary),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _footer(ConversationStep? step) {
     final showInput = _inputVisible && step != null && !_typing && !_finished;
+    final Widget content;
+    if (showInput) {
+      content = Container(
+        key: ValueKey('input-${step.id}'),
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          border: Border(top: BorderSide(color: AppColors.border)),
+        ),
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.base, AppSpacing.base, AppSpacing.base, AppSpacing.lg),
+        child: StepInputView(
+          key: ValueKey(step.id),
+          step: step,
+          enabled: !_c.isSaving,
+          onSubmit: _onSubmit,
+        ),
+      );
+    } else if (_finished) {
+      content = Container(
+        key: const ValueKey('done'),
+        width: double.infinity,
+        color: AppColors.surface,
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.base, AppSpacing.base, AppSpacing.base, AppSpacing.lg),
+        child: PrimaryButton(
+          label: _finalizing ? 'Montando seu resumo…' : 'Concluir',
+          onPressed: _finalizing
+              ? null
+              : () {
+                  widget.onCompleted?.call();
+                  Navigator.of(context).maybePop();
+                },
+        ),
+      );
+    } else {
+      content = const SizedBox(key: ValueKey('empty'), width: double.infinity);
+    }
+    // Altura (AnimatedSize) + conteúdo (AnimatedSwitcher: fade + leve slide).
     return AnimatedSize(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
       alignment: Alignment.topCenter,
-      child: showInput
-          ? Container(
-              width: double.infinity,
-              decoration: const BoxDecoration(
-                color: AppColors.surface,
-                border: Border(
-                  top: BorderSide(color: AppColors.border),
-                ),
-              ),
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.base,
-                AppSpacing.base,
-                AppSpacing.base,
-                AppSpacing.lg,
-              ),
-              child: StepInputView(
-                key: ValueKey(step.id),
-                step: step,
-                enabled: !_c.isSaving,
-                onSubmit: _onSubmit,
-              ),
-            )
-          : _finished
-              ? Container(
-                  width: double.infinity,
-                  color: AppColors.surface,
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.base,
-                    AppSpacing.base,
-                    AppSpacing.base,
-                    AppSpacing.lg,
-                  ),
-                  child: PrimaryButton(
-                    label: _finalizing ? 'Montando seu resumo…' : 'Concluir',
-                    onPressed: _finalizing
-                        ? null
-                        : () {
-                            widget.onCompleted?.call();
-                            Navigator.of(context).maybePop();
-                          },
-                  ),
-                )
-              : const SizedBox(width: double.infinity),
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 240),
+        switchInCurve: Curves.easeOutCubic,
+        transitionBuilder: (child, anim) => FadeTransition(
+          opacity: anim,
+          child: SlideTransition(
+            position: Tween<Offset>(
+                    begin: const Offset(0, 0.06), end: Offset.zero)
+                .animate(anim),
+            child: child,
+          ),
+        ),
+        child: content,
+      ),
     );
   }
 }

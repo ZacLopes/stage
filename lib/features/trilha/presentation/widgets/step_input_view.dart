@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/theme.dart';
 import '../../../../core/widgets/widgets.dart';
 import '../../domain/conversation_step.dart';
+import 'chat_bubbles.dart';
 
 class StepInputView extends StatefulWidget {
   const StepInputView({
@@ -197,21 +198,29 @@ class _StepInputViewState extends State<StepInputView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Selecionadas (toque pra remover).
-        if (_selectedIds.isNotEmpty) ...[
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
-            children: _selectedIds
-                .map((name) => AppChip(
-                      label: name,
-                      selected: true,
-                      onTap: widget.enabled ? () => _togglePick(name) : null,
-                    ))
-                .toList(),
-          ),
-          const SizedBox(height: AppSpacing.md),
-        ],
+        // Selecionadas (toque pra remover) — altura amortecida.
+        AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: _selectedIds.isEmpty
+              ? const SizedBox(width: double.infinity)
+              : Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                  child: Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: _selectedIds
+                        .map((name) => AppChip(
+                              label: name,
+                              selected: true,
+                              onTap:
+                                  widget.enabled ? () => _togglePick(name) : null,
+                            ))
+                        .toList(),
+                  ),
+                ),
+        ),
         // Busca.
         AppTextField(
           controller: _textController,
@@ -230,22 +239,29 @@ class _StepInputViewState extends State<StepInputView> {
               onPressed: () => _addPick(query),
             ),
           ),
-        // Resultados (buscando) ou sugestões (vazio) — toque pra adicionar.
-        if (options.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.sm),
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
-            children: options
-                .map((s) => AppChip(
-                      label: s,
-                      icon: searching ? null : Icons.add_rounded,
-                      disabled: !widget.enabled || atMax,
-                      onTap: () => _addPick(s),
-                    ))
-                .toList(),
-          ),
-        ],
+        // Resultados (buscando) ou sugestões (vazio) — altura amortecida.
+        AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: options.isEmpty
+              ? const SizedBox(width: double.infinity)
+              : Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.sm),
+                  child: Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: options
+                        .map((s) => AppChip(
+                              label: s,
+                              icon: searching ? null : Icons.add_rounded,
+                              disabled: !widget.enabled || atMax,
+                              onTap: () => _addPick(s),
+                            ))
+                        .toList(),
+                  ),
+                ),
+        ),
         const SizedBox(height: AppSpacing.base),
         PrimaryButton(
           label: _continueLabel(input),
@@ -309,11 +325,7 @@ class _StepInputViewState extends State<StepInputView> {
         if (snap.connectionState != ConnectionState.done) {
           return Row(
             children: [
-              const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
+              const TypingDots(dot: 7),
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Text(
