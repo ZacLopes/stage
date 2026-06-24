@@ -240,12 +240,12 @@ ConversationStep _skillsBoost(
 ConversationStep _languages() => ConversationStep.single(
       id: 'gap.languages',
       aiMessage:
-          'Quais idiomas você manja, além do português? (se nenhum, pode pular '
-          'tocando em "Só português")',
+          'Quais idiomas você fala? Toque em todos que você manja — o '
+          'português também.',
       input: const ChoiceInput(
         multi: true,
         options: [
-          StepOption(id: 'none', label: 'Só português'),
+          StepOption(id: 'Português', label: 'Português'),
           StepOption(id: 'Inglês', label: 'Inglês'),
           StepOption(id: 'Espanhol', label: 'Espanhol'),
           StepOption(id: 'Francês', label: 'Francês'),
