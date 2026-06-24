@@ -248,16 +248,27 @@ class _StepInputViewState extends State<StepInputView> {
         ],
         const SizedBox(height: AppSpacing.base),
         PrimaryButton(
-          label: _selectedIds.isNotEmpty
-              ? 'Continuar (${_selectedIds.length})'
-              : (input.allowEmpty ? 'Pular' : 'Continuar'),
+          label: _continueLabel(input),
           onPressed:
-              (!widget.enabled || (_selectedIds.isEmpty && !input.allowEmpty))
-                  ? null
-                  : () => _submitSuggestPick(input),
+              _canContinuePick(input) ? () => _submitSuggestPick(input) : null,
         ),
       ],
     );
+  }
+
+  /// Mínimo pra liberar o "Continuar": minSelections explícito, senão 0 (se pode
+  /// pular) ou 1 (multisseleção comum).
+  int _minPick(SuggestPickInput input) =>
+      input.minSelections > 0 ? input.minSelections : (input.allowEmpty ? 0 : 1);
+
+  bool _canContinuePick(SuggestPickInput input) =>
+      widget.enabled && _selectedIds.length >= _minPick(input);
+
+  String _continueLabel(SuggestPickInput input) {
+    final min = _minPick(input);
+    final count = _selectedIds.length;
+    if (count >= min) return count == 0 ? 'Pular' : 'Continuar ($count)';
+    return count == 0 ? 'Escolha pelo menos $min' : 'Faltam ${min - count}';
   }
 
   void _addPick(String name) {
@@ -315,11 +326,12 @@ class _StepInputViewState extends State<StepInputView> {
           );
         }
         final suggestions = snap.data ?? const <String>[];
-        // Picker opcional (pode pular), com busca/texto livre sobre o catálogo.
+        // Picker com busca/texto livre; opcional só se minSelections == 0.
         return _buildSuggestPick(SuggestPickInput(
           suggestions: suggestions,
           catalog: input.catalog,
-          allowEmpty: true,
+          allowEmpty: input.minSelections == 0,
+          minSelections: input.minSelections,
           searchHint: 'Buscar ou adicionar a sua…',
         ));
       },

@@ -91,9 +91,7 @@ void main() {
       expect(plan.map((s) => s.id), ['intro', 'gap.skills']);
     });
 
-    test('com suggester: gap.skills expande pro passo de sugestão da IA', () {
-      final plan = buildConversationPlan(
-        gaps(
+    ProfileGaps skillsGap() => gaps(
           hasArea: true,
           hasWorkMode: true,
           hasJobType: true,
@@ -102,13 +100,49 @@ void main() {
           skillsCount: 0,
           experienceCount: 1,
           languagesCount: 1,
-        ),
-        skillSuggester: () async => const ['Power BI'],
-      );
+        );
+
+    StepAnswer picks(String stepId, List<String> names) => StepAnswer.choice(
+        stepId, names.map((n) => StepOption(id: n, label: n)).toList());
+
+    test('skills <3: loop OBRIGA chegar a 3 (IA na 1ª rodada, exige o que falta)',
+        () {
+      final plan = buildConversationPlan(skillsGap(),
+          skillSuggester: () async => const ['Power BI']);
       final skills = plan.firstWhere((s) => s.id == 'gap.skills');
-      final more = skills.expand!(StepAnswer.choice(
-          'gap.skills', const [StepOption(id: 'Excel', label: 'Excel')]));
-      expect(more.map((s) => s.id), ['gap.skills.more']);
+
+      // Escolheu 1 → boost rodada 1 (IA), exigindo as 2 que faltam.
+      final r1 = skills.expand!(picks('gap.skills', ['Excel']));
+      expect(r1.single.id, 'gap.skills.more.1');
+      expect((r1.single.input as AsyncSuggestInput).minSelections, 2);
+
+      // Marcou só +1 (total 2) → outra rodada, exigindo a que ainda falta.
+      final r2 = r1.single.expand!(picks('gap.skills.more.1', ['SQL']));
+      expect(r2.single.id, 'gap.skills.more.2');
+      expect((r2.single.input as SuggestPickInput).minSelections, 1);
+
+      // Atingiu 3 → o loop para.
+      final done = r2.single.expand!(picks('gap.skills.more.2', ['CSS']));
+      expect(done, isEmpty);
+    });
+
+    test('skills >=3: IA vira bônus opcional (minSelections 0 → pode pular)', () {
+      final plan = buildConversationPlan(skillsGap(),
+          skillSuggester: () async => const ['Power BI']);
+      final skills = plan.firstWhere((s) => s.id == 'gap.skills');
+      final bonus =
+          skills.expand!(picks('gap.skills', ['Excel', 'Python', 'SQL']));
+      expect(bonus.single.id, 'gap.skills.more.1');
+      expect((bonus.single.input as AsyncSuggestInput).minSelections, 0);
+    });
+
+    test('skills <3 SEM IA: ainda obriga 3 via busca/texto livre', () {
+      final plan = buildConversationPlan(skillsGap()); // sem suggester
+      final skills = plan.firstWhere((s) => s.id == 'gap.skills');
+      final r1 = skills.expand!(picks('gap.skills', ['Excel']));
+      expect(r1.single.id, 'gap.skills.more.1');
+      // Sem IA → picker comum, ainda exigindo as que faltam.
+      expect((r1.single.input as SuggestPickInput).minSelections, 2);
     });
 
     test('extras: pergunta LinkedIn, certificações e projetos quando faltam', () {

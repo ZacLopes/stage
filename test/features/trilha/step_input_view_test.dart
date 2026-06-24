@@ -174,4 +174,41 @@ void main() {
     expect(find.text('SQL'), findsOneWidget);
     expect(find.text('Excel'), findsNothing); // substituiu o placeholder
   });
+
+  testWidgets('minSelections: "Continuar" só libera ao atingir o mínimo (3)',
+      (tester) async {
+    StepAnswer? captured;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StepInputView(
+          step: const ConversationStep(
+            id: 'gap.skills',
+            aiMessages: ['x'],
+            input: SuggestPickInput(
+              suggestions: ['Python', 'SQL', 'Git', 'CSS'],
+              minSelections: 3,
+            ),
+          ),
+          onSubmit: (a) => captured = a,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    expect(find.text('Escolha pelo menos 3'), findsOneWidget);
+    await tester.tap(find.text('Python'));
+    await tester.pump();
+    expect(find.text('Faltam 2'), findsOneWidget);
+    await tester.tap(find.text('SQL'));
+    await tester.pump();
+    expect(find.text('Faltam 1'), findsOneWidget);
+    await tester.tap(find.text('Git'));
+    await tester.pump();
+    expect(find.text('Continuar (3)'), findsOneWidget);
+
+    await tester.tap(find.text('Continuar (3)'));
+    await tester.pump();
+    expect(captured, isNotNull);
+    expect((captured!.value as List).length, 3);
+  });
 }

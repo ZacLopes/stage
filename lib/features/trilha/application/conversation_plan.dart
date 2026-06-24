@@ -160,22 +160,79 @@ ConversationStep _skills(
       suggestionsLoader: suggestionsLoader,
     ),
     acknowledgement: 'Boa! Essas habilidades já te abrem portas. 💪',
-    // Depois de marcar, a IA sugere mais algumas pelo perfil (passo opcional).
-    expand: suggester == null
-        ? null
-        : (_) => [_skillsAiSuggest(suggester, catalog)],
+    // Depois de marcar: se faltam pra chegar a 3, entra num loop que OBRIGA
+    // chegar lá (a IA ajuda na 1ª rodada); se já tem 3+, a IA sugere como bônus.
+    expand: (a) => _afterSkills(a, suggester, catalog, suggestionsLoader),
   );
 }
 
-ConversationStep _skillsAiSuggest(
-        Future<List<String>> Function() suggester, List<String> catalog) =>
-    ConversationStep.single(
-      id: 'gap.skills.more',
-      aiMessage:
-          'Deixa eu te ajudar a lembrar de mais algumas, com base no seu perfil…',
-      input: AsyncSuggestInput(load: suggester, catalog: catalog),
-      acknowledgement: 'Perfil ficando completo! 🙌',
-    );
+/// Mínimo de skills exigido pela trilha — perfil com <3 skills é ruído no match.
+const int _kMinSkills = 3;
+
+int _pickCount(StepAnswer a) =>
+    a.value is List ? (a.value as List).length : 0;
+
+/// Após o passo de skills: <3 → loop obrigatório até 3; ≥3 → bônus opcional da IA.
+List<ConversationStep> _afterSkills(
+  StepAnswer answer,
+  Future<List<String>> Function()? suggester,
+  List<String> catalog,
+  Future<List<String>> Function()? loader,
+) {
+  final n = _pickCount(answer);
+  if (n >= _kMinSkills) {
+    if (suggester == null) return const [];
+    return [
+      ConversationStep.single(
+        id: 'gap.skills.more.1',
+        aiMessage:
+            'Deixa eu te ajudar a lembrar de mais algumas, com base no seu perfil…',
+        input: AsyncSuggestInput(load: suggester, catalog: catalog),
+        acknowledgement: 'Perfil ficando completo! 🙌',
+      ),
+    ];
+  }
+  return [_skillsBoost(suggester, catalog, loader, n, 1)];
+}
+
+/// Uma rodada do loop até [_kMinSkills]. 1ª rodada usa a IA (se houver); as
+/// seguintes usam busca/texto livre (sem novo custo de IA), com mensagem que
+/// escala. Obrigatório: minSelections = quantas faltam pra 3.
+ConversationStep _skillsBoost(
+  Future<List<String>> Function()? suggester,
+  List<String> catalog,
+  Future<List<String>> Function()? loader,
+  int already,
+  int round,
+) {
+  final remaining = _kMinSkills - already;
+  final useAi = suggester != null && round == 1;
+  final plural = remaining > 1 ? 'm' : '';
+  final msg = round == 1
+      ? 'Deixa eu te ajudar a lembrar de mais algumas, com base no seu perfil… '
+          '(falta$plural $remaining pra deixar forte)'
+      : 'Bora completar! Falta$plural $remaining — busca ou escreve do seu '
+          'jeito (ferramentas, idiomas técnicos, o que você usa no dia a dia).';
+  return ConversationStep.single(
+    id: 'gap.skills.more.$round',
+    aiMessage: msg,
+    input: useAi
+        ? AsyncSuggestInput(
+            load: suggester, catalog: catalog, minSelections: remaining)
+        : SuggestPickInput(
+            suggestions: const [],
+            catalog: catalog,
+            suggestionsLoader: loader,
+            minSelections: remaining,
+            searchHint: 'Buscar habilidade ou adicionar a sua…',
+          ),
+    expand: (a2) {
+      final total = already + _pickCount(a2);
+      if (total >= _kMinSkills) return const [];
+      return [_skillsBoost(suggester, catalog, loader, total, round + 1)];
+    },
+  );
+}
 
 ConversationStep _languages() => ConversationStep.single(
       id: 'gap.languages',

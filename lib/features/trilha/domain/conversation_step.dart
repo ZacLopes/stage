@@ -107,6 +107,11 @@ class SuggestPickInput extends StepInput {
   /// opcional → vira "Pular"). Default false (skills exige ao menos 1).
   final bool allowEmpty;
 
+  /// Mínimo de seleções pra liberar o "Continuar" (0 = sem mínimo). Quando > 0,
+  /// obriga o usuário a escolher pelo menos esse tanto (ex.: 3 skills). O botão
+  /// mostra quantas faltam.
+  final int minSelections;
+
   /// Carrega as sugestões de forma assíncrona quando o passo é exibido (ex.:
   /// skills personalizadas pela ÁREA escolhida na própria trilha, que só existe
   /// DEPOIS do passo de área). Se presente, o resultado substitui [suggestions]
@@ -121,6 +126,7 @@ class SuggestPickInput extends StepInput {
     this.searchHint = 'Buscar ou adicionar…',
     this.allowEmpty = false,
     this.suggestionsLoader,
+    this.minSelections = 0,
   });
 }
 
@@ -135,10 +141,14 @@ class AsyncSuggestInput extends StepInput {
   final List<String> catalog;
   final String loadingHint;
 
+  /// Mínimo de seleções pra liberar o "Continuar" (0 = opcional, pode pular).
+  final int minSelections;
+
   const AsyncSuggestInput({
     required this.load,
     this.catalog = const [],
     this.loadingHint = 'Procurando sugestões pra você…',
+    this.minSelections = 0,
   });
 }
 
