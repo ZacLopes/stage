@@ -513,4 +513,24 @@ class AIService {
       rethrow;
     }
   }
+
+  /// Gera headline + resumo a partir do PERFIL relacional (profile_*) e grava em
+  /// profile_personal (server-side, RLS via JWT). Usado pela trilha de coleta pra
+  /// "completar" a aba Perfil ao final. Retorna o resumo gerado, ou null se foi
+  /// pulado (perfil sem substância) ou falhou — FAILURE-SAFE: a trilha não quebra.
+  Future<String?> generateProfileSummary() async {
+    try {
+      final response =
+          await _client.functions.invoke('generate-profile-summary');
+      if (response.status != 200) return null;
+      final data = response.data;
+      if (data is! Map) return null;
+      if (data['skipped'] == true) return null;
+      final summary = data['summary'];
+      if (summary is String && summary.trim().isNotEmpty) return summary.trim();
+      return null;
+    } catch (e) {
+      return null; // não propaga: o resumo é um "plus", não pode travar a trilha
+    }
+  }
 }

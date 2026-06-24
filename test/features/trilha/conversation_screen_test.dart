@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:career_gamification/features/trilha/application/conversation_controller.dart';
@@ -67,5 +69,36 @@ void main() {
     await tester.tap(find.text('Concluir'));
     await tester.pump();
     expect(completed, true);
+  });
+
+  testWidgets('onFinalize: mostra "montando o resumo" e depois a prévia',
+      (tester) async {
+    final completer = Completer<String?>();
+    await tester.pumpWidget(MaterialApp(
+      home: ConversationScreen(
+        controller: ConversationController(script()),
+        onFinalize: () => completer.future,
+      ),
+    ));
+
+    await tester.pump();
+    await advance(tester);
+    await tester.tap(find.text('Opção A'));
+    await advance(tester);
+    await tester.tap(find.text('Opção B'));
+    await advance(tester);
+
+    // Enquanto a IA monta o resumo: estado "montando" (card + label do botão).
+    expect(find.textContaining('Montando seu resumo'), findsWidgets);
+
+    // IA retorna o resumo.
+    completer.complete('Estudante de ADM buscando estágio em Marketing.');
+    await tester.pump();
+    await tester.pump();
+
+    // Prévia do resumo + botão Concluir habilitado de volta.
+    expect(find.textContaining('A IA criou um resumo'), findsOneWidget);
+    expect(find.textContaining('Estudante de ADM'), findsOneWidget);
+    expect(find.text('Concluir'), findsOneWidget);
   });
 }

@@ -5,11 +5,13 @@
 // ausente/não-carregada ⇒ não aparece). Rollout 10→50→100 via app_feature_flags.
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/theme/theme.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../services/feature_flags_service.dart';
+import '../../profile/application/profile_editor_view_model.dart';
 import 'trilha_loader_screen.dart';
 
 class TrilhaEntryCard extends StatelessWidget {
@@ -36,10 +38,20 @@ class TrilhaEntryCard extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: AppSpacing.base),
       child: AppCard(
         variant: AppCardVariant.gradient,
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const TrilhaLoaderScreen()),
-        ),
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const TrilhaLoaderScreen()),
+          );
+          // Ao voltar, recarrega o Perfil pra mostrar o que a trilha preencheu
+          // (resumo, headline, experiências…). Failure-safe: fora do Perfil o
+          // provider não existe — não pode quebrar.
+          if (context.mounted) {
+            try {
+              await context.read<ProfileEditorViewModel>().load();
+            } catch (_) {/* sem o provider no contexto: ignora */}
+          }
+        },
         child: Row(
           children: [
             Container(

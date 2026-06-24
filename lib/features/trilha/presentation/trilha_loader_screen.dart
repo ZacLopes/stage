@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../services/ai_service.dart';
 import '../../../services/analytics_events.dart';
 import '../../../services/analytics_service.dart';
 import '../../../core/theme/theme.dart';
@@ -89,6 +90,8 @@ class _TrilhaLoaderScreenState extends State<TrilhaLoaderScreen> {
             Analytics.shared.track(evTrilhaColetaAbandoned,
                 props: {'answered': answered, 'total': total});
           },
+          // Ao concluir, a IA monta o resumo+headline do perfil (failure-safe).
+          onFinalize: () => AIService().generateProfileSummary(),
         );
       },
     );

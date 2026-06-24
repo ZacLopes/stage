@@ -36,6 +36,7 @@ class ConversationScreen extends StatefulWidget {
     this.title = 'Vamos completar seu perfil',
     this.onCompleted,
     this.onAbandoned,
+    this.onFinalize,
   });
 
   final ConversationController controller;
@@ -47,6 +48,10 @@ class ConversationScreen extends StatefulWidget {
   /// Chamado se a tela fecha ANTES de concluir (com ao menos 1 resposta dada).
   final void Function(int answered, int total)? onAbandoned;
 
+  /// Roda na conclusão (ex.: a IA monta o resumo do perfil). Retorna o resumo
+  /// gerado pra prévia, ou null. FAILURE-SAFE: erro não trava a conclusão.
+  final Future<String?> Function()? onFinalize;
+
   @override
   State<ConversationScreen> createState() => _ConversationScreenState();
 }
@@ -57,6 +62,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
   bool _typing = false;
   bool _inputVisible = false;
   bool _finished = false;
+
+  /// Finalização (resumo por IA): roda 1x ao concluir.
+  bool _finalizing = false;
+  String? _generatedSummary;
 
   /// Progresso exibido — NUNCA regride. A trilha é dinâmica (passos são
   /// injetados no loop de experiência), então o denominador cresce; sem isso a
@@ -148,6 +157,28 @@ class _ConversationScreenState extends State<ConversationScreen> {
       _inputVisible = false;
       _typing = false;
       _finished = true;
+    });
+    _scrollToEnd();
+    _runFinalize();
+  }
+
+  /// Roda a finalização (resumo por IA) 1x. Failure-safe: erro/null só não
+  /// mostra a prévia — a conclusão segue normal.
+  Future<void> _runFinalize() async {
+    final fn = widget.onFinalize;
+    if (fn == null) return;
+    setState(() => _finalizing = true);
+    _scrollToEnd();
+    String? summary;
+    try {
+      summary = await fn();
+    } catch (_) {
+      summary = null;
+    }
+    if (!mounted) return;
+    setState(() {
+      _finalizing = false;
+      _generatedSummary = summary;
     });
     _scrollToEnd();
   }
@@ -253,19 +284,57 @@ class _ConversationScreenState extends State<ConversationScreen> {
         variant: AppCardVariant.gradient,
         child: Column(
           children: [
-            const Icon(Icons.celebration_rounded,
-                color: AppColors.onPrimary, size: 36),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              'Perfil mais forte! 🎉',
-              style: AppTextStyles.titleMd.copyWith(color: AppColors.onPrimary),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              'Quanto mais completo, mais empresas conseguem te achar.',
-              textAlign: TextAlign.center,
-              style: AppTextStyles.bodyMd.copyWith(color: AppColors.onPrimary),
-            ),
+            if (_finalizing) ...[
+              const SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.onPrimary),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Montando seu resumo com a IA…',
+                textAlign: TextAlign.center,
+                style:
+                    AppTextStyles.bodyMd.copyWith(color: AppColors.onPrimary),
+              ),
+            ] else ...[
+              const Icon(Icons.celebration_rounded,
+                  color: AppColors.onPrimary, size: 36),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Perfil mais forte! 🎉',
+                style:
+                    AppTextStyles.titleMd.copyWith(color: AppColors.onPrimary),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                _generatedSummary != null
+                    ? 'A IA criou um resumo pro seu perfil:'
+                    : 'Quanto mais completo, mais empresas conseguem te achar.',
+                textAlign: TextAlign.center,
+                style:
+                    AppTextStyles.bodyMd.copyWith(color: AppColors.onPrimary),
+              ),
+              if (_generatedSummary != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Container(
+                  width: double.infinity,
+                  padding: AppSpacing.allMd,
+                  decoration: BoxDecoration(
+                    color: AppColors.onPrimary.withValues(alpha: 0.15),
+                    borderRadius: AppRadius.brMd,
+                  ),
+                  child: Text(
+                    _generatedSummary!,
+                    style: AppTextStyles.bodySm
+                        .copyWith(color: AppColors.onPrimary),
+                  ),
+                ),
+              ],
+            ],
           ],
         ),
       ),
@@ -311,11 +380,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     AppSpacing.lg,
                   ),
                   child: PrimaryButton(
-                    label: 'Concluir',
-                    onPressed: () {
-                      widget.onCompleted?.call();
-                      Navigator.of(context).maybePop();
-                    },
+                    label: _finalizing ? 'Montando seu resumo…' : 'Concluir',
+                    onPressed: _finalizing
+                        ? null
+                        : () {
+                            widget.onCompleted?.call();
+                            Navigator.of(context).maybePop();
+                          },
                   ),
                 )
               : const SizedBox(width: double.infinity),
