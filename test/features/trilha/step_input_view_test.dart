@@ -212,4 +212,61 @@ void main() {
     expect(captured, isNotNull);
     expect((captured!.value as List).length, 3);
   });
+
+  testWidgets('MonthYear vira chips: escolhe mês + ano e confirma',
+      (tester) async {
+    StepAnswer? captured;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StepInputView(
+          step: const ConversationStep(
+            id: 'exp.0.start',
+            aiMessages: ['x'],
+            input: MonthYearInput(),
+          ),
+          onSubmit: (a) => captured = a,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    final year = DateTime.now().year;
+    await tester.tap(find.text('Mar'));
+    await tester.pump();
+    await tester.tap(find.text('$year'));
+    await tester.pump();
+    await tester.tap(find.text('Confirmar'));
+    await tester.pump();
+
+    expect(captured, isNotNull);
+    expect(captured!.value, '$year-03'); // 'YYYY-MM' (março = 03)
+  });
+
+  testWidgets('remover chip selecionado: anima saída e some da contagem',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StepInputView(
+          step: const ConversationStep(
+            id: 'gap.skills',
+            aiMessages: ['x'],
+            input: SuggestPickInput(suggestions: ['Python', 'SQL']),
+          ),
+          onSubmit: (_) {},
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    await tester.tap(find.text('Python'));
+    await tester.pump();
+    expect(find.text('Continuar (1)'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 250)); // entrada assenta
+
+    // Toca no chip selecionado pra remover → após a animação (~200ms), some.
+    await tester.tap(find.text('Python'));
+    await tester.pump(const Duration(milliseconds: 260));
+    await tester.pump();
+    expect(find.text('Continuar (1)'), findsNothing);
+  });
 }

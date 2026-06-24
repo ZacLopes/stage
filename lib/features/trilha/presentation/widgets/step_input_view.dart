@@ -30,6 +30,9 @@ class StepInputView extends StatefulWidget {
 
 class _StepInputViewState extends State<StepInputView> {
   final Set<String> _selectedIds = {};
+
+  /// Selecionados que estão SAINDO (animação de remoção) antes de saírem da lista.
+  final Set<String> _exiting = {};
   final TextEditingController _textController = TextEditingController();
   int? _myMonth;
   int? _myYear;
@@ -211,11 +214,16 @@ class _StepInputViewState extends State<StepInputView> {
                     spacing: AppSpacing.sm,
                     runSpacing: AppSpacing.sm,
                     children: _selectedIds
-                        .map((name) => AppChip(
-                              label: name,
-                              selected: true,
-                              onTap:
-                                  widget.enabled ? () => _togglePick(name) : null,
+                        .map((name) => _AnimatedChip(
+                              key: ValueKey(name),
+                              exiting: _exiting.contains(name),
+                              child: AppChip(
+                                label: name,
+                                selected: true,
+                                onTap: widget.enabled
+                                    ? () => _togglePick(name)
+                                    : null,
+                              ),
                             ))
                         .toList(),
                   ),
@@ -298,8 +306,16 @@ class _StepInputViewState extends State<StepInputView> {
   }
 
   void _togglePick(String name) {
-    setState(() =>
-        _selectedIds.removeWhere((p) => p.toLowerCase() == name.toLowerCase()));
+    if (_exiting.contains(name)) return; // já saindo
+    // Marca como "saindo" (anima encolhendo+fade) e remove de fato ao terminar.
+    setState(() => _exiting.add(name));
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (!mounted) return;
+      setState(() {
+        _selectedIds.removeWhere((p) => p.toLowerCase() == name.toLowerCase());
+        _exiting.remove(name);
+      });
+    });
   }
 
   void _submitSuggestPick(SuggestPickInput input) {
@@ -382,6 +398,7 @@ class _StepInputViewState extends State<StepInputView> {
     'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
   ];
 
+  // Mês/Ano: chips roláveis (mesma linguagem do resto — adeus dropdown nativo).
   Widget _buildMonthYear(MonthYearInput input) {
     final nowYear = DateTime.now().year;
     final years = [for (var y = nowYear; y >= nowYear - input.yearsBack; y--) y];
@@ -389,35 +406,29 @@ class _StepInputViewState extends State<StepInputView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: _picker<int>(
-                hint: 'Mês',
-                value: _myMonth,
-                items: [
-                  for (var m = 1; m <= 12; m++)
-                    DropdownMenuItem(value: m, child: Text(_monthLabels[m - 1])),
-                ],
-                onChanged:
-                    widget.enabled ? (v) => setState(() => _myMonth = v) : null,
-              ),
+        _pickerLabel('Mês'),
+        const SizedBox(height: AppSpacing.xs),
+        _chipRow([
+          for (var m = 1; m <= 12; m++)
+            AppChip(
+              label: _monthLabels[m - 1],
+              selected: _myMonth == m,
+              disabled: !widget.enabled,
+              onTap: () => setState(() => _myMonth = m),
             ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: _picker<int>(
-                hint: 'Ano',
-                value: _myYear,
-                items: [
-                  for (final y in years)
-                    DropdownMenuItem(value: y, child: Text('$y')),
-                ],
-                onChanged:
-                    widget.enabled ? (v) => setState(() => _myYear = v) : null,
-              ),
+        ]),
+        const SizedBox(height: AppSpacing.md),
+        _pickerLabel('Ano'),
+        const SizedBox(height: AppSpacing.xs),
+        _chipRow([
+          for (final y in years)
+            AppChip(
+              label: '$y',
+              selected: _myYear == y,
+              disabled: !widget.enabled,
+              onTap: () => setState(() => _myYear = y),
             ),
-          ],
-        ),
+        ]),
         const SizedBox(height: AppSpacing.base),
         PrimaryButton(
           label: 'Confirmar',
@@ -430,29 +441,57 @@ class _StepInputViewState extends State<StepInputView> {
     );
   }
 
-  Widget _picker<T>({
-    required String hint,
-    required T? value,
-    required List<DropdownMenuItem<T>> items,
-    required ValueChanged<T?>? onChanged,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: AppRadius.brMd,
-        border: Border.all(color: AppColors.border),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<T>(
-          isExpanded: true,
-          value: value,
-          hint: Text(hint,
-              style:
-                  AppTextStyles.bodyMd.copyWith(color: AppColors.textTertiary)),
-          items: items,
-          onChanged: onChanged,
+  Widget _pickerLabel(String text) => Align(
+        alignment: Alignment.centerLeft,
+        child: Text(text,
+            style:
+                AppTextStyles.labelMd.copyWith(color: AppColors.textTertiary)),
+      );
+
+  Widget _chipRow(List<Widget> chips) => SizedBox(
+        height: 42,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: chips.length,
+          separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
+          itemBuilder: (_, i) => Center(child: chips[i]),
         ),
+      );
+}
+
+/// Chip que entra com "pop" (fade + scale) e sai encolhendo+fade ao remover.
+class _AnimatedChip extends StatefulWidget {
+  const _AnimatedChip({super.key, required this.child, this.exiting = false});
+
+  final Widget child;
+  final bool exiting;
+
+  @override
+  State<_AnimatedChip> createState() => _AnimatedChipState();
+}
+
+class _AnimatedChipState extends State<_AnimatedChip> {
+  bool _shown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _shown = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = _shown && !widget.exiting;
+    return AnimatedScale(
+      scale: visible ? 1.0 : 0.6,
+      duration: const Duration(milliseconds: 200),
+      curve: visible ? Curves.easeOutBack : Curves.easeIn,
+      child: AnimatedOpacity(
+        opacity: visible ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 180),
+        child: widget.child,
       ),
     );
   }
