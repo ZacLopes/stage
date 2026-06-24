@@ -41,7 +41,7 @@ serve(withEdgeAnalytics('generate-profile-summary', async (req) => {
         const userId = user.id
 
         // 1. Lê o perfil relacional (em paralelo).
-        const [personalR, expR, eduR, skillsR, langsR, desiredR, certsR, projsR] = await Promise.all([
+        const [personalR, expR, eduR, skillsR, langsR, desiredR, certsR, projsR, interestsR] = await Promise.all([
             client.from('profile_personal')
                 .select('first_name,headline,summary,location_city,location_state')
                 .eq('user_id', userId).maybeSingle(),
@@ -55,6 +55,7 @@ serve(withEdgeAnalytics('generate-profile-summary', async (req) => {
             client.from('profile_desired_titles').select('title').eq('user_id', userId),
             client.from('profile_certifications').select('name').eq('user_id', userId),
             client.from('profile_projects').select('name,description').eq('user_id', userId),
+            client.from('profile_interests').select('name').eq('user_id', userId),
         ])
 
         const personal = personalR.data
@@ -82,6 +83,7 @@ serve(withEdgeAnalytics('generate-profile-summary', async (req) => {
             name: p.name as string | null,
             description: p.description as string | null,
         }))
+        const interests = (interestsR.data ?? []).map((i) => i.name).filter(Boolean) as string[]
 
         // 2. Gate de substância: sem NADA pra sintetizar, não gera resumo oco.
         const hasSubstance =
@@ -96,7 +98,7 @@ serve(withEdgeAnalytics('generate-profile-summary', async (req) => {
 
         // 3. Monta o contexto e chama a IA.
         const systemPrompt = buildSystemPrompt()
-        const userPrompt = buildUserPrompt({ firstName, city, areas, skills, languages, certs, experiences, education, projects })
+        const userPrompt = buildUserPrompt({ firstName, city, areas, skills, languages, certs, interests, experiences, education, projects })
 
         const aiStart = Date.now()
         const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -194,6 +196,7 @@ interface ProfileContext {
     skills: string[]
     languages: string[]
     certs: string[]
+    interests: string[]
     experiences: Array<{ title: string | null; company: string | null; isCurrent: boolean | null; bullets: string[] }>
     education: Array<{ institution: string | null; degree: string | null; semester: number | null; status: string | null; majors: string[] }>
     projects: Array<{ name: string | null; description: string | null }>
@@ -231,6 +234,7 @@ function buildUserPrompt(c: ProfileContext): string {
     if (c.skills.length) lines.push('', `Habilidades: ${c.skills.join(', ')}`)
     if (c.languages.length) lines.push(`Idiomas: ${c.languages.join(', ')}`)
     if (c.certs.length) lines.push(`Certificações: ${c.certs.join(', ')}`)
+    if (c.interests.length) lines.push(`Interesses/temas: ${c.interests.join(', ')}`)
 
     lines.push('', 'Gere o headline e o summary em JSON, seguindo as regras.')
     return lines.join('\n')
