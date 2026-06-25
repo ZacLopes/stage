@@ -189,15 +189,15 @@ void main() {
           'linkedin.gate',
           'cert.gate',
           'project.gate',
-          'interests.gate',
+          'gap.interests', // interesses é OBRIGATÓRIO — pergunta direta, sem gate
           'gap.availability',
         ]),
       );
-      // O gate de interesses expande pro multi-select na resposta "sim".
-      final interestsGate = plan.firstWhere((s) => s.id == 'interests.gate');
-      final yesInterests = interestsGate.expand!(StepAnswer.choice(
-          'interests.gate', const [StepOption(id: 'yes', label: 'Sim')]));
-      expect(yesInterests.map((s) => s.id), contains('gap.interests'));
+      // Interesses não tem mais gate "quer? sim/não" (é obrigatório).
+      expect(ids, isNot(contains('interests.gate')));
+      final interests = plan.firstWhere((s) => s.id == 'gap.interests');
+      expect(interests.input, isA<ChoiceInput>());
+      expect((interests.input as ChoiceInput).multi, isTrue);
       // gate expande na resposta "sim".
       final certGate = plan.firstWhere((s) => s.id == 'cert.gate');
       final yes = certGate.expand!(StepAnswer.choice(
