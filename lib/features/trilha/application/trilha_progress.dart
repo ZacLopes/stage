@@ -109,7 +109,7 @@ class TrilhaProgress {
     }
     // Passos de save indexados (exp.{n}.ofazia / project.{n}.desc / cert.{n}.name).
     if (stepId.endsWith('.ofazia')) return 'experience';
-    if (stepId.startsWith('project.') && stepId.endsWith('.desc')) {
+    if (stepId.startsWith('project.') && stepId.endsWith('.did')) {
       return 'projects';
     }
     if (stepId.startsWith('cert.') && stepId.endsWith('.name')) {

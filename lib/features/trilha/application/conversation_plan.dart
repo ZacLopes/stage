@@ -352,13 +352,13 @@ List<ConversationStep> _experienceTail(int n) => [
       ConversationStep(
         id: 'exp.$n.ofazia',
         aiMessages: const [
-          'Agora o mais importante: o que você fazia lá? Conta 1-2 coisas '
-              'concretas, do seu jeito — eu organizo depois. 😉',
+          'Agora o mais importante: o que você fazia lá? Conta 2-3 coisas '
+              'concretas — pode ser do seu jeito, eu organizo depois. 😉',
         ],
         input: const GuidedTextInput(
-          example:
-              'Cuidava das redes sociais e criei posts que aumentaram o engajamento',
-          maxLength: 240,
+          example: 'Atendia clientes, organizava o estoque e montei uma '
+              'planilha que agilizou os pedidos',
+          maxLength: 280,
           minLines: 3,
         ),
         acknowledgement:
@@ -464,18 +464,49 @@ List<ConversationStep> _projectItem(int n) => [
           minLines: 1,
         ),
       ),
+      // O que ERA (contexto) e o que VOCÊ fez (bullet) — separados pra ficar
+      // claro o que escrever em cada um.
+      ConversationStep.single(
+        id: 'project.$n.what',
+        aiMessage:
+            'O que era esse projeto? A ideia em 1-2 frases — o que ele fazia '
+            'ou resolvia.',
+        input: const GuidedTextInput(
+          example: 'Um app pra estudantes controlarem os gastos do mês',
+          maxLength: 200,
+          minLines: 2,
+        ),
+      ),
       ConversationStep(
-        id: 'project.$n.desc',
+        id: 'project.$n.did',
         aiMessages: const [
-          'Em poucas palavras: o que era e o que você fez? Pode ser do seu jeito.',
+          'E o que VOCÊ fez nele? Sua parte, e o resultado se teve — pode ser do '
+              'seu jeito, eu organizo. 😉',
         ],
         input: const GuidedTextInput(
-          example:
-              'Criei um app em Flutter pra controlar gastos; teve 200 downloads',
+          example: 'Programei o app em Flutter sozinho; teve 200 downloads',
           maxLength: 240,
           minLines: 3,
         ),
-        acknowledgement: 'Massa! Isso enriquece bastante seu perfil. ✨',
+        acknowledgement: 'Massa, já salvei! Só uns detalhes rápidos (dá pra pular).',
+      ),
+      // Enriquecimento OPCIONAL (um toque pra pular) — data + link.
+      ConversationStep.single(
+        id: 'project.$n.when',
+        aiMessage: 'Quando você fez? (se não lembrar, pula)',
+        input: const MonthYearInput(optional: true),
+      ),
+      ConversationStep.single(
+        id: 'project.$n.link',
+        aiMessage:
+            'Tem um link pra mostrar? (GitHub, site, Behance…) Se não, pula.',
+        input: const GuidedTextInput(
+          example: 'github.com/seunome/projeto',
+          hint: 'Link do projeto',
+          maxLength: 120,
+          minLines: 1,
+          optional: true,
+        ),
       ),
       ConversationStep.single(
         id: 'project.$n.more',

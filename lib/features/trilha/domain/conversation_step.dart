@@ -68,11 +68,16 @@ class GuidedTextInput extends StepInput {
   final int maxLength;
   final int minLines;
 
+  /// Pode ser pulado vazio (vira "Pular"). Bom pra campos de enriquecimento
+  /// (ex.: link do projeto) — reduz fricção.
+  final bool optional;
+
   const GuidedTextInput({
     required this.example,
     this.hint,
     this.maxLength = 280,
     this.minLines = 2,
+    this.optional = false,
   });
 }
 
@@ -83,7 +88,10 @@ class MonthYearInput extends StepInput {
   /// Quantos anos pra trás oferecer (default 15).
   final int yearsBack;
 
-  const MonthYearInput({this.yearsBack = 15});
+  /// Pode ser pulado sem escolher (vira "Pular"). Bom pra data opcional.
+  final bool optional;
+
+  const MonthYearInput({this.yearsBack = 15, this.optional = false});
 }
 
 /// Multisseleção "meio-termo" (skills/áreas/etc.): chips SUGERIDOS (reconhecer,

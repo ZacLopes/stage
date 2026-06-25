@@ -419,10 +419,13 @@ class _StepInputViewState extends State<StepInputView> {
         ),
         const SizedBox(height: AppSpacing.md),
         PrimaryButton(
-          label: 'Enviar',
-          onPressed: (text.isEmpty || !widget.enabled)
+          label: text.isEmpty && input.optional ? 'Pular' : 'Enviar',
+          onPressed: (!widget.enabled || (text.isEmpty && !input.optional))
               ? null
-              : () => widget.onSubmit(StepAnswer.text(widget.step.id, text)),
+              : () => widget.onSubmit(text.isEmpty
+                  ? StepAnswer(
+                      stepId: widget.step.id, value: '', displayText: 'Pular')
+                  : StepAnswer.text(widget.step.id, text)),
         ),
       ],
     );
@@ -467,11 +470,14 @@ class _StepInputViewState extends State<StepInputView> {
         ]),
         const SizedBox(height: AppSpacing.base),
         PrimaryButton(
-          label: 'Confirmar',
-          onPressed: (ready && widget.enabled)
-              ? () => widget.onSubmit(
-                  StepAnswer.monthYear(widget.step.id, _myYear!, _myMonth!))
-              : null,
+          label: !ready && input.optional ? 'Pular' : 'Confirmar',
+          onPressed: (!widget.enabled || (!ready && !input.optional))
+              ? null
+              : ready
+                  ? () => widget.onSubmit(StepAnswer.monthYear(
+                      widget.step.id, _myYear!, _myMonth!))
+                  : () => widget.onSubmit(StepAnswer(
+                      stepId: widget.step.id, value: '', displayText: 'Pular')),
         ),
       ],
     );

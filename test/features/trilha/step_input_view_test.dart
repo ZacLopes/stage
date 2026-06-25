@@ -316,4 +316,27 @@ void main() {
     expect(captured, isNotNull);
     expect(captured!.value, ['yes']);
   });
+
+  testWidgets('texto opcional vazio: botão vira "Pular" e submete vazio',
+      (tester) async {
+    StepAnswer? captured;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StepInputView(
+          step: const ConversationStep(
+            id: 'project.0.link',
+            aiMessages: ['x'],
+            input: GuidedTextInput(example: 'link', optional: true),
+          ),
+          onSubmit: (a) => captured = a,
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(find.text('Pular'), findsOneWidget); // vazio + optional → Pular
+    await tester.tap(find.text('Pular'));
+    await tester.pump();
+    expect(captured, isNotNull);
+    expect(captured!.value, '');
+  });
 }

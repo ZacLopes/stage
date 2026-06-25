@@ -63,7 +63,7 @@ void main() {
     expect(TrilhaProgress.segmentForStep('linkedin.url'), 'linkedin');
     // save indexados:
     expect(TrilhaProgress.segmentForStep('exp.0.ofazia'), 'experience');
-    expect(TrilhaProgress.segmentForStep('project.1.desc'), 'projects');
+    expect(TrilhaProgress.segmentForStep('project.1.did'), 'projects');
     expect(TrilhaProgress.segmentForStep('cert.0.name'), 'certifications');
     // gates NÃO marcam por aqui:
     expect(TrilhaProgress.segmentForStep('exp.gate'), isNull);

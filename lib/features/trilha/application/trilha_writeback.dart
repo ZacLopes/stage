@@ -326,7 +326,9 @@ class TrilhaWriteback {
     _expBuffers.remove(n);
   }
 
-  // ── Projetos → profile_projects (acumula name + desc) ────────────────────
+  // ── Projetos → profile_projects (name/contexto + bullet; data/link opcionais)
+  // Salva o CORE no 'did' (nome+contexto+bullet) — assim, se o usuário sair
+  // depois disso, o projeto já está gravado. 'when'/'link' atualizam o projeto.
   Future<void> _handleProject(StepAnswer a) async {
     final parts = a.stepId.split('.'); // project.{n}.{field}
     if (parts.length < 3) return; // 'project.gate'
@@ -337,28 +339,56 @@ class TrilhaWriteback {
       case 'name':
         buf.name = _text(a);
         break;
-      case 'desc':
-        buf.desc = _text(a);
-        await _saveProject(n, buf);
+      case 'what':
+        buf.what = _text(a);
+        break;
+      case 'did':
+        buf.did = _text(a);
+        await _saveProjectCore(buf);
+        break;
+      case 'when':
+        buf.when = _parseMonth(_text(a));
+        await _updateProjectExtras(buf);
+        break;
+      case 'link':
+        buf.link = _text(a);
+        await _updateProjectExtras(buf);
         break;
       // 'more' → controle, no-op
     }
   }
 
-  Future<void> _saveProject(int n, _ProjBuffer buf) async {
+  Future<void> _saveProjectCore(_ProjBuffer buf) async {
     final name = buf.name?.trim() ?? '';
-    if (name.isEmpty) {
-      _projBuffers.remove(n);
-      return;
-    }
-    final desc = buf.desc?.trim();
-    await _repo.addProject(Project(
+    if (name.isEmpty || buf.projectId != null) return; // sem nome / já salvo
+    final what = buf.what?.trim();
+    final saved = await _repo.addProject(Project(
       id: '',
       userId: userId,
       name: name,
-      description: (desc != null && desc.isNotEmpty) ? desc : null,
+      context: (what != null && what.isNotEmpty) ? what : null,
     ));
-    _projBuffers.remove(n);
+    buf.projectId = saved.id;
+    final did = buf.did?.trim();
+    if (did != null && did.isNotEmpty) {
+      await _repo.addProjectBullet(
+          ProjectBullet(id: '', projectId: saved.id, text: did));
+    }
+  }
+
+  Future<void> _updateProjectExtras(_ProjBuffer buf) async {
+    final id = buf.projectId;
+    if (id == null) return; // core ainda não salvo
+    final what = buf.what?.trim();
+    final link = buf.link?.trim();
+    await _repo.updateProject(Project(
+      id: id,
+      userId: userId,
+      name: buf.name!.trim(),
+      context: (what != null && what.isNotEmpty) ? what : null,
+      website: (link != null && link.isNotEmpty) ? link : null,
+      endDate: buf.when,
+    ));
   }
 
   DateTime? _parseMonth(String yyyymm) {
@@ -386,5 +416,9 @@ class _ExpBuffer {
 /// Buffer dos campos de um projeto em construção.
 class _ProjBuffer {
   String? name;
-  String? desc;
+  String? what; // o que era (→ context)
+  String? did; // o que VOCÊ fez (→ bullet)
+  DateTime? when; // quando (opcional → endDate)
+  String? link; // link (opcional → website)
+  String? projectId; // id depois de salvar o core
 }

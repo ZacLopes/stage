@@ -99,9 +99,25 @@ class _FakeRepo implements ProfileRepository {
   }
 
   final List<Project> addedProjects = [];
+  final List<ProjectBullet> addedProjectBullets = [];
+  Project? updatedProject;
+  int _projSeq = 0;
   @override
   Future<Project> addProject(Project p) async {
-    addedProjects.add(p);
+    final saved = p.copyWith(id: 'proj${_projSeq++}');
+    addedProjects.add(saved);
+    return saved;
+  }
+
+  @override
+  Future<ProjectBullet> addProjectBullet(ProjectBullet b) async {
+    addedProjectBullets.add(b);
+    return b;
+  }
+
+  @override
+  Future<Project> updateProject(Project p) async {
+    updatedProject = p;
     return p;
   }
 
@@ -267,13 +283,34 @@ void main() {
       expect(repo.upsertedPersonal, isNull);
     });
 
-    test('projeto: acumula name + desc e grava', () async {
+    test('projeto: core salvo no "did" (nome+contexto+bullet); when/link atualizam',
+        () async {
       await wb.save(StepAnswer.text('project.0.name', 'App de finanças'));
-      expect(repo.addedProjects, isEmpty); // ainda falta a descrição
-      await wb.save(
-          StepAnswer.text('project.0.desc', 'Criei em Flutter, 200 downloads'));
+      await wb.save(StepAnswer.text('project.0.what', 'App pra controlar gastos'));
+      expect(repo.addedProjects, isEmpty); // core ainda não salvo (falta o "did")
+
+      await wb.save(StepAnswer.text('project.0.did', 'Programei em Flutter sozinho'));
       expect(repo.addedProjects.map((p) => p.name), ['App de finanças']);
-      expect(repo.addedProjects.first.description, 'Criei em Flutter, 200 downloads');
+      expect(repo.addedProjects.first.context, 'App pra controlar gastos');
+      expect(repo.addedProjectBullets.map((b) => b.text),
+          ['Programei em Flutter sozinho']);
+
+      // Data + link (opcionais) atualizam o projeto já salvo.
+      await wb.save(StepAnswer.monthYear('project.0.when', 2024, 6));
+      await wb.save(StepAnswer.text('project.0.link', 'github.com/x/app'));
+      expect(repo.updatedProject?.website, 'github.com/x/app');
+      expect(repo.updatedProject?.endDate, DateTime(2024, 6, 1));
+    });
+
+    test('projeto: pular link/when não cria projeto duplicado', () async {
+      await wb.save(StepAnswer.text('project.0.name', 'TCC'));
+      await wb.save(StepAnswer.text('project.0.what', 'Pesquisa sobre X'));
+      await wb.save(StepAnswer.text('project.0.did', 'Escrevi e apresentei'));
+      // Pula data e link (vazios).
+      await wb.save(const StepAnswer(stepId: 'project.0.when', value: '', displayText: 'Pular'));
+      await wb.save(const StepAnswer(stepId: 'project.0.link', value: '', displayText: 'Pular'));
+      expect(repo.addedProjects, hasLength(1)); // não duplica
+      expect(repo.updatedProject?.website, isNull);
     });
 
     test('project.gate e .more: no-op de controle', () async {
