@@ -225,6 +225,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
+        // O footer cuida do inset de baixo (preenche o branco até a borda) —
+        // senão sobra uma faixa cinza embaixo dos botões.
+        bottom: false,
         child: Column(
           children: [
             _header(),
@@ -428,6 +431,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   Widget _footer(ConversationStep? step) {
     final showInput = _inputVisible && step != null && !_typing && !_finished;
+    // Inset do home indicator — somado ao padding de baixo pra o branco do
+    // footer ir até a borda inferior (sem faixa cinza embaixo dos botões).
+    final bottomSafe = MediaQuery.of(context).padding.bottom;
+    final dockPadding = EdgeInsets.fromLTRB(
+        AppSpacing.base, AppSpacing.base, AppSpacing.base, AppSpacing.lg + bottomSafe);
     final Widget content;
     if (showInput) {
       content = Container(
@@ -437,8 +445,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
           color: AppColors.surface,
           border: Border(top: BorderSide(color: AppColors.border)),
         ),
-        padding: const EdgeInsets.fromLTRB(
-            AppSpacing.base, AppSpacing.base, AppSpacing.base, AppSpacing.lg),
+        padding: dockPadding,
         child: StepInputView(
           key: ValueKey(step.id),
           step: step,
@@ -451,8 +458,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
         key: const ValueKey('done'),
         width: double.infinity,
         color: AppColors.surface,
-        padding: const EdgeInsets.fromLTRB(
-            AppSpacing.base, AppSpacing.base, AppSpacing.base, AppSpacing.lg),
+        padding: dockPadding,
         child: PrimaryButton(
           label: _finalizing ? 'Montando seu resumo…' : 'Concluir',
           onPressed: _finalizing
