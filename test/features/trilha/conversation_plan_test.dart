@@ -193,11 +193,13 @@ void main() {
           'gap.availability',
         ]),
       );
-      // Interesses não tem mais gate "quer? sim/não" (é obrigatório).
+      // Interesses não tem mais gate "quer? sim/não" (é obrigatório) e deixa
+      // ADICIONAR um tema fora da lista (SuggestPickInput, mín. 1).
       expect(ids, isNot(contains('interests.gate')));
       final interests = plan.firstWhere((s) => s.id == 'gap.interests');
-      expect(interests.input, isA<ChoiceInput>());
-      expect((interests.input as ChoiceInput).multi, isTrue);
+      expect(interests.input, isA<SuggestPickInput>());
+      expect((interests.input as SuggestPickInput).minSelections, 1);
+      expect((interests.input as SuggestPickInput).allowFreeText, isTrue);
       // gate expande na resposta "sim".
       final certGate = plan.firstWhere((s) => s.id == 'cert.gate');
       final yes = certGate.expand!(StepAnswer.choice(

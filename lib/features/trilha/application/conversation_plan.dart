@@ -536,30 +536,63 @@ ConversationStep _availabilityStep() => ConversationStep.single(
 // ── Extra: Interesses / temas (fit cultural) ─────────────────────────────────
 
 // Interesses é OBRIGATÓRIO (decisão do fundador): sem gate "quer? sim/não" —
-// pergunta direta, e o multi-select já exige ≥1 pra liberar o "Continuar".
+// pergunta direta. SuggestPickInput (chips + busca + "+ Adicionar" texto livre)
+// pra o usuário ADICIONAR um tema que não está na lista; minSelections: 1 exige
+// pelo menos um pra liberar o "Continuar".
+const _kInterestSuggestions = <String>[
+  'Sustentabilidade',
+  'Tecnologia',
+  'Educação',
+  'Saúde',
+  'Finanças',
+  'Inovação',
+  'Diversidade & inclusão',
+  'Empreendedorismo',
+  'Marketing',
+  'Design',
+  'Dados & IA',
+  'Meio ambiente',
+  'Impacto social',
+  'Cultura & arte',
+  'Esportes',
+  'Agronegócio',
+];
+
+// Extras só pro typeahead (não viram chips) — o texto livre cobre o resto.
+const _kInterestCatalog = <String>[
+  ..._kInterestSuggestions,
+  'Games',
+  'Moda',
+  'Música',
+  'Turismo',
+  'Gastronomia',
+  'Comunicação',
+  'Logística',
+  'Jurídico',
+  'Recursos Humanos',
+  'Ciência',
+  'Política',
+  'Voluntariado',
+  'Mídia',
+  'Varejo',
+  'Indústria',
+  'Engenharia',
+  'Arquitetura',
+  'Audiovisual',
+  'Direitos humanos',
+  'Saúde mental',
+];
+
 ConversationStep _interests() => ConversationStep.single(
       id: 'gap.interests',
       aiMessage:
           'Pra fechar, marque alguns temas ou causas que te interessam — isso '
           'ajuda as empresas com a sua cara a te encontrarem.',
-      input: const ChoiceInput(multi: true, options: [
-        StepOption(id: 'Sustentabilidade', label: 'Sustentabilidade'),
-        StepOption(id: 'Tecnologia', label: 'Tecnologia'),
-        StepOption(id: 'Educação', label: 'Educação'),
-        StepOption(id: 'Saúde', label: 'Saúde'),
-        StepOption(id: 'Finanças', label: 'Finanças'),
-        StepOption(id: 'Inovação', label: 'Inovação'),
-        StepOption(
-            id: 'Diversidade & inclusão', label: 'Diversidade & inclusão'),
-        StepOption(id: 'Empreendedorismo', label: 'Empreendedorismo'),
-        StepOption(id: 'Marketing', label: 'Marketing'),
-        StepOption(id: 'Design', label: 'Design'),
-        StepOption(id: 'Dados & IA', label: 'Dados & IA'),
-        StepOption(id: 'Meio ambiente', label: 'Meio ambiente'),
-        StepOption(id: 'Impacto social', label: 'Impacto social'),
-        StepOption(id: 'Cultura & arte', label: 'Cultura & arte'),
-        StepOption(id: 'Esportes', label: 'Esportes'),
-        StepOption(id: 'Agronegócio', label: 'Agronegócio'),
-      ]),
+      input: const SuggestPickInput(
+        suggestions: _kInterestSuggestions,
+        catalog: _kInterestCatalog,
+        minSelections: 1,
+        searchHint: 'Buscar ou escrever um tema…',
+      ),
       acknowledgement: 'Curti! Isso ajuda no fit cultural. ✨',
     );
