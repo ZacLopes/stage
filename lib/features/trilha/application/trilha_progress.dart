@@ -79,6 +79,11 @@ class TrilhaProgress {
   static String? segmentToMark(String stepId, Object? value) {
     final terminal = segmentForStep(stepId);
     if (terminal != null) return terminal;
+    // Educação: "Outro" no momento (já terminei / não estudo) marca o trecho
+    // como abordado SEM gravar formação — não re-pergunta nem cria row vazia.
+    if (stepId == 'gap.edu.moment' && value is List && value.contains('outro')) {
+      return 'education';
+    }
     final gate = segmentForGateDecline(stepId);
     if (gate != null && value is List && value.contains('no')) return gate;
     return null;
@@ -104,6 +109,11 @@ class TrilhaProgress {
         return 'availability';
       case 'gap.interests':
         return 'interests';
+      // Educação: grava no último passo de cada ramo (faculdade=semestre,
+      // ensino médio=ano). "Outro" é tratado no segmentToMark.
+      case 'gap.edu.semester':
+      case 'gap.edu.schoolyear':
+        return 'education';
       case 'linkedin.url':
         return 'linkedin';
     }

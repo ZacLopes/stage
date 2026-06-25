@@ -40,6 +40,9 @@ List<ConversationStep> buildConversationPlan(
     if (wants(LacunaKey.workMode, 'workmode')) _workMode(),
     if (wants(LacunaKey.jobType, 'jobtype')) _jobType(),
     if (wants(LacunaKey.city, 'city')) _city(),
+    // Educação (Tier 1 — chave pra o admin ACHAR o candidato: curso, semestre,
+    // nível). Só aparece se faltar (o import não extrai esses campos).
+    if (wants(LacunaKey.educationStatus, 'education')) _educationGate(),
     // Substância leve.
     if (wants(LacunaKey.skills, 'skills'))
       _skills(skillSuggestions, skillCatalog, skillSuggester,
@@ -287,12 +290,114 @@ ConversationStep _languageLevel(String lang) => ConversationStep.single(
 
 // ── Experiência (dinâmica) ───────────────────────────────────────────────────
 
+// ── Educação (Tier 1): só aparece se faltar curso/semestre/nível ─────────────
+// O import de CV NÃO extrai esses campos; o admin filtra a shortlist por eles.
+// Fluxo curto e adaptativo: momento dos estudos → (faculdade: instituição+curso+
+// semestre | ensino médio: escola+ano | outro: nada). Grava ATÔMICO no último
+// passo de cada ramo (semestre/ano) — ver TrilhaWriteback.
+const _kSemesterOptions = <StepOption>[
+  StepOption(id: '1', label: '1º'),
+  StepOption(id: '2', label: '2º'),
+  StepOption(id: '3', label: '3º'),
+  StepOption(id: '4', label: '4º'),
+  StepOption(id: '5', label: '5º'),
+  StepOption(id: '6', label: '6º'),
+  StepOption(id: '7', label: '7º'),
+  StepOption(id: '8', label: '8º'),
+  StepOption(id: '9', label: '9º'),
+  StepOption(id: '10', label: '10º'),
+  StepOption(id: '11', label: '11º'),
+  StepOption(id: '12', label: '12º'),
+];
+
+String _firstChoiceId(StepAnswer a) =>
+    a.value is List && (a.value as List).isNotEmpty
+        ? (a.value as List).first as String
+        : '';
+
+ConversationStep _educationGate() => ConversationStep(
+      id: 'gap.edu.moment',
+      aiMessages: const [
+        'Pra te mostrar as vagas certas, me conta: em que momento dos estudos '
+            'você está?',
+      ],
+      input: const ChoiceInput(options: [
+        StepOption(id: 'in_college', label: 'Cursando faculdade'),
+        StepOption(id: 'college_paused', label: 'Faculdade trancada'),
+        StepOption(id: 'in_school', label: 'No ensino médio'),
+        StepOption(
+            id: 'outro', label: 'Outro (já terminei / não estudo agora)'),
+      ]),
+      expand: (a) {
+        final m = _firstChoiceId(a);
+        if (m == 'in_school') return _eduSchoolSteps();
+        if (m == 'in_college' || m == 'college_paused') {
+          return _eduCollegeSteps();
+        }
+        return const []; // 'outro' → não coleta mais (fora do público-alvo)
+      },
+    );
+
+List<ConversationStep> _eduCollegeSteps() => [
+      ConversationStep.single(
+        id: 'gap.edu.institution',
+        aiMessage: 'Qual faculdade?',
+        input: const GuidedTextInput(
+          example: 'USP',
+          hint: 'Nome da faculdade',
+          maxLength: 80,
+          minLines: 1,
+        ),
+      ),
+      ConversationStep.single(
+        id: 'gap.edu.course',
+        aiMessage: 'E qual curso?',
+        input: const GuidedTextInput(
+          example: 'Administração',
+          hint: 'Nome do curso',
+          maxLength: 80,
+          minLines: 1,
+        ),
+      ),
+      ConversationStep.single(
+        id: 'gap.edu.semester',
+        aiMessage: 'Que semestre você está cursando?',
+        input: const ChoiceInput(compact: true, options: _kSemesterOptions),
+        acknowledgement:
+            'Anotado! Isso ajuda demais as empresas a te acharem. ✨',
+      ),
+    ];
+
+List<ConversationStep> _eduSchoolSteps() => [
+      ConversationStep.single(
+        id: 'gap.edu.school',
+        aiMessage: 'Qual escola?',
+        input: const GuidedTextInput(
+          example: 'Colégio Pedro II',
+          hint: 'Nome da escola',
+          maxLength: 80,
+          minLines: 1,
+        ),
+      ),
+      ConversationStep.single(
+        id: 'gap.edu.schoolyear',
+        aiMessage: 'Que ano você está?',
+        input: const ChoiceInput(compact: true, options: [
+          StepOption(id: '1', label: '1º ano'),
+          StepOption(id: '2', label: '2º ano'),
+          StepOption(id: '3', label: '3º ano'),
+        ]),
+        acknowledgement: 'Anotado! Isso ajuda demais. ✨',
+      ),
+    ];
+
 ConversationStep _experienceGate() => ConversationStep(
       id: 'exp.gate',
       aiMessages: const [
         'Agora a parte que mais conta pras empresas: suas experiências.',
-        'Você já trabalhou, estagiou, fez algum projeto ou voluntariado? Vale '
-            'qualquer coisa — mesmo curta, informal ou sem salário.',
+        'Já fez ALGO que te ensinou no mundo real? Vale muito além de emprego — '
+            'estágio, monitoria, atlética ou liga acadêmica, voluntariado, '
+            'trabalho na empresa da família, freela, ajudar num negócio… conta tudo.',
       ],
       input: const ChoiceInput(options: [
         StepOption(id: 'yes', label: 'Já sim'),
@@ -442,9 +547,9 @@ List<ConversationStep> _certItem(int n) => [
 ConversationStep _projectGate() => ConversationStep(
       id: 'project.gate',
       aiMessages: const [
-        'Você fez algum projeto pessoal, acadêmico ou freelance? (app, TCC, '
-            'iniciativa, freela…) Conta muito, especialmente com pouca '
-            'experiência formal.',
+        'E projetos? Vale tudo que você botou pra rodar: app, TCC, trabalho da '
+            'faculdade, organização de evento, conteúdo/social media, iniciativa '
+            'própria, freela… Conta muito, ainda mais com pouca experiência formal.',
       ],
       input: const ChoiceInput(options: [
         StepOption(id: 'yes', label: 'Já sim'),

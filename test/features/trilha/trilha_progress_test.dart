@@ -68,6 +68,11 @@ void main() {
     // sair na data NÃO marca como abordado, então a trilha re-pergunta na volta.
     expect(TrilhaProgress.segmentForStep('project.1.did'), isNull);
     expect(TrilhaProgress.segmentForStep('cert.0.name'), 'certifications');
+    // Educação: marca no último passo do ramo (semestre/ano), não nos do meio.
+    expect(TrilhaProgress.segmentForStep('gap.edu.semester'), 'education');
+    expect(TrilhaProgress.segmentForStep('gap.edu.schoolyear'), 'education');
+    expect(TrilhaProgress.segmentForStep('gap.edu.institution'), isNull);
+    expect(TrilhaProgress.segmentForStep('gap.edu.moment'), isNull);
     // gates NÃO marcam por aqui:
     expect(TrilhaProgress.segmentForStep('exp.gate'), isNull);
     expect(TrilhaProgress.segmentForStep('linkedin.gate'), isNull);
@@ -83,6 +88,11 @@ void main() {
     expect(TrilhaProgress.segmentToMark('interests.gate', ['no']), 'interests');
     expect(TrilhaProgress.segmentToMark('exp.0.ofazia', 'x'), 'experience');
     expect(TrilhaProgress.segmentToMark('linkedin.url', 'x'), 'linkedin');
+    // Educação: "outro" no momento marca (não re-pergunta); escolher faculdade/
+    // escola NÃO marca no momento (espera o dado ser salvo no último passo).
+    expect(TrilhaProgress.segmentToMark('gap.edu.moment', ['outro']), 'education');
+    expect(TrilhaProgress.segmentToMark('gap.edu.moment', ['in_college']), isNull);
+    expect(TrilhaProgress.segmentToMark('gap.edu.semester', ['5']), 'education');
   });
 
   group('híbrido (retomada entre devices)', () {

@@ -41,7 +41,7 @@ void main() {
       );
 
   group('buildConversationPlan', () {
-    test('perfil oco: pergunta tudo o que esta fase cobre (intro + 6 + experiência)', () {
+    test('perfil oco: pergunta tudo o que esta fase cobre (intro + 7 + experiência)', () {
       final plan = buildConversationPlan(gaps());
       final ids = plan.map((s) => s.id).toList();
       expect(ids.first, 'intro');
@@ -52,14 +52,13 @@ void main() {
           'gap.workmode',
           'gap.jobtype',
           'gap.city',
+          'gap.edu.moment', // educação (curso/semestre/nível) — chave p/ shortlist
           'gap.skills',
           'gap.languages',
           'exp.gate',
         ]),
       );
-      // Educação NÃO é coletada aqui (já vem do onboarding).
-      expect(ids, isNot(contains('gap.education')));
-      expect(plan, hasLength(8)); // intro + 6 + gate de experiência
+      expect(plan, hasLength(9)); // intro + 7 + gate de experiência
     });
 
     test('perfil completo (só falta resumo, que é gerado): plano vazio', () {
@@ -213,6 +212,30 @@ void main() {
       expect(ids.any((id) => id.contains('summary')), false);
     });
 
+    test('educação: gate só aparece se faltar; ramos faculdade/escola/outro', () {
+      // hasEducationStatus=false (default) → lacuna → gate presente.
+      final plan = buildConversationPlan(gaps());
+      final moment = plan.firstWhere((s) => s.id == 'gap.edu.moment');
+
+      final college = moment.expand!(StepAnswer.choice(
+          'gap.edu.moment', const [StepOption(id: 'in_college', label: 'x')]));
+      expect(college.map((s) => s.id),
+          containsAll(['gap.edu.institution', 'gap.edu.course', 'gap.edu.semester']));
+
+      final school = moment.expand!(StepAnswer.choice(
+          'gap.edu.moment', const [StepOption(id: 'in_school', label: 'x')]));
+      expect(school.map((s) => s.id),
+          containsAll(['gap.edu.school', 'gap.edu.schoolyear']));
+
+      final outro = moment.expand!(StepAnswer.choice(
+          'gap.edu.moment', const [StepOption(id: 'outro', label: 'x')]));
+      expect(outro, isEmpty); // fora do público-alvo → não coleta mais
+
+      // Já tem status → sem gate.
+      final filled = buildConversationPlan(gaps(hasEducationStatus: true));
+      expect(filled.map((s) => s.id), isNot(contains('gap.edu.moment')));
+    });
+
     test('experiência: a gate expande em item ao responder "sim", vazio no "não"', () {
       final plan = buildConversationPlan(gaps());
       final gate = plan.firstWhere((s) => s.id == 'exp.gate');
@@ -248,6 +271,7 @@ void main() {
         'workmode',
         'jobtype',
         'city',
+        'education',
         'skills',
         'languages',
         'experience',

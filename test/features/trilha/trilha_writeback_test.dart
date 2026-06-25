@@ -130,6 +130,26 @@ class _FakeRepo implements ProfileRepository {
     replacedInterests = names;
   }
 
+  List<Education> educations = [];
+  Education? addedEducation;
+  Education? updatedEducation;
+  @override
+  Future<List<Education>> getEducation(String userId) async => educations;
+  @override
+  Future<Education> addEducation(Education e) async {
+    final saved = e.id.isEmpty ? e.copyWith(id: 'edu${educations.length}') : e;
+    addedEducation = saved;
+    educations = [...educations, saved];
+    return saved;
+  }
+
+  @override
+  Future<Education> updateEducation(Education e) async {
+    updatedEducation = e;
+    educations = educations.map((x) => x.id == e.id ? e : x).toList();
+    return e;
+  }
+
   @override
   dynamic noSuchMethod(Invocation i) =>
       throw UnimplementedError('${i.memberName} não deveria ser chamado');
@@ -342,6 +362,62 @@ void main() {
     test('interests.gate: no-op de controle', () async {
       await wb.save(choice('interests.gate', ['yes']));
       expect(repo.replacedInterests, isNull);
+    });
+
+    test('educação faculdade: momento→instituição→curso→semestre grava college',
+        () async {
+      await wb.save(choice('gap.edu.moment', ['in_college']));
+      await wb.save(StepAnswer.text('gap.edu.institution', 'USP'));
+      await wb.save(StepAnswer.text('gap.edu.course', 'Administração'));
+      expect(repo.addedEducation, isNull); // só grava no último passo (semestre)
+
+      await wb.save(choice('gap.edu.semester', ['5']));
+      final e = repo.addedEducation!;
+      expect(e.educationLevel, 'college');
+      expect(e.educationStatus, 'studying');
+      expect(e.institution, 'USP');
+      expect(e.currentSemester, 5);
+      expect(e.majors.map((m) => m.name), ['Administração']);
+    });
+
+    test('educação ensino médio: momento→escola→ano grava school', () async {
+      await wb.save(choice('gap.edu.moment', ['in_school']));
+      await wb.save(StepAnswer.text('gap.edu.school', 'Colégio X'));
+      await wb.save(choice('gap.edu.schoolyear', ['2']));
+      final e = repo.addedEducation!;
+      expect(e.educationLevel, 'school');
+      expect(e.currentSchoolYear, 2);
+      expect(e.institution, 'Colégio X');
+    });
+
+    test('educação trancada: status paused', () async {
+      await wb.save(choice('gap.edu.moment', ['college_paused']));
+      await wb.save(StepAnswer.text('gap.edu.institution', 'PUC'));
+      await wb.save(StepAnswer.text('gap.edu.course', 'Direito'));
+      await wb.save(choice('gap.edu.semester', ['3']));
+      expect(repo.addedEducation!.educationStatus, 'paused');
+    });
+
+    test('educação UPSERT: atualiza college existente (rasa do import) sem duplicar',
+        () async {
+      repo.educations = [
+        const Education(
+            id: 'e1', userId: 'u1', institution: 'USP', educationLevel: 'college'),
+      ];
+      await wb.save(choice('gap.edu.moment', ['in_college']));
+      await wb.save(StepAnswer.text('gap.edu.institution', 'USP'));
+      await wb.save(StepAnswer.text('gap.edu.course', 'Engenharia'));
+      await wb.save(choice('gap.edu.semester', ['7']));
+      expect(repo.addedEducation, isNull); // não criou nova
+      expect(repo.updatedEducation?.id, 'e1'); // atualizou a existente
+      expect(repo.updatedEducation?.currentSemester, 7);
+      expect(repo.updatedEducation?.majors.map((m) => m.name), ['Engenharia']);
+    });
+
+    test('educação "outro": no-op (não cria formação)', () async {
+      await wb.save(choice('gap.edu.moment', ['outro']));
+      expect(repo.addedEducation, isNull);
+      expect(repo.updatedEducation, isNull);
     });
   });
 }

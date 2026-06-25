@@ -18,6 +18,7 @@ class TrilhaWriteback {
   /// ter o suficiente pra gravar. Chave = índice 'n' do passo 'exp.{n}.*'.
   final Map<int, _ExpBuffer> _expBuffers = {};
   final Map<int, _ProjBuffer> _projBuffers = {};
+  _EduBuffer? _eduBuffer;
 
   TrilhaWriteback(this._repo, this.userId);
 
@@ -33,6 +34,11 @@ class TrilhaWriteback {
     }
     if (answer.stepId.startsWith('project.')) {
       await _handleProject(answer);
+      return;
+    }
+    // 'gap.edu.*' → educação (momento + faculdade/escola + curso + semestre/ano).
+    if (answer.stepId.startsWith('gap.edu.')) {
+      await _handleEducation(answer);
       return;
     }
     // 'gap.skills' (escolha) e 'gap.skills.more' (sugestão da IA) → mesmas skills.
@@ -383,6 +389,88 @@ class TrilhaWriteback {
     _projBuffers.remove(n);
   }
 
+  // ── Educação → profile_education (atômico no último passo: semestre/ano) ────
+  // UPSERT: se já existe uma formação do mesmo nível (faculdade/escola) — ex.:
+  // veio rasa do import sem semestre — atualiza em vez de duplicar.
+  Future<void> _handleEducation(StepAnswer a) async {
+    final parts = a.stepId.split('.'); // gap.edu.{field}
+    if (parts.length < 3) return;
+    final buf = _eduBuffer ??= _EduBuffer();
+    switch (parts[2]) {
+      case 'moment':
+        buf.moment = _firstId(a);
+        break;
+      case 'institution':
+      case 'school':
+        buf.institution = _text(a);
+        break;
+      case 'course':
+        buf.course = _text(a);
+        break;
+      case 'semester':
+        buf.semester = int.tryParse(_firstId(a));
+        await _saveEducation(buf); // último passo da faculdade
+        break;
+      case 'schoolyear':
+        buf.schoolYear = int.tryParse(_firstId(a));
+        await _saveEducation(buf); // último passo do ensino médio
+        break;
+    }
+  }
+
+  Future<void> _saveEducation(_EduBuffer buf) async {
+    final inst = buf.institution?.trim() ?? '';
+    if (inst.isEmpty) return;
+    final isSchool = buf.moment == 'in_school';
+    final level = isSchool ? 'school' : 'college';
+    final status = buf.moment == 'college_paused' ? 'paused' : 'studying';
+
+    // Upsert: acha a formação existente do mesmo nível pra atualizar.
+    final existing = await _repo.getEducation(userId);
+    Education? match;
+    for (final e in existing) {
+      if ((e.educationLevel ?? '').toLowerCase() == level) {
+        match = e;
+        break;
+      }
+    }
+    final course = buf.course?.trim();
+    final edu = Education(
+      id: match?.id ?? '',
+      userId: userId,
+      institution: inst,
+      institutionId: inst == match?.institution ? match?.institutionId : null,
+      educationLevel: level,
+      educationStatus: status,
+      location: match?.location,
+      degree: isSchool ? 'Ensino médio' : 'Graduação',
+      currentSemester: isSchool ? null : buf.semester,
+      currentSchoolYear: isSchool ? buf.schoolYear : null,
+      startDate: match?.startDate,
+      endDate: match?.endDate,
+      gpa: match?.gpa,
+      maxGpa: match?.maxGpa,
+      orderIndex: match?.orderIndex ?? 0,
+      confidence: match?.confidence,
+      majors: (!isSchool && course != null && course.isNotEmpty)
+          ? [EducationMajor(id: '', educationId: match?.id ?? '', name: course)]
+          : (match?.majors ?? const []),
+      minors: match?.minors ?? const [],
+      activities: match?.activities ?? const [],
+    );
+    if (match == null) {
+      await _repo.addEducation(edu);
+    } else {
+      await _repo.updateEducation(edu);
+    }
+    _eduBuffer = null;
+  }
+
+  String _firstId(StepAnswer a) =>
+      a.value is List && (a.value as List).isNotEmpty
+          ? (a.value as List).first as String
+          : '';
+
   DateTime? _parseMonth(String yyyymm) {
     final m = RegExp(r'^(\d{4})-(\d{2})$').firstMatch(yyyymm.trim());
     if (m == null) return null;
@@ -412,4 +500,14 @@ class _ProjBuffer {
   String? did; // o que VOCÊ fez (→ bullet)
   DateTime? when; // quando (opcional → endDate)
   String? link; // link (opcional → website)
+}
+
+/// Buffer da educação (momento + instituição + curso + semestre/ano), gravado
+/// de uma vez no último passo do ramo (semestre p/ faculdade, ano p/ escola).
+class _EduBuffer {
+  String? moment; // in_college | college_paused | in_school | outro
+  String? institution;
+  String? course;
+  int? semester;
+  int? schoolYear;
 }
