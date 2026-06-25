@@ -63,14 +63,29 @@ class TrilhaProgress {
   }
 
   /// Marca o trecho correspondente ao passo respondido (no-op pra passos de
-  /// controle, ex.: 'intro', 'exp.0.company').
-  Future<void> markFromStep(String userId, String stepId) async {
-    final segment = segmentForStep(stepId);
+  /// controle, ex.: 'intro', 'exp.0.company') — passando a RESPOSTA pra
+  /// distinguir "sim" (abre o texto, ainda não conta) de "não" (não tem aquilo).
+  Future<void> markForAnswer(
+      String userId, String stepId, Object? value) async {
+    final segment = segmentToMark(stepId, value);
     if (segment != null) await mark(userId, segment);
   }
 
-  /// Mapeia um passo → trecho. Só os passos que "abrem" um trecho contam
-  /// (gate/pergunta-raiz); passos internos da experiência não.
+  /// Trecho a marcar como abordado dada a resposta. Um trecho conta quando:
+  /// (a) tem DADO salvo — passo terminal/único ([segmentForStep]); OU
+  /// (b) o usuário diz "não" no gate ([segmentForGateDecline]) — não tem aquilo.
+  /// Dizer "sim" no gate (que só abre o texto) NÃO conta: se ele sair antes de
+  /// escrever, a pergunta volta na próxima vez.
+  static String? segmentToMark(String stepId, Object? value) {
+    final terminal = segmentForStep(stepId);
+    if (terminal != null) return terminal;
+    final gate = segmentForGateDecline(stepId);
+    if (gate != null && value is List && value.contains('no')) return gate;
+    return null;
+  }
+
+  /// Passos TERMINAIS/únicos: quando respondidos, há dado salvo → trecho conta.
+  /// (Os passos de save da experiência/projeto/cert são indexados.)
   static String? segmentForStep(String stepId) {
     switch (stepId) {
       case 'gap.area':
@@ -87,14 +102,34 @@ class TrilhaProgress {
         return 'languages';
       case 'gap.availability':
         return 'availability';
+      case 'gap.interests':
+        return 'interests';
+      case 'linkedin.url':
+        return 'linkedin';
+    }
+    // Passos de save indexados (exp.{n}.ofazia / project.{n}.desc / cert.{n}.name).
+    if (stepId.endsWith('.ofazia')) return 'experience';
+    if (stepId.startsWith('project.') && stepId.endsWith('.desc')) {
+      return 'projects';
+    }
+    if (stepId.startsWith('cert.') && stepId.endsWith('.name')) {
+      return 'certifications';
+    }
+    return null;
+  }
+
+  /// Gates que, quando respondidos "não", marcam o trecho (o usuário não tem
+  /// aquilo). Quando respondidos "sim", NÃO marcam (espera o dado ser salvo).
+  static String? segmentForGateDecline(String stepId) {
+    switch (stepId) {
       case 'exp.gate':
         return 'experience';
-      case 'linkedin.gate':
-        return 'linkedin';
-      case 'cert.gate':
-        return 'certifications';
       case 'project.gate':
         return 'projects';
+      case 'cert.gate':
+        return 'certifications';
+      case 'linkedin.gate':
+        return 'linkedin';
       case 'interests.gate':
         return 'interests';
     }

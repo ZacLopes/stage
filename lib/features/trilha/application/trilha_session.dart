@@ -75,11 +75,13 @@ Future<ConversationController> buildTrilhaController(
 
   return ConversationController(plan, onAnswer: (answer) async {
     await writeback.save(answer);
-    // Marca o trecho como abordado pra não re-perguntar nas próximas aberturas.
-    await prog.markFromStep(userId, answer.stepId);
-    // Telemetria (5c): conta os trechos respondidos.
-    final segment = TrilhaProgress.segmentForStep(answer.stepId);
+    // Marca o trecho só quando há DADO salvo ou gate "não" (ver segmentToMark) —
+    // dizer "sim" e sair antes de escrever NÃO conta, então a pergunta volta.
+    final segment =
+        TrilhaProgress.segmentToMark(answer.stepId, answer.value);
     if (segment != null) {
+      await prog.mark(userId, segment);
+      // Telemetria (5c): conta os trechos efetivamente abordados.
       // ignore: unawaited_futures
       Analytics.shared
           .track(evTrilhaColetaStepAnswered, props: {'segment': segment});
