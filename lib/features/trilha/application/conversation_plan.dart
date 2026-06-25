@@ -254,6 +254,35 @@ ConversationStep _languages() => ConversationStep.single(
           StepOption(id: 'Mandarim', label: 'Mandarim'),
         ],
       ),
+      // Pra cada idioma NÃO-nativo escolhido, pergunta o nível em seguida
+      // (português entra como 'nativo' automático no write-back).
+      expand: (a) {
+        final picked = a.value is List
+            ? (a.value as List).whereType<String>()
+            : const <String>[];
+        return [
+          for (final lang in picked)
+            if (lang.toLowerCase() != 'português') _languageLevel(lang),
+        ];
+      },
+    );
+
+/// Nível de um idioma — chips compactos (escala). Os ids são os valores
+/// canônicos do banco (basic/intermediate/advanced/fluent/native).
+ConversationStep _languageLevel(String lang) => ConversationStep.single(
+      id: 'lang.level.$lang',
+      aiMessage: 'Qual seu nível em $lang?',
+      input: const ChoiceInput(
+        compact: true,
+        options: [
+          StepOption(id: 'basic', label: 'Básico'),
+          StepOption(id: 'intermediate', label: 'Intermediário'),
+          StepOption(id: 'advanced', label: 'Avançado'),
+          StepOption(id: 'fluent', label: 'Fluente'),
+          StepOption(id: 'native', label: 'Nativo'),
+        ],
+      ),
+      acknowledgement: 'Anotado!',
     );
 
 // ── Experiência (dinâmica) ───────────────────────────────────────────────────

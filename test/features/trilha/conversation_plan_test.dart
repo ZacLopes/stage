@@ -145,6 +145,27 @@ void main() {
       expect((r1.single.input as SuggestPickInput).minSelections, 2);
     });
 
+    test('idiomas: expande pro nível de cada idioma NÃO-nativo (chips compactos)',
+        () {
+      final plan = buildConversationPlan(gaps(
+        hasArea: true,
+        hasWorkMode: true,
+        hasJobType: true,
+        hasCity: true,
+        hasEducationStatus: true,
+        skillsCount: 5,
+        experienceCount: 1,
+        languagesCount: 0,
+      ));
+      final langs = plan.firstWhere((s) => s.id == 'gap.languages');
+      final levels =
+          langs.expand!(picks('gap.languages', ['Português', 'Inglês', 'Espanhol']));
+      // Português = nativo (sem passo); os demais ganham passo de nível.
+      expect(levels.map((s) => s.id),
+          ['lang.level.Inglês', 'lang.level.Espanhol']);
+      expect((levels.first.input as ChoiceInput).compact, true);
+    });
+
     test('extras: pergunta LinkedIn, certificações e projetos quando faltam', () {
       final plan = buildConversationPlan(gaps(
         hasArea: true,

@@ -46,10 +46,15 @@ class ChoiceInput extends StepInput {
   final bool multi;
   final int? maxSelections;
 
+  /// Escolha única COMPACTA: renderiza como chips (toque submete) em vez de
+  /// tiles de largura cheia. Bom pra escalas curtas (ex.: nível de idioma).
+  final bool compact;
+
   const ChoiceInput({
     required this.options,
     this.multi = false,
     this.maxSelections,
+    this.compact = false,
   });
 }
 

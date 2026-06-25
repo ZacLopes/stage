@@ -30,6 +30,16 @@ class _FakeRepo implements ProfileRepository {
   @override
   Future<Language> addLanguage(Language l) async {
     addedLangs.add(l);
+    languages = [...languages, l];
+    return l;
+  }
+
+  Language? updatedLanguage;
+  @override
+  Future<Language> updateLanguage(Language l) async {
+    updatedLanguage = l;
+    languages =
+        languages.map((x) => x.name == l.name ? l : x).toList();
     return l;
   }
 
@@ -166,6 +176,21 @@ void main() {
     test('idiomas: insere os novos e pula "none"', () async {
       await wb.save(choice('gap.languages', ['none', 'Inglês']));
       expect(repo.addedLangs.map((l) => l.name), ['Inglês']);
+    });
+
+    test('idiomas: português entra como nativo (auto); demais sem nível', () async {
+      await wb.save(choice('gap.languages', ['Português', 'Inglês']));
+      expect(repo.addedLangs.firstWhere((l) => l.name == 'Português').proficiency,
+          LanguageProficiency.native);
+      expect(repo.addedLangs.firstWhere((l) => l.name == 'Inglês').proficiency,
+          isNull); // nível vem no passo seguinte
+    });
+
+    test('nível de idioma: atualiza a proficiência do idioma existente', () async {
+      repo.languages = [const Language(id: '1', userId: 'u1', name: 'Inglês')];
+      await wb.save(choice('lang.level.Inglês', ['advanced']));
+      expect(repo.updatedLanguage?.name, 'Inglês');
+      expect(repo.updatedLanguage?.proficiency, LanguageProficiency.advanced);
     });
 
     test('intro (e desconhecidos): no-op, nada gravado', () async {

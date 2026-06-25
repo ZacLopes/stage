@@ -40,6 +40,12 @@ class TrilhaWriteback {
       await _saveSkills(_ids(answer));
       return;
     }
+    // 'lang.level.{Idioma}' → atualiza a proficiência do idioma.
+    if (answer.stepId.startsWith('lang.level.')) {
+      await _saveLanguageLevel(
+          answer.stepId.substring('lang.level.'.length), _ids(answer));
+      return;
+    }
     switch (answer.stepId) {
       case 'gap.area':
         await _saveAreas(_ids(answer));
@@ -208,7 +214,32 @@ class TrilhaWriteback {
     final have = existing.map((l) => l.name.toLowerCase().trim()).toSet();
     for (final name in clean) {
       if (have.contains(name.toLowerCase().trim())) continue;
-      await _repo.addLanguage(Language(id: '', userId: userId, name: name.trim()));
+      // Português = nativo (auto); o nível dos demais vem no passo seguinte.
+      final prof = name.toLowerCase().trim() == 'português'
+          ? LanguageProficiency.native
+          : null;
+      await _repo.addLanguage(
+          Language(id: '', userId: userId, name: name.trim(), proficiency: prof));
+    }
+  }
+
+  // ── Nível de idioma → profile_languages.proficiency (atualiza o existente) ──
+  Future<void> _saveLanguageLevel(String name, List<String> ids) async {
+    final id = ids.isNotEmpty ? ids.first : '';
+    LanguageProficiency? prof;
+    for (final p in LanguageProficiency.values) {
+      if (p.name == id) {
+        prof = p;
+        break;
+      }
+    }
+    if (prof == null) return;
+    final langs = await _repo.getLanguages(userId);
+    for (final l in langs) {
+      if (l.name.toLowerCase() == name.toLowerCase()) {
+        await _repo.updateLanguage(l.copyWith(proficiency: prof));
+        return;
+      }
     }
   }
 

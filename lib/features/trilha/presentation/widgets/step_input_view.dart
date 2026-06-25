@@ -98,9 +98,22 @@ class _StepInputViewState extends State<StepInputView> {
 
   // ── Escolha ──────────────────────────────────────────────────────────────
   Widget _buildChoice(ChoiceInput input) {
-    // Escolha ÚNICA (tocar já avança): 1 opção = CTA de largura cheia; 2+ =
-    // tiles empilhados. Adeus chip solto no canto.
+    // Escolha ÚNICA (tocar já avança). compact = chips (escala/nível);
+    // 1 opção = CTA de largura cheia; 2+ = tiles empilhados.
     if (!input.multi) {
+      if (input.compact) {
+        return Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: input.options
+              .map((o) => AppChip(
+                    label: o.label,
+                    disabled: !widget.enabled,
+                    onTap: () => _onChipTap(input, o),
+                  ))
+              .toList(),
+        );
+      }
       if (input.options.length == 1) {
         final o = input.options.first;
         return PrimaryButton(
