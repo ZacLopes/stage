@@ -488,7 +488,7 @@ List<ConversationStep> _projectItem(int n) => [
           maxLength: 240,
           minLines: 3,
         ),
-        acknowledgement: 'Massa, já salvei! Só uns detalhes rápidos (dá pra pular).',
+        acknowledgement: 'Show! Só mais uns detalhes rápidos e fecho esse (dá pra pular). ✨',
       ),
       // Enriquecimento OPCIONAL (um toque pra pular) — data + link.
       ConversationStep.single(

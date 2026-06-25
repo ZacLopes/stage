@@ -63,7 +63,10 @@ void main() {
     expect(TrilhaProgress.segmentForStep('linkedin.url'), 'linkedin');
     // save indexados:
     expect(TrilhaProgress.segmentForStep('exp.0.ofazia'), 'experience');
-    expect(TrilhaProgress.segmentForStep('project.1.did'), 'projects');
+    expect(TrilhaProgress.segmentForStep('project.1.link'), 'projects');
+    // O 'did' NÃO conta mais (o projeto só é gravado no último passo, 'link') —
+    // sair na data NÃO marca como abordado, então a trilha re-pergunta na volta.
+    expect(TrilhaProgress.segmentForStep('project.1.did'), isNull);
     expect(TrilhaProgress.segmentForStep('cert.0.name'), 'certifications');
     // gates NÃO marcam por aqui:
     expect(TrilhaProgress.segmentForStep('exp.gate'), isNull);

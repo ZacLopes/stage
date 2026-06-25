@@ -326,9 +326,12 @@ class TrilhaWriteback {
     _expBuffers.remove(n);
   }
 
-  // ── Projetos → profile_projects (name/contexto + bullet; data/link opcionais)
-  // Salva o CORE no 'did' (nome+contexto+bullet) — assim, se o usuário sair
-  // depois disso, o projeto já está gravado. 'when'/'link' atualizam o projeto.
+  // ── Projetos → profile_projects (ATÔMICO: grava tudo de uma vez no 'link') ──
+  // O projeto é salvo SÓ no último passo (link), com nome+contexto+bullet+data+
+  // link juntos. Por quê: se o usuário sair no meio (ex.: na data), NADA foi
+  // gravado → a trilha re-pergunta o projeto na volta, em vez de "pular" uma
+  // pergunta que ele não respondeu (a cauda opcional sumindo). Atômico = sem
+  // estado meio-salvo que a memória por lacunas descartaria.
   Future<void> _handleProject(StepAnswer a) async {
     final parts = a.stepId.split('.'); // project.{n}.{field}
     if (parts.length < 3) return; // 'project.gate'
@@ -344,51 +347,40 @@ class TrilhaWriteback {
         break;
       case 'did':
         buf.did = _text(a);
-        await _saveProjectCore(buf);
         break;
       case 'when':
         buf.when = _parseMonth(_text(a));
-        await _updateProjectExtras(buf);
         break;
       case 'link':
         buf.link = _text(a);
-        await _updateProjectExtras(buf);
+        await _saveProject(n, buf); // último passo → grava o projeto inteiro
         break;
       // 'more' → controle, no-op
     }
   }
 
-  Future<void> _saveProjectCore(_ProjBuffer buf) async {
+  Future<void> _saveProject(int n, _ProjBuffer buf) async {
     final name = buf.name?.trim() ?? '';
-    if (name.isEmpty || buf.projectId != null) return; // sem nome / já salvo
+    if (name.isEmpty) {
+      _projBuffers.remove(n);
+      return;
+    }
     final what = buf.what?.trim();
+    final link = buf.link?.trim();
     final saved = await _repo.addProject(Project(
       id: '',
       userId: userId,
       name: name,
       context: (what != null && what.isNotEmpty) ? what : null,
+      website: (link != null && link.isNotEmpty) ? link : null,
+      endDate: buf.when,
     ));
-    buf.projectId = saved.id;
     final did = buf.did?.trim();
     if (did != null && did.isNotEmpty) {
       await _repo.addProjectBullet(
           ProjectBullet(id: '', projectId: saved.id, text: did));
     }
-  }
-
-  Future<void> _updateProjectExtras(_ProjBuffer buf) async {
-    final id = buf.projectId;
-    if (id == null) return; // core ainda não salvo
-    final what = buf.what?.trim();
-    final link = buf.link?.trim();
-    await _repo.updateProject(Project(
-      id: id,
-      userId: userId,
-      name: buf.name!.trim(),
-      context: (what != null && what.isNotEmpty) ? what : null,
-      website: (link != null && link.isNotEmpty) ? link : null,
-      endDate: buf.when,
-    ));
+    _projBuffers.remove(n);
   }
 
   DateTime? _parseMonth(String yyyymm) {
@@ -413,12 +405,11 @@ class _ExpBuffer {
   String? ofazia;
 }
 
-/// Buffer dos campos de um projeto em construção.
+/// Buffer dos campos de um projeto em construção (gravado de uma vez no fim).
 class _ProjBuffer {
   String? name;
   String? what; // o que era (→ context)
   String? did; // o que VOCÊ fez (→ bullet)
   DateTime? when; // quando (opcional → endDate)
   String? link; // link (opcional → website)
-  String? projectId; // id depois de salvar o core
 }

@@ -283,34 +283,42 @@ void main() {
       expect(repo.upsertedPersonal, isNull);
     });
 
-    test('projeto: core salvo no "did" (nome+contexto+bullet); when/link atualizam',
+    test('projeto: grava ATÔMICO no fim (link) — nome+contexto+data+link+bullet',
         () async {
       await wb.save(StepAnswer.text('project.0.name', 'App de finanças'));
       await wb.save(StepAnswer.text('project.0.what', 'App pra controlar gastos'));
-      expect(repo.addedProjects, isEmpty); // core ainda não salvo (falta o "did")
-
       await wb.save(StepAnswer.text('project.0.did', 'Programei em Flutter sozinho'));
+      await wb.save(StepAnswer.monthYear('project.0.when', 2024, 6));
+      expect(repo.addedProjects, isEmpty); // ainda NÃO salvou (só no último passo)
+
+      await wb.save(StepAnswer.text('project.0.link', 'github.com/x/app'));
+      // Agora grava tudo de uma vez:
       expect(repo.addedProjects.map((p) => p.name), ['App de finanças']);
       expect(repo.addedProjects.first.context, 'App pra controlar gastos');
+      expect(repo.addedProjects.first.website, 'github.com/x/app');
+      expect(repo.addedProjects.first.endDate, DateTime(2024, 6, 1));
       expect(repo.addedProjectBullets.map((b) => b.text),
           ['Programei em Flutter sozinho']);
-
-      // Data + link (opcionais) atualizam o projeto já salvo.
-      await wb.save(StepAnswer.monthYear('project.0.when', 2024, 6));
-      await wb.save(StepAnswer.text('project.0.link', 'github.com/x/app'));
-      expect(repo.updatedProject?.website, 'github.com/x/app');
-      expect(repo.updatedProject?.endDate, DateTime(2024, 6, 1));
     });
 
-    test('projeto: pular link/when não cria projeto duplicado', () async {
+    test('projeto: sair ANTES do link NÃO salva (re-pergunta na volta)', () async {
+      await wb.save(StepAnswer.text('project.0.name', 'App'));
+      await wb.save(StepAnswer.text('project.0.what', 'algo'));
+      await wb.save(StepAnswer.text('project.0.did', 'fiz X'));
+      // Usuário fecha aqui (na data) — nada foi gravado ainda.
+      expect(repo.addedProjects, isEmpty);
+      expect(repo.addedProjectBullets, isEmpty);
+    });
+
+    test('projeto: pular data e link grava mesmo assim (sem data/website)', () async {
       await wb.save(StepAnswer.text('project.0.name', 'TCC'));
       await wb.save(StepAnswer.text('project.0.what', 'Pesquisa sobre X'));
       await wb.save(StepAnswer.text('project.0.did', 'Escrevi e apresentei'));
-      // Pula data e link (vazios).
       await wb.save(const StepAnswer(stepId: 'project.0.when', value: '', displayText: 'Pular'));
       await wb.save(const StepAnswer(stepId: 'project.0.link', value: '', displayText: 'Pular'));
-      expect(repo.addedProjects, hasLength(1)); // não duplica
-      expect(repo.updatedProject?.website, isNull);
+      expect(repo.addedProjects, hasLength(1));
+      expect(repo.addedProjects.first.website, isNull);
+      expect(repo.addedProjects.first.endDate, isNull);
     });
 
     test('project.gate e .more: no-op de controle', () async {

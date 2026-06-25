@@ -107,9 +107,10 @@ class TrilhaProgress {
       case 'linkedin.url':
         return 'linkedin';
     }
-    // Passos de save indexados (exp.{n}.ofazia / project.{n}.desc / cert.{n}.name).
+    // Passos de save indexados (exp.{n}.ofazia / project.{n}.link / cert.{n}.name).
+    // Projeto: conta no 'link' (último passo, onde o projeto é gravado atômico).
     if (stepId.endsWith('.ofazia')) return 'experience';
-    if (stepId.startsWith('project.') && stepId.endsWith('.did')) {
+    if (stepId.startsWith('project.') && stepId.endsWith('.link')) {
       return 'projects';
     }
     if (stepId.startsWith('cert.') && stepId.endsWith('.name')) {
