@@ -219,6 +219,18 @@ class _ConversationScreenState extends State<ConversationScreen> {
     });
   }
 
+  /// Fixa o fio no fim IMEDIATAMENTE (sem animação) — disparado quando o FOOTER
+  /// muda de altura (ex.: vira o seletor de data, bem mais alto). Acompanha o
+  /// crescimento do footer frame a frame, então a última pergunta nunca fica
+  /// tampada pelo widget — sem depender de um tempo chutado.
+  void _pinToEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      final max = _scroll.position.maxScrollExtent;
+      if ((_scroll.offset - max).abs() > 1) _scroll.jumpTo(max);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final step = _c.current;
@@ -232,7 +244,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
           children: [
             _header(),
             Expanded(child: _thread()),
-            _footer(step),
+            // Quando o footer muda de altura (ex.: vira o seletor de data, bem
+            // mais alto), gruda o fio no fim — a pergunta não fica tampada pelo
+            // widget. Reage ao layout REAL, não a um timer.
+            NotificationListener<SizeChangedLayoutNotification>(
+              onNotification: (_) {
+                _pinToEnd();
+                return false;
+              },
+              child: SizeChangedLayoutNotifier(child: _footer(step)),
+            ),
           ],
         ),
       ),
