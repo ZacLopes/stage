@@ -5,6 +5,7 @@
 // é a fonte da verdade da progressão; esta tela traduz isso num fio de bolhas
 // que aparece com timing humano (indicador de digitação, revelação gradual).
 
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -73,6 +74,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
   bool _finalizing = false;
   String? _generatedSummary;
 
+  /// Re-scroll agendado pra depois das animações de layout assentarem.
+  Timer? _settleTimer;
+
   /// Progresso exibido — NUNCA regride. A trilha é dinâmica (passos são
   /// injetados no loop de experiência), então o denominador cresce; sem isso a
   /// barra pularia pra trás. Mantemos o máximo já atingido.
@@ -88,6 +92,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   @override
   void dispose() {
+    _settleTimer?.cancel();
     if (!_finished && _c.answeredCount > 0) {
       widget.onAbandoned?.call(_c.answeredCount, _c.totalSteps);
     }
@@ -191,16 +196,26 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   void _scrollToEnd() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    void doScroll() {
       if (!_scroll.hasClients) return;
       final target = _scroll.position.maxScrollExtent;
       final delta = (target - _scroll.offset).abs();
+      if (delta < 1) return; // já no fim — evita re-scroll redundante
       final ms = (200 + delta * 0.5).clamp(220, 440).toInt();
       _scroll.animateTo(
         target,
         duration: Duration(milliseconds: ms),
         curve: Curves.easeOutCubic,
       );
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => doScroll());
+    // Re-scroll depois que as animações de layout (footer expandindo ao mostrar
+    // os botões) assentam — senão a última pergunta fica tampada e o usuário
+    // teria que rolar pra ver. Timer cancelável (some no dispose / re-agenda).
+    _settleTimer?.cancel();
+    _settleTimer = Timer(const Duration(milliseconds: 320), () {
+      if (mounted) doScroll();
     });
   }
 
