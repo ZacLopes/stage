@@ -102,6 +102,29 @@ void main() {
     expect(find.text('Concluir'), findsOneWidget);
   });
 
+  testWidgets('voltar (undo) refaz o passo anterior sem duplicar o fio',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: ConversationScreen(controller: ConversationController(script())),
+    ));
+    await tester.pump();
+    await advance(tester);
+
+    // Responde s1 → vai pro s2.
+    await tester.tap(find.text('Opção A'));
+    await advance(tester);
+    expect(find.text('Pergunta dois'), findsOneWidget);
+
+    // Toca em "Voltar" → volta pro s1.
+    await tester.tap(find.byIcon(Icons.undo_rounded));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('Pergunta um'), findsOneWidget);
+    expect(find.text('Opção A'), findsWidgets); // entrada do s1 de volta
+    expect(find.text('Pergunta dois'), findsNothing); // s2 saiu do fio
+  });
+
   testWidgets('sair com progresso pede confirmação (X não descarta direto)',
       (tester) async {
     await tester.pumpWidget(MaterialApp(

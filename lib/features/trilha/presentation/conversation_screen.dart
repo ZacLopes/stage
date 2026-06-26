@@ -164,6 +164,48 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _revealCurrent();
   }
 
+  /// Volta um passo: reverte o controller e RECONSTRÓI o fio a partir do
+  /// histórico (determinístico — sem corrida com as animações incrementais),
+  /// re-mostrando a pergunta do passo pro qual voltou. Não duplica dado: o
+  /// controller só deixa voltar em passos reversíveis (ver canGoBack).
+  Future<void> _undoLast() async {
+    if (!_c.canGoBack) return;
+    _settleTimer?.cancel();
+    _c.goBack();
+    final cur = _c.current;
+    setState(() {
+      _typing = false;
+      _items
+        ..clear()
+        ..addAll(_threadFromHistory());
+      if (cur != null) {
+        for (final m in cur.aiMessages) {
+          _items.add(_ChatItem(_ItemKind.ai, m));
+        }
+      }
+      _inputVisible = cur != null;
+      _shownProgress = _c.progress; // recua junto (voltou um passo de fato)
+    });
+    _scrollToEnd();
+  }
+
+  /// Reconstrói as bolhas a partir das trocas já concluídas (pergunta da IA →
+  /// resposta do usuário → reação da IA), na ordem do fio.
+  List<_ChatItem> _threadFromHistory() {
+    final out = <_ChatItem>[];
+    for (final ex in _c.history) {
+      for (final m in ex.step.aiMessages) {
+        out.add(_ChatItem(_ItemKind.ai, m));
+      }
+      out.add(_ChatItem(_ItemKind.user, ex.answer.displayText));
+      final ack = ex.step.acknowledgement;
+      if (ack != null && ack.trim().isNotEmpty) {
+        out.add(_ChatItem(_ItemKind.ai, ack));
+      }
+    }
+    return out;
+  }
+
   void _onDone() {
     setState(() {
       _inputVisible = false;
@@ -333,7 +375,19 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       .copyWith(color: AppColors.textPrimary),
                 ),
               ),
-              const SizedBox(width: 48),
+              // "Voltar" — refaz o passo anterior (só quando é seguro: passo
+              // reversível, entrada visível). Errou a cidade/área/semestre? Volta.
+              SizedBox(
+                width: 48,
+                child: (_c.canGoBack && _inputVisible && !_typing && !_finished)
+                    ? IconButton(
+                        icon: const Icon(Icons.undo_rounded,
+                            color: AppColors.textTertiary),
+                        onPressed: _undoLast,
+                        tooltip: 'Voltar',
+                      )
+                    : null,
+              ),
             ],
           ),
           const SizedBox(height: AppSpacing.xs),
@@ -362,6 +416,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final children = <Widget>[
       for (var i = 0; i < _items.length; i++)
         Padding(
+          // Key por índice: no undo o fio é reconstruído como um PREFIXO (só
+          // encurta no fim), então as bolhas que sobrevivem reusam o widget e
+          // não re-animam a entrada.
+          key: ValueKey('item-$i'),
           // Respiro: pouco entre falas do MESMO turno, mais quando o turno muda.
           padding: EdgeInsets.only(
             bottom:

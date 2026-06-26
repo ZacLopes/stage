@@ -268,6 +268,8 @@ ConversationStep _languages() => ConversationStep.single(
             if (lang.toLowerCase() != 'português') _languageLevel(lang),
         ];
       },
+      // addLanguage por idioma → voltar e re-responder duplicaria.
+      reversible: false,
     );
 
 /// Nível de um idioma — chips compactos (escala). Os ids são os valores
@@ -468,6 +470,8 @@ List<ConversationStep> _experienceTail(int n) => [
         ),
         acknowledgement:
             'Show! Vou guardar isso pra montar um bullet caprichado no seu CV. ✨',
+        // Save terminal (addExperience + bullet) → não dá pra voltar e duplicar.
+        reversible: false,
       ),
       ConversationStep.single(
         id: 'exp.$n.more',
@@ -530,6 +534,8 @@ List<ConversationStep> _certItem(int n) => [
           maxLength: 100,
           minLines: 1,
         ),
+        // addCertification → voltar e re-responder duplicaria.
+        reversible: false,
       ),
       ConversationStep.single(
         id: 'cert.$n.more',
@@ -612,6 +618,8 @@ List<ConversationStep> _projectItem(int n) => [
           minLines: 1,
           optional: true,
         ),
+        // Save terminal atômico (addProject + bullet) → não volta pra duplicar.
+        reversible: false,
       ),
       ConversationStep.single(
         id: 'project.$n.more',

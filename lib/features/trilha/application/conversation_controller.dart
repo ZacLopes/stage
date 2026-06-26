@@ -19,7 +19,15 @@ class ConversationExchange {
   final ConversationStep step;
   final StepAnswer answer;
 
-  const ConversationExchange({required this.step, required this.answer});
+  /// Quantos passos o `expand` deste passo injetou logo após — guardado pra o
+  /// `goBack` conseguir removê-los (senão a fila ficaria com follow-ups órfãos).
+  final int expandedCount;
+
+  const ConversationExchange({
+    required this.step,
+    required this.answer,
+    this.expandedCount = 0,
+  });
 }
 
 class ConversationController extends ChangeNotifier {
@@ -79,18 +87,45 @@ class ConversationController extends ChangeNotifier {
       }
     }
 
-    _history.add(ConversationExchange(step: step, answer: answer));
     _index++;
 
     // Passos DINÂMICOS: o passo pode injetar follow-ups (loops "adicionar
     // outra?", ramos condicionais) logo após a posição atual.
+    var expandedCount = 0;
     final expand = step.expand;
     if (expand != null) {
       final more = expand(answer);
-      if (more.isNotEmpty) _steps.insertAll(_index, more);
+      if (more.isNotEmpty) {
+        _steps.insertAll(_index, more);
+        expandedCount = more.length;
+      }
     }
 
+    _history.add(ConversationExchange(
+        step: step, answer: answer, expandedCount: expandedCount));
+
     _saving = false;
+    notifyListeners();
+  }
+
+  /// Pode voltar pro passo anterior? Só quando o último passo respondido é
+  /// REVERSÍVEL (re-responder corrige, não duplica) — ver [ConversationStep].
+  bool get canGoBack =>
+      !_saving && _history.isNotEmpty && _history.last.step.reversible;
+
+  /// Volta um passo: remove a última troca do histórico, descarta os passos
+  /// que o `expand` dela injetou, e re-aponta o passo anterior pra ser
+  /// re-respondido. NÃO desfaz o write-back (o passo é reversível → re-responder
+  /// sobrescreve/é idempotente). No-op se [canGoBack] for falso.
+  void goBack() {
+    if (!canGoBack) return;
+    final last = _history.removeLast();
+    // Os passos injetados pelo expand ficam logo após a posição atual (foram
+    // inseridos em _index após o incremento do submit).
+    if (last.expandedCount > 0) {
+      _steps.removeRange(_index, _index + last.expandedCount);
+    }
+    _index--;
     notifyListeners();
   }
 

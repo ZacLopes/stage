@@ -189,12 +189,19 @@ class ConversationStep {
   /// expansão.
   final List<ConversationStep> Function(StepAnswer answer)? expand;
 
+  /// Pode-se VOLTAR pra refazer este passo com segurança? True por padrão
+  /// (passos idempotentes/de buffer: re-responder corrige). False nos passos
+  /// cujo write-back INSERE linha (exp.ofazia / project.link / cert.name /
+  /// idiomas): voltar e re-responder duplicaria — então o "voltar" para neles.
+  final bool reversible;
+
   const ConversationStep({
     required this.id,
     required this.aiMessages,
     required this.input,
     this.acknowledgement,
     this.expand,
+    this.reversible = true,
   });
 
   /// Conveniência: passo com uma única bolha de fala.
@@ -204,12 +211,14 @@ class ConversationStep {
     required StepInput input,
     String? acknowledgement,
     List<ConversationStep> Function(StepAnswer answer)? expand,
+    bool reversible = true,
   }) : this(
           id: id,
           aiMessages: [aiMessage],
           input: input,
           acknowledgement: acknowledgement,
           expand: expand,
+          reversible: reversible,
         );
 }
 

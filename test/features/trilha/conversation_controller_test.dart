@@ -72,6 +72,73 @@ void main() {
       expect(c.answeredCount, 1);
     });
 
+    test('goBack volta um passo: reverte índice e histórico', () async {
+      final c = ConversationController(script());
+      await c.submit(
+          StepAnswer.choice('s1', const [StepOption(id: 'go', label: 'Bora')]));
+      expect(c.current?.id, 's2');
+      expect(c.canGoBack, true); // s1 é reversível
+      c.goBack();
+      expect(c.current?.id, 's1'); // voltou
+      expect(c.answeredCount, 0);
+      expect(c.history, isEmpty);
+    });
+
+    test('canGoBack é false sem histórico (1º passo)', () {
+      final c = ConversationController(script());
+      expect(c.canGoBack, false);
+    });
+
+    test('canGoBack é false em passo NÃO-reversível (save que insere)',
+        () async {
+      final c = ConversationController([
+        ConversationStep.single(
+          id: 's1',
+          aiMessage: 'x',
+          input: const ChoiceInput(options: [StepOption(id: 'go', label: 'Bora')]),
+          reversible: false, // simula exp.ofazia/project.link/cert.name
+        ),
+        script()[1],
+      ]);
+      await c.submit(
+          StepAnswer.choice('s1', const [StepOption(id: 'go', label: 'Bora')]));
+      expect(c.canGoBack, false); // não dá pra voltar e duplicar
+      c.goBack(); // no-op
+      expect(c.current?.id, 's2'); // não voltou
+      expect(c.answeredCount, 1);
+    });
+
+    test('goBack remove os passos que o expand injetou', () async {
+      final c = ConversationController([
+        ConversationStep.single(
+          id: 'gate',
+          aiMessage: 'Tem?',
+          input: const ChoiceInput(options: [StepOption(id: 'yes', label: 'Sim')]),
+          expand: (a) => [
+            ConversationStep.single(
+                id: 'item.a',
+                aiMessage: 'A?',
+                input: const ChoiceInput(options: [StepOption(id: 'x', label: 'X')])),
+            ConversationStep.single(
+                id: 'item.b',
+                aiMessage: 'B?',
+                input: const ChoiceInput(options: [StepOption(id: 'y', label: 'Y')])),
+          ],
+        ),
+        ConversationStep.single(
+            id: 'fim',
+            aiMessage: 'Fim',
+            input: const ChoiceInput(options: [StepOption(id: 'z', label: 'Z')])),
+      ]);
+      await c.submit(
+          StepAnswer.choice('gate', const [StepOption(id: 'yes', label: 'Sim')]));
+      expect(c.current?.id, 'item.a'); // injetou item.a + item.b
+      expect(c.totalSteps, 4);
+      c.goBack(); // volta pro gate
+      expect(c.current?.id, 'gate');
+      expect(c.totalSteps, 2); // item.a/item.b removidos (sem follow-ups órfãos)
+    });
+
     test('restart volta ao começo', () async {
       final c = ConversationController(script());
       await c.submit(StepAnswer.choice('s1', const [StepOption(id: 'go', label: 'Bora')]));
