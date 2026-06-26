@@ -12,11 +12,17 @@ import '../../../services/profile_snapshot_service.dart';
 import '../../profile/application/profile_gaps.dart';
 import '../../profile/data/repositories/profile_repository_supabase.dart';
 import '../../profile/domain/repositories/profile_repository.dart';
+import '../domain/conversation_step.dart' show PickSuggestion;
 import 'conversation_controller.dart';
 import 'conversation_plan.dart';
+import 'ibge_city_service.dart';
+import 'institution_search_service.dart';
 import 'skill_suggestions.dart';
 import 'trilha_progress.dart';
 import 'trilha_writeback.dart';
+
+/// Cache do catálogo IBGE compartilhado entre aberturas da trilha na sessão.
+final _ibge = IbgeCityService();
 
 /// Constrói o controller da trilha para [userId]. Pula trechos já abordados
 /// (memória [TrilhaProgress]) — então skills/experiência não são re-perguntados
@@ -70,6 +76,18 @@ Future<ConversationController> buildTrilhaController(
                   .toList(),
             )
         : null,
+    // Typeahead canônico: cidade (IBGE, com UF) e instituição (catálogo, fixa o
+    // institution_id) — não polui os campos de filtro do admin. Lazy: só busca
+    // quando o usuário chega no passo.
+    citySearch: (q) async => (await _ibge.search(q))
+        .map((c) => PickSuggestion(
+              label: c.uf.isEmpty ? c.name : '${c.name} - ${c.uf}',
+              value: c.uf.isEmpty ? c.name : '${c.name}|${c.uf}',
+            ))
+        .toList(),
+    institutionSearch: (q) async => (await searchInstitutions(q))
+        .map((i) => PickSuggestion(label: i.name, value: '${i.id}|${i.name}'))
+        .toList(),
   );
   final writeback = TrilhaWriteback(repo, userId);
 

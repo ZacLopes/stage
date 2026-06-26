@@ -9,6 +9,7 @@
 import '../../profile/domain/entities/entities.dart';
 import '../../profile/domain/repositories/profile_repository.dart';
 import '../domain/conversation_step.dart';
+import 'linkedin_url.dart';
 
 class TrilhaWriteback {
   final ProfileRepository _repo;
@@ -139,10 +140,17 @@ class TrilhaWriteback {
     if (text.isEmpty) return;
     String city = text;
     String? state;
-    final parts = text.split(','); // "São Paulo, SP"
-    if (parts.length >= 2 && parts[1].trim().isNotEmpty) {
-      city = parts[0].trim();
-      state = parts[1].trim();
+    // Typeahead canônico do IBGE: 'Cidade|UF'. Retrocompat: 'Cidade, UF'.
+    if (text.contains('|')) {
+      final p = text.split('|');
+      city = p[0].trim();
+      if (p.length >= 2 && p[1].trim().isNotEmpty) state = p[1].trim();
+    } else {
+      final parts = text.split(','); // "São Paulo, SP"
+      if (parts.length >= 2 && parts[1].trim().isNotEmpty) {
+        city = parts[0].trim();
+        state = parts[1].trim();
+      }
     }
     final existing =
         await _repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
@@ -155,8 +163,8 @@ class TrilhaWriteback {
 
   // ── LinkedIn → profile_personal.linkedin_url ─────────────────────────────
   Future<void> _saveLinkedin(String raw) async {
-    final url = raw.trim();
-    if (url.isEmpty) return;
+    final url = normalizeLinkedinUrl(raw); // garante https / monta vanity
+    if (url == null) return; // vazio
     final existing =
         await _repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
     await _repo.upsertPersonal(existing.copyWith(linkedinUrl: url));
@@ -401,8 +409,19 @@ class TrilhaWriteback {
         buf.moment = _firstId(a);
         break;
       case 'institution':
+        // Typeahead do catálogo: 'institution_id|Nome'. Texto livre: só o nome.
+        final v = _text(a);
+        final pipe = v.indexOf('|');
+        if (pipe > 0 && _looksLikeUuid(v.substring(0, pipe))) {
+          buf.institutionId = v.substring(0, pipe);
+          buf.institution = v.substring(pipe + 1).trim();
+        } else {
+          buf.institution = v;
+          buf.institutionId = null;
+        }
+        break;
       case 'school':
-        buf.institution = _text(a);
+        buf.institution = _text(a); // escola: texto livre (sem catálogo)
         break;
       case 'course':
         buf.course = _text(a);
@@ -439,7 +458,9 @@ class TrilhaWriteback {
       id: match?.id ?? '',
       userId: userId,
       institution: inst,
-      institutionId: inst == match?.institution ? match?.institutionId : null,
+      // id do typeahead > vínculo existente (se o nome não mudou) > null.
+      institutionId: buf.institutionId ??
+          (inst == match?.institution ? match?.institutionId : null),
       educationLevel: level,
       educationStatus: status,
       location: match?.location,
@@ -470,6 +491,10 @@ class TrilhaWriteback {
       a.value is List && (a.value as List).isNotEmpty
           ? (a.value as List).first as String
           : '';
+
+  static final _uuidRe = RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+  bool _looksLikeUuid(String s) => _uuidRe.hasMatch(s);
 
   DateTime? _parseMonth(String yyyymm) {
     final m = RegExp(r'^(\d{4})-(\d{2})$').firstMatch(yyyymm.trim());
@@ -507,6 +532,7 @@ class _ProjBuffer {
 class _EduBuffer {
   String? moment; // in_college | college_paused | in_school | outro
   String? institution;
+  String? institutionId; // FK do catálogo (typeahead) — null se texto livre
   String? course;
   int? semester;
   int? schoolYear;

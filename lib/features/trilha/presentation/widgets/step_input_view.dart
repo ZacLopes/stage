@@ -53,6 +53,11 @@ class _StepInputViewState extends State<StepInputView> {
   static const _draftPrefix = 'trilha_draft_';
   String get _draftKey => '$_draftPrefix${widget.step.id}';
 
+  /// Estado do typeahead assíncrono (AsyncPickInput: cidade/instituição).
+  Timer? _pickDebounce;
+  List<PickSuggestion> _pickResults = const [];
+  bool _pickLoading = false;
+
   @override
   void initState() {
     super.initState();
@@ -68,6 +73,9 @@ class _StepInputViewState extends State<StepInputView> {
     if (old.step.id != widget.step.id) {
       _selectedIds.clear();
       _draftTimer?.cancel();
+      _pickDebounce?.cancel();
+      _pickResults = const [];
+      _pickLoading = false;
       _textController.clear();
       _myMonth = null;
       _myYear = null;
@@ -81,10 +89,40 @@ class _StepInputViewState extends State<StepInputView> {
   // debounce; limpa ao enviar/pular.
   void _onTextChanged() {
     setState(() {});
-    if (widget.step.input is GuidedTextInput) {
+    final input = widget.step.input;
+    if (input is GuidedTextInput) {
       _draftTimer?.cancel();
       _draftTimer = Timer(const Duration(milliseconds: 400), _saveDraft);
+    } else if (input is AsyncPickInput) {
+      _pickDebounce?.cancel();
+      _pickDebounce =
+          Timer(const Duration(milliseconds: 250), () => _runPickSearch(input));
     }
+  }
+
+  Future<void> _runPickSearch(AsyncPickInput input) async {
+    final q = _textController.text.trim();
+    if (q.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _pickResults = const [];
+          _pickLoading = false;
+        });
+      }
+      return;
+    }
+    setState(() => _pickLoading = true);
+    List<PickSuggestion> r;
+    try {
+      r = await input.search(q);
+    } catch (_) {
+      r = const [];
+    }
+    if (!mounted || _textController.text.trim() != q) return; // query mudou
+    setState(() {
+      _pickResults = r;
+      _pickLoading = false;
+    });
   }
 
   // Failure-safe: rascunho é conveniência; erro de storage nunca trava a trilha.
@@ -140,6 +178,7 @@ class _StepInputViewState extends State<StepInputView> {
   @override
   void dispose() {
     _draftTimer?.cancel();
+    _pickDebounce?.cancel();
     _textController.dispose();
     super.dispose();
   }
@@ -153,6 +192,7 @@ class _StepInputViewState extends State<StepInputView> {
       MonthYearInput() => _buildMonthYear(input),
       SuggestPickInput() => _buildSuggestPick(input),
       AsyncSuggestInput() => _buildAsyncSuggest(input),
+      AsyncPickInput() => _buildAsyncPick(input),
     };
   }
 
@@ -463,6 +503,58 @@ class _StepInputViewState extends State<StepInputView> {
   }
 
   // ── Texto guiado ─────────────────────────────────────────────────────────
+  // ── Typeahead async (cidade IBGE / instituição) — canoniza o campo de filtro
+  Widget _buildAsyncPick(AsyncPickInput input) {
+    final q = _textController.text.trim();
+    final hasExact =
+        _pickResults.any((s) => s.label.toLowerCase() == q.toLowerCase());
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AppTextField(
+          controller: _textController,
+          hint: input.searchHint,
+          prefixIcon: const Icon(Icons.search_rounded,
+              size: 20, color: AppColors.textTertiary),
+          enabled: widget.enabled,
+        ),
+        if (_pickLoading) ...[
+          const SizedBox(height: AppSpacing.base),
+          const Center(child: TypingDots()),
+        ],
+        if (_pickResults.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.sm),
+          for (var i = 0; i < _pickResults.length && i < 8; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.sm),
+            _OptionTile(
+              label: _pickResults[i].label,
+              onTap: widget.enabled
+                  ? () => widget.onSubmit(StepAnswer.pick(widget.step.id,
+                      label: _pickResults[i].label,
+                      value: _pickResults[i].value))
+                  : null,
+            ),
+          ],
+        ],
+        // Texto livre (não achou na lista) — nunca trava; o write-back grava cru.
+        if (input.allowFreeText && q.isNotEmpty && !hasExact && !_pickLoading) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: GhostButton(
+              label: 'Usar "$q"',
+              icon: Icons.add_rounded,
+              onPressed: widget.enabled
+                  ? () => widget.onSubmit(
+                      StepAnswer.pick(widget.step.id, label: q, value: q))
+                  : null,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _buildGuidedText(GuidedTextInput input) {
     final text = _textController.text.trim();
     return Column(

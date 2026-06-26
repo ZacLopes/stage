@@ -27,6 +27,9 @@ List<ConversationStep> buildConversationPlan(
   List<String> skillCatalog = const [],
   Future<List<String>> Function()? skillSuggester,
   Future<List<String>> Function()? skillSuggestionsLoader,
+  // Typeahead canônico (null → cai no texto livre): cidade IBGE / instituição.
+  Future<List<PickSuggestion>> Function(String query)? citySearch,
+  Future<List<PickSuggestion>> Function(String query)? institutionSearch,
 }) {
   final missing = gaps.missing.map((l) => l.key).toSet();
   // Pergunta um trecho só se a lacuna existe E ele ainda não foi abordado
@@ -39,10 +42,11 @@ List<ConversationStep> buildConversationPlan(
     if (wants(LacunaKey.area, 'area')) _area(),
     if (wants(LacunaKey.workMode, 'workmode')) _workMode(),
     if (wants(LacunaKey.jobType, 'jobtype')) _jobType(),
-    if (wants(LacunaKey.city, 'city')) _city(),
+    if (wants(LacunaKey.city, 'city')) _city(citySearch),
     // Educação (Tier 1 — chave pra o admin ACHAR o candidato: curso, semestre,
     // nível). Só aparece se faltar (o import não extrai esses campos).
-    if (wants(LacunaKey.educationStatus, 'education')) _educationGate(),
+    if (wants(LacunaKey.educationStatus, 'education'))
+      _educationGate(institutionSearch),
     // Substância leve.
     if (wants(LacunaKey.skills, 'skills'))
       _skills(skillSuggestions, skillCatalog, skillSuggester,
@@ -132,16 +136,22 @@ ConversationStep _jobType() => ConversationStep.single(
       ),
     );
 
-ConversationStep _city() => ConversationStep.single(
+ConversationStep _city(
+        Future<List<PickSuggestion>> Function(String)? search) =>
+    ConversationStep.single(
       id: 'gap.city',
       aiMessage:
           'Em qual cidade você está? Uso isso pra te mostrar vagas próximas.',
-      input: const GuidedTextInput(
-        example: 'São Paulo, SP',
-        hint: 'Cidade e estado',
-        maxLength: 60,
-        minLines: 1,
-      ),
+      // Typeahead do catálogo IBGE (cidade canônica + UF) → não polui o filtro
+      // do admin. Sem o serviço (ex.: teste), cai no texto livre.
+      input: search != null
+          ? AsyncPickInput(search: search, searchHint: 'Buscar sua cidade…')
+          : const GuidedTextInput(
+              example: 'São Paulo, SP',
+              hint: 'Cidade e estado',
+              maxLength: 60,
+              minLines: 1,
+            ),
     );
 
 ConversationStep _skills(
@@ -317,7 +327,9 @@ String _firstChoiceId(StepAnswer a) =>
         ? (a.value as List).first as String
         : '';
 
-ConversationStep _educationGate() => ConversationStep(
+ConversationStep _educationGate(
+        Future<List<PickSuggestion>> Function(String)? institutionSearch) =>
+    ConversationStep(
       id: 'gap.edu.moment',
       aiMessages: const [
         'Pra te mostrar as vagas certas, me conta: em que momento dos estudos '
@@ -334,22 +346,29 @@ ConversationStep _educationGate() => ConversationStep(
         final m = _firstChoiceId(a);
         if (m == 'in_school') return _eduSchoolSteps();
         if (m == 'in_college' || m == 'college_paused') {
-          return _eduCollegeSteps();
+          return _eduCollegeSteps(institutionSearch);
         }
         return const []; // 'outro' → não coleta mais (fora do público-alvo)
       },
     );
 
-List<ConversationStep> _eduCollegeSteps() => [
+List<ConversationStep> _eduCollegeSteps(
+        Future<List<PickSuggestion>> Function(String)? institutionSearch) =>
+    [
       ConversationStep.single(
         id: 'gap.edu.institution',
         aiMessage: 'Qual faculdade?',
-        input: const GuidedTextInput(
-          example: 'USP',
-          hint: 'Nome da faculdade',
-          maxLength: 80,
-          minLines: 1,
-        ),
+        // Typeahead do catálogo institutions (fixa o institution_id canônico).
+        input: institutionSearch != null
+            ? AsyncPickInput(
+                search: institutionSearch,
+                searchHint: 'Buscar sua faculdade…')
+            : const GuidedTextInput(
+                example: 'USP',
+                hint: 'Nome da faculdade',
+                maxLength: 80,
+                minLines: 1,
+              ),
       ),
       ConversationStep.single(
         id: 'gap.edu.course',

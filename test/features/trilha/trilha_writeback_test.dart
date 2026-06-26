@@ -203,8 +203,15 @@ void main() {
       expect(repo.replacedDesired?.every((t) => t.source == DesiredTitleSource.userAdded), true);
     });
 
-    test('cidade: separa "Cidade, UF" em city + state', () async {
+    test('cidade: separa "Cidade, UF" em city + state (retrocompat)', () async {
       await wb.save(StepAnswer.text('gap.city', 'São Paulo, SP'));
+      expect(repo.upsertedPersonal?.locationCity, 'São Paulo');
+      expect(repo.upsertedPersonal?.locationState, 'SP');
+    });
+
+    test('cidade canônica: decodifica "Cidade|UF" do typeahead IBGE', () async {
+      await wb.save(StepAnswer.pick('gap.city',
+          label: 'São Paulo - SP', value: 'São Paulo|SP'));
       expect(repo.upsertedPersonal?.locationCity, 'São Paulo');
       expect(repo.upsertedPersonal?.locationState, 'SP');
     });
@@ -284,9 +291,9 @@ void main() {
       expect(repo.addedExps, isEmpty); // faltou role
     });
 
-    test('linkedin: grava o link em profile_personal', () async {
+    test('linkedin: normaliza (prefixa https) e não descarta', () async {
       await wb.save(StepAnswer.text('linkedin.url', 'linkedin.com/in/zac'));
-      expect(repo.upsertedPersonal?.linkedinUrl, 'linkedin.com/in/zac');
+      expect(repo.upsertedPersonal?.linkedinUrl, 'https://linkedin.com/in/zac');
     });
 
     test('certificação: grava o nome', () async {
@@ -418,6 +425,28 @@ void main() {
       await wb.save(choice('gap.edu.moment', ['outro']));
       expect(repo.addedEducation, isNull);
       expect(repo.updatedEducation, isNull);
+    });
+
+    test('instituição canônica: "id|Nome" do typeahead fixa o institution_id',
+        () async {
+      const uuid = '11111111-2222-3333-4444-555555555555';
+      await wb.save(choice('gap.edu.moment', ['in_college']));
+      await wb.save(StepAnswer.pick('gap.edu.institution',
+          label: 'USP', value: '$uuid|USP'));
+      await wb.save(StepAnswer.text('gap.edu.course', 'Engenharia'));
+      await wb.save(choice('gap.edu.semester', ['5']));
+      expect(repo.addedEducation?.institution, 'USP');
+      expect(repo.addedEducation?.institutionId, uuid);
+    });
+
+    test('instituição texto livre: sem id (institution_id null)', () async {
+      await wb.save(choice('gap.edu.moment', ['in_college']));
+      await wb.save(StepAnswer.pick('gap.edu.institution',
+          label: 'Faculdade Local', value: 'Faculdade Local'));
+      await wb.save(StepAnswer.text('gap.edu.course', 'Adm'));
+      await wb.save(choice('gap.edu.semester', ['2']));
+      expect(repo.addedEducation?.institution, 'Faculdade Local');
+      expect(repo.addedEducation?.institutionId, isNull);
     });
   });
 }

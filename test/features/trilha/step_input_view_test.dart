@@ -361,4 +361,61 @@ void main() {
     expect(captured, isNotNull);
     expect(captured!.value, '');
   });
+
+  testWidgets('AsyncPick: busca, toca no resultado e auto-submete (value estruturado)',
+      (tester) async {
+    StepAnswer? captured;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StepInputView(
+          step: ConversationStep.single(
+            id: 'gap.city',
+            aiMessage: 'x',
+            input: AsyncPickInput(
+              search: (q) async => const [
+                PickSuggestion(label: 'São Paulo - SP', value: 'São Paulo|SP'),
+              ],
+            ),
+          ),
+          onSubmit: (a) => captured = a,
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'sao');
+    await tester.pump(const Duration(milliseconds: 300)); // debounce 250ms
+    await tester.pump(); // resolve o future da busca
+    expect(find.text('São Paulo - SP'), findsOneWidget);
+
+    await tester.tap(find.text('São Paulo - SP'));
+    await tester.pump();
+    expect(captured?.value, 'São Paulo|SP'); // payload estruturado
+    expect(captured?.displayText, 'São Paulo - SP');
+  });
+
+  testWidgets('AsyncPick: "Usar X" submete texto livre quando não há match',
+      (tester) async {
+    StepAnswer? captured;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StepInputView(
+          step: ConversationStep.single(
+            id: 'gap.city',
+            aiMessage: 'x',
+            input: AsyncPickInput(search: (q) async => const []),
+          ),
+          onSubmit: (a) => captured = a,
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'Vila Tal');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+    expect(find.textContaining('Usar'), findsOneWidget);
+
+    await tester.tap(find.textContaining('Usar'));
+    await tester.pump();
+    expect(captured?.value, 'Vila Tal'); // texto livre (sem '|')
+  });
 }

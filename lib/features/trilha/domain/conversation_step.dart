@@ -165,6 +165,37 @@ class AsyncSuggestInput extends StepInput {
   });
 }
 
+/// Item de um typeahead assíncrono (cidade IBGE / instituição do catálogo).
+/// `label` é o que aparece; `value` é o payload ESTRUTURADO (`Cidade|UF` ou
+/// `institution_id|Nome`) decodificado no write-back — assim a coleta canoniza
+/// o campo de FILTRO (sem 'sampa'/typo entrando cru).
+@immutable
+class PickSuggestion {
+  final String label;
+  final String value;
+  const PickSuggestion({required this.label, required this.value});
+}
+
+/// Seleção ÚNICA com busca ASSÍNCRONA (typeahead real): a cada tecla chama
+/// [search] (debounced na UI) contra uma fonte externa (catálogo IBGE de
+/// cidades; catálogo de instituições no Supabase). Tocar num resultado submete
+/// na hora. [allowFreeText] permite adicionar o texto digitado quando não há
+/// match (nunca trava). Resposta = [StepAnswer.pick] (value = payload estruturado).
+@immutable
+class AsyncPickInput extends StepInput {
+  final Future<List<PickSuggestion>> Function(String query) search;
+  final String searchHint;
+  final bool allowFreeText;
+  final String loadingHint;
+
+  const AsyncPickInput({
+    required this.search,
+    this.searchHint = 'Buscar…',
+    this.allowFreeText = true,
+    this.loadingHint = 'Buscando…',
+  });
+}
+
 /// Um passo da conversa: a(s) fala(s) da IA + a entrada esperada + uma reação
 /// opcional da IA após responder (o "Massa!" que dá calor de conversa).
 @immutable
@@ -250,6 +281,13 @@ class StepAnswer {
   factory StepAnswer.text(String stepId, String text) {
     final t = text.trim();
     return StepAnswer(stepId: stepId, value: t, displayText: t);
+  }
+
+  /// Resposta de seleção única com payload ESTRUTURADO (typeahead async).
+  /// `value` carrega 'Cidade|UF' ou 'institution_id|Nome'; `displayText` = label.
+  factory StepAnswer.pick(String stepId,
+      {required String label, required String value}) {
+    return StepAnswer(stepId: stepId, value: value, displayText: label);
   }
 
   /// Resposta de mês/ano. `value` = 'YYYY-MM' (1º dia do mês na gravação).
