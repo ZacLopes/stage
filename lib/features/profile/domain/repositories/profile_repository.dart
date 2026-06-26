@@ -116,4 +116,8 @@ abstract class ProfileRepository {
 
   /// Marca [segment] como abordado. Idempotente (ON CONFLICT DO NOTHING).
   Future<void> markGuidedProgress(String userId, String segment);
+
+  /// Reseta o progresso da trilha no servidor (apaga os segmentos abordados de
+  /// [userId]). NÃO toca nos dados coletados em profile_*.
+  Future<void> clearGuidedProgress(String userId);
 }

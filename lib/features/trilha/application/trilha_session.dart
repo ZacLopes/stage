@@ -12,7 +12,7 @@ import '../../../services/profile_snapshot_service.dart';
 import '../../profile/application/profile_gaps.dart';
 import '../../profile/data/repositories/profile_repository_supabase.dart';
 import '../../profile/domain/repositories/profile_repository.dart';
-import '../domain/conversation_step.dart' show PickSuggestion;
+import '../domain/conversation_step.dart' show PickSuggestion, StepAnswer;
 import 'conversation_controller.dart';
 import 'conversation_plan.dart';
 import 'trilha_draft.dart';
@@ -25,10 +25,37 @@ import 'trilha_writeback.dart';
 /// Cache do catálogo IBGE compartilhado entre aberturas da trilha na sessão.
 final _ibge = IbgeCityService();
 
-/// Constrói o controller da trilha para [userId]. Pula trechos já abordados
-/// (memória [TrilhaProgress]) — então skills/experiência não são re-perguntados
-/// toda vez. Se não há nada novo, o controller vem com 0 passos.
+/// Uma sessão da trilha: o [controller] + o [saveAnswer] que grava em profile_*
+/// e marca o trecho. O `saveAnswer` é exposto pra o chat v2 poder REGRAVAR um
+/// campo na edição de card (idempotente) sem passar pelo fluxo do controller.
+class TrilhaSession {
+  final ConversationController controller;
+  final Future<void> Function(StepAnswer answer) saveAnswer;
+  const TrilhaSession({required this.controller, required this.saveAnswer});
+}
+
+/// Constrói o controller da trilha para [userId] (caminho antigo — pushado/dev).
+/// Pula trechos já abordados (memória [TrilhaProgress]). Delega a
+/// [buildTrilhaSession].
 Future<ConversationController> buildTrilhaController(
+  String userId, {
+  ProfileRepository? repository,
+  ProfileSnapshotService? snapshotService,
+  TrilhaProgress? progress,
+}) async {
+  final s = await buildTrilhaSession(
+    userId,
+    repository: repository,
+    snapshotService: snapshotService,
+    progress: progress,
+  );
+  return s.controller;
+}
+
+/// Constrói a sessão (controller + saveAnswer). Recalcula lacunas a partir do
+/// perfil FRESCO — é o que permite o re-planejamento após o import (basta
+/// chamar de novo). Sem cache stale.
+Future<TrilhaSession> buildTrilhaSession(
   String userId, {
   ProfileRepository? repository,
   ProfileSnapshotService? snapshotService,
@@ -99,10 +126,11 @@ Future<ConversationController> buildTrilhaController(
   // ver TODOS os campos (os de antes do abandono + os respondidos na retomada).
   writeback.seedFromDrafts(drafts);
 
-  return ConversationController(plan, onAnswer: (answer) async {
+  // Grava a resposta + marca o trecho. Reusado pelo fluxo (onAnswer) E pela
+  // edição de card (re-save direto). Marca o trecho só quando há DADO salvo ou
+  // gate "não" (ver segmentToMark) — "sim" sem escrever NÃO conta (a pergunta volta).
+  Future<void> saveAnswer(StepAnswer answer) async {
     await writeback.save(answer);
-    // Marca o trecho só quando há DADO salvo ou gate "não" (ver segmentToMark) —
-    // dizer "sim" e sair antes de escrever NÃO conta, então a pergunta volta.
     final segment =
         TrilhaProgress.segmentToMark(answer.stepId, answer.value);
     if (segment != null) {
@@ -112,7 +140,10 @@ Future<ConversationController> buildTrilhaController(
       Analytics.shared
           .track(evTrilhaColetaStepAnswered, props: {'segment': segment});
     }
-  });
+  }
+
+  final controller = ConversationController(plan, onAnswer: saveAnswer);
+  return TrilhaSession(controller: controller, saveAnswer: saveAnswer);
 }
 
 /// Lê os nomes canônicos do skills_catalog (fonte do typeahead). Failure-safe:

@@ -585,6 +585,12 @@ const String evTrilhaColetaInviteAccepted = 'trilha_coleta_invite_accepted';
 /// Convite recusado ("Agora não").
 const String evTrilhaColetaInviteDismissed = 'trilha_coleta_invite_dismissed';
 
+/// Texto livre da barra do chat foi interpretado por IA num passo de escolha
+/// (chips/slider). Props: step_id, matched_count (0 = não casou → caiu no
+/// widget), char_count, confidence. NUNCA o texto cru (PII/LGPD).
+const String evTrilhaColetaFreeTextInterpreted =
+    'trilha_coleta_free_text_interpreted';
+
 // ════════════════════════════════════════════════════════════════════
 // Allowlist agregada — usada pelo wrapper pra rejeitar nomes não-catalogados.
 // ════════════════════════════════════════════════════════════════════
@@ -749,4 +755,5 @@ const Set<String> kAllowedEventNames = {
   evTrilhaColetaStarted, evTrilhaColetaStepAnswered, evTrilhaColetaCompleted,
   evTrilhaColetaAbandoned, evTrilhaColetaInviteShown,
   evTrilhaColetaInviteAccepted, evTrilhaColetaInviteDismissed,
+  evTrilhaColetaFreeTextInterpreted,
 };

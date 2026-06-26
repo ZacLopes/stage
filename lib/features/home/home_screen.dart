@@ -114,11 +114,6 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
       _navigateToPage(index);
     }
 
-    // Pula o passo da trilha quando ela está removida (flag OFF) — senão o
-    // spotlight aponta pro trailCard que não existe mais na aba Currículo.
-    final trailEnabled = FeatureFlagsService.instance
-        .isGloballyEnabled(FeatureFlagKeys.resumeTrailEnabled);
-
     return [
       const TutorialStep(
         title: 'Bem-vindo ao Stage 👋',
@@ -156,29 +151,11 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
       ),
       TutorialStep(
         title: 'Aba Currículo',
-        description: trailEnabled
-            ? 'Dois caminhos pra ter seu CV: construir pela trilha gamificada ou '
-                'subir um PDF que você já tem.'
-            : 'Aqui você sobe seu currículo em PDF e a IA lê seus dados pra '
-                'desbloquear adaptação por vaga e match.',
-        targetKey: TutorialKeys.resumeTab,
-        onEnter: () => goTo(HomeTabs.resume),
-      ),
-      if (trailEnabled)
-        TutorialStep(
-          title: 'Construir pela trilha',
-          description:
-              'Responda perguntas no estilo Duolingo. A IA monta seu CV com bullets '
-              'no padrão Harvard — sem você precisar escrever bullet nenhum.',
-          targetKey: TutorialKeys.trailCard,
-          onEnter: () => goTo(HomeTabs.resume),
-        ),
-      TutorialStep(
-        title: 'Já tem um currículo?',
         description:
-            'Suba o PDF aqui em segundos. A IA lê automaticamente seus dados pra '
-            'desbloquear adaptação por vaga e match score.',
-        targetKey: TutorialKeys.importCard,
+            'Aqui a IA conversa com você pra montar seu currículo — responda as '
+            'perguntas e veja seu CV ficar pronto. Dá pra exportar em PDF quando '
+            'quiser.',
+        targetKey: TutorialKeys.resumeTab,
         onEnter: () => goTo(HomeTabs.resume),
       ),
       TutorialStep(

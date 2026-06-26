@@ -879,4 +879,13 @@ class ProfileRepositorySupabase implements ProfileRepository {
       ignoreDuplicates: true,
     );
   }
+
+  @override
+  Future<void> clearGuidedProgress(String userId) async {
+    // RLS (own rows) garante que só apaga o progresso do próprio usuário.
+    await _client
+        .from('profile_guided_progress')
+        .delete()
+        .eq('user_id', userId);
+  }
 }

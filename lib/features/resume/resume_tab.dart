@@ -1,494 +1,611 @@
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../home/home_viewmodel.dart';
-import '../home/tracks_tab.dart';
-import '../profile/profile_viewmodel.dart';
-import '../tutorial/tutorial_keys.dart';
-import 'resume_viewmodel.dart';
-import 'widgets/import_cv_button.dart';
-import '../../services/cv_import_service.dart';
-import '../../services/feature_flags_service.dart';
-import '../../core/widgets/pii_mask.dart';
-import '../../core/theme/theme.dart';
+// Aba Currículo (PLANO-FASE-6 — reframe): a trilha de IA conversacional vira o
+// conteúdo da aba, ABERTA naturalmente (sem botão pra iniciar). Layout = título +
+// stepper de seções (Formação → Experiência → Skills → Idiomas → Interesses) +
+// toggle [Conversa | Currículo] sobre um IndexedStack:
+//
+//   - Conversa: o chat embutido ([ChatThreadView] sem chrome) — abre digitando.
+//   - Currículo: preview compacto do perfil coletado + Exportar (PDF).
+//
+// O "Importar CV" saiu desta aba (segue vivo no onboarding e no adapt-de-vaga).
+// A trilha gamificada antiga (TracksTab) também saiu — arquivo congelado (R6).
 
-/// Entry-point da aba Currículo (após a unificação Trilha + Currículo).
-///
-/// Estados:
-///  - **Entry**: hero + 2 cards (construir pela trilha / importar PDF).
-///    Texto e badges dos cards mudam conforme estado do usuário.
-///  - **Trilha embutida**: quando user toca em "Construir pela trilha",
-///    renderiza [TracksTab] dentro do mesmo Scaffold com seta de voltar.
-///    Bottom nav segue visível porque o Scaffold pai (HomeScreen) o segura.
-///
-/// Toda criação/edição efetiva do CV (preview, templates, export, idioma)
-/// vive agora na aba Perfil → [ResumeDetailScreen], acessada ao tocar
-/// num card da biblioteca.
+import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
+import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../core/theme/theme.dart';
+import '../../core/widgets/widgets.dart';
+import '../../services/ai_service.dart';
+import '../../services/analytics_events.dart';
+import '../../services/analytics_service.dart';
+import '../auth/user_viewmodel.dart';
+import '../profile/application/profile_editor_view_model.dart';
+import '../trilha/application/trilha_section.dart';
+import '../trilha/application/trilha_session.dart';
+import '../trilha/presentation/trilha_chat_controller.dart';
+import '../trilha/presentation/trilha_chat_view.dart';
+import 'resume_viewmodel.dart';
+import 'services/resume_renderer.dart';
+import 'widgets/curriculo_section_stepper.dart';
+import 'widgets/curriculo_toggle.dart';
+
+/// Fábrica da sessão da trilha — injetável pra teste (evita Supabase).
+typedef TrilhaSessionFactory = Future<TrilhaSession> Function(String userId);
+
 class ResumeTab extends StatefulWidget {
-  const ResumeTab({super.key});
+  const ResumeTab({super.key, this.sessionFactory});
+
+  /// Só pra teste: substitui [buildTrilhaSession].
+  final TrilhaSessionFactory? sessionFactory;
 
   @override
   State<ResumeTab> createState() => _ResumeTabState();
 }
 
 class _ResumeTabState extends State<ResumeTab> {
-  bool _showingTracks = false;
+  late final Future<TrilhaChatController> _future;
+  TrilhaChatController? _orch;
+  bool _completionHandled = false;
+
+  /// 0 = Conversa, 1 = Currículo. Abre sempre na Conversa (gate de import).
+  int _tab = 0;
+
+  /// Última das 5 seções ativa — mantida quando o passo atual cai em `outros`
+  /// (cidade/área/LinkedIn) pra o stepper não "apagar".
+  TrilhaSection? _stickySection;
+
+  bool _isExporting = false;
 
   @override
   void initState() {
     super.initState();
-    // O consenso de IA agora é solicitado no fim da trilha (no botão
-    // "VER MEU CURRÍCULO" do PhaseCompletionWidget), garantindo que ele
-    // apareça em contexto certo — não quando o user entra na aba.
+    _future = _load();
   }
 
-  void _enterTracks() {
-    setState(() => _showingTracks = true);
+  @override
+  void dispose() {
+    _orch?.removeListener(_onOrch);
+    _orch?.dispose();
+    super.dispose();
   }
 
-  void _exitTracks() {
-    setState(() => _showingTracks = false);
-  }
-
-  Future<void> _onImported(String? newResumeId) async {
-    if (!mounted) return;
-    final homeVM = context.read<HomeViewModel>();
-
-    // Hand off animation + tab switch + highlight to HomeScreen atomically.
-    if (newResumeId != null) {
-      homeVM.announceCvCreated(
-        targetTab: HomeTabs.profile,
-        highlightId: newResumeId,
-      );
-    } else {
-      homeVM.requestTabChange(HomeTabs.profile);
+  Future<TrilhaChatController> _load() async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) {
+      return Future.error(StateError('Sem usuário autenticado'));
     }
+    final orch = TrilhaChatController(
+      userId: uid,
+      sessionBuilder: widget.sessionFactory ?? buildTrilhaSession,
+      onFinalize: () => AIService().generateProfileSummary(),
+      // Disparado ao entrar na conversa (pós-gate/import) com as lacunas já
+      // recomputadas — então `total_steps` reflete o que sobrou pra perguntar.
+      onStarted: (totalSteps) {
+        if (totalSteps > 0) {
+          // ignore: unawaited_futures
+          Analytics.shared.track(evTrilhaColetaStarted, props: {
+            'source': 'resume_tab',
+            'total_steps': totalSteps,
+          });
+        }
+      },
+    );
+    _orch = orch;
+    orch.addListener(_onOrch);
+    // ignore: unawaited_futures
+    orch.start();
+    return orch;
+  }
+
+  /// Ao concluir a trilha: telemetria + recarrega o perfil (stepper/preview) +
+  /// mostra o currículo montado. Roda 1x.
+  void _onOrch() {
+    final orch = _orch;
+    if (orch == null || !orch.finished || _completionHandled) return;
+    _completionHandled = true;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaColetaCompleted,
+        props: {'answered': orch.answeredCount, 'source': 'resume_tab'});
+    try {
+      // ignore: unawaited_futures
+      context.read<ProfileEditorViewModel>().load();
+    } catch (_) {/* sem provider: ignora */}
+    if (mounted) setState(() => _tab = 1);
   }
 
   @override
   Widget build(BuildContext context) {
-    // Transição entre entry-state e trilha:
-    // - Trilha entra com scale 0.92 → 1.0 + fade in (sensação de "abrir")
-    // - Entry-state só faz fade out/in suave por baixo
-    // Volta é mais rápida (280ms vs 380ms) pra sensação snappier.
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 380),
-      reverseDuration: const Duration(milliseconds: 280),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      layoutBuilder: (currentChild, previousChildren) {
-        return Stack(
-          alignment: Alignment.center,
-          children: <Widget>[
-            ...previousChildren,
-            if (currentChild != null) currentChild,
-          ],
-        );
-      },
-      transitionBuilder: (child, animation) {
-        final key = child.key;
-        final isTracks = key is ValueKey<String> && key.value == 'tracks';
-        if (isTracks) {
-          return FadeTransition(
-            opacity: animation,
-            child: ScaleTransition(
-              scale: Tween<double>(begin: 0.92, end: 1.0).animate(
-                CurvedAnimation(
-                    parent: animation, curve: Curves.easeOutCubic),
-              ),
-              child: child,
-            ),
+    // SEM Scaffold próprio: a aba vive dentro do Scaffold da HomeScreen, que é a
+    // ÚNICA autoridade do inset do teclado (Scaffold aninhado dobrava o inset e
+    // bagunçava o dock). ColoredBox só pinta o fundo.
+    return ColoredBox(
+      color: AppColors.background,
+      child: FutureBuilder<TrilhaChatController>(
+        future: _future,
+        builder: (context, snap) {
+          final Widget body;
+          if (snap.connectionState != ConnectionState.done) {
+            body = KeyedSubtree(
+                key: const ValueKey('loading'), child: _loading());
+          } else if (snap.hasError) {
+            body =
+                KeyedSubtree(key: const ValueKey('error'), child: _error());
+          } else {
+            body = KeyedSubtree(
+                key: const ValueKey('ready'), child: _ready(snap.data!));
+          }
+          return AnimatedSwitcher(
+            duration: const Duration(milliseconds: 280),
+            switchInCurve: Curves.easeOutCubic,
+            transitionBuilder: (child, anim) =>
+                FadeTransition(opacity: anim, child: child),
+            child: body,
           );
-        }
-        // Entry-state: só fade
-        return FadeTransition(opacity: animation, child: child);
-      },
-      child: _showingTracks
-          ? KeyedSubtree(
-              key: const ValueKey<String>('tracks'),
-              child: TracksTab(onBack: _exitTracks),
-            )
-          : KeyedSubtree(
-              key: const ValueKey<String>('entry'),
-              child: Consumer2<ResumeViewModel, ProfileViewModel>(
-                builder: (context, resumeVM, profileVM, _) {
-                  return PiiMask(
-                    child: Scaffold(
-                      backgroundColor: AppColors.background,
-                      body: SafeArea(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-                          child: _buildEntryState(
-                              context, resumeVM, profileVM),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
+        },
+      ),
     );
   }
 
-  Widget _buildEntryState(
-    BuildContext context,
-    ResumeViewModel resumeVM,
-    ProfileViewModel profileVM,
-  ) {
-    const indigo = AppColors.primary;
-    const purple = AppColors.primary;
+  // ── Estados ────────────────────────────────────────────────────────────────
 
-    final isCourseCompleted = resumeVM.isCourseCompleted;
-    final hasImportedBefore = profileVM.savedResumes
-        .any((r) => r.title.startsWith(kImportedResumeBaseTitle));
-
-    // Remoção reversível da trilha (flag binária remota). OFF (default) = card
-    // "Construir pela trilha" escondido → aba fica só com Importar CV. Voltar =
-    // ligar resume_trail_enabled no banco (sem rebuild). Onboarding não afetado.
-    final trailEnabled = FeatureFlagsService.instance
-        .isGloballyEnabled(FeatureFlagKeys.resumeTrailEnabled);
-
-    final heroTitle = isCourseCompleted
-        ? 'Seu currículo já está pronto'
-        : (trailEnabled
-            ? 'Dois jeitos de ter seu CV pronto'
-            : 'Comece seu currículo');
-    final heroSubtitle = isCourseCompleted
-        ? (trailEnabled
-            ? 'Atualize pela trilha ou suba uma nova versão.'
-            : 'Suba uma nova versão quando quiser.')
-        : (trailEnabled
-            ? 'Escolha o caminho que faz mais sentido agora.'
-            : 'Importe seu PDF e desbloqueie adaptação por vaga e match.');
-
-    // Layout: tamanhos naturais (sem Expanded interno), espaço extra
-    // distribuído ENTRE os blocos via spaceBetween. Em telas grandes
-    // ganha respiro; em telas pequenas continua compacto.
-    return Column(
-      mainAxisAlignment:
-          trailEnabled ? MainAxisAlignment.spaceBetween : MainAxisAlignment.start,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Hero
-        Container(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [indigo, purple],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(22),
-            boxShadow: [
-              BoxShadow(
-                color: indigo.withOpacity(0.3),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
+  Widget _loading() => const SafeArea(
+        child: Center(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.18),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 12),
-                    const SizedBox(width: 5),
-                    Text(
-                      isCourseCompleted
-                          ? 'JORNADA CONCLUÍDA'
-                          : 'COMECE SEU CURRÍCULO',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                heroTitle,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                  height: 1.15,
-                  letterSpacing: -0.4,
-                  fontFamily: 'Outfit',
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                heroSubtitle,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.85),
-                  fontSize: 12.5,
-                  height: 1.35,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
+              CircularProgressIndicator(color: AppColors.primary),
+              SizedBox(height: AppSpacing.base),
+              Text('Preparando seu currículo…', style: AppTextStyles.bodyMd),
             ],
           ),
         ),
+      );
 
-        // Card Trilha — escondido quando a flag resume_trail_enabled está OFF
-        // (remoção reversível). Espaçador no lugar pra não colar o import no hero.
-        if (trailEnabled)
-          KeyedSubtree(
-            key: TutorialKeys.trailCard,
-            child: _buildPathCard(
-              badge: isCourseCompleted ? 'JORNADA CONCLUÍDA' : 'RECOMENDADO',
-              badgeColor: AppColors.success,
-              icon: Icons.route_rounded,
-              iconBg: indigo,
-              title: isCourseCompleted
-                  ? 'Atualizar pela trilha'
-                  : 'Construir pela trilha',
-              description: isCourseCompleted
-                  ? 'Volte às fases pra atualizar — o CV é regerado e salvo no Perfil.'
-                  : 'Responda perguntas estilo Duolingo. A IA monta seu CV com bullets Harvard.',
-              highlights: isCourseCompleted
-                  ? const [
-                      'Reabra qualquer fase pra editar',
-                      'Cada finalização vira nova versão',
-                    ]
-                  : const [
-                      'Sem precisar escrever bullets',
-                      'Templates ATS-friendly',
-                    ],
-              ctaLabel: isCourseCompleted ? 'Abrir trilha' : 'Continuar trilha',
-              ctaIcon: Icons.arrow_forward_rounded,
-              onCtaTap: _enterTracks,
-              ctaVariant: _CtaVariant.gradient,
-            ),
-          )
-        else
-          const SizedBox(height: 16),
-
-        // Card Import — tamanho natural
-        KeyedSubtree(
-          key: TutorialKeys.importCard,
-          child: _buildPathCard(
-            badge: hasImportedBefore ? 'JÁ IMPORTADO' : 'MAIS RÁPIDO',
-          badgeColor: hasImportedBefore
-              ? AppColors.primary
-              : AppColors.warning,
-          icon: Icons.upload_file_rounded,
-          iconBg: AppColors.info,
-          title: hasImportedBefore
-              ? 'Importar outro CV'
-              : 'Importar CV em PDF',
-          description: hasImportedBefore
-              ? 'Suba uma nova versão. As anteriores continuam salvas na biblioteca.'
-              : 'Já tem um currículo? Suba o PDF e desbloqueie a adaptação por vaga.',
-          highlights: hasImportedBefore
-              ? const [
-                  'Cada upload vira nova entrada',
-                  'IA atualiza match com o novo CV',
-                ]
-              : const [
-                  'Pronto em 5 segundos',
-                  'IA lê seus dados automaticamente',
-                ],
-            ctaLabel: 'Importar PDF',
-            ctaIcon: Icons.upload_file_rounded,
-            onCtaTap: null,
-            customCta: ImportCvButton(onImported: _onImported),
-            ctaVariant: _CtaVariant.custom,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPathCard({
-    required String badge,
-    required Color badgeColor,
-    required IconData icon,
-    required Color iconBg,
-    required String title,
-    required String description,
-    required List<String> highlights,
-    required String ctaLabel,
-    required IconData ctaIcon,
-    required VoidCallback? onCtaTap,
-    required _CtaVariant ctaVariant,
-    Widget? customCta,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.border),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 14,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Header: icon + badge + title
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: iconBg.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(10),
+  Widget _error() => SafeArea(
+        child: Center(
+          child: Padding(
+            padding: AppSpacing.allXl,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline_rounded,
+                    color: AppColors.textTertiary, size: 40),
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  'Não consegui carregar agora. Tenta de novo daqui a pouco.',
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.bodyMd
+                      .copyWith(color: AppColors.textSecondary),
                 ),
-                child: Icon(icon, color: iconBg, size: 20),
-              ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: badgeColor.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        badge,
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w900,
-                          color: badgeColor,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 15.5,
-                        fontWeight: FontWeight.w900,
-                        color: AppColors.textPrimary,
-                        letterSpacing: -0.3,
-                        fontFamily: 'Outfit',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          // Description
-          Text(
-            description,
-            style: TextStyle(
-              fontSize: 12.5,
-              color: AppColors.textSecondary,
-              height: 1.35,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 8),
-          // Highlights compactos (2 bullets)
-          ...highlights.map((h) => Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.check_circle_rounded, size: 14, color: badgeColor),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        h,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w600,
-                          height: 1.3,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              )),
-          const SizedBox(height: 10),
-          // CTA
-          if (ctaVariant == _CtaVariant.gradient)
-            _buildCtaGradient(label: ctaLabel, icon: ctaIcon, onTap: onCtaTap)
-          else if (ctaVariant == _CtaVariant.custom && customCta != null)
-            customCta,
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCtaGradient({
-    required String label,
-    required IconData icon,
-    required VoidCallback? onTap,
-  }) {
-    return SizedBox(
-      width: double.infinity,
-      height: 46,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Ink(
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [AppColors.primary, AppColors.primary],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.primary.withOpacity(0.3),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
+                const SizedBox(height: AppSpacing.lg),
+                SecondaryButton(
+                  label: 'Tentar de novo',
+                  onPressed: () => setState(() => _future = _load()),
                 ),
               ],
             ),
-            child: Center(
+          ),
+        ),
+      );
+
+  Widget _ready(TrilhaChatController orch) {
+    final profileVM = context.watch<ProfileEditorViewModel>();
+    // Teclado aberto? (lido direto do inset — a HomeScreen não zera o viewInsets,
+    // então isto reflete o teclado e re-builda a aba quando ele abre/fecha.)
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+    return SafeArea(
+      bottom: false,
+      child: Column(
+        children: [
+          // O topo (título + stepper + toggle) COLAPSA suave quando o teclado
+          // abre: libera a altura pra conversa, então o dock de entrada nunca
+          // tampa a pergunta. Volta suave ao fechar o teclado.
+          AnimatedSize(
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: keyboardOpen
+                ? const SizedBox(width: double.infinity)
+                : _topBar(orch, profileVM),
+          ),
+          Expanded(
+            child: IndexedStack(
+              index: _tab,
+              children: [
+                _conversaView(orch),
+                _curriculoView(profileVM),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Topo: título + stepper + toggle ─────────────────────────────────────────
+
+  Widget _topBar(
+      TrilhaChatController orch, ProfileEditorViewModel profileVM) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Currículo', style: AppTextStyles.headlineMd),
+          const SizedBox(height: AppSpacing.md),
+          // Stepper reativo ao orquestrador (notifica a cada passo).
+          AnimatedBuilder(
+            animation: orch,
+            builder: (context, _) {
+              final active = activeFiveSection(orch.currentStep);
+              if (active != null) _stickySection = active;
+              final statuses = sectionStatuses(
+                history: orch.history,
+                current: orch.currentStep,
+                preFilled: _preFilledSections(profileVM),
+                stickyCurrent: _stickySection,
+              );
+              return CurriculoSectionStepper(statuses: statuses);
+            },
+          ),
+          const SizedBox(height: AppSpacing.base),
+          CurriculoToggle(
+            index: _tab,
+            onChanged: (i) => setState(() => _tab = i),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Set<TrilhaSection> _preFilledSections(ProfileEditorViewModel p) {
+    final s = <TrilhaSection>{};
+    if (p.education.isNotEmpty) s.add(TrilhaSection.formacao);
+    if (p.experiences.isNotEmpty) s.add(TrilhaSection.experiencia);
+    if (p.skills.isNotEmpty) s.add(TrilhaSection.skills);
+    if (p.languages.isNotEmpty) s.add(TrilhaSection.idiomas);
+    if (p.interests.isNotEmpty) s.add(TrilhaSection.interesses);
+    return s;
+  }
+
+  // ── Visão Conversa (chat embutido) ──────────────────────────────────────────
+
+  // O chat hospeda tudo: gate de import → "Lendo…"/resumo → conversa de lacunas
+  // → card de conclusão (inclusive o caso "nada a coletar", que cai direto na
+  // conclusão). Por isso a Conversa é sempre a [TrilhaChatView].
+  Widget _conversaView(TrilhaChatController orch) {
+    return TrilhaChatView(controller: orch);
+  }
+
+  // ── Visão Currículo (preview + exportar) ────────────────────────────────────
+
+  Widget _curriculoView(ProfileEditorViewModel p) {
+    final hasAny = p.experiences.isNotEmpty ||
+        p.skills.isNotEmpty ||
+        p.education.isNotEmpty ||
+        p.languages.isNotEmpty ||
+        p.interests.isNotEmpty;
+    return PiiMask(
+      child: Column(
+        children: [
+          Expanded(
+            child: hasAny
+                ? ListView(
+                    padding: const EdgeInsets.fromLTRB(AppSpacing.lg,
+                        AppSpacing.sm, AppSpacing.lg, AppSpacing.lg),
+                    children: [
+                      _previewHeader(p),
+                      if (p.skills.isNotEmpty) _chipsSection('Habilidades',
+                          p.skills.map((s) => s.name).toList()),
+                      if (p.languages.isNotEmpty) _languagesSection(p),
+                      if (p.experiences.isNotEmpty) _experienceSection(p),
+                      if (p.education.isNotEmpty) _educationSection(p),
+                      if (p.interests.isNotEmpty) _chipsSection(
+                          'Áreas de interesse',
+                          p.interests.map((i) => i.name).toList()),
+                    ],
+                  )
+                : _previewEmpty(),
+          ),
+          _exportBar(p),
+        ],
+      ),
+    );
+  }
+
+  Widget _previewEmpty() => Center(
+        child: Padding(
+          padding: AppSpacing.allXl,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.description_outlined,
+                  color: AppColors.textTertiary, size: 40),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Seu currículo aparece aqui',
+                textAlign: TextAlign.center,
+                style: AppTextStyles.titleSm
+                    .copyWith(color: AppColors.textPrimary),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Responda à conversa ao lado pra montar seu currículo.',
+                textAlign: TextAlign.center,
+                style: AppTextStyles.bodyMd
+                    .copyWith(color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  Widget _previewHeader(ProfileEditorViewModel p) {
+    final name = p.personal?.fullName.trim() ?? '';
+    final location = p.personal?.formattedLocation.trim() ?? '';
+    final score = p.completenessScore;
+    final initials = _initials(name);
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpacing.base),
+      padding: AppSpacing.allBase,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.brLg,
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.12),
+              borderRadius: AppRadius.brMd,
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              initials,
+              style: AppTextStyles.titleSm.copyWith(color: AppColors.primary),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name.isEmpty ? 'Seu perfil' : name,
+                    style: AppTextStyles.titleSm, maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+                if (location.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(location,
+                      style: AppTextStyles.bodySm
+                          .copyWith(color: AppColors.textTertiary),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                ],
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.successSoft,
+              borderRadius: AppRadius.brPill,
+            ),
+            child: Text('$score%',
+                style: AppTextStyles.labelSm
+                    .copyWith(color: AppColors.success)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String t) => Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+        child: Text(t.toUpperCase(),
+            style: AppTextStyles.overline.copyWith(letterSpacing: 0.6)),
+      );
+
+  Widget _card({required Widget child}) => Container(
+        margin: const EdgeInsets.only(bottom: AppSpacing.base),
+        padding: AppSpacing.allBase,
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: AppRadius.brLg,
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start, children: [child]),
+      );
+
+  Widget _chipsSection(String title, List<String> items) {
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle(title),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              for (final it in items)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.primarySoft,
+                    borderRadius: AppRadius.brSm,
+                  ),
+                  child: Text(it,
+                      style: AppTextStyles.labelSm
+                          .copyWith(color: AppColors.primary)),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _languagesSection(ProfileEditorViewModel p) {
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle('Idiomas'),
+          for (final lang in p.languages)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
               child: Row(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Icon(icon, color: Colors.white, size: 17),
-                  const SizedBox(width: 7),
+                  Text(lang.name, style: AppTextStyles.bodyMd
+                      .copyWith(color: AppColors.textPrimary)),
+                  Text(lang.proficiencyLabel,
+                      style: AppTextStyles.bodySm
+                          .copyWith(color: AppColors.textTertiary)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _experienceSection(ProfileEditorViewModel p) {
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle('Experiência'),
+          for (final exp in p.experiences)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(exp.title, style: AppTextStyles.labelMd),
                   Text(
-                    label,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.2,
-                    ),
+                    [exp.company, exp.formattedPeriod]
+                        .where((s) => s.trim().isNotEmpty)
+                        .join(' · '),
+                    style: AppTextStyles.bodySm
+                        .copyWith(color: AppColors.textTertiary),
                   ),
                 ],
               ),
             ),
-          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _educationSection(ProfileEditorViewModel p) {
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle('Formação'),
+          for (final ed in p.education)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    ed.majors.isNotEmpty
+                        ? ed.majors.map((m) => m.name).join(', ')
+                        : (ed.degree ?? 'Curso'),
+                    style: AppTextStyles.labelMd,
+                  ),
+                  Text(ed.institution,
+                      style: AppTextStyles.bodySm
+                          .copyWith(color: AppColors.textTertiary)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _exportBar(ProfileEditorViewModel p) {
+    final resumeVM = context.watch<ResumeViewModel>();
+    final canExport = resumeVM.resumeData != null ||
+        p.experiences.isNotEmpty ||
+        p.skills.isNotEmpty ||
+        p.education.isNotEmpty ||
+        p.languages.isNotEmpty ||
+        p.interests.isNotEmpty;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.lg),
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(top: BorderSide(color: AppColors.border)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: PrimaryButton(
+          label: 'Exportar PDF',
+          icon: Icons.upload_rounded,
+          isLoading: _isExporting,
+          onPressed: canExport ? () => _export(resumeVM) : null,
         ),
       ),
     );
   }
-}
 
-enum _CtaVariant { gradient, custom }
+  Future<void> _export(ResumeViewModel resumeVM) async {
+    if (_isExporting) return;
+    setState(() => _isExporting = true);
+    try {
+      final userVM = context.read<UserViewModel>();
+      final user = userVM.user;
+      final uid = user?.id ?? Supabase.instance.client.auth.currentUser?.id;
+      // ResumeRenderer prefere os dados de profile_* (v2) sobre o fallback —
+      // exporta o que a trilha coletou quando a flag templates_v2 está ON.
+      final rendered = await ResumeRenderer.render(
+        userId: uid,
+        user: user,
+        fallbackResume: resumeVM.resumeData ?? ResumeData(),
+        templateId: resumeVM.selectedTemplateId,
+        purpose: 'export',
+      );
+      final safeName = (user?.name ?? 'profissional').replaceAll(' ', '_');
+      await Printing.sharePdf(
+        bytes: rendered.bytes,
+        filename: 'curriculo_$safeName.pdf',
+      );
+      // ignore: unawaited_futures
+      Analytics.shared.cvExported(templateId: resumeVM.selectedTemplateId);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao gerar PDF: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  String _initials(String name) {
+    final parts =
+        name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '·';
+    if (parts.length == 1) {
+      return parts.first.substring(0, 1).toUpperCase();
+    }
+    return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
+        .toUpperCase();
+  }
+}
