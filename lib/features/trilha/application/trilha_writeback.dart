@@ -10,10 +10,15 @@ import '../../profile/domain/entities/entities.dart';
 import '../../profile/domain/repositories/profile_repository.dart';
 import '../domain/conversation_step.dart';
 import 'linkedin_url.dart';
+import 'trilha_draft.dart';
 
 class TrilhaWriteback {
   final ProfileRepository _repo;
   final String userId;
+
+  /// Persistência do RASCUNHO de item em construção (resumabilidade por passo).
+  /// Nulo ⇒ sem rascunho (testes/uso sem retomada).
+  final TrilhaDraftStore? _draftStore;
 
   /// Acumula os campos de cada experiência (coletados em passos separados) até
   /// ter o suficiente pra gravar. Chave = índice 'n' do passo 'exp.{n}.*'.
@@ -21,7 +26,37 @@ class TrilhaWriteback {
   final Map<int, _ProjBuffer> _projBuffers = {};
   _EduBuffer? _eduBuffer;
 
-  TrilhaWriteback(this._repo, this.userId);
+  TrilhaWriteback(this._repo, this.userId, {TrilhaDraftStore? draftStore})
+      : _draftStore = draftStore;
+
+  /// Reidrata os buffers a partir dos rascunhos salvos (chamado na abertura,
+  /// ANTES de criar o controller) — pra o save terminal ver TODOS os campos.
+  void seedFromDrafts(List<TrilhaItemDraft> drafts) {
+    for (final d in drafts) {
+      switch (d.kind) {
+        case 'experience':
+          _expBuffers[d.itemIndex] = _ExpBuffer.fromJson(d.fields);
+          break;
+        case 'project':
+          _projBuffers[d.itemIndex] = _ProjBuffer.fromJson(d.fields);
+          break;
+        case 'education':
+          _eduBuffer = _EduBuffer.fromJson(d.fields);
+          break;
+      }
+    }
+  }
+
+  Future<void> _persistDraft(
+      String kind, int n, String lastStepId, Map<String, dynamic> fields) async {
+    await _draftStore?.save(
+        userId,
+        TrilhaItemDraft(
+            kind: kind, itemIndex: n, lastStepId: lastStepId, fields: fields));
+  }
+
+  Future<void> _clearDraft(String kind) async =>
+      _draftStore?.delete(userId, kind);
 
   /// Grava uma resposta. Passos sem mapeamento (ex.: 'intro') são no-op.
   Future<void> save(StepAnswer answer) async {
@@ -313,6 +348,13 @@ class TrilhaWriteback {
         break;
       // 'more' → controle de fluxo, no-op
     }
+    // Resumabilidade: rascunho nos passos intermediários, apaga no terminal.
+    const intermediate = {'company', 'role', 'start', 'current', 'end'};
+    if (intermediate.contains(field)) {
+      await _persistDraft('experience', n, a.stepId, buf.toJson());
+    } else if (field == 'ofazia') {
+      await _clearDraft('experience');
+    }
   }
 
   Future<void> _saveExperience(int n, _ExpBuffer buf) async {
@@ -370,6 +412,12 @@ class TrilhaWriteback {
         await _saveProject(n, buf); // último passo → grava o projeto inteiro
         break;
       // 'more' → controle, no-op
+    }
+    const intermediate = {'name', 'what', 'did', 'when'};
+    if (intermediate.contains(parts[2])) {
+      await _persistDraft('project', n, a.stepId, buf.toJson());
+    } else if (parts[2] == 'link') {
+      await _clearDraft('project');
     }
   }
 
@@ -434,6 +482,15 @@ class TrilhaWriteback {
         buf.schoolYear = int.tryParse(_firstId(a));
         await _saveEducation(buf); // último passo do ensino médio
         break;
+    }
+    final f = parts[2];
+    if (f == 'semester' || f == 'schoolyear') {
+      await _clearDraft('education'); // salvou
+    } else if (f == 'moment' && buf.moment == 'outro') {
+      await _clearDraft('education'); // 'outro' não vira item — nada a retomar
+    } else {
+      // moment (faculdade/escola) + institution/school/course → intermediário.
+      await _persistDraft('education', 0, a.stepId, buf.toJson());
     }
   }
 
@@ -508,6 +565,10 @@ class TrilhaWriteback {
       a.value is List && (a.value as List).contains('yes');
 }
 
+String? _iso(DateTime? d) => d?.toIso8601String();
+DateTime? _fromIso(Object? s) =>
+    s is String && s.isNotEmpty ? DateTime.tryParse(s) : null;
+
 /// Buffer temporário dos campos de uma experiência em construção.
 class _ExpBuffer {
   String? company;
@@ -516,6 +577,23 @@ class _ExpBuffer {
   DateTime? end;
   bool? isCurrent;
   String? ofazia;
+
+  Map<String, dynamic> toJson() => {
+        'company': company,
+        'role': role,
+        'start': _iso(start),
+        'end': _iso(end),
+        'isCurrent': isCurrent,
+        'ofazia': ofazia,
+      };
+
+  static _ExpBuffer fromJson(Map<String, dynamic> j) => _ExpBuffer()
+    ..company = j['company'] as String?
+    ..role = j['role'] as String?
+    ..start = _fromIso(j['start'])
+    ..end = _fromIso(j['end'])
+    ..isCurrent = j['isCurrent'] as bool?
+    ..ofazia = j['ofazia'] as String?;
 }
 
 /// Buffer dos campos de um projeto em construção (gravado de uma vez no fim).
@@ -525,6 +603,21 @@ class _ProjBuffer {
   String? did; // o que VOCÊ fez (→ bullet)
   DateTime? when; // quando (opcional → endDate)
   String? link; // link (opcional → website)
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'what': what,
+        'did': did,
+        'when': _iso(when),
+        'link': link,
+      };
+
+  static _ProjBuffer fromJson(Map<String, dynamic> j) => _ProjBuffer()
+    ..name = j['name'] as String?
+    ..what = j['what'] as String?
+    ..did = j['did'] as String?
+    ..when = _fromIso(j['when'])
+    ..link = j['link'] as String?;
 }
 
 /// Buffer da educação (momento + instituição + curso + semestre/ano), gravado
@@ -536,4 +629,21 @@ class _EduBuffer {
   String? course;
   int? semester;
   int? schoolYear;
+
+  Map<String, dynamic> toJson() => {
+        'moment': moment,
+        'institution': institution,
+        'institutionId': institutionId,
+        'course': course,
+        'semester': semester,
+        'schoolYear': schoolYear,
+      };
+
+  static _EduBuffer fromJson(Map<String, dynamic> j) => _EduBuffer()
+    ..moment = j['moment'] as String?
+    ..institution = j['institution'] as String?
+    ..institutionId = j['institutionId'] as String?
+    ..course = j['course'] as String?
+    ..semester = (j['semester'] as num?)?.toInt()
+    ..schoolYear = (j['schoolYear'] as num?)?.toInt();
 }

@@ -15,6 +15,7 @@ import '../../profile/domain/repositories/profile_repository.dart';
 import '../domain/conversation_step.dart' show PickSuggestion;
 import 'conversation_controller.dart';
 import 'conversation_plan.dart';
+import 'trilha_draft.dart';
 import 'ibge_city_service.dart';
 import 'institution_search_service.dart';
 import 'skill_suggestions.dart';
@@ -42,6 +43,9 @@ Future<ConversationController> buildTrilhaController(
   final prefs = await repo.getJobPreferences(userId);
   final desired = await repo.getDesiredTitles(userId);
   final addressed = await prog.addressed(userId);
+  // Rascunhos de item em construção (resumabilidade por passo, failure-safe).
+  final draftStore = TrilhaDraftStore();
+  final drafts = await draftStore.load(userId);
 
   final gaps = profileGapsFromData(
     snapshot: snapshot,
@@ -88,8 +92,12 @@ Future<ConversationController> buildTrilhaController(
     institutionSearch: (q) async => (await searchInstitutions(q))
         .map((i) => PickSuggestion(label: i.name, value: '${i.id}|${i.name}'))
         .toList(),
+    drafts: drafts, // retoma o item parcial no passo onde parou
   );
-  final writeback = TrilhaWriteback(repo, userId);
+  final writeback = TrilhaWriteback(repo, userId, draftStore: draftStore);
+  // Reidrata os buffers do rascunho ANTES do controller — pra o save terminal
+  // ver TODOS os campos (os de antes do abandono + os respondidos na retomada).
+  writeback.seedFromDrafts(drafts);
 
   return ConversationController(plan, onAnswer: (answer) async {
     await writeback.save(answer);

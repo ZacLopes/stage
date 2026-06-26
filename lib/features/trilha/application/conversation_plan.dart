@@ -13,6 +13,7 @@
 import '../../profile/application/profile_gaps.dart';
 import '../domain/conversation_step.dart';
 import 'skill_suggestions.dart';
+import 'trilha_draft.dart';
 
 /// Monta o plano conversacional a partir das lacunas. [addressed] são os
 /// trechos já abordados antes (memória [TrilhaProgress]) — pulados pra não
@@ -30,12 +31,20 @@ List<ConversationStep> buildConversationPlan(
   // Typeahead canônico (null → cai no texto livre): cidade IBGE / instituição.
   Future<List<PickSuggestion>> Function(String query)? citySearch,
   Future<List<PickSuggestion>> Function(String query)? institutionSearch,
+  // Rascunhos de item em construção (resumabilidade por passo): retoma no ponto.
+  List<TrilhaItemDraft> drafts = const [],
 }) {
   final missing = gaps.missing.map((l) => l.key).toSet();
   // Pergunta um trecho só se a lacuna existe E ele ainda não foi abordado
   // (memória — evita re-perguntar skills/experiência toda vez que abre).
   bool wants(LacunaKey key, String segment) =>
       missing.contains(key) && !addressed.contains(segment);
+
+  // Rascunho do item parcial (1 por kind) — se houver, RETOMA no passo em vez
+  // de re-perguntar o item inteiro (só vale enquanto a lacuna segue aberta).
+  final expDraft = _draftFor(drafts, 'experience');
+  final projDraft = _draftFor(drafts, 'project');
+  final eduDraft = _draftFor(drafts, 'education');
 
   final steps = <ConversationStep>[
     // Preferências (cliques rápidos).
@@ -46,18 +55,24 @@ List<ConversationStep> buildConversationPlan(
     // Educação (Tier 1 — chave pra o admin ACHAR o candidato: curso, semestre,
     // nível). Só aparece se faltar (o import não extrai esses campos).
     if (wants(LacunaKey.educationStatus, 'education'))
-      _educationGate(institutionSearch),
+      if (eduDraft != null) ..._resumeEducation(eduDraft, institutionSearch)
+      else _educationGate(institutionSearch),
     // Substância leve.
     if (wants(LacunaKey.skills, 'skills'))
       _skills(skillSuggestions, skillCatalog, skillSuggester,
           skillSuggestionsLoader),
     if (wants(LacunaKey.languages, 'languages')) _languages(),
     // Experiência (DINÂMICA): entrevista um campo por vez, loop "adicionar outra?".
-    if (wants(LacunaKey.experience, 'experience')) _experienceGate(),
+    // Com rascunho → RETOMA no passo em vez de re-perguntar o item inteiro.
+    if (wants(LacunaKey.experience, 'experience'))
+      if (expDraft != null) ..._resumeExperience(expDraft)
+      else _experienceGate(),
     // Extras (Tier 3): só pergunta se faltam e não foram abordados.
     if (wants(LacunaKey.linkedin, 'linkedin')) _linkedinGate(),
     if (wants(LacunaKey.certifications, 'certifications')) _certGate(),
-    if (wants(LacunaKey.projects, 'projects')) _projectGate(),
+    if (wants(LacunaKey.projects, 'projects'))
+      if (projDraft != null) ..._resumeProject(projDraft)
+      else _projectGate(),
     if (wants(LacunaKey.interests, 'interests')) _interests(),
     if (wants(LacunaKey.availability, 'availability')) _availabilityStep(),
   ];
@@ -66,6 +81,55 @@ List<ConversationStep> buildConversationPlan(
 }
 
 bool _answeredYes(StepAnswer a) => a.value is List && (a.value as List).contains('yes');
+
+// ── Resumabilidade por passo: retoma o item parcial onde parou ───────────────
+TrilhaItemDraft? _draftFor(List<TrilhaItemDraft> drafts, String kind) {
+  for (final d in drafts) {
+    if (d.kind == kind) return d;
+  }
+  return null;
+}
+
+/// Passos de um item DEPOIS do último respondido. Se o id não está na lista
+/// (ex.: parou logo após o gate/momento), devolve tudo — retoma do começo do item.
+List<ConversationStep> _stepsAfter(
+    List<ConversationStep> steps, String lastStepId) {
+  final i = steps.indexWhere((s) => s.id == lastStepId);
+  return i < 0 ? steps : steps.sublist(i + 1);
+}
+
+List<ConversationStep> _resumeProject(TrilhaItemDraft d) =>
+    _stepsAfter(_projectItem(d.itemIndex), d.lastStepId);
+
+List<ConversationStep> _resumeEducation(TrilhaItemDraft d,
+    Future<List<PickSuggestion>> Function(String)? institutionSearch) {
+  final branch = d.fields['moment'] == 'in_school'
+      ? _eduSchoolSteps()
+      : _eduCollegeSteps(institutionSearch);
+  return _stepsAfter(branch, d.lastStepId);
+}
+
+List<ConversationStep> _resumeExperience(TrilhaItemDraft d) {
+  final n = d.itemIndex;
+  final field = d.lastStepId.split('.').last;
+  final isCurrent = d.fields['isCurrent'] == true;
+  switch (field) {
+    case 'company':
+    case 'role':
+    case 'start':
+      // _experienceItem = [company, role, start, current(expand → end/tail)].
+      return _stepsAfter(_experienceItem(n), d.lastStepId);
+    case 'current':
+      // respondeu o "ainda está?" → cauda (com 'end' se não for atual).
+      return isCurrent
+          ? _experienceTail(n)
+          : [_endStep(n), ..._experienceTail(n)];
+    case 'end':
+      return _experienceTail(n);
+    default:
+      return _experienceItem(n); // fallback defensivo
+  }
+}
 
 // ── Passos ──────────────────────────────────────────────────────────────────
 

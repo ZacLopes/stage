@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:career_gamification/features/profile/application/profile_gaps.dart';
 import 'package:career_gamification/features/trilha/application/conversation_plan.dart';
+import 'package:career_gamification/features/trilha/application/trilha_draft.dart';
 import 'package:career_gamification/features/trilha/domain/conversation_step.dart';
 
 /// Cobre o construtor adaptativo do plano: só pergunta o que falta, e nunca
@@ -234,6 +235,49 @@ void main() {
       // Já tem status → sem gate.
       final filled = buildConversationPlan(gaps(hasEducationStatus: true));
       expect(filled.map((s) => s.id), isNot(contains('gap.edu.moment')));
+    });
+
+    test('resumabilidade: draft de experiência suprime o gate e retoma no passo',
+        () {
+      final plan = buildConversationPlan(gaps(), drafts: const [
+        TrilhaItemDraft(
+            kind: 'experience',
+            itemIndex: 0,
+            lastStepId: 'exp.0.start',
+            fields: {'company': 'X', 'role': 'Y'}),
+      ]);
+      final ids = plan.map((s) => s.id);
+      expect(ids, isNot(contains('exp.gate'))); // gate suprimido
+      expect(ids, contains('exp.0.current')); // retoma logo após 'start'
+      expect(ids, isNot(contains('exp.0.company'))); // não re-pergunta o respondido
+    });
+
+    test('resumabilidade: draft de projeto retoma após o último passo', () {
+      final plan = buildConversationPlan(gaps(hasProjects: false), drafts: const [
+        TrilhaItemDraft(
+            kind: 'project',
+            itemIndex: 0,
+            lastStepId: 'project.0.did',
+            fields: {}),
+      ]);
+      final ids = plan.map((s) => s.id);
+      expect(ids, isNot(contains('project.gate')));
+      expect(ids, containsAll(['project.0.when', 'project.0.link']));
+      expect(ids, isNot(contains('project.0.name'))); // já respondido
+    });
+
+    test('resumabilidade: draft de educação (faculdade) retoma no curso', () {
+      final plan = buildConversationPlan(gaps(), drafts: const [
+        TrilhaItemDraft(
+            kind: 'education',
+            itemIndex: 0,
+            lastStepId: 'gap.edu.institution',
+            fields: {'moment': 'in_college'}),
+      ]);
+      final ids = plan.map((s) => s.id);
+      expect(ids, isNot(contains('gap.edu.moment'))); // momento já respondido
+      expect(ids, containsAll(['gap.edu.course', 'gap.edu.semester']));
+      expect(ids, isNot(contains('gap.edu.institution'))); // já respondido
     });
 
     test('experiência: a gate expande em item ao responder "sim", vazio no "não"', () {

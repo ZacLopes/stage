@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:career_gamification/features/profile/domain/entities/entities.dart';
 import 'package:career_gamification/features/profile/domain/repositories/profile_repository.dart';
+import 'package:career_gamification/features/trilha/application/trilha_draft.dart';
 import 'package:career_gamification/features/trilha/application/trilha_writeback.dart';
 import 'package:career_gamification/features/trilha/domain/conversation_step.dart';
 
@@ -447,6 +449,76 @@ void main() {
       await wb.save(choice('gap.edu.semester', ['2']));
       expect(repo.addedEducation?.institution, 'Faculdade Local');
       expect(repo.addedEducation?.institutionId, isNull);
+    });
+  });
+
+  group('resumabilidade (rascunho de item)', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('experiência: persiste rascunho nos passos intermediários, apaga no fim',
+        () async {
+      final store = TrilhaDraftStore();
+      final wb2 = TrilhaWriteback(repo, 'u1', draftStore: store);
+
+      await wb2.save(StepAnswer.text('exp.0.company', 'Magalu'));
+      await wb2.save(StepAnswer.text('exp.0.role', 'Estágio'));
+      var drafts = await store.load('u1');
+      expect(drafts, hasLength(1));
+      expect(drafts.first.kind, 'experience');
+      expect(drafts.first.fields['company'], 'Magalu');
+      expect(repo.addedExps, isEmpty); // ainda não gravou a experiência
+
+      await wb2.save(StepAnswer.monthYear('exp.0.start', 2024, 1));
+      await wb2.save(choice('exp.0.current', ['yes']));
+      await wb2.save(StepAnswer.text('exp.0.ofazia', 'organizava o estoque'));
+      expect(repo.addedExps, hasLength(1)); // gravou no terminal
+      expect(await store.load('u1'), isEmpty); // rascunho apagado
+    });
+
+    test('seedFromDrafts reidrata o buffer → save terminal vê os campos de antes',
+        () async {
+      final store = TrilhaDraftStore();
+      final wb2 = TrilhaWriteback(repo, 'u1', draftStore: store);
+      wb2.seedFromDrafts([
+        const TrilhaItemDraft(
+          kind: 'experience',
+          itemIndex: 0,
+          lastStepId: 'exp.0.current',
+          fields: {
+            'company': 'Magalu',
+            'role': 'Estágio',
+            'start': '2024-01-01T00:00:00.000',
+            'isCurrent': true,
+          },
+        ),
+      ]);
+      // Retoma: só responde o passo terminal (ofazia).
+      await wb2.save(StepAnswer.text('exp.0.ofazia', 'cuidava do estoque'));
+      expect(repo.addedExps, hasLength(1));
+      expect(repo.addedExps.first.company, 'Magalu');
+      expect(repo.addedExps.first.title, 'Estágio');
+    });
+
+    test('projeto: rascunho nos intermediários, some no link (terminal)',
+        () async {
+      final store = TrilhaDraftStore();
+      final wb2 = TrilhaWriteback(repo, 'u1', draftStore: store);
+      await wb2.save(StepAnswer.text('project.0.name', 'App'));
+      await wb2.save(StepAnswer.text('project.0.what', 'algo'));
+      await wb2.save(StepAnswer.text('project.0.did', 'fiz'));
+      expect((await store.load('u1')).first.fields['did'], 'fiz');
+      await wb2.save(const StepAnswer(
+          stepId: 'project.0.when', value: '', displayText: 'Pular'));
+      await wb2.save(const StepAnswer(
+          stepId: 'project.0.link', value: '', displayText: 'Pular'));
+      expect(await store.load('u1'), isEmpty);
+    });
+
+    test('educação "outro": não cria rascunho (nada a retomar)', () async {
+      final store = TrilhaDraftStore();
+      final wb2 = TrilhaWriteback(repo, 'u1', draftStore: store);
+      await wb2.save(choice('gap.edu.moment', ['outro']));
+      expect(await store.load('u1'), isEmpty);
     });
   });
 }
