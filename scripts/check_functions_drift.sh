@@ -30,7 +30,7 @@ ACTIVE=(
   admin-candidate-lists admin-candidates-search admin-audit
   sync-jobs-apify sync-jobs-ats sync-jobs-brazil
   generate-resume generate-bullets generate-summary suggest-tools
-  extract-profile extract-job-skills
+  extract-profile extract-job-skills interpret-step-answer
   notifications-daily-digest notifications-broadcast
   notify-signup notify-auto-apply-swipe
   ingest-jobs-email daily-report
