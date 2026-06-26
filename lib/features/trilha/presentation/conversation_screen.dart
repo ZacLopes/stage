@@ -234,30 +234,77 @@ class _ConversationScreenState extends State<ConversationScreen> {
   @override
   Widget build(BuildContext context) {
     final step = _c.current;
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: SafeArea(
-        // O footer cuida do inset de baixo (preenche o branco até a borda) —
-        // senão sobra uma faixa cinza embaixo dos botões.
-        bottom: false,
-        child: Column(
-          children: [
-            _header(),
-            Expanded(child: _thread()),
-            // Quando o footer muda de altura (ex.: vira o seletor de data, bem
-            // mais alto), gruda o fio no fim — a pergunta não fica tampada pelo
-            // widget. Reage ao layout REAL, não a um timer.
-            NotificationListener<SizeChangedLayoutNotification>(
-              onNotification: (_) {
-                _pinToEnd();
-                return false;
-              },
-              child: SizeChangedLayoutNotifier(child: _footer(step)),
-            ),
-          ],
+    return PopScope(
+      // Confirma a saída quando há progresso não concluído. O X fica no canto
+      // onde o polegar repousa; um toque acidental não pode descartar a sessão.
+      canPop: _finished || _c.answeredCount == 0,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final leave = await _confirmExit();
+        if (leave && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        body: SafeArea(
+          // O footer cuida do inset de baixo (preenche o branco até a borda) —
+          // senão sobra uma faixa cinza embaixo dos botões.
+          bottom: false,
+          child: Column(
+            children: [
+              _header(),
+              Expanded(child: _thread()),
+              // Quando o footer muda de altura (ex.: vira o seletor de data, bem
+              // mais alto), gruda o fio no fim — a pergunta não fica tampada
+              // pelo widget. Reage ao layout REAL, não a um timer.
+              NotificationListener<SizeChangedLayoutNotification>(
+                onNotification: (_) {
+                  _pinToEnd();
+                  return false;
+                },
+                child: SizeChangedLayoutNotifier(child: _footer(step)),
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  /// Confirma a saída se já houve progresso (e a trilha não acabou). Retorna
+  /// true quando pode sair. Failure-safe: sem progresso ou já concluída, sai
+  /// direto.
+  Future<bool> _confirmExit() async {
+    if (_finished || _c.answeredCount == 0) return true;
+    final n = _c.answeredCount;
+    final leave = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.brLg),
+        title: Text('Sair da trilha?',
+            style: AppTextStyles.titleSm.copyWith(color: AppColors.textPrimary)),
+        content: Text(
+          'Você já preencheu $n ${n == 1 ? 'resposta' : 'respostas'} — seu '
+          'progresso fica salvo e dá pra continuar depois.',
+          style: AppTextStyles.bodyMd.copyWith(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('Continuar',
+                style:
+                    AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text('Sair',
+                style: AppTextStyles.labelMd
+                    .copyWith(color: AppColors.textTertiary)),
+          ),
+        ],
+      ),
+    );
+    return leave ?? false;
   }
 
   Widget _header() {

@@ -101,4 +101,43 @@ void main() {
     expect(find.textContaining('Estudante de ADM'), findsOneWidget);
     expect(find.text('Concluir'), findsOneWidget);
   });
+
+  testWidgets('sair com progresso pede confirmação (X não descarta direto)',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (ctx) => Scaffold(
+          body: Center(
+            child: ElevatedButton(
+              onPressed: () => Navigator.of(ctx).push(MaterialPageRoute(
+                builder: (_) =>
+                    ConversationScreen(controller: ConversationController(script())),
+              )),
+              child: const Text('abrir'),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('abrir'));
+    await tester.pump();
+    await advance(tester);
+
+    // Responde 1 passo → answeredCount = 1 → saída protegida.
+    await tester.tap(find.text('Opção A'));
+    await advance(tester);
+
+    // Toca no X → diálogo de confirmação (não sai direto).
+    await tester.tap(find.byIcon(Icons.close_rounded));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Sair da trilha?'), findsOneWidget);
+
+    // "Continuar" fecha o diálogo e mantém na trilha.
+    await tester.tap(find.text('Continuar'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Sair da trilha?'), findsNothing);
+    expect(find.text('Pergunta dois'), findsOneWidget); // ainda na trilha
+  });
 }

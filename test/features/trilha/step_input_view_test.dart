@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:career_gamification/features/trilha/domain/conversation_step.dart';
 import 'package:career_gamification/features/trilha/presentation/widgets/chat_bubbles.dart';
 import 'package:career_gamification/features/trilha/presentation/widgets/step_input_view.dart';
@@ -315,6 +316,27 @@ void main() {
     await tester.pump();
     expect(captured, isNotNull);
     expect(captured!.value, ['yes']);
+  });
+
+  testWidgets('rascunho de texto: restaura o que ficou salvo no device',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(
+        {'trilha_draft_exp.0.ofazia': 'texto que eu tinha começado'});
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StepInputView(
+          step: const ConversationStep(
+            id: 'exp.0.ofazia',
+            aiMessages: ['x'],
+            input: GuidedTextInput(example: 'ex'),
+          ),
+          onSubmit: (_) {},
+        ),
+      ),
+    ));
+    await tester.pump(); // initState dispara o restore assíncrono
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('texto que eu tinha começado'), findsOneWidget);
   });
 
   testWidgets('texto opcional vazio: botão vira "Pular" e submete vazio',

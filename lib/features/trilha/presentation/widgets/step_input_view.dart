@@ -3,8 +3,11 @@
 // devolve um [StepAnswer] via [onSubmit]. Reusa o design system
 // (AppChip, PrimaryButton, AppTextField). PLANO-FASE-6 T6.3.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../core/theme/theme.dart';
 import '../../../../core/widgets/widgets.dart';
@@ -45,10 +48,16 @@ class _StepInputViewState extends State<StepInputView> {
   /// pela área). Nulo enquanto carrega → usa o placeholder estático.
   List<String>? _loadedSuggestions;
 
+  /// Debounce do autosave do rascunho de texto guiado.
+  Timer? _draftTimer;
+  static const _draftPrefix = 'trilha_draft_';
+  String get _draftKey => '$_draftPrefix${widget.step.id}';
+
   @override
   void initState() {
     super.initState();
-    _textController.addListener(() => setState(() {}));
+    _textController.addListener(_onTextChanged);
+    _restoreDraft();
     _maybeStartAsyncLoad();
   }
 
@@ -58,11 +67,61 @@ class _StepInputViewState extends State<StepInputView> {
     // Passo novo → limpa o estado de seleção/texto e (re)dispara o load async.
     if (old.step.id != widget.step.id) {
       _selectedIds.clear();
+      _draftTimer?.cancel();
       _textController.clear();
       _myMonth = null;
       _myYear = null;
+      _restoreDraft(); // recupera rascunho salvo deste passo (se houver)
       _maybeStartAsyncLoad();
     }
+  }
+
+  // Autosave do texto em andamento (só GuidedTextInput): se o SO mata o app com
+  // o teclado aberto, o rascunho volta na reabertura. Persiste no device, com
+  // debounce; limpa ao enviar/pular.
+  void _onTextChanged() {
+    setState(() {});
+    if (widget.step.input is GuidedTextInput) {
+      _draftTimer?.cancel();
+      _draftTimer = Timer(const Duration(milliseconds: 400), _saveDraft);
+    }
+  }
+
+  // Failure-safe: rascunho é conveniência; erro de storage nunca trava a trilha.
+  Future<void> _restoreDraft() async {
+    if (widget.step.input is! GuidedTextInput) return;
+    final key = _draftKey;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(key);
+      if (saved != null &&
+          saved.isNotEmpty &&
+          mounted &&
+          key == _draftKey && // o passo não mudou durante o await
+          _textController.text.isEmpty) {
+        _textController.text = saved;
+      }
+    } catch (_) {/* sem rascunho, segue normal */}
+  }
+
+  Future<void> _saveDraft() async {
+    if (widget.step.input is! GuidedTextInput) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final t = _textController.text;
+      if (t.isEmpty) {
+        await prefs.remove(_draftKey);
+      } else {
+        await prefs.setString(_draftKey, t);
+      }
+    } catch (_) {/* ignora */}
+  }
+
+  Future<void> _clearDraft(String stepId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('$_draftPrefix$stepId');
+    } catch (_) {/* ignora */}
   }
 
   void _maybeStartAsyncLoad() {
@@ -80,6 +139,7 @@ class _StepInputViewState extends State<StepInputView> {
 
   @override
   void dispose() {
+    _draftTimer?.cancel();
     _textController.dispose();
     super.dispose();
   }
@@ -422,10 +482,13 @@ class _StepInputViewState extends State<StepInputView> {
           label: text.isEmpty && input.optional ? 'Pular' : 'Enviar',
           onPressed: (!widget.enabled || (text.isEmpty && !input.optional))
               ? null
-              : () => widget.onSubmit(text.isEmpty
-                  ? StepAnswer(
-                      stepId: widget.step.id, value: '', displayText: 'Pular')
-                  : StepAnswer.text(widget.step.id, text)),
+              : () {
+                  _clearDraft(widget.step.id); // enviou → não precisa do rascunho
+                  widget.onSubmit(text.isEmpty
+                      ? StepAnswer(
+                          stepId: widget.step.id, value: '', displayText: 'Pular')
+                      : StepAnswer.text(widget.step.id, text));
+                },
         ),
       ],
     );
