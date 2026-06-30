@@ -10,6 +10,7 @@ import '../auth/onboarding_screen.dart';
 import '../auth/completion_screen.dart';
 import '../home/home_screen.dart';
 import '../onboarding/presentation/two_doors_screen.dart';
+import '../../services/feature_flags_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────
 // TOKENS — tudo que você costuma querer ajustar mora aqui no topo.
@@ -488,6 +489,39 @@ class _StageMarkPainter extends CustomPainter {
       old.color != color;
 }
 
+/// Destino de roteamento pós-login. Extraído como função pura
+/// ([resolvePostLoginRoute]) pra ser testável sem montar widget (R3).
+enum PostLoginRoute { home, onboarding, legacyCompletion }
+
+/// Decide a tela pós-login a partir do estado do [UserViewModel].
+///
+/// Prioridade: onboarding concluído → Home; senão, qualquer sinal de que o
+/// usuário ainda não preencheu → onboarding que COLETA dados (TwoDoorsScreen).
+///
+/// BUGFIX (perfis ocos): o fallback histórico caía na `CompletionScreen`
+/// legacy, cuja opção "Começar do zero" marcava `onboarding_completed_at` SEM
+/// coletar nada. Esse fallback era atingido por quem tinha `user_profiles`
+/// legacy completo (`needsProfileSetup` = false) mas `profile_personal` vazio
+/// (`isInProfileFirstFlow` = false) — ~59% dos perfis ocos medidos. Agora o
+/// fallback vai pro onboarding que coleta. A CompletionScreen só volta via o
+/// kill-switch estrutural `legacy_completion_screen_enabled`
+/// ([legacyCompletionEnabled]); default OFF ⇒ fix ligado e failure-safe (flag
+/// ausente/não-carregada → onboarding, nunca a tela data-less).
+@visibleForTesting
+PostLoginRoute resolvePostLoginRoute({
+  required bool hasCompletedOnboarding,
+  required bool isInProfileFirstFlow,
+  required bool needsProfileSetup,
+  required bool legacyCompletionEnabled,
+}) {
+  if (hasCompletedOnboarding) return PostLoginRoute.home;
+  if (isInProfileFirstFlow) return PostLoginRoute.onboarding;
+  if (needsProfileSetup) return PostLoginRoute.onboarding;
+  return legacyCompletionEnabled
+      ? PostLoginRoute.legacyCompletion
+      : PostLoginRoute.onboarding;
+}
+
 /// Wrapper to handle auth state: logged in → Home, logged out → Onboarding
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -521,7 +555,9 @@ class AuthGate extends StatelessWidget {
           //    pushava TwoDoorsScreen → loop infinito reportado pelo user.
           // 3. needsProfileSetup → TwoDoorsScreen (entrada do onboarding
           //    profile-first). Cobre Apple/Google sem nome, phone signup, etc.
-          // 4. Sem campaign mas sem precisar setup → CompletionScreen (legacy).
+          // 4. Fallback (perfil sem dados profile-first) → TwoDoorsScreen
+          //    (onboarding que COLETA). A CompletionScreen legacy (data-less)
+          //    só volta via kill-switch `legacy_completion_screen_enabled`.
           //
           // Esse Consumer re-roteia automaticamente quando o state muda
           // (ex: user finaliza onboarding → hasCompletedOnboarding vira true
@@ -532,16 +568,21 @@ class AuthGate extends StatelessWidget {
           // onboarding_completed_at em profile_personal — backfill cobriu o
           // histórico e a bridge no banco cobre builds antigas que ainda
           // criam campaign. A prioridade sobre os checks de setup permanece.
-          if (viewModel.hasCompletedOnboarding) {
-            return const HomeScreen();
+          final route = resolvePostLoginRoute(
+            hasCompletedOnboarding: viewModel.hasCompletedOnboarding,
+            isInProfileFirstFlow: viewModel.isInProfileFirstFlow,
+            needsProfileSetup: viewModel.needsProfileSetup,
+            legacyCompletionEnabled: FeatureFlagsService.instance
+                .isGloballyEnabled(FeatureFlagKeys.legacyCompletionScreenEnabled),
+          );
+          switch (route) {
+            case PostLoginRoute.home:
+              return const HomeScreen();
+            case PostLoginRoute.onboarding:
+              return const TwoDoorsScreen();
+            case PostLoginRoute.legacyCompletion:
+              return const CompletionScreen();
           }
-          if (viewModel.isInProfileFirstFlow) {
-            return const TwoDoorsScreen();
-          }
-          if (viewModel.needsProfileSetup) {
-            return const TwoDoorsScreen();
-          }
-          return const CompletionScreen();
         } else {
           return const OnboardingScreen();
         }

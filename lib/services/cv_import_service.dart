@@ -24,6 +24,10 @@ class CvImportResult {
   final bool success;
   final String? errorMessage;
   final String? title;
+
+  /// Nome real do arquivo PDF que o usuário escolheu (ex.: "Joao_Silva_CV.pdf").
+  /// Distinto do [title], que é o título na biblioteca ("Meu Currículo (2)").
+  final String? fileName;
   final String? savedResumeId;
   final int extractedTextLength;
   final bool textWasUsable;
@@ -32,6 +36,7 @@ class CvImportResult {
     required this.success,
     this.errorMessage,
     this.title,
+    this.fileName,
     this.savedResumeId,
     this.extractedTextLength = 0,
     this.textWasUsable = false,
@@ -195,6 +200,7 @@ class CvImportService {
       return CvImportResult(
         success: true,
         title: title,
+        fileName: file.name,
         savedResumeId: savedId,
         extractedTextLength: rawTextLen,
         textWasUsable: usable,

@@ -8,8 +8,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../services/analytics_service.dart';
+import '../../../../services/analytics_events.dart';
 import '../../../../services/facebook_events_service.dart';
 import '../../../auth/user_viewmodel.dart';
+import '../../../../services/feature_flags_service.dart';
+import '../../../../core/widgets/widgets.dart';
+import '../../../home/home_viewmodel.dart';
 import '../onboarding_scaffold.dart';
 import '../../../../core/theme/theme.dart';
 
@@ -27,6 +31,7 @@ class OnboardingCompleteScreen extends StatefulWidget {
 
 class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
   bool _finishing = false;
+  bool _inviteTrilha = false;
 
   @override
   void initState() {
@@ -36,10 +41,29 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
     // door/duration/flow_version). O `onboarding_completed` fica só
     // no tap "Começar". `onboarding_all_set_shown` é da AllSetScreen
     // (transição entre masking e review) — não desta tela final.
+    _resolveInvite();
   }
 
-  Future<void> _handleFinish() async {
-    if (_finishing) return;
+  // 5b: pra quem NÃO importou CV (door='trail') e com a flag `trilha_coleta_v1`
+  // ligada, oferecemos a trilha de coleta no momento mais quente — logo após o
+  // onboarding. Importadores já saem com perfil rico, então não recebem o convite.
+  Future<void> _resolveInvite() async {
+    final door = await Analytics.shared.resolveOnboardingDoor();
+    if (!mounted) return;
+    final userId = context.read<UserViewModel>().user?.id;
+    final flagOn = FeatureFlagsService.instance
+        .isEnabledForUser(FeatureFlagKeys.trilhaColetaV1, userId);
+    if (door == 'trail' && flagOn) {
+      setState(() => _inviteTrilha = true);
+      // ignore: unawaited_futures
+      Analytics.shared.track(evTrilhaColetaInviteShown);
+    }
+  }
+
+  /// Marca o onboarding como concluído + analytics + guards anti-loop.
+  /// Retorna true em sucesso (a navegação fica por conta do chamador).
+  Future<bool> _markComplete() async {
+    if (_finishing) return false;
     setState(() => _finishing = true);
 
     final userVm = context.read<UserViewModel>();
@@ -62,22 +86,20 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
         );
         setState(() => _finishing = false);
       }
-      return;
+      return false;
     }
 
-    if (!mounted) return;
+    if (!mounted) return false;
     // Door resolvida pela TwoDoorsScreen (persistida em SharedPrefs).
     // Fallback 'upload_cv' pra fluxos sem TwoDoors (não deve acontecer
     // pós-cutover) — evita None se SharedPrefs estiver vazio.
     final door =
         await Analytics.shared.resolveOnboardingDoor() ?? 'upload_cv';
-    if (!mounted) return;
+    if (!mounted) return false;
     // ignore: unawaited_futures
     Analytics.shared.onboardingCompleted(door: door);
 
-    // Facebook Lead — sinal "user qualificado" (perfil populado + campaign
-    // criada). Mais forte que CompletedRegistration sozinho pra otimização
-    // de campanha. Dedupado por user_id em SharedPreferences.
+    // Facebook Lead — sinal "user qualificado". Dedupado por user_id.
     // ignore: unawaited_futures
     FacebookEventsService.shared.logLeadOnce(userId: userVm.user?.id);
 
@@ -91,60 +113,130 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
         ),
       );
       setState(() => _finishing = false);
-      return;
+      return false;
     }
+    return true;
+  }
 
+  /// "Começar" / "Agora não": finaliza e vai pra Home.
+  Future<void> _handleFinish() async {
+    if (_inviteTrilha) {
+      // ignore: unawaited_futures
+      Analytics.shared.track(evTrilhaColetaInviteDismissed);
+    }
+    if (await _markComplete()) _goHome();
+  }
+
+  /// "Completar com a IA" (convite 5b): finaliza, limpa o stack do onboarding
+  /// até a Home e abre a trilha por cima — fechar a trilha volta pra Home.
+  Future<void> _handleCompleteWithAI() async {
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaColetaInviteAccepted);
+    final nav = Navigator.of(context);
+    final home = context.read<HomeViewModel>();
+    if (!await _markComplete()) return;
+    // A trilha de IA hoje VIVE na aba Currículo — manda pra lá (em vez do loader
+    // standalone antigo). A HomeScreen consome o pendingTab ao montar.
+    home.requestTabChange(HomeTabs.resume);
+    nav.popUntil((route) => route.isFirst);
+  }
+
+  void _goHome() {
     if (widget.onFinish != null) {
       widget.onFinish!();
     } else {
-      // Volta pro AuthGate (rota raiz). O Consumer<UserViewModel> dele
-      // detecta hasCampaign=true e re-renderiza HomeScreen
-      // automaticamente. Todo o onboarding (Upload e Trail) usa push
-      // regular, então AuthGate sempre está no fundo do stack como
-      // isFirst.
-      //
-      // ⚠️ Não usar pushAndRemoveUntil(AuthGate) aqui — cria uma SEGUNDA
-      // instância de AuthGate enquanto a antiga ainda existe no widget
-      // tree, gerando 2 HomeScreens e GlobalKeys duplicadas (TutorialKeys
-      // do jobs_swipe_screen colide).
+      // Volta pro AuthGate (rota raiz). O Consumer<UserViewModel> dele detecta
+      // a conclusão e re-renderiza HomeScreen. ⚠️ Não usar
+      // pushAndRemoveUntil(AuthGate) aqui — cria 2 AuthGate/HomeScreen e
+      // GlobalKeys duplicadas (TutorialKeys do jobs_swipe_screen colide).
       Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_inviteTrilha) {
+      return OnboardingScaffold(
+        progress: 1.0,
+        showBack: false,
+        onContinue: null,
+        customFooter: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            PrimaryButton(
+              label: _finishing ? 'Carregando…' : 'Completar com a IA',
+              onPressed: _finishing ? null : _handleCompleteWithAI,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            GhostButton(
+              label: 'Agora não',
+              onPressed: _finishing ? null : _handleFinish,
+            ),
+          ],
+        ),
+        child: _body(
+          context,
+          title: 'Perfil criado!',
+          subtitle:
+              'Quer responder umas perguntas rápidas pra aparecer pra mais '
+              'empresas? Leva uns 2 min.',
+        ),
+      );
+    }
     return OnboardingScaffold(
       progress: 1.0,
       showBack: false,
       onContinue: _finishing ? null : _handleFinish,
       continueLabel: _finishing ? 'Carregando…' : 'Começar',
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 40),
-          child: Column(
-            children: [
-              Container(
-                width: 120, height: 120,
-                decoration: BoxDecoration(
-                  color: AppColors.brandCyan.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
+      child: _body(
+        context,
+        title: 'Pronto!',
+        subtitle: 'Vamos te mostrar vagas que combinam com você.',
+      ),
+    );
+  }
+
+  Widget _body(BuildContext context,
+      {required String title, required String subtitle}) {
+    // Centraliza o herói no espaço entre o header e o rodapé (o scaffold
+    // alinha o filho ao topo do scroll; sem isso a tela fica "oca" embaixo).
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * 0.6,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Herói: círculo com gradiente da marca + brilho suave + check.
+          Container(
+            width: 112,
+            height: 112,
+            decoration: BoxDecoration(
+              gradient: AppGradients.brand,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.28),
+                  blurRadius: 28,
+                  offset: const Offset(0, 12),
                 ),
-                child: const Icon(Icons.celebration, color: AppColors.brandCyan, size: 64),
-              ),
-              const SizedBox(height: 28),
-              const Text(
-                'Pronto!',
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Vamos te mostrar vagas que combinam com você.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.textTertiary, fontSize: 15),
-              ),
-            ],
+              ],
+            ),
+            child: const Icon(Icons.check_rounded,
+                color: AppColors.onPrimary, size: 56),
           ),
-        ),
+          const SizedBox(height: AppSpacing.xl),
+          Text(title,
+              textAlign: TextAlign.center, style: AppTextStyles.displayMd),
+          const SizedBox(height: AppSpacing.sm),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+            child: Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: AppTextStyles.bodyLg
+                  .copyWith(color: AppColors.textSecondary, height: 1.4),
+            ),
+          ),
+        ],
       ),
     );
   }

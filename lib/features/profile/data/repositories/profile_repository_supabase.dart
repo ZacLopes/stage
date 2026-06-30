@@ -858,4 +858,34 @@ class ProfileRepositorySupabase implements ProfileRepository {
     if (row == null) return 0;
     return (row['completeness_score'] as num?)?.toInt() ?? 0;
   }
+
+  @override
+  Future<Set<String>> getGuidedProgress(String userId) async {
+    final rows = await _client
+        .from('profile_guided_progress')
+        .select('segment')
+        .eq('user_id', userId);
+    return (rows as List)
+        .map((r) => (r as Map<String, dynamic>)['segment'] as String)
+        .toSet();
+  }
+
+  @override
+  Future<void> markGuidedProgress(String userId, String segment) async {
+    // ON CONFLICT (user_id, segment) DO NOTHING — idempotente.
+    await _client.from('profile_guided_progress').upsert(
+      {'user_id': userId, 'segment': segment},
+      onConflict: 'user_id,segment',
+      ignoreDuplicates: true,
+    );
+  }
+
+  @override
+  Future<void> clearGuidedProgress(String userId) async {
+    // RLS (own rows) garante que só apaga o progresso do próprio usuário.
+    await _client
+        .from('profile_guided_progress')
+        .delete()
+        .eq('user_id', userId);
+  }
 }

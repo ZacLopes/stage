@@ -24,6 +24,9 @@ class JobPreferences {
   final List<ExperienceLevel> experienceLevel;
   final List<WorkMode> workMode;
   final List<JobType> jobTypes;
+  /// Cargo/posição específica desejada (ex.: "Desenvolvedor Front-end"), além
+  /// das áreas amplas em profile_desired_titles. Bônus no match.
+  final String? desiredPosition;
 
   const JobPreferences({
     required this.userId,
@@ -37,6 +40,7 @@ class JobPreferences {
     this.experienceLevel = const [],
     this.workMode = const [],
     this.jobTypes = const [],
+    this.desiredPosition,
   });
 
   Map<String, dynamic> toMap() => {
@@ -51,6 +55,7 @@ class JobPreferences {
         'experience_level': experienceLevel.map(_expLevelToDb).toList(),
         'work_mode': workMode.map(_workModeToDb).toList(),
         'job_types': jobTypes.map(_jobTypeToDb).toList(),
+        'desired_position': desiredPosition,
       };
 
   factory JobPreferences.fromMap(Map<String, dynamic> m) => JobPreferences(
@@ -74,6 +79,7 @@ class JobPreferences {
             .map((e) => _jobTypeFromDb(e as String))
             .whereType<JobType>()
             .toList(),
+        desiredPosition: m['desired_position'] as String?,
       );
 
   JobPreferences copyWith({
@@ -88,6 +94,7 @@ class JobPreferences {
     List<ExperienceLevel>? experienceLevel,
     List<WorkMode>? workMode,
     List<JobType>? jobTypes,
+    String? desiredPosition,
   }) =>
       JobPreferences(
         userId: userId ?? this.userId,
@@ -101,6 +108,7 @@ class JobPreferences {
         experienceLevel: experienceLevel ?? this.experienceLevel,
         workMode: workMode ?? this.workMode,
         jobTypes: jobTypes ?? this.jobTypes,
+        desiredPosition: desiredPosition ?? this.desiredPosition,
       );
 }
 

@@ -270,9 +270,73 @@ class MatchScoreCalculator {
     final normalized = totalWeight > 0
         ? (score / totalWeight * 100).round()
         : 0;
-    final clamped = normalized.clamp(0, 100);
+    var clamped = normalized.clamp(0, 100);
+
+    // ── Bônus: cargo desejado específico bate com o título da vaga ──────
+    // Aditivo pequeno PÓS-normalização (não é dimensão de peso): refina sem
+    // dominar. Mesma decisão do prompt da IA (analyze-match). Clamp em 100.
+    if (clamped > 0 &&
+        _desiredPositionMatches(prefs.desiredPosition, job.title)) {
+      clamped = (clamped + _kDesiredPositionBonus).clamp(0, 100);
+      reasons.add(MatchReason(
+        label: 'Cargo desejado',
+        matched: true,
+        weight: 0, // informativo — bônus, não dimensão ponderada
+        detail: job.title,
+      ));
+    }
 
     return MatchResult(score: clamped, reasons: reasons);
+  }
+
+  /// Bônus aditivo (pós-normalização) quando o cargo desejado bate com a vaga.
+  static const int _kDesiredPositionBonus = 8;
+
+  /// Palavras que NÃO são especialização — conectores PT + senioridade/modalidade.
+  /// Removidas dos DOIS lados antes de comparar, pra "Analista" bater "Analista
+  /// Júnior" mas NÃO "Analista de Marketing" (marketing sobrevive, junior/de não).
+  /// Acento-insensível (já normalizado).
+  static const Set<String> _ignorableRoleWords = {
+    // senioridade / modalidade / boilerplate
+    'junior', 'pleno', 'senior', 'trainee', 'estagio', 'estagiario',
+    'estagiaria', 'aprendiz', 'jovem', 'efetivo', 'temporario', 'iniciante',
+    'jr', 'sr', 'pl', 'vaga', 'profissional',
+    // conectores
+    'de', 'da', 'do', 'das', 'dos', 'em', 'no', 'na', 'com', 'para', 'por',
+  };
+
+  /// O cargo desejado (texto livre, ex.: "Desenvolvedor Front-end") bate com o
+  /// título da vaga? Regra BIJETIVA, conservadora (realismo > inflação): dá
+  /// bônus só quando os dois têm os MESMOS tokens significativos (mesmo papel +
+  /// mesma especialização), ignorando senioridade/conectores. Tolera gênero/
+  /// plural por prefixo de token. Evita o espalhamento de "Analista" casar toda
+  /// vaga "Analista de X". Abreviação não-prefixo (ex.: "Dev"↛"Desenvolvedor")
+  /// não casa — fail-safe (sem bônus), nunca falso positivo.
+  static bool _desiredPositionMatches(String? desired, String title) {
+    final dTokens = _roleTokens(desired ?? '');
+    final tTokens = _roleTokens(title);
+    if (dTokens.isEmpty || tTokens.isEmpty) return false;
+    final dCovered =
+        dTokens.every((d) => tTokens.any((t) => _tokenAkin(d, t)));
+    final tCovered =
+        tTokens.every((t) => dTokens.any((d) => _tokenAkin(d, t)));
+    return dCovered && tCovered;
+  }
+
+  /// Tokens significativos (≥2 letras, sem conectores/senioridade) de um cargo/
+  /// título, normalizado. ≥2 pra preservar especializações curtas (RH, BI, UX).
+  static Set<String> _roleTokens(String s) => FilterHelpers.normalize(s)
+      .split(RegExp(r'[^a-z0-9]+'))
+      .where((w) => w.length >= 2 && !_ignorableRoleWords.contains(w))
+      .toSet();
+
+  /// Dois tokens são "o mesmo" se iguais ou um é prefixo do outro (≥3 letras —
+  /// cobre gênero/plural: desenvolvedor↔desenvolvedora, analista↔analistas).
+  static bool _tokenAkin(String a, String b) {
+    if (a == b) return true;
+    final shorter = a.length <= b.length ? a : b;
+    final longer = a.length <= b.length ? b : a;
+    return shorter.length >= 3 && longer.startsWith(shorter);
   }
 
   /// Calcula nível de confiança do match score baseado em QUANTAS dimensões

@@ -705,6 +705,7 @@ class _InfoTabState extends State<_InfoTab> {
     final name = p?.fullName ?? '';
     final headline = p?.headline ?? '';
     final location = p?.formattedLocation ?? '';
+    final summary = p?.summary?.trim() ?? '';
     final score = vm.completenessScore;
 
     return Container(
@@ -787,6 +788,19 @@ class _InfoTabState extends State<_InfoTab> {
               ),
             ],
           ),
+          if (summary.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            const Divider(height: 1, color: AppColors.border),
+            const SizedBox(height: 12),
+            Text(
+              summary,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.45,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
         ],
       ),
     );

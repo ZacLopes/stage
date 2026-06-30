@@ -24,7 +24,9 @@ class FeatureFlagsService {
   FeatureFlagsService._internal();
   static final FeatureFlagsService instance = FeatureFlagsService._internal();
 
-  final SupabaseClient _client = Supabase.instance.client;
+  // Lazy: só é tocado no refresh() (carga do banco). Deferir evita exigir o
+  // Supabase inicializado só pra ler flags do cache (e quebra em testes).
+  late final SupabaseClient _client = Supabase.instance.client;
 
   /// Cache: feature_key → (enabled, rollout_pct)
   final Map<String, _FlagState> _cache = {};
@@ -146,4 +148,28 @@ class FeatureFlagKeys {
   /// 20260617130000. O trigger no banco já normaliza todo write — o typeahead
   /// só reduz nova fragmentação na origem.
   static const String skillsTypeaheadV1 = 'skills_typeahead_v1';
+
+  /// Remoção reversível da trilha gamificada (estilo Duolingo) da aba Currículo.
+  /// OFF (default failure-safe) = card "Construir pela trilha" escondido → a aba
+  /// fica só com "Importar CV"; o passo equivalente do tutorial também some. ON
+  /// (enabled + 100%) = trilha volta na hora, sem rebuild. O código da trilha
+  /// continua no app (congelado, R6) — só o entry point da aba Currículo é
+  /// gateado. A trilha no ONBOARDING (TwoDoorsScreen) NÃO é afetada. Binário
+  /// (use isGloballyEnabled, sem A/B). Seed na migration 20260622120000.
+  static const String resumeTrailEnabled = 'resume_trail_enabled';
+
+  /// KILL-SWITCH (bugfix perfis ocos): restaura a `CompletionScreen` legacy como
+  /// fallback de roteamento pós-login. Default OFF ⇒ o fallback vai pro
+  /// onboarding que COLETA dados (`TwoDoorsScreen`). Ligar (enabled + 100%) só
+  /// pra rollback de emergência se a mudança de roteamento causar regressão.
+  /// Failure-safe ao contrário dos outros flags: ausente/não-carregada ⇒ fix
+  /// ligado (lido via [FeatureFlagsService.isGloballyEnabled], que só retorna
+  /// true com enabled+100). Seed na migration 20260623120000.
+  static const String legacyCompletionScreenEnabled =
+      'legacy_completion_screen_enabled';
+
+  /// Trilha de coleta conversacional (PLANO-FASE-6 T6.3): mostra o card
+  /// "Completar com a IA" no hub do Perfil. Default OFF (escondido); rollout
+  /// 10→50→100 via app_feature_flags. Seed na migration 20260623150000.
+  static const String trilhaColetaV1 = 'trilha_coleta_v1';
 }

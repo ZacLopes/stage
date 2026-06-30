@@ -926,6 +926,13 @@ class JobsViewModel extends ChangeNotifier {
                 .toList() ??
             <String>[];
 
+        // Cargo desejado: bônus no match (não cria prefs sozinho — só refina
+        // quando já há dimensão de peso declarada).
+        final desiredPosition =
+            (jp?['desired_position']?.toString().trim().isNotEmpty ?? false)
+                ? jp!['desired_position'].toString().trim()
+                : null;
+
         if (areas.isEmpty &&
             locations.isEmpty &&
             workModes.isEmpty &&
@@ -938,6 +945,7 @@ class JobsViewModel extends ChangeNotifier {
             locations: locations,
             workModels: workModes,
             jobTypes: jobTypes,
+            desiredPosition: desiredPosition,
           );
         }
       }

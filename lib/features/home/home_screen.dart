@@ -152,25 +152,10 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
       TutorialStep(
         title: 'Aba Currículo',
         description:
-            'Dois caminhos pra ter seu CV: construir pela trilha gamificada ou '
-            'subir um PDF que você já tem.',
+            'Aqui a IA conversa com você pra montar seu currículo — responda as '
+            'perguntas e veja seu CV ficar pronto. Dá pra exportar em PDF quando '
+            'quiser.',
         targetKey: TutorialKeys.resumeTab,
-        onEnter: () => goTo(HomeTabs.resume),
-      ),
-      TutorialStep(
-        title: 'Construir pela trilha',
-        description:
-            'Responda perguntas no estilo Duolingo. A IA monta seu CV com bullets '
-            'no padrão Harvard — sem você precisar escrever bullet nenhum.',
-        targetKey: TutorialKeys.trailCard,
-        onEnter: () => goTo(HomeTabs.resume),
-      ),
-      TutorialStep(
-        title: 'Já tem um currículo?',
-        description:
-            'Suba o PDF aqui em segundos. A IA lê automaticamente seus dados pra '
-            'desbloquear adaptação por vaga e match score.',
-        targetKey: TutorialKeys.importCard,
         onEnter: () => goTo(HomeTabs.resume),
       ),
       TutorialStep(

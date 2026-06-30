@@ -6,6 +6,12 @@ class UserJobPreferences {
   final List<String> workModels;
   final List<String> jobTypes;
 
+  /// Cargo/posição específica desejada (ex.: "Desenvolvedor Front-end"). Não é
+  /// dimensão de peso — entra como BÔNUS aditivo pequeno no match quando bate
+  /// com o título da vaga. null/vazio = sem bônus. Vem do profile-prefs
+  /// (`profile_job_preferences.desired_position`), não do legacy user_preferences.
+  final String? desiredPosition;
+
   /// Match score mínimo (0-100). Vagas com score abaixo disso são ocultadas
   /// do feed. Avaliado client-side combinando match_analyses cacheado + score
   /// determinístico fallback. null = sem filtro.
@@ -18,6 +24,7 @@ class UserJobPreferences {
     this.locations = const [],
     this.workModels = const [],
     this.jobTypes = const [],
+    this.desiredPosition,
     this.minMatchScore,
   });
 
@@ -52,6 +59,7 @@ class UserJobPreferences {
     List<String>? locations,
     List<String>? workModels,
     List<String>? jobTypes,
+    String? desiredPosition,
     int? minMatchScore,
     bool clearMinMatchScore = false,
   }) {
@@ -62,6 +70,7 @@ class UserJobPreferences {
       locations: locations ?? this.locations,
       workModels: workModels ?? this.workModels,
       jobTypes: jobTypes ?? this.jobTypes,
+      desiredPosition: desiredPosition ?? this.desiredPosition,
       minMatchScore:
           clearMinMatchScore ? null : (minMatchScore ?? this.minMatchScore),
     );

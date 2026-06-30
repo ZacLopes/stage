@@ -12,6 +12,12 @@ import '../profile/application/profile_editor_view_model.dart';
 import 'change_password_screen.dart';
 import '../resume/widgets/ai_consent_modal.dart';
 import '../resume/widgets/template_thumbnail_generator_screen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../trilha/application/conversation_controller.dart';
+import '../trilha/application/trilha_reset.dart';
+import '../trilha/demo/demo_conversation.dart';
+import '../trilha/presentation/conversation_screen.dart';
+import '../trilha/presentation/trilha_loader_screen.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../../core/utils/app_notifications.dart';
 import '../../services/analytics_events.dart';
@@ -94,7 +100,52 @@ class _SettingsScreenState extends State<SettingsScreen>
     ));
   }
 
-
+  /// [DEV] Reinicia SÓ o progresso da trilha (local + servidor), mantendo os
+  /// dados já coletados no perfil. Pede confirmação (mexe em dado de servidor).
+  Future<void> _resetTrilhaProgress() async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    final messenger = ScaffoldMessenger.of(context);
+    if (uid == null) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Sem usuário logado.')),
+      );
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reiniciar a trilha?'),
+        content: const Text(
+          'Limpa o PROGRESSO da trilha (cache local + servidor) pra ela '
+          're-perguntar as lacunas. Seus dados já coletados (experiência, '
+          'skills, idiomas…) continuam no perfil. Não afeta outros usuários.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reiniciar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await resetTrilhaProgress(uid);
+      if (!mounted) return;
+      messenger.showSnackBar(const SnackBar(
+        content: Text(
+            'Progresso reiniciado. Reinicie o app pra rodar a trilha do zero.'),
+        duration: Duration(seconds: 4),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('Erro ao reiniciar: $e')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -340,6 +391,48 @@ class _SettingsScreenState extends State<SettingsScreen>
                         MaterialPageRoute(builder: (_) => const TemplateThumbnailGeneratorScreen()),
                       );
                     },
+                  ),
+                  const Divider(height: 1),
+                  _SettingsTile(
+                    icon: Icons.auto_awesome_rounded,
+                    title: 'Trilha de coleta (preview)',
+                    subtitle: 'Demonstração conversacional — Increment 1',
+                    iconColor: AppColors.primary,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ConversationScreen(
+                            controller:
+                                ConversationController(buildDemoConversation()),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  _SettingsTile(
+                    icon: Icons.auto_awesome_motion_rounded,
+                    title: 'Trilha de coleta (REAL — grava no perfil)',
+                    subtitle: 'Adaptativa: pergunta só o que falta e salva em profile_*',
+                    iconColor: AppColors.success,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const TrilhaLoaderScreen(source: 'dev'),
+                        ),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  _SettingsTile(
+                    icon: Icons.restart_alt_rounded,
+                    title: 'Reiniciar trilha (progresso)',
+                    subtitle:
+                        'Limpa o progresso (local + servidor); mantém os dados do perfil',
+                    iconColor: AppColors.warning,
+                    onTap: _resetTrilhaProgress,
                   ),
                 ],
               ),

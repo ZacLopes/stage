@@ -19,6 +19,7 @@ import '../data/swipe_repository.dart';
 import '../job_swipe_context.dart';
 import '../models/job.dart';
 import '../utils/url_utils.dart';
+import '../utils/apply_email.dart';
 import '../widgets/expired_job_badge.dart';
 import '../widgets/manual_application_card.dart';
 import '../widgets/manual_application_sheet.dart';
@@ -687,6 +688,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
       final userName = resolveDisplayName(editorVM, user?.name);
       return _ApplyAction.email(
         email: email,
+        jobTitle: job.title,
         subject: job.applicationSubject,
         userName: userName,
       );
@@ -725,29 +727,19 @@ class _ApplyAction {
 
   factory _ApplyAction.email({
     required String email,
+    required String jobTitle,
     String? subject,
     String? userName,
   }) {
-    // RFC 6068 (mailto): parâmetros devem usar percent-encoding (%20 pra
-    // espaço). Uri(queryParameters: ...) aplica form-urlencoded (+ pra
-    // espaço), que clientes de email iOS/Android interpretam literalmente
-    // como "+" — saída fica "Vaga+Investimentos+...". Montamos a string
-    // manualmente com Uri.encodeComponent pra garantir %20.
-    var subj = subject?.trim() ?? '';
-    // Substitui placeholders típicos dos templates Polifinance/etc se o
-    // user tem nome configurado. Casos cobertos: "[SEU NOME]", "(SEU NOME)",
-    // "[Seu Nome]" — todas variações case-insensitive de colchete ou
-    // parênteses ao redor de "seu nome".
-    final name = userName?.trim() ?? '';
-    if (name.isNotEmpty && name.toLowerCase() != 'usuário') {
-      subj = subj.replaceAll(
-        RegExp(r'[\[\(]\s*seu\s+nome\s*[\]\)]', caseSensitive: false),
-        name,
-      );
-    }
-    final query = subj.isEmpty ? '' : '?subject=${Uri.encodeComponent(subj)}';
+    // Monta o mailto com assunto + corpo personalizados (nome da vaga e do
+    // candidato preenchidos). Lógica pura/testável em utils/apply_email.dart.
     return _ApplyAction._(
-      uri: Uri.parse('mailto:$email$query'),
+      uri: buildApplyMailtoUri(
+        email: email,
+        jobTitle: jobTitle,
+        suggestedSubject: subject,
+        userName: userName,
+      ),
       label: 'Enviar CV por email',
       icon: Icons.mail_outline_rounded,
       failureMessage: 'Não consegui abrir o app de email.',

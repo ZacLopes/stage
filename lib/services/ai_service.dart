@@ -513,4 +513,102 @@ class AIService {
       rethrow;
     }
   }
+
+  /// Gera headline + resumo a partir do PERFIL relacional (profile_*) e grava em
+  /// profile_personal (server-side, RLS via JWT). Usado pela trilha de coleta pra
+  /// "completar" a aba Perfil ao final. Retorna o resumo gerado, ou null se foi
+  /// pulado (perfil sem substância) ou falhou — FAILURE-SAFE: a trilha não quebra.
+  Future<String?> generateProfileSummary() async {
+    try {
+      final response =
+          await _client.functions.invoke('generate-profile-summary');
+      if (response.status != 200) return null;
+      final data = response.data;
+      if (data is! Map) return null;
+      if (data['skipped'] == true) return null;
+      final summary = data['summary'];
+      if (summary is String && summary.trim().isNotEmpty) return summary.trim();
+      return null;
+    } catch (e) {
+      return null; // não propaga: o resumo é um "plus", não pode travar a trilha
+    }
+  }
+
+  /// Sugestões de skills por IA a partir do perfil (curso/experiência/área + o
+  /// que já foi marcado). Failure-safe: lista vazia em erro/sem sugestão — o
+  /// passo de sugestão da trilha simplesmente não aparece.
+  Future<List<String>> suggestProfileSkills() async {
+    try {
+      final response =
+          await _client.functions.invoke('suggest-profile-skills');
+      if (response.status != 200) return const [];
+      final data = response.data;
+      if (data is! Map) return const [];
+      final list = data['skills'];
+      if (list is! List) return const [];
+      return list
+          .whereType<String>()
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+    } catch (e) {
+      return const [];
+    }
+  }
+
+  /// Interpreta TEXTO LIVRE (digitado na barra do chat) e mapeia para os IDs das
+  /// opções de um passo de escolha (chips/slider). Usado pela trilha v2 quando o
+  /// usuário responde por texto em vez de tocar. Failure-safe: null em
+  /// erro/timeout/não-200 → o chat mantém o widget e pede pra tocar numa opção.
+  Future<StepInterpretation?> interpretStepAnswer({
+    required String stepId,
+    required String question,
+    required String freeText,
+    required List<Map<String, String>> options,
+    bool multi = false,
+  }) async {
+    try {
+      final response = await _client.functions.invoke(
+        'interpret-step-answer',
+        body: {
+          'stepId': stepId,
+          'question': question,
+          'freeText': freeText,
+          'options': options,
+          'multi': multi,
+        },
+      ).timeout(const Duration(seconds: 20));
+      if (response.status != 200) return null;
+      final data = response.data;
+      if (data is! Map) return null;
+      final ids = data['matched_ids'];
+      final matched =
+          ids is List ? ids.whereType<String>().toList() : <String>[];
+      final conf = data['confidence'];
+      final confidence = conf is String ? conf : 'low';
+      final r = data['reason'];
+      final reason = r is String ? r : '';
+      return StepInterpretation(
+        matchedIds: matched,
+        confidence: confidence,
+        reason: reason,
+      );
+    } catch (e) {
+      return null; // não propaga: o chat cai no widget de toque
+    }
+  }
+}
+
+/// Resultado da interpretação de texto livre num passo de escolha (F4).
+/// [matchedIds] são ids de opção REAIS do passo (a edge filtra alucinação);
+/// vazio = nada casou. [confidence] ∈ {high, medium, low}.
+class StepInterpretation {
+  final List<String> matchedIds;
+  final String confidence;
+  final String reason;
+  const StepInterpretation({
+    required this.matchedIds,
+    required this.confidence,
+    this.reason = '',
+  });
 }
