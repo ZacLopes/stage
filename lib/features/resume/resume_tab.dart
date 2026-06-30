@@ -29,6 +29,7 @@ import 'resume_viewmodel.dart';
 import 'services/resume_renderer.dart';
 import 'widgets/curriculo_section_stepper.dart';
 import 'widgets/curriculo_toggle.dart';
+import 'widgets/section_detail_sheet.dart';
 
 /// Fábrica da sessão da trilha — injetável pra teste (evita Supabase).
 typedef TrilhaSessionFactory = Future<TrilhaSession> Function(String userId);
@@ -43,10 +44,17 @@ class ResumeTab extends StatefulWidget {
   State<ResumeTab> createState() => _ResumeTabState();
 }
 
-class _ResumeTabState extends State<ResumeTab> {
+class _ResumeTabState extends State<ResumeTab>
+    with AutomaticKeepAliveClientMixin {
+  // Mantém a aba VIVA ao trocar de tab (PageView): sem isso o State é
+  // recriado e a trilha reinicia do gate (igual ao JobsSwipeScreen).
+  @override
+  bool get wantKeepAlive => true;
+
   late final Future<TrilhaChatController> _future;
   TrilhaChatController? _orch;
   bool _completionHandled = false;
+  bool _importReloadHandled = false;
 
   /// 0 = Conversa, 1 = Currículo. Abre sempre na Conversa (gate de import).
   int _tab = 0;
@@ -98,11 +106,20 @@ class _ResumeTabState extends State<ResumeTab> {
     return orch;
   }
 
-  /// Ao concluir a trilha: telemetria + recarrega o perfil (stepper/preview) +
-  /// mostra o currículo montado. Roda 1x.
+  /// Reage ao orquestrador: (1) quando o import revela o resumo, recarrega o
+  /// perfil pra o stepper/sheets refletirem o que foi importado; (2) ao concluir
+  /// a trilha, telemetria + reload + mostra o currículo. Cada um roda 1x.
   void _onOrch() {
     final orch = _orch;
-    if (orch == null || !orch.finished || _completionHandled) return;
+    if (orch == null) return;
+    if (orch.awaitingImportConfirm && !_importReloadHandled) {
+      _importReloadHandled = true;
+      try {
+        // ignore: unawaited_futures
+        context.read<ProfileEditorViewModel>().load();
+      } catch (_) {/* sem provider: ignora */}
+    }
+    if (!orch.finished || _completionHandled) return;
     _completionHandled = true;
     // ignore: unawaited_futures
     Analytics.shared.track(evTrilhaColetaCompleted,
@@ -116,6 +133,7 @@ class _ResumeTabState extends State<ResumeTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // AutomaticKeepAliveClientMixin (mantém a aba viva)
     // SEM Scaffold próprio: a aba vive dentro do Scaffold da HomeScreen, que é a
     // ÚNICA autoridade do inset do teclado (Scaffold aninhado dobrava o inset e
     // bagunçava o dock). ColoredBox só pinta o fundo.
@@ -213,7 +231,7 @@ class _ResumeTabState extends State<ResumeTab> {
             child: IndexedStack(
               index: _tab,
               children: [
-                _conversaView(orch),
+                _conversaView(orch, profileVM),
                 _curriculoView(profileVM),
               ],
             ),
@@ -247,7 +265,16 @@ class _ResumeTabState extends State<ResumeTab> {
                 preFilled: _preFilledSections(profileVM),
                 stickyCurrent: _stickySection,
               );
-              return CurriculoSectionStepper(statuses: statuses);
+              return CurriculoSectionStepper(
+                statuses: statuses,
+                // Toque numa seção → sheet de verificação do que foi coletado.
+                onSectionTap: (section) => showSectionDetailSheet(
+                  context,
+                  section: section,
+                  status: statuses[section] ?? SectionStatus.pending,
+                  vm: profileVM,
+                ),
+              );
             },
           ),
           const SizedBox(height: AppSpacing.base),
@@ -275,8 +302,18 @@ class _ResumeTabState extends State<ResumeTab> {
   // O chat hospeda tudo: gate de import → "Lendo…"/resumo → conversa de lacunas
   // → card de conclusão (inclusive o caso "nada a coletar", que cai direto na
   // conclusão). Por isso a Conversa é sempre a [TrilhaChatView].
-  Widget _conversaView(TrilhaChatController orch) {
-    return TrilhaChatView(controller: orch);
+  Widget _conversaView(
+      TrilhaChatController orch, ProfileEditorViewModel profileVM) {
+    return TrilhaChatView(
+      controller: orch,
+      // Tile do resumo do import → sheet de verificação (categoria já coletada).
+      onVerifySection: (section) => showSectionDetailSheet(
+        context,
+        section: section,
+        status: SectionStatus.done,
+        vm: profileVM,
+      ),
+    );
   }
 
   // ── Visão Currículo (preview + exportar) ────────────────────────────────────

@@ -222,8 +222,8 @@ class ConversationStep {
 
   /// Pode-se VOLTAR pra refazer este passo com segurança? True por padrão
   /// (passos idempotentes/de buffer: re-responder corrige). False nos passos
-  /// cujo write-back INSERE linha (exp.ofazia / project.link / cert.name /
-  /// idiomas): voltar e re-responder duplicaria — então o "voltar" para neles.
+  /// cujo write-back INSERE linha (exp.ofazia / project.link / cert.date /
+  /// award.date / idiomas): voltar e re-responder duplicaria — o "voltar" para neles.
   final bool reversible;
 
   const ConversationStep({

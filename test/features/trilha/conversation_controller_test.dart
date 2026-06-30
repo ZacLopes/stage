@@ -96,7 +96,7 @@ void main() {
           id: 's1',
           aiMessage: 'x',
           input: const ChoiceInput(options: [StepOption(id: 'go', label: 'Bora')]),
-          reversible: false, // simula exp.ofazia/project.link/cert.name
+          reversible: false, // simula exp.ofazia/project.link/cert.date
         ),
         script()[1],
       ]);

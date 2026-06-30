@@ -11,7 +11,9 @@
 
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../../../../../core/theme/theme.dart';
 import '../../../domain/conversation_step.dart';
@@ -262,7 +264,18 @@ class _LevelSlider extends StatefulWidget {
 }
 
 class _LevelSliderState extends State<_LevelSlider> {
-  late int _index = (widget.input.options.length / 2).floor();
+  late int _index = _initialIndex();
+
+  /// Português começa em "Nativo" (caso comum p/ usuário BR); os demais idiomas
+  /// começam no meio da escala.
+  int _initialIndex() {
+    final opts = widget.input.options;
+    if (widget.step.id.toLowerCase() == 'lang.level.português') {
+      final i = opts.indexWhere((o) => o.id == 'native');
+      if (i >= 0) return i;
+    }
+    return (opts.length / 2).floor();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -424,12 +437,20 @@ class _GuidedTextState extends State<_GuidedText> {
             maxLength: widget.input.maxLength,
             onChanged: (_) => setState(() {}),
             style: AppTextStyles.bodyMd.copyWith(color: AppColors.textPrimary),
+            // Sem o fill/borda do inputDecorationTheme global (que desenhava um
+            // "retângulo dentro" do nosso container) — campo limpo.
             decoration: InputDecoration(
               hintText: widget.input.hint ?? 'Escreva aqui…',
               hintStyle: AppTextStyles.bodyMd
                   .copyWith(color: AppColors.textTertiary),
               isDense: true,
+              filled: false,
               border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              disabledBorder: InputBorder.none,
+              errorBorder: InputBorder.none,
+              contentPadding: EdgeInsets.zero,
               counterText: '',
             ),
           ),
@@ -496,19 +517,48 @@ class _MonthYear extends StatefulWidget {
 
 class _MonthYearState extends State<_MonthYear> {
   static const _months = [
-    'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
-    'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
   ];
-  int? _month;
-  int? _year;
+
+  late final List<int> _years;
+  late int _monthIndex; // 0..11
+  late int _yearIndex; // 0 = ano mais recente
+  late final FixedExtentScrollController _monthCtrl;
+  late final FixedExtentScrollController _yearCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _years = [
+      for (var y = now.year; y >= now.year - widget.input.yearsBack; y--) y,
+    ];
+    _monthIndex = now.month - 1;
+    _yearIndex = 0;
+    _monthCtrl = FixedExtentScrollController(initialItem: _monthIndex);
+    _yearCtrl = FixedExtentScrollController(initialItem: _yearIndex);
+  }
+
+  @override
+  void dispose() {
+    _monthCtrl.dispose();
+    _yearCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onMonth(int i) {
+    HapticFeedback.selectionClick(); // tique tátil a cada item (como o iOS)
+    setState(() => _monthIndex = i);
+  }
+
+  void _onYear(int i) {
+    HapticFeedback.selectionClick();
+    setState(() => _yearIndex = i);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final years = [
-      for (var y = now.year; y >= now.year - widget.input.yearsBack; y--) y,
-    ];
-    final ready = _month != null && _year != null;
     return Container(
       padding: AppSpacing.allBase,
       decoration: BoxDecoration(
@@ -519,35 +569,41 @@ class _MonthYearState extends State<_MonthYear> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Mês', style: AppTextStyles.overline),
-          const SizedBox(height: AppSpacing.xs),
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
+          Row(
             children: [
-              for (var m = 1; m <= 12; m++)
-                TrilhaChip(
-                  label: _months[m - 1],
-                  selected: _month == m,
-                  enabled: widget.enabled,
-                  onTap: () => setState(() => _month = m),
-                ),
+              Expanded(child: Text('Mês', style: AppTextStyles.overline)),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(child: Text('Ano', style: AppTextStyles.overline)),
             ],
           ),
-          const SizedBox(height: AppSpacing.md),
-          Text('Ano', style: AppTextStyles.overline),
           const SizedBox(height: AppSpacing.xs),
-          SizedBox(
-            height: 40,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: years.length,
-              separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
-              itemBuilder: (_, i) => TrilhaChip(
-                label: '${years[i]}',
-                selected: _year == years[i],
-                enabled: widget.enabled,
-                onTap: () => setState(() => _year = years[i]),
+          // Rodas roláveis (mês | ano) com tique tátil — feel de picker nativo.
+          IgnorePointer(
+            ignoring: !widget.enabled,
+            child: SizedBox(
+              height: 168,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _wheel(
+                      controller: _monthCtrl,
+                      count: 12,
+                      selected: _monthIndex,
+                      onChanged: _onMonth,
+                      labelFor: (i) => _months[i],
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: _wheel(
+                      controller: _yearCtrl,
+                      count: _years.length,
+                      selected: _yearIndex,
+                      onChanged: _onYear,
+                      labelFor: (i) => '${_years[i]}',
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -557,9 +613,9 @@ class _MonthYearState extends State<_MonthYear> {
               Expanded(
                 child: _InlineCta(
                   label: 'Confirmar',
-                  onTap: (widget.enabled && ready)
+                  onTap: widget.enabled
                       ? () => widget.onSubmit(StepAnswer.monthYear(
-                          widget.step.id, _year!, _month!))
+                          widget.step.id, _years[_yearIndex], _monthIndex + 1))
                       : null,
                 ),
               ),
@@ -574,6 +630,44 @@ class _MonthYearState extends State<_MonthYear> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _wheel({
+    required FixedExtentScrollController controller,
+    required int count,
+    required int selected,
+    required ValueChanged<int> onChanged,
+    required String Function(int) labelFor,
+  }) {
+    return CupertinoPicker(
+      scrollController: controller,
+      itemExtent: 40,
+      squeeze: 1.1,
+      diameterRatio: 1.25,
+      onSelectedItemChanged: onChanged,
+      selectionOverlay: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        decoration: BoxDecoration(
+          color: AppColors.primarySoft.withValues(alpha: 0.45),
+          borderRadius: AppRadius.brSm,
+        ),
+      ),
+      children: [
+        for (var i = 0; i < count; i++)
+          Center(
+            child: Text(
+              labelFor(i),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.titleSm.copyWith(
+                color:
+                    i == selected ? AppColors.primary : AppColors.textPrimary,
+                fontWeight: i == selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -995,7 +1089,13 @@ class _SearchField extends StatelessWidget {
                 hintStyle:
                     AppTextStyles.bodyMd.copyWith(color: AppColors.textTertiary),
                 isDense: true,
+                filled: false,
                 border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                disabledBorder: InputBorder.none,
+                errorBorder: InputBorder.none,
+                contentPadding: EdgeInsets.zero,
               ),
             ),
           ),

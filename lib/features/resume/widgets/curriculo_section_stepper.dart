@@ -11,9 +11,16 @@ import '../../../core/theme/theme.dart';
 import '../../trilha/application/trilha_section.dart';
 
 class CurriculoSectionStepper extends StatelessWidget {
-  const CurriculoSectionStepper({super.key, required this.statuses});
+  const CurriculoSectionStepper({
+    super.key,
+    required this.statuses,
+    this.onSectionTap,
+  });
 
   final Map<TrilhaSection, SectionStatus> statuses;
+
+  /// Toque numa seção — abre o sheet de verificação (null = não-tocável).
+  final void Function(TrilhaSection section)? onSectionTap;
 
   @override
   Widget build(BuildContext context) {
@@ -22,7 +29,18 @@ class CurriculoSectionStepper extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var i = 0; i < sections.length; i++)
-          Expanded(child: _cell(i, sections)),
+          Expanded(
+            child: onSectionTap == null
+                ? _cell(i, sections)
+                : InkWell(
+                    onTap: () => onSectionTap!(sections[i]),
+                    borderRadius: AppRadius.brMd,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: _cell(i, sections),
+                    ),
+                  ),
+          ),
       ],
     );
   }

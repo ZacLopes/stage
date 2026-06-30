@@ -24,6 +24,8 @@ class TrilhaWriteback {
   /// ter o suficiente pra gravar. Chave = índice 'n' do passo 'exp.{n}.*'.
   final Map<int, _ExpBuffer> _expBuffers = {};
   final Map<int, _ProjBuffer> _projBuffers = {};
+  final Map<int, _CertBuffer> _certBuffers = {};
+  final Map<int, _AwardBuffer> _awardBuffers = {};
   _EduBuffer? _eduBuffer;
 
   TrilhaWriteback(this._repo, this.userId, {TrilhaDraftStore? draftStore})
@@ -64,8 +66,12 @@ class TrilhaWriteback {
       await _handleExperience(answer);
       return;
     }
-    if (answer.stepId.startsWith('cert.') && answer.stepId.endsWith('.name')) {
-      await _saveCertification(_text(answer));
+    if (answer.stepId.startsWith('cert.')) {
+      await _handleCertification(answer);
+      return;
+    }
+    if (answer.stepId.startsWith('award.')) {
+      await _handleAward(answer);
       return;
     }
     if (answer.stepId.startsWith('project.')) {
@@ -91,6 +97,9 @@ class TrilhaWriteback {
     switch (answer.stepId) {
       case 'gap.area':
         await _saveAreas(_ids(answer));
+        break;
+      case 'gap.desired_position':
+        await _saveDesiredPosition(_text(answer));
         break;
       case 'linkedin.url':
         await _saveLinkedin(_text(answer));
@@ -169,6 +178,17 @@ class TrilhaWriteback {
     await _repo.upsertJobPreferences(existing.copyWith(jobTypes: merged));
   }
 
+  // ── Cargo desejado → profile_job_preferences.desired_position ────────────
+  // Pulou (vazio) → não grava (o segmento já marca como abordado, não re-pergunta).
+  Future<void> _saveDesiredPosition(String raw) async {
+    final pos = raw.trim();
+    if (pos.isEmpty) return;
+    final existing =
+        await _repo.getJobPreferences(userId) ?? JobPreferences(userId: userId);
+    if (existing.desiredPosition == pos) return; // idempotente
+    await _repo.upsertJobPreferences(existing.copyWith(desiredPosition: pos));
+  }
+
   // ── Cidade → profile_personal.location_city/_state ───────────────────────
   Future<void> _saveCity(String raw) async {
     final text = raw.trim();
@@ -205,13 +225,74 @@ class TrilhaWriteback {
     await _repo.upsertPersonal(existing.copyWith(linkedinUrl: url));
   }
 
-  // ── Certificação → profile_certifications ────────────────────────────────
-  Future<void> _saveCertification(String raw) async {
-    final name = raw.trim();
-    if (name.isEmpty) return;
-    await _repo.addCertification(
-      Certification(id: '', userId: userId, name: name),
-    );
+  // ── Certificação → profile_certifications (ATÔMICO no último passo: date) ──
+  // Acumula nome + emissor + data num buffer e grava de uma vez no passo
+  // terminal (cert.{n}.date) — emissor/data são opcionais (podem vir vazios).
+  Future<void> _handleCertification(StepAnswer a) async {
+    final parts = a.stepId.split('.'); // cert.{n}.{field}
+    if (parts.length < 3) return; // 'cert.gate'
+    final n = int.tryParse(parts[1]);
+    if (n == null) return;
+    final buf = _certBuffers.putIfAbsent(n, () => _CertBuffer());
+    switch (parts[2]) {
+      case 'name':
+        buf.name = _text(a);
+        break;
+      case 'issuer':
+        buf.issuer = _text(a);
+        break;
+      case 'date':
+        buf.date = _parseMonth(_text(a));
+        await _saveCertification(n, buf); // último passo → grava a cert
+        break;
+      // 'more' → controle de fluxo, no-op
+    }
+  }
+
+  Future<void> _saveCertification(int n, _CertBuffer buf) async {
+    final name = buf.name?.trim() ?? '';
+    if (name.isEmpty) {
+      _certBuffers.remove(n);
+      return;
+    }
+    final issuer = buf.issuer?.trim();
+    await _repo.addCertification(Certification(
+      id: '',
+      userId: userId,
+      name: name,
+      issuer: (issuer != null && issuer.isNotEmpty) ? issuer : null,
+      date: buf.date,
+    ));
+    _certBuffers.remove(n);
+  }
+
+  // ── Conquistas/prêmios → profile_awards (ATÔMICO no último passo: date) ────
+  Future<void> _handleAward(StepAnswer a) async {
+    final parts = a.stepId.split('.'); // award.{n}.{field}
+    if (parts.length < 3) return; // 'award.gate'
+    final n = int.tryParse(parts[1]);
+    if (n == null) return;
+    final buf = _awardBuffers.putIfAbsent(n, () => _AwardBuffer());
+    switch (parts[2]) {
+      case 'name':
+        buf.name = _text(a);
+        break;
+      case 'date':
+        buf.date = _parseMonth(_text(a));
+        await _saveAward(n, buf); // último passo → grava a conquista
+        break;
+      // 'more' → controle de fluxo, no-op
+    }
+  }
+
+  Future<void> _saveAward(int n, _AwardBuffer buf) async {
+    final name = buf.name?.trim() ?? '';
+    if (name.isEmpty) {
+      _awardBuffers.remove(n);
+      return;
+    }
+    await _repo.addAward(Award(id: '', userId: userId, name: name, date: buf.date));
+    _awardBuffers.remove(n);
   }
 
   // ── Disponibilidade → profile_personal.availability ──────────────────────
@@ -263,12 +344,10 @@ class TrilhaWriteback {
     final have = existing.map((l) => l.name.toLowerCase().trim()).toSet();
     for (final name in clean) {
       if (have.contains(name.toLowerCase().trim())) continue;
-      // Português = nativo (auto); o nível dos demais vem no passo seguinte.
-      final prof = name.toLowerCase().trim() == 'português'
-          ? LanguageProficiency.native
-          : null;
+      // O nível de CADA idioma (inclusive português) vem no passo seguinte
+      // (lang.level.X) — insere sem proficiência e o passo de nível preenche.
       await _repo.addLanguage(
-          Language(id: '', userId: userId, name: name.trim(), proficiency: prof));
+          Language(id: '', userId: userId, name: name.trim()));
     }
   }
 
@@ -405,7 +484,13 @@ class TrilhaWriteback {
         buf.did = _text(a);
         break;
       case 'when':
-        buf.when = _parseMonth(_text(a));
+        buf.start = _parseMonth(_text(a));
+        break;
+      case 'current':
+        buf.isCurrent = _yes(a);
+        break;
+      case 'end':
+        buf.end = _parseMonth(_text(a));
         break;
       case 'link':
         buf.link = _text(a);
@@ -413,7 +498,7 @@ class TrilhaWriteback {
         break;
       // 'more' → controle, no-op
     }
-    const intermediate = {'name', 'what', 'did', 'when'};
+    const intermediate = {'name', 'what', 'did', 'when', 'current', 'end'};
     if (intermediate.contains(parts[2])) {
       await _persistDraft('project', n, a.stepId, buf.toJson());
     } else if (parts[2] == 'link') {
@@ -435,7 +520,9 @@ class TrilhaWriteback {
       name: name,
       context: (what != null && what.isNotEmpty) ? what : null,
       website: (link != null && link.isNotEmpty) ? link : null,
-      endDate: buf.when,
+      startDate: buf.start,
+      endDate: buf.isCurrent == true ? null : buf.end,
+      isCurrent: buf.isCurrent == true,
     ));
     final did = buf.did?.trim();
     if (did != null && did.isNotEmpty) {
@@ -475,7 +562,11 @@ class TrilhaWriteback {
         buf.course = _text(a);
         break;
       case 'semester':
-        buf.semester = int.tryParse(_firstId(a));
+        buf.semester = int.tryParse(_firstId(a)); // faculdade salva na graduação
+        break;
+      case 'graduation':
+        // 'unsure' → tryParse null → sem previsão (endDate fica nulo).
+        buf.gradYear = int.tryParse(_firstId(a));
         await _saveEducation(buf); // último passo da faculdade
         break;
       case 'schoolyear':
@@ -484,12 +575,12 @@ class TrilhaWriteback {
         break;
     }
     final f = parts[2];
-    if (f == 'semester' || f == 'schoolyear') {
+    if (f == 'graduation' || f == 'schoolyear') {
       await _clearDraft('education'); // salvou
     } else if (f == 'moment' && buf.moment == 'outro') {
       await _clearDraft('education'); // 'outro' não vira item — nada a retomar
     } else {
-      // moment (faculdade/escola) + institution/school/course → intermediário.
+      // moment + institution/school/course/semester → intermediário (retoma).
       await _persistDraft('education', 0, a.stepId, buf.toJson());
     }
   }
@@ -525,7 +616,11 @@ class TrilhaWriteback {
       currentSemester: isSchool ? null : buf.semester,
       currentSchoolYear: isSchool ? buf.schoolYear : null,
       startDate: match?.startDate,
-      endDate: match?.endDate,
+      // Previsão de formatura (faculdade) → endDate. Dez do ano previsto; sem
+      // previsão ('não sei'), preserva o que já houver.
+      endDate: (!isSchool && buf.gradYear != null)
+          ? DateTime(buf.gradYear!, 12, 1)
+          : match?.endDate,
       gpa: match?.gpa,
       maxGpa: match?.maxGpa,
       orderIndex: match?.orderIndex ?? 0,
@@ -601,14 +696,18 @@ class _ProjBuffer {
   String? name;
   String? what; // o que era (→ context)
   String? did; // o que VOCÊ fez (→ bullet)
-  DateTime? when; // quando (opcional → endDate)
+  DateTime? start; // 'when' → data de início (opcional → startDate)
+  bool? isCurrent; // ainda tá rolando? (→ isCurrent)
+  DateTime? end; // quando terminou (opcional → endDate)
   String? link; // link (opcional → website)
 
   Map<String, dynamic> toJson() => {
         'name': name,
         'what': what,
         'did': did,
-        'when': _iso(when),
+        'start': _iso(start),
+        'isCurrent': isCurrent,
+        'end': _iso(end),
         'link': link,
       };
 
@@ -616,12 +715,31 @@ class _ProjBuffer {
     ..name = j['name'] as String?
     ..what = j['what'] as String?
     ..did = j['did'] as String?
-    ..when = _fromIso(j['when'])
+    ..start = _fromIso(j['start'])
+    ..isCurrent = j['isCurrent'] as bool?
+    ..end = _fromIso(j['end'])
     ..link = j['link'] as String?;
 }
 
-/// Buffer da educação (momento + instituição + curso + semestre/ano), gravado
-/// de uma vez no último passo do ramo (semestre p/ faculdade, ano p/ escola).
+/// Buffer de uma certificação (nome + emissor + data) — gravado de uma vez no
+/// passo terminal (date). Sem draft (fluxo curto; se abandonar, o gate
+/// re-pergunta porque nada foi salvo). Emissor/data são opcionais.
+class _CertBuffer {
+  String? name;
+  String? issuer;
+  DateTime? date;
+}
+
+/// Buffer de uma conquista/prêmio (nome + data) — gravado no passo terminal
+/// (date). Sem draft (fluxo curto; gate re-pergunta se nada foi salvo).
+class _AwardBuffer {
+  String? name;
+  DateTime? date;
+}
+
+/// Buffer da educação (momento + instituição + curso + semestre/ano + previsão
+/// de formatura), gravado de uma vez no último passo do ramo (formatura p/
+/// faculdade, ano p/ escola).
 class _EduBuffer {
   String? moment; // in_college | college_paused | in_school | outro
   String? institution;
@@ -629,6 +747,7 @@ class _EduBuffer {
   String? course;
   int? semester;
   int? schoolYear;
+  int? gradYear; // previsão de formatura (faculdade) → endDate
 
   Map<String, dynamic> toJson() => {
         'moment': moment,
@@ -637,6 +756,7 @@ class _EduBuffer {
         'course': course,
         'semester': semester,
         'schoolYear': schoolYear,
+        'gradYear': gradYear,
       };
 
   static _EduBuffer fromJson(Map<String, dynamic> j) => _EduBuffer()
@@ -645,5 +765,6 @@ class _EduBuffer {
     ..institutionId = j['institutionId'] as String?
     ..course = j['course'] as String?
     ..semester = (j['semester'] as num?)?.toInt()
-    ..schoolYear = (j['schoolYear'] as num?)?.toInt();
+    ..schoolYear = (j['schoolYear'] as num?)?.toInt()
+    ..gradYear = (j['gradYear'] as num?)?.toInt();
 }

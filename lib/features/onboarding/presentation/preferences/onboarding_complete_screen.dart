@@ -13,7 +13,7 @@ import '../../../../services/facebook_events_service.dart';
 import '../../../auth/user_viewmodel.dart';
 import '../../../../services/feature_flags_service.dart';
 import '../../../../core/widgets/widgets.dart';
-import '../../../trilha/presentation/trilha_loader_screen.dart';
+import '../../../home/home_viewmodel.dart';
 import '../onboarding_scaffold.dart';
 import '../../../../core/theme/theme.dart';
 
@@ -133,10 +133,12 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
     // ignore: unawaited_futures
     Analytics.shared.track(evTrilhaColetaInviteAccepted);
     final nav = Navigator.of(context);
+    final home = context.read<HomeViewModel>();
     if (!await _markComplete()) return;
+    // A trilha de IA hoje VIVE na aba Currículo — manda pra lá (em vez do loader
+    // standalone antigo). A HomeScreen consome o pendingTab ao montar.
+    home.requestTabChange(HomeTabs.resume);
     nav.popUntil((route) => route.isFirst);
-    nav.push(MaterialPageRoute(
-        builder: (_) => const TrilhaLoaderScreen(source: 'post_onboarding')));
   }
 
   void _goHome() {
@@ -173,7 +175,8 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
           ],
         ),
         child: _body(
-          title: 'Perfil criado! 🎉',
+          context,
+          title: 'Perfil criado!',
           subtitle:
               'Quer responder umas perguntas rápidas pra aparecer pra mais '
               'empresas? Leva uns 2 min.',
@@ -186,42 +189,54 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
       onContinue: _finishing ? null : _handleFinish,
       continueLabel: _finishing ? 'Carregando…' : 'Começar',
       child: _body(
+        context,
         title: 'Pronto!',
         subtitle: 'Vamos te mostrar vagas que combinam com você.',
       ),
     );
   }
 
-  Widget _body({required String title, required String subtitle}) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 40),
-        child: Column(
-          children: [
-            Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                color: AppColors.brandCyan.withValues(alpha: 0.12),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.celebration,
-                  color: AppColors.brandCyan, size: 64),
+  Widget _body(BuildContext context,
+      {required String title, required String subtitle}) {
+    // Centraliza o herói no espaço entre o header e o rodapé (o scaffold
+    // alinha o filho ao topo do scroll; sem isso a tela fica "oca" embaixo).
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * 0.6,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Herói: círculo com gradiente da marca + brilho suave + check.
+          Container(
+            width: 112,
+            height: 112,
+            decoration: BoxDecoration(
+              gradient: AppGradients.brand,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.28),
+                  blurRadius: 28,
+                  offset: const Offset(0, 12),
+                ),
+              ],
             ),
-            const SizedBox(height: 28),
-            Text(
-              title,
-              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 8),
-            Text(
+            child: const Icon(Icons.check_rounded,
+                color: AppColors.onPrimary, size: 56),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          Text(title,
+              textAlign: TextAlign.center, style: AppTextStyles.displayMd),
+          const SizedBox(height: AppSpacing.sm),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+            child: Text(
               subtitle,
               textAlign: TextAlign.center,
-              style:
-                  const TextStyle(color: AppColors.textTertiary, fontSize: 15),
+              style: AppTextStyles.bodyLg
+                  .copyWith(color: AppColors.textSecondary, height: 1.4),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

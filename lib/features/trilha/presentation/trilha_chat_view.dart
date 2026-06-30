@@ -10,15 +10,24 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/theme.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../services/cv_import_service.dart';
+import '../application/trilha_section.dart';
 import 'trilha_chat_controller.dart';
 import 'widgets/chat_bubbles.dart';
 import 'widgets/inline/inline_step_input.dart';
 import 'widgets/inline/trilha_answer_card.dart';
 
 class TrilhaChatView extends StatefulWidget {
-  const TrilhaChatView({super.key, required this.controller});
+  const TrilhaChatView({
+    super.key,
+    required this.controller,
+    this.onVerifySection,
+  });
 
   final TrilhaChatController controller;
+
+  /// Toque num tile do resumo do import → abre o sheet de verificação daquela
+  /// seção (null = tiles não-tocáveis).
+  final void Function(TrilhaSection section)? onVerifySection;
 
   @override
   State<TrilhaChatView> createState() => _TrilhaChatViewState();
@@ -81,8 +90,9 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
       // Mesmo sem texto usável (PDF salvo, extração não roda): segue o fluxo —
       // o controller cai na conversa (extractionExpected=false pula o poll).
       // Sem isso, o gate ficaria preso num no-op silencioso.
+      // Bolha mostra o NOME REAL do arquivo (não o título da biblioteca).
       // ignore: unawaited_futures
-      _c.onCvUploaded(result.title ?? 'currículo.pdf',
+      _c.onCvUploaded(result.fileName ?? result.title ?? 'currículo.pdf',
           extractionExpected: result.textWasUsable);
     } else if (result.errorMessage != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -262,11 +272,11 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
   // ── Card-resumo da extração ─────────────────────────────────────────────────
 
   Widget _importSummary(ImportSummary s) {
-    final cells = <(int, String)>[
-      (s.experiences, 'experiências'),
-      (s.skills, 'habilidades'),
-      (s.languages, 'idiomas'),
-      (s.education, 'formação'),
+    final cells = <(int, String, TrilhaSection)>[
+      (s.experiences, 'experiências', TrilhaSection.experiencia),
+      (s.skills, 'habilidades', TrilhaSection.skills),
+      (s.languages, 'idiomas', TrilhaSection.idiomas),
+      (s.education, 'formação', TrilhaSection.formacao),
     ].where((c) => c.$1 > 0).toList();
 
     return Container(
@@ -282,33 +292,15 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('O que encontrei', style: AppTextStyles.overline),
+          const SizedBox(height: 2),
+          Text('Toque pra conferir cada um 👇',
+              style: AppTextStyles.bodySm
+                  .copyWith(color: AppColors.textTertiary)),
           const SizedBox(height: AppSpacing.sm),
           Wrap(
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
-            children: [
-              for (final c in cells)
-                Container(
-                  width: 120,
-                  padding: AppSpacing.allMd,
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceVariant,
-                    borderRadius: AppRadius.brMd,
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('${c.$1}',
-                          style: AppTextStyles.headlineMd
-                              .copyWith(color: AppColors.primary)),
-                      Text(c.$2,
-                          style: AppTextStyles.bodySm
-                              .copyWith(color: AppColors.textTertiary)),
-                    ],
-                  ),
-                ),
-            ],
+            children: [for (final c in cells) _summaryTile(c.$1, c.$2, c.$3)],
           ),
           const SizedBox(height: AppSpacing.md),
           PrimaryButton(
@@ -319,6 +311,43 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
             },
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _summaryTile(int count, String label, TrilhaSection section) {
+    final onVerify = widget.onVerifySection;
+    return InkWell(
+      onTap: onVerify == null ? null : () => onVerify(section),
+      borderRadius: AppRadius.brMd,
+      child: Container(
+        width: 132,
+        padding: AppSpacing.allMd,
+        decoration: BoxDecoration(
+          color: AppColors.surfaceVariant,
+          borderRadius: AppRadius.brMd,
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text('$count',
+                    style: AppTextStyles.headlineMd
+                        .copyWith(color: AppColors.primary)),
+                const Spacer(),
+                if (onVerify != null)
+                  Icon(Icons.visibility_outlined,
+                      size: 15,
+                      color: AppColors.primary.withValues(alpha: 0.7)),
+              ],
+            ),
+            Text(label,
+                style: AppTextStyles.bodySm
+                    .copyWith(color: AppColors.textTertiary)),
+          ],
+        ),
       ),
     );
   }
@@ -433,12 +462,20 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
                       onSubmitted: (_) => _sendText(),
                       style: AppTextStyles.bodyMd
                           .copyWith(color: AppColors.textPrimary),
+                      // Sem o fill/borda do tema global (que desenhava um
+                      // "retângulo dentro" da pílula) — só o texto.
                       decoration: InputDecoration(
                         hintText: 'Escreva uma mensagem…',
                         hintStyle: AppTextStyles.bodyMd
                             .copyWith(color: AppColors.textTertiary),
                         isDense: true,
+                        filled: false,
                         border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        disabledBorder: InputBorder.none,
+                        errorBorder: InputBorder.none,
+                        contentPadding: EdgeInsets.zero,
                       ),
                     ),
                   ),

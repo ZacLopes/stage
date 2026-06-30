@@ -268,4 +268,39 @@ void main() {
     expect(c.currentStep?.id, 'gap.skills'); // passo atual preservado
     expect(saved.last.stepId, 'gap.areas'); // a edição regravou o 1º
   });
+
+  test('editar gate de ramificação (sim→não) re-avalia o ramo e revela o '
+      'follow-up novo', () async {
+    final end = ConversationStep.single(
+        id: 'exp.0.end', aiMessage: 'Quando saiu?', input: const MonthYearInput());
+    final tail = ConversationStep.single(
+        id: 'exp.0.ofazia',
+        aiMessage: 'O que fazia?',
+        input: const GuidedTextInput(example: 'x'));
+    final gate = ConversationStep.single(
+      id: 'exp.0.current',
+      aiMessage: 'Ainda está nessa experiência?',
+      input: choice([('yes', 'Sim, ainda estou'), ('no', 'Não, já saí')]),
+      expand: (a) =>
+          (a.value as List).contains('yes') ? [tail] : [end, tail],
+    );
+    final c = await setup([gate]);
+    addTearDown(c.dispose);
+
+    // "Sim, ainda estou" → revela só o tail (ofazia), SEM a data de saída.
+    await c.submit(StepAnswer.choice(
+        'exp.0.current', [const StepOption(id: 'yes', label: 'Sim, ainda estou')]));
+    expect(c.currentStep?.id, 'exp.0.ofazia');
+
+    // edita o card do gate → "Não, já saí".
+    final card = c.thread
+        .whereType<AnsweredItem>()
+        .firstWhere((i) => i.exchange.step.id == 'exp.0.current');
+    c.beginEdit(card);
+    await c.submit(StepAnswer.choice(
+        'exp.0.current', [const StepOption(id: 'no', label: 'Não, já saí')]));
+
+    // agora PERGUNTA a data de saída (end) — o ramo foi re-avaliado.
+    expect(c.currentStep?.id, 'exp.0.end');
+  });
 }

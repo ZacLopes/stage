@@ -100,6 +100,13 @@ class _FakeRepo implements ProfileRepository {
     return c;
   }
 
+  final List<Award> addedAwards = [];
+  @override
+  Future<Award> addAward(Award a) async {
+    addedAwards.add(a);
+    return a;
+  }
+
   final List<Project> addedProjects = [];
   final List<ProjectBullet> addedProjectBullets = [];
   Project? updatedProject;
@@ -198,6 +205,17 @@ void main() {
       expect(repo.upsertedPrefs?.jobTypes, [JobType.internship]);
     });
 
+    test('cargo desejado: grava em desired_position', () async {
+      await wb.save(
+          StepAnswer.text('gap.desired_position', 'Desenvolvedor Front-end'));
+      expect(repo.upsertedPrefs?.desiredPosition, 'Desenvolvedor Front-end');
+    });
+
+    test('cargo desejado: pulado (vazio) → não grava', () async {
+      await wb.save(StepAnswer.text('gap.desired_position', ''));
+      expect(repo.upsertedPrefs, isNull);
+    });
+
     test('áreas: grava como desired titles (userAdded)', () async {
       await wb.save(choice('gap.area', ['Tecnologia', 'Produto']));
       expect(repo.replacedDesired?.map((t) => t.title),
@@ -223,12 +241,14 @@ void main() {
       expect(repo.addedLangs.map((l) => l.name), ['Inglês']);
     });
 
-    test('idiomas: português entra como nativo (auto); demais sem nível', () async {
+    test('idiomas: TODOS entram sem nível (preenchido no passo seguinte)',
+        () async {
       await wb.save(choice('gap.languages', ['Português', 'Inglês']));
+      // Inclusive português — o usuário informa o nível de cada um no lang.level.
       expect(repo.addedLangs.firstWhere((l) => l.name == 'Português').proficiency,
-          LanguageProficiency.native);
+          isNull);
       expect(repo.addedLangs.firstWhere((l) => l.name == 'Inglês').proficiency,
-          isNull); // nível vem no passo seguinte
+          isNull);
     });
 
     test('nível de idioma: atualiza a proficiência do idioma existente', () async {
@@ -298,10 +318,50 @@ void main() {
       expect(repo.upsertedPersonal?.linkedinUrl, 'https://linkedin.com/in/zac');
     });
 
-    test('certificação: grava o nome', () async {
+    test('certificação: grava nome + emissor + data no passo terminal (date)',
+        () async {
       await wb.save(StepAnswer.text('cert.0.name', 'TOEFL'));
-      await wb.save(StepAnswer.text('cert.1.name', 'Google Ads'));
-      expect(repo.addedCerts.map((c) => c.name), ['TOEFL', 'Google Ads']);
+      await wb.save(StepAnswer.text('cert.0.issuer', 'ETS'));
+      expect(repo.addedCerts, isEmpty); // só grava no último passo (date)
+      await wb.save(StepAnswer.monthYear('cert.0.date', 2024, 6));
+      final c = repo.addedCerts.single;
+      expect(c.name, 'TOEFL');
+      expect(c.issuer, 'ETS');
+      expect(c.date, DateTime(2024, 6, 1));
+    });
+
+    test('certificação: emissor/data opcionais (pulados) → grava só o nome',
+        () async {
+      await wb.save(StepAnswer.text('cert.0.name', 'Google Ads'));
+      await wb.save(StepAnswer.text('cert.0.issuer', '')); // pulou
+      await wb.save(StepAnswer.text('cert.0.date', '')); // pulou
+      final c = repo.addedCerts.single;
+      expect(c.name, 'Google Ads');
+      expect(c.issuer, isNull);
+      expect(c.date, isNull);
+    });
+
+    test('conquista: grava nome + data no passo terminal (date)', () async {
+      await wb.save(StepAnswer.text('award.0.name', '1º lugar Hackathon USP'));
+      expect(repo.addedAwards, isEmpty); // só grava no terminal (date)
+      await wb.save(StepAnswer.monthYear('award.0.date', 2025, 3));
+      final a = repo.addedAwards.single;
+      expect(a.name, '1º lugar Hackathon USP');
+      expect(a.date, DateTime(2025, 3, 1));
+    });
+
+    test('conquista: data opcional (pulada) → grava só o nome', () async {
+      await wb.save(StepAnswer.text('award.0.name', 'Bolsa de mérito'));
+      await wb.save(StepAnswer.text('award.0.date', '')); // pulou
+      final a = repo.addedAwards.single;
+      expect(a.name, 'Bolsa de mérito');
+      expect(a.date, isNull);
+    });
+
+    test('conquista: gate "não" e .more são no-op', () async {
+      await wb.save(choice('award.gate', ['no']));
+      await wb.save(choice('award.0.more', ['no']));
+      expect(repo.addedAwards, isEmpty);
     });
 
     test('gates (cert/linkedin) e .more: no-op de controle', () async {
@@ -312,22 +372,39 @@ void main() {
       expect(repo.upsertedPersonal, isNull);
     });
 
-    test('projeto: grava ATÔMICO no fim (link) — nome+contexto+data+link+bullet',
+    test('projeto: grava ATÔMICO no fim (link) — início + encerrado (data fim)',
         () async {
       await wb.save(StepAnswer.text('project.0.name', 'App de finanças'));
       await wb.save(StepAnswer.text('project.0.what', 'App pra controlar gastos'));
       await wb.save(StepAnswer.text('project.0.did', 'Programei em Flutter sozinho'));
-      await wb.save(StepAnswer.monthYear('project.0.when', 2024, 6));
-      expect(repo.addedProjects, isEmpty); // ainda NÃO salvou (só no último passo)
+      await wb.save(StepAnswer.monthYear('project.0.when', 2024, 6)); // início
+      await wb.save(StepAnswer.choice('project.0.current',
+          [const StepOption(id: 'no', label: 'Não, encerrei')]));
+      await wb.save(StepAnswer.monthYear('project.0.end', 2024, 12)); // fim
+      expect(repo.addedProjects, isEmpty); // ainda NÃO salvou (só no link)
 
       await wb.save(StepAnswer.text('project.0.link', 'github.com/x/app'));
       // Agora grava tudo de uma vez:
       expect(repo.addedProjects.map((p) => p.name), ['App de finanças']);
       expect(repo.addedProjects.first.context, 'App pra controlar gastos');
       expect(repo.addedProjects.first.website, 'github.com/x/app');
-      expect(repo.addedProjects.first.endDate, DateTime(2024, 6, 1));
+      expect(repo.addedProjects.first.startDate, DateTime(2024, 6, 1));
+      expect(repo.addedProjects.first.endDate, DateTime(2024, 12, 1));
+      expect(repo.addedProjects.first.isCurrent, isFalse);
       expect(repo.addedProjectBullets.map((b) => b.text),
           ['Programei em Flutter sozinho']);
+    });
+
+    test('projeto: ainda em andamento → isCurrent=true, sem data de fim',
+        () async {
+      await wb.save(StepAnswer.text('project.0.name', 'Side project'));
+      await wb.save(StepAnswer.monthYear('project.0.when', 2025, 1));
+      await wb.save(StepAnswer.choice('project.0.current',
+          [const StepOption(id: 'yes', label: 'Sim, ainda')]));
+      await wb.save(StepAnswer.text('project.0.link', ''));
+      expect(repo.addedProjects.first.startDate, DateTime(2025, 1, 1));
+      expect(repo.addedProjects.first.isCurrent, isTrue);
+      expect(repo.addedProjects.first.endDate, isNull);
     });
 
     test('projeto: sair ANTES do link NÃO salva (re-pergunta na volta)', () async {
@@ -373,20 +450,32 @@ void main() {
       expect(repo.replacedInterests, isNull);
     });
 
-    test('educação faculdade: momento→instituição→curso→semestre grava college',
+    test('educação faculdade: …→semestre→formatura grava college (endDate)',
         () async {
       await wb.save(choice('gap.edu.moment', ['in_college']));
       await wb.save(StepAnswer.text('gap.edu.institution', 'USP'));
       await wb.save(StepAnswer.text('gap.edu.course', 'Administração'));
-      expect(repo.addedEducation, isNull); // só grava no último passo (semestre)
-
       await wb.save(choice('gap.edu.semester', ['5']));
+      expect(repo.addedEducation, isNull); // só grava no último passo (formatura)
+
+      await wb.save(choice('gap.edu.graduation', ['2027']));
       final e = repo.addedEducation!;
       expect(e.educationLevel, 'college');
       expect(e.educationStatus, 'studying');
       expect(e.institution, 'USP');
       expect(e.currentSemester, 5);
+      expect(e.endDate, DateTime(2027, 12, 1)); // previsão de formatura
       expect(e.majors.map((m) => m.name), ['Administração']);
+    });
+
+    test('educação: "ainda não sei" a formatura → grava sem endDate', () async {
+      await wb.save(choice('gap.edu.moment', ['in_college']));
+      await wb.save(StepAnswer.text('gap.edu.institution', 'USP'));
+      await wb.save(StepAnswer.text('gap.edu.course', 'Adm'));
+      await wb.save(choice('gap.edu.semester', ['5']));
+      await wb.save(choice('gap.edu.graduation', ['unsure']));
+      expect(repo.addedEducation, isNotNull);
+      expect(repo.addedEducation!.endDate, isNull);
     });
 
     test('educação ensino médio: momento→escola→ano grava school', () async {
@@ -404,6 +493,7 @@ void main() {
       await wb.save(StepAnswer.text('gap.edu.institution', 'PUC'));
       await wb.save(StepAnswer.text('gap.edu.course', 'Direito'));
       await wb.save(choice('gap.edu.semester', ['3']));
+      await wb.save(choice('gap.edu.graduation', ['2026']));
       expect(repo.addedEducation!.educationStatus, 'paused');
     });
 
@@ -417,6 +507,7 @@ void main() {
       await wb.save(StepAnswer.text('gap.edu.institution', 'USP'));
       await wb.save(StepAnswer.text('gap.edu.course', 'Engenharia'));
       await wb.save(choice('gap.edu.semester', ['7']));
+      await wb.save(choice('gap.edu.graduation', ['2026']));
       expect(repo.addedEducation, isNull); // não criou nova
       expect(repo.updatedEducation?.id, 'e1'); // atualizou a existente
       expect(repo.updatedEducation?.currentSemester, 7);
@@ -437,6 +528,7 @@ void main() {
           label: 'USP', value: '$uuid|USP'));
       await wb.save(StepAnswer.text('gap.edu.course', 'Engenharia'));
       await wb.save(choice('gap.edu.semester', ['5']));
+      await wb.save(choice('gap.edu.graduation', ['2027']));
       expect(repo.addedEducation?.institution, 'USP');
       expect(repo.addedEducation?.institutionId, uuid);
     });
@@ -447,6 +539,7 @@ void main() {
           label: 'Faculdade Local', value: 'Faculdade Local'));
       await wb.save(StepAnswer.text('gap.edu.course', 'Adm'));
       await wb.save(choice('gap.edu.semester', ['2']));
+      await wb.save(choice('gap.edu.graduation', ['2028']));
       expect(repo.addedEducation?.institution, 'Faculdade Local');
       expect(repo.addedEducation?.institutionId, isNull);
     });

@@ -68,6 +68,41 @@ void main() {
     expect(answer!.value, ['advanced']);
   });
 
+  testWidgets('mês/ano (roda): Confirmar usa o mês+ano atuais por padrão',
+      (tester) async {
+    StepAnswer? answer;
+    final step = ConversationStep.single(
+      id: 'exp.0.start',
+      aiMessage: 'q',
+      input: const MonthYearInput(),
+    );
+    await tester.pumpWidget(host(step, (a) => answer = a));
+    await tester.tap(find.text('Confirmar'));
+    final now = DateTime.now();
+    final mm = now.month.toString().padLeft(2, '0');
+    expect(answer!.value, '${now.year}-$mm');
+  });
+
+  testWidgets('slider de PORTUGUÊS começa em Nativo por padrão',
+      (tester) async {
+    StepAnswer? answer;
+    final step = ConversationStep.single(
+      id: 'lang.level.Português',
+      aiMessage: 'q',
+      input: const ChoiceInput(compact: true, options: [
+        StepOption(id: 'basic', label: 'Básico'),
+        StepOption(id: 'intermediate', label: 'Intermediário'),
+        StepOption(id: 'advanced', label: 'Avançado'),
+        StepOption(id: 'fluent', label: 'Fluente'),
+        StepOption(id: 'native', label: 'Nativo'),
+      ]),
+    );
+    await tester.pumpWidget(host(step, (a) => answer = a));
+    // Português → default no último (native), não no meio.
+    await tester.tap(find.text('Confirmar'));
+    expect(answer!.value, ['native']);
+  });
+
   testWidgets('GuidedText: Enviar desabilitado vazio, habilita com texto',
       (tester) async {
     StepAnswer? answer;

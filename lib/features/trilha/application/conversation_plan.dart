@@ -19,8 +19,10 @@ import 'trilha_draft.dart';
 /// trechos já abordados antes (memória [TrilhaProgress]) — pulados pra não
 /// re-perguntar. Vazio quando não há nada novo pra coletar.
 ///
-/// `educationStatus` fica de fora (já vem do onboarding); experiência tem fluxo
-/// dinâmico próprio; resumo é gerado (Inc 4), não perguntado.
+/// `educationStatus` ENTRA quando falta (rede de segurança — quem vem pela porta
+/// de importar CV não traz curso/semestre, que a extração não extrai); a maioria
+/// preenche no onboarding. Experiência/projeto têm fluxo dinâmico próprio; resumo
+/// é gerado (Inc 4), não perguntado.
 List<ConversationStep> buildConversationPlan(
   ProfileGaps gaps, {
   Set<String> addressed = const {},
@@ -49,6 +51,8 @@ List<ConversationStep> buildConversationPlan(
   final steps = <ConversationStep>[
     // Preferências (cliques rápidos).
     if (wants(LacunaKey.area, 'area')) _area(),
+    if (wants(LacunaKey.desiredPosition, 'desired_position'))
+      _desiredPositionStep(),
     if (wants(LacunaKey.workMode, 'workmode')) _workMode(),
     if (wants(LacunaKey.jobType, 'jobtype')) _jobType(),
     if (wants(LacunaKey.city, 'city')) _city(citySearch),
@@ -70,6 +74,7 @@ List<ConversationStep> buildConversationPlan(
     // Extras (Tier 3): só pergunta se faltam e não foram abordados.
     if (wants(LacunaKey.linkedin, 'linkedin')) _linkedinGate(),
     if (wants(LacunaKey.certifications, 'certifications')) _certGate(),
+    if (wants(LacunaKey.awards, 'awards')) _awardGate(),
     if (wants(LacunaKey.projects, 'projects'))
       if (projDraft != null) ..._resumeProject(projDraft)
       else _projectGate(),
@@ -98,8 +103,28 @@ List<ConversationStep> _stepsAfter(
   return i < 0 ? steps : steps.sublist(i + 1);
 }
 
-List<ConversationStep> _resumeProject(TrilhaItemDraft d) =>
-    _stepsAfter(_projectItem(d.itemIndex), d.lastStepId);
+List<ConversationStep> _resumeProject(TrilhaItemDraft d) {
+  final n = d.itemIndex;
+  final field = d.lastStepId.split('.').last;
+  final isCurrent = d.fields['isCurrent'] == true;
+  switch (field) {
+    case 'name':
+    case 'what':
+    case 'did':
+    case 'when':
+      // _projectItem = [name, what, did, when, current(expand → end/tail)].
+      return _stepsAfter(_projectItem(n), d.lastStepId);
+    case 'current':
+      // respondeu o "ainda tá rolando?" → cauda (com 'end' se já encerrou).
+      return isCurrent
+          ? _projectTail(n)
+          : [_projectEnd(n), ..._projectTail(n)];
+    case 'end':
+      return _projectTail(n);
+    default:
+      return _projectItem(n);
+  }
+}
 
 List<ConversationStep> _resumeEducation(TrilhaItemDraft d,
     Future<List<PickSuggestion>> Function(String)? institutionSearch) {
@@ -171,6 +196,22 @@ ConversationStep _area() => ConversationStep.single(
         searchHint: 'Buscar ou escrever sua área…',
       ),
       acknowledgement: 'Anotado! Já dá pra mirar nas vagas dessas áreas.',
+    );
+
+/// Cargo/posição desejada específica (além da área) — opcional, logo após as
+/// áreas. Vai pra profile_job_preferences.desired_position e dá um BÔNUS no match.
+ConversationStep _desiredPositionStep() => ConversationStep.single(
+      id: 'gap.desired_position',
+      aiMessage: 'E tem um cargo ou posição específica em mente? '
+          '(opcional — ex.: Desenvolvedor Front-end, Analista de Dados)',
+      input: const GuidedTextInput(
+        example: 'Desenvolvedor Front-end',
+        hint: 'Cargo desejado',
+        maxLength: 80,
+        minLines: 1,
+        optional: true,
+      ),
+      acknowledgement: 'Anotado! Vou usar isso pra afinar suas vagas. 🎯',
     );
 
 ConversationStep _workMode() => ConversationStep.single(
@@ -331,16 +372,13 @@ ConversationStep _languages() => ConversationStep.single(
           StepOption(id: 'Mandarim', label: 'Mandarim'),
         ],
       ),
-      // Pra cada idioma NÃO-nativo escolhido, pergunta o nível em seguida
-      // (português entra como 'nativo' automático no write-back).
+      // Pergunta o nível de CADA idioma escolhido — inclusive português (o
+      // usuário pode não ser nativo, e ele quer poder informar o nível de todos).
       expand: (a) {
         final picked = a.value is List
             ? (a.value as List).whereType<String>()
             : const <String>[];
-        return [
-          for (final lang in picked)
-            if (lang.toLowerCase() != 'português') _languageLevel(lang),
-        ];
+        return [for (final lang in picked) _languageLevel(lang)];
       },
       // addLanguage por idioma → voltar e re-responder duplicaria.
       reversible: false,
@@ -448,10 +486,30 @@ List<ConversationStep> _eduCollegeSteps(
         id: 'gap.edu.semester',
         aiMessage: 'Que semestre você está cursando?',
         input: const ChoiceInput(compact: true, options: _kSemesterOptions),
-        acknowledgement:
-            'Anotado! Isso ajuda demais as empresas a te acharem. ✨',
+        acknowledgement: 'Anotado! ✨',
       ),
+      _eduGraduationStep(),
     ];
+
+/// Previsão de formatura — eixo de match forte (trainee/estágio filtram por isso;
+/// só o semestre não pinga, porque a duração do curso varia). Chips dos próximos
+/// anos + "ainda não sei". É o passo TERMINAL da faculdade (grava o item).
+ConversationStep _eduGraduationStep() {
+  final y = DateTime.now().year;
+  return ConversationStep.single(
+    id: 'gap.edu.graduation',
+    aiMessage: 'E quando você se forma? (a previsão já ajuda muito as empresas)',
+    input: ChoiceInput(compact: true, options: [
+      for (var i = 0; i <= 5; i++)
+        StepOption(id: '${y + i}', label: '${y + i}'),
+      const StepOption(id: 'unsure', label: 'Ainda não sei'),
+    ]),
+    acknowledgement:
+        'Boa! Isso ajuda a te encaixar na hora certa (trainee, estágio…). 🎓',
+    // Save terminal da faculdade (addEducation) → não volta pra duplicar.
+    reversible: false,
+  );
+}
 
 List<ConversationStep> _eduSchoolSteps() => [
       ConversationStep.single(
@@ -473,6 +531,8 @@ List<ConversationStep> _eduSchoolSteps() => [
           StepOption(id: '3', label: '3º ano'),
         ]),
         acknowledgement: 'Anotado! Isso ajuda demais. ✨',
+        // Save terminal da escola (igual graduation/ofazia/link) → não duplica.
+        reversible: false,
       ),
     ];
 
@@ -495,7 +555,8 @@ List<ConversationStep> _experienceItem(int n) => [
       ConversationStep.single(
         id: 'exp.$n.company',
         aiMessage: n == 0
-            ? 'Bora! Qual foi a empresa ou organização?'
+            ? 'Bora, uma por vez! Qual foi a empresa ou organização? '
+                'Depois você adiciona as outras.'
             : 'E a empresa/organização dessa?',
         input: const GuidedTextInput(
           example: 'Magazine Luiza',
@@ -558,10 +619,10 @@ List<ConversationStep> _experienceTail(int n) => [
       ),
       ConversationStep.single(
         id: 'exp.$n.more',
-        aiMessage: 'Quer adicionar outra experiência?',
+        aiMessage: 'Trabalhou em mais algum lugar?',
         input: const ChoiceInput(options: [
-          StepOption(id: 'yes', label: 'Sim, tenho mais'),
-          StepOption(id: 'no', label: 'Não, é só essa'),
+          StepOption(id: 'yes', label: '+ Adicionar outra empresa'),
+          StepOption(id: 'no', label: 'Não, era só essa'),
         ]),
         expand: (a) => _answeredYes(a) ? _experienceItem(n + 1) : const [],
       ),
@@ -612,22 +673,82 @@ List<ConversationStep> _certItem(int n) => [
         id: 'cert.$n.name',
         aiMessage: n == 0 ? 'Qual?' : 'E qual a próxima?',
         input: const GuidedTextInput(
-          example: 'Inglês — TOEFL (2024)',
+          example: 'Inglês avançado (TOEFL)',
           hint: 'Nome da certificação',
           maxLength: 100,
           minLines: 1,
         ),
-        // addCertification → voltar e re-responder duplicaria.
+      ),
+      ConversationStep.single(
+        id: 'cert.$n.issuer',
+        aiMessage: 'Quem emitiu? (opcional — ex.: Google, Alura, Cambridge)',
+        input: const GuidedTextInput(
+          example: 'Google',
+          hint: 'Emissor',
+          maxLength: 80,
+          minLines: 1,
+          optional: true,
+        ),
+      ),
+      ConversationStep.single(
+        id: 'cert.$n.date',
+        aiMessage: 'Quando você tirou? (se não lembrar, pula)',
+        input: const MonthYearInput(optional: true),
+        // Save terminal atômico (addCertification) → não volta pra duplicar.
         reversible: false,
       ),
       ConversationStep.single(
         id: 'cert.$n.more',
         aiMessage: 'Tem mais alguma?',
         input: const ChoiceInput(options: [
-          StepOption(id: 'yes', label: 'Sim, tenho mais'),
+          StepOption(id: 'yes', label: '+ Adicionar outra'),
           StepOption(id: 'no', label: 'Não, é só'),
         ]),
         expand: (a) => _answeredYes(a) ? _certItem(n + 1) : const [],
+      ),
+    ];
+
+// ── Extra: Conquistas / prêmios (dinâmico, espelha certificações) ────────────
+
+ConversationStep _awardGate() => ConversationStep(
+      id: 'award.gate',
+      aiMessages: const [
+        'Você já ganhou algum prêmio ou conquista? Vale competição, hackathon, '
+            'bolsa, menção honrosa, destaque acadêmico, olimpíada… conta tudo.',
+      ],
+      input: const ChoiceInput(options: [
+        StepOption(id: 'yes', label: 'Já sim'),
+        StepOption(id: 'no', label: 'Ainda não'),
+      ]),
+      expand: (a) => _answeredYes(a) ? _awardItem(0) : const [],
+    );
+
+List<ConversationStep> _awardItem(int n) => [
+      ConversationStep.single(
+        id: 'award.$n.name',
+        aiMessage: n == 0 ? 'Qual foi?' : 'E qual a próxima?',
+        input: const GuidedTextInput(
+          example: '1º lugar no Hackathon da USP',
+          hint: 'Prêmio ou conquista',
+          maxLength: 100,
+          minLines: 1,
+        ),
+      ),
+      ConversationStep.single(
+        id: 'award.$n.date',
+        aiMessage: 'Quando foi? (se não lembrar, pula)',
+        input: const MonthYearInput(optional: true),
+        // Save terminal atômico (addAward) → não volta pra duplicar.
+        reversible: false,
+      ),
+      ConversationStep.single(
+        id: 'award.$n.more',
+        aiMessage: 'Tem mais alguma?',
+        input: const ChoiceInput(options: [
+          StepOption(id: 'yes', label: '+ Adicionar outra'),
+          StepOption(id: 'no', label: 'Não, era só'),
+        ]),
+        expand: (a) => _answeredYes(a) ? _awardItem(n + 1) : const [],
       ),
     ];
 
@@ -650,7 +771,10 @@ ConversationStep _projectGate() => ConversationStep(
 List<ConversationStep> _projectItem(int n) => [
       ConversationStep.single(
         id: 'project.$n.name',
-        aiMessage: n == 0 ? 'Qual o nome do projeto?' : 'E o nome desse?',
+        aiMessage: n == 0
+            ? 'Bora, um por vez! Qual o nome do projeto? '
+                'Depois você adiciona os outros.'
+            : 'E o nome desse?',
         input: const GuidedTextInput(
           example: 'App de finanças pessoais',
           hint: 'Nome do projeto',
@@ -684,12 +808,33 @@ List<ConversationStep> _projectItem(int n) => [
         ),
         acknowledgement: 'Show! Só mais uns detalhes rápidos e fecho esse (dá pra pular). ✨',
       ),
-      // Enriquecimento OPCIONAL (um toque pra pular) — data + link.
+      // Enriquecimento OPCIONAL (um toque pra pular) — data de início.
       ConversationStep.single(
         id: 'project.$n.when',
-        aiMessage: 'Quando você fez? (se não lembrar, pula)',
+        aiMessage: 'Quando você começou? (se não lembrar, pula)',
         input: const MonthYearInput(optional: true),
       ),
+      // Ainda tá rolando? Se não, pergunta quando terminou (espelha experiência).
+      ConversationStep.single(
+        id: 'project.$n.current',
+        aiMessage: 'Você ainda está nesse projeto?',
+        input: const ChoiceInput(options: [
+          StepOption(id: 'yes', label: 'Sim, ainda'),
+          StepOption(id: 'no', label: 'Não, encerrei'),
+        ]),
+        expand: (a) => _answeredYes(a)
+            ? _projectTail(n)
+            : [_projectEnd(n), ..._projectTail(n)],
+      ),
+    ];
+
+ConversationStep _projectEnd(int n) => ConversationStep.single(
+      id: 'project.$n.end',
+      aiMessage: 'E quando terminou? (se não lembrar, pula)',
+      input: const MonthYearInput(optional: true),
+    );
+
+List<ConversationStep> _projectTail(int n) => [
       ConversationStep.single(
         id: 'project.$n.link',
         aiMessage:
@@ -706,10 +851,10 @@ List<ConversationStep> _projectItem(int n) => [
       ),
       ConversationStep.single(
         id: 'project.$n.more',
-        aiMessage: 'Quer adicionar outro projeto?',
+        aiMessage: 'Fez mais algum projeto?',
         input: const ChoiceInput(options: [
-          StepOption(id: 'yes', label: 'Sim, tenho mais'),
-          StepOption(id: 'no', label: 'Não, é só'),
+          StepOption(id: 'yes', label: '+ Adicionar outro projeto'),
+          StepOption(id: 'no', label: 'Não, era só esse'),
         ]),
         expand: (a) => _answeredYes(a) ? _projectItem(n + 1) : const [],
       ),

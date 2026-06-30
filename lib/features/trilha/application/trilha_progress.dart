@@ -95,6 +95,8 @@ class TrilhaProgress {
     switch (stepId) {
       case 'gap.area':
         return 'area';
+      case 'gap.desired_position':
+        return 'desired_position';
       case 'gap.workmode':
         return 'workmode';
       case 'gap.jobtype':
@@ -109,22 +111,25 @@ class TrilhaProgress {
         return 'availability';
       case 'gap.interests':
         return 'interests';
-      // Educação: grava no último passo de cada ramo (faculdade=semestre,
+      // Educação: grava no último passo de cada ramo (faculdade=formatura,
       // ensino médio=ano). "Outro" é tratado no segmentToMark.
-      case 'gap.edu.semester':
+      case 'gap.edu.graduation':
       case 'gap.edu.schoolyear':
         return 'education';
       case 'linkedin.url':
         return 'linkedin';
     }
-    // Passos de save indexados (exp.{n}.ofazia / project.{n}.link / cert.{n}.name).
-    // Projeto: conta no 'link' (último passo, onde o projeto é gravado atômico).
+    // Passos de save indexados (exp.{n}.ofazia / project.{n}.link / cert.{n}.date).
+    // Cada um conta no ÚLTIMO passo do item (onde é gravado atômico).
     if (stepId.endsWith('.ofazia')) return 'experience';
     if (stepId.startsWith('project.') && stepId.endsWith('.link')) {
       return 'projects';
     }
-    if (stepId.startsWith('cert.') && stepId.endsWith('.name')) {
+    if (stepId.startsWith('cert.') && stepId.endsWith('.date')) {
       return 'certifications';
+    }
+    if (stepId.startsWith('award.') && stepId.endsWith('.date')) {
+      return 'awards';
     }
     return null;
   }
@@ -139,6 +144,8 @@ class TrilhaProgress {
         return 'projects';
       case 'cert.gate':
         return 'certifications';
+      case 'award.gate':
+        return 'awards';
       case 'linkedin.gate':
         return 'linkedin';
       case 'interests.gate':

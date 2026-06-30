@@ -58,5 +58,38 @@ void main() {
       // A seção concluída mostra um check.
       expect(find.byIcon(Icons.check_rounded), findsOneWidget);
     });
+
+    testWidgets('tocar numa seção dispara onSectionTap com a seção certa',
+        (tester) async {
+      TrilhaSection? tapped;
+      final statuses = {
+        for (final s in kStepperSections) s: SectionStatus.pending,
+      };
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: CurriculoSectionStepper(
+            statuses: statuses,
+            onSectionTap: (s) => tapped = s,
+          ),
+        ),
+      ));
+
+      await tester.tap(find.text('Skills'));
+      expect(tapped, TrilhaSection.skills);
+
+      await tester.tap(find.text('Idiomas'));
+      expect(tapped, TrilhaSection.idiomas);
+    });
+
+    testWidgets('sem onSectionTap não há InkWell (não-tocável)',
+        (tester) async {
+      final statuses = {
+        for (final s in kStepperSections) s: SectionStatus.pending,
+      };
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: CurriculoSectionStepper(statuses: statuses)),
+      ));
+      expect(find.byType(InkWell), findsNothing);
+    });
   });
 }

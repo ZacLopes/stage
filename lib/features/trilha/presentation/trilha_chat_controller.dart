@@ -462,6 +462,30 @@ class TrilhaChatController extends ChangeNotifier {
     if (idx == null || step == null) return;
     final session = _session;
     if (session == null) return;
+
+    // Passo com RAMIFICAÇÃO dinâmica (expand) — ex.: "ainda está nessa
+    // experiência?" sim→não passa a pedir a data de saída. Se é o ÚLTIMO
+    // respondido (nada depois foi inserido ainda → seguro, sem duplicar) e a
+    // resposta MUDOU, re-avalia o ramo: poda os follow-ups antigos, rebobina o
+    // gate (goBack) e re-submete pra revelar o ramo certo.
+    final conv = _conv;
+    if (conv != null && step.expand != null) {
+      final h = conv.history.length;
+      final isLast = h > 0 && conv.history[h - 1].step.id == step.id;
+      final changed =
+          isLast && conv.history[h - 1].answer.displayText != answer.displayText;
+      if (isLast && changed && conv.canGoBack) {
+        if (idx >= 0 && idx <= thread.length) {
+          thread.removeRange(idx, thread.length);
+        }
+        conv.goBack();
+        _notify();
+        await _doSubmit(answer); // re-roda o expand + revela o follow-up
+        return;
+      }
+    }
+
+    // Edição leve (campo simples / sem mudança de ramo): re-grava + troca o card.
     await session.saveAnswer(answer); // idempotente (merge/dedup)
     if (_disposed) return;
     thread[idx] =

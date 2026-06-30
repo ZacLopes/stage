@@ -127,7 +127,7 @@ void main() {
         SectionStatus.done,
       );
       expect(
-        sectionStatuses(history: [_ex('gap.edu.semester')], current: null)[
+        sectionStatuses(history: [_ex('gap.edu.graduation')], current: null)[
             TrilhaSection.formacao],
         SectionStatus.done,
       );

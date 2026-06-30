@@ -18,14 +18,17 @@ void main() {
     int experienceCount = 0,
     int languagesCount = 0,
     bool hasSummary = false,
-    bool hasLinkedin = true, // extras default "presentes" pra não poluir os
-    bool hasCertifications = true, // testes do core; testes de extra passam false
+    bool hasDesiredPosition = true, // extras default "presentes" pra não poluir
+    bool hasLinkedin = true, // os testes do core; testes de extra passam false
+    bool hasCertifications = true,
+    bool hasAwards = true,
     bool hasProjects = true,
     bool hasAvailability = true,
     bool hasInterests = true,
   }) =>
       analyzeProfileGaps(
         hasArea: hasArea,
+        hasDesiredPosition: hasDesiredPosition,
         hasWorkMode: hasWorkMode,
         hasJobType: hasJobType,
         hasCity: hasCity,
@@ -36,6 +39,7 @@ void main() {
         hasSummary: hasSummary,
         hasLinkedin: hasLinkedin,
         hasCertifications: hasCertifications,
+        hasAwards: hasAwards,
         hasProjects: hasProjects,
         hasAvailability: hasAvailability,
         hasInterests: hasInterests,
@@ -145,7 +149,7 @@ void main() {
       expect((r1.single.input as SuggestPickInput).minSelections, 2);
     });
 
-    test('idiomas: expande pro nível de cada idioma NÃO-nativo (chips compactos)',
+    test('idiomas: expande pro nível de CADA idioma escolhido (chips compactos)',
         () {
       final plan = buildConversationPlan(gaps(
         hasArea: true,
@@ -160,9 +164,9 @@ void main() {
       final langs = plan.firstWhere((s) => s.id == 'gap.languages');
       final levels =
           langs.expand!(picks('gap.languages', ['Português', 'Inglês', 'Espanhol']));
-      // Português = nativo (sem passo); os demais ganham passo de nível.
+      // TODOS os idiomas escolhidos ganham passo de nível, inclusive português.
       expect(levels.map((s) => s.id),
-          ['lang.level.Inglês', 'lang.level.Espanhol']);
+          ['lang.level.Português', 'lang.level.Inglês', 'lang.level.Espanhol']);
       expect((levels.first.input as ChoiceInput).compact, true);
     });
 
@@ -176,8 +180,10 @@ void main() {
         skillsCount: 5,
         experienceCount: 1,
         languagesCount: 1,
+        hasDesiredPosition: false,
         hasLinkedin: false,
         hasCertifications: false,
+        hasAwards: false,
         hasProjects: false,
         hasAvailability: false,
         hasInterests: false,
@@ -186,8 +192,10 @@ void main() {
       expect(
         ids,
         containsAll([
+          'gap.desired_position', // cargo desejado (logo após áreas)
           'linkedin.gate',
           'cert.gate',
+          'award.gate',
           'project.gate',
           'gap.interests', // interesses é OBRIGATÓRIO — pergunta direta, sem gate
           'gap.availability',
@@ -262,8 +270,23 @@ void main() {
       ]);
       final ids = plan.map((s) => s.id);
       expect(ids, isNot(contains('project.gate')));
-      expect(ids, containsAll(['project.0.when', 'project.0.link']));
+      // Retoma em 'when' e segue até o gate 'current' (o 'link' vem depois, via
+      // expand do current — espelha o fluxo de experiência).
+      expect(ids, containsAll(['project.0.when', 'project.0.current']));
       expect(ids, isNot(contains('project.0.name'))); // já respondido
+    });
+
+    test('resumabilidade: draft de projeto que JÁ ENCERROU pede a data de fim',
+        () {
+      final plan = buildConversationPlan(gaps(hasProjects: false), drafts: const [
+        TrilhaItemDraft(
+            kind: 'project',
+            itemIndex: 0,
+            lastStepId: 'project.0.current',
+            fields: {'isCurrent': false}),
+      ]);
+      final ids = plan.map((s) => s.id);
+      expect(ids, containsAll(['project.0.end', 'project.0.link']));
     });
 
     test('resumabilidade: draft de educação (faculdade) retoma no curso', () {
@@ -276,8 +299,30 @@ void main() {
       ]);
       final ids = plan.map((s) => s.id);
       expect(ids, isNot(contains('gap.edu.moment'))); // momento já respondido
-      expect(ids, containsAll(['gap.edu.course', 'gap.edu.semester']));
+      expect(ids,
+          containsAll(['gap.edu.course', 'gap.edu.semester', 'gap.edu.graduation']));
       expect(ids, isNot(contains('gap.edu.institution'))); // já respondido
+    });
+
+    test('resumabilidade: abandonou no semestre → retoma só na formatura', () {
+      final plan = buildConversationPlan(gaps(), drafts: const [
+        TrilhaItemDraft(
+            kind: 'education',
+            itemIndex: 0,
+            lastStepId: 'gap.edu.semester',
+            fields: {'moment': 'in_college'}),
+      ]);
+      final ids = plan.map((s) => s.id).toList();
+      // Só falta a previsão de formatura (o passo terminal da faculdade).
+      expect(ids, contains('gap.edu.graduation'));
+      expect(
+          ids,
+          isNot(anyElement(isIn(const [
+            'gap.edu.moment',
+            'gap.edu.institution',
+            'gap.edu.course',
+            'gap.edu.semester',
+          ]))));
     });
 
     test('experiência: a gate expande em item ao responder "sim", vazio no "não"', () {

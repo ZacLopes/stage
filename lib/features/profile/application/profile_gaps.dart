@@ -22,6 +22,7 @@ enum LacunaTier { tier1, tier2, tier3 }
 /// Cada campo monetizável rastreado pelo cérebro de lacunas.
 enum LacunaKey {
   area,
+  desiredPosition,
   workMode,
   jobType,
   city,
@@ -33,6 +34,7 @@ enum LacunaKey {
   // Tier 3 — extras (PLANO-FASE-6: certs/projetos/LinkedIn/disponibilidade).
   linkedin,
   certifications,
+  awards,
   projects,
   availability,
   interests,
@@ -123,7 +125,9 @@ ProfileGaps analyzeProfileGaps({
   required int languagesCount,
   required bool hasSummary,
   bool hasLinkedin = false,
+  bool hasDesiredPosition = false,
   bool hasCertifications = false,
+  bool hasAwards = false,
   bool hasProjects = false,
   bool hasAvailability = false,
   bool hasInterests = false,
@@ -193,10 +197,22 @@ ProfileGaps analyzeProfileGaps({
       filled: hasLinkedin,
     ),
     Lacuna(
+      key: LacunaKey.desiredPosition,
+      tier: LacunaTier.tier3,
+      label: 'Cargo desejado',
+      filled: hasDesiredPosition,
+    ),
+    Lacuna(
       key: LacunaKey.certifications,
       tier: LacunaTier.tier3,
       label: 'Certificações',
       filled: hasCertifications,
+    ),
+    Lacuna(
+      key: LacunaKey.awards,
+      tier: LacunaTier.tier3,
+      label: 'Conquistas',
+      filled: hasAwards,
     ),
     Lacuna(
       key: LacunaKey.projects,
@@ -250,7 +266,9 @@ ProfileGaps profileGapsFromData({
     languagesCount: snapshot.languages.length,
     hasSummary: personal?.summary?.trim().isNotEmpty ?? false,
     hasLinkedin: personal?.linkedinUrl?.trim().isNotEmpty ?? false,
+    hasDesiredPosition: prefs?.desiredPosition?.trim().isNotEmpty ?? false,
     hasCertifications: snapshot.certifications.isNotEmpty,
+    hasAwards: snapshot.awards.isNotEmpty,
     hasProjects: snapshot.projects.isNotEmpty,
     hasAvailability: personal?.availability?.trim().isNotEmpty ?? false,
     hasInterests: snapshot.interests.isNotEmpty,
