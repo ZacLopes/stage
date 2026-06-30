@@ -26,7 +26,7 @@ const corsHeaders = {
 }
 
 const MODEL = 'gpt-4o-mini'
-const PROMPT_VERSION = 'v12' // bump quando alterar SYSTEM_PROMPT (invalida cache); v11 = salário removido; v12 = skills técnicas vs soft (taxonomia P5, 2026-06-17)
+const PROMPT_VERSION = 'v13' // bump quando alterar SYSTEM_PROMPT (invalida cache); v11 = salário removido; v12 = skills técnicas vs soft (taxonomia P5, 2026-06-17); v13 = bônus de cargo desejado (+8, 2026-06-30)
 const CACHE_TTL_DAYS = 30
 // Subido de 100 → 300 em 2026-05-26 porque PROMPT_VERSION bumps em sequência
 // (v5→v9) invalidaram cache de todos os jobs visíveis no app, forçando
@@ -128,6 +128,9 @@ async function pickPrefsForHash(
     locations: safe(prefs?.locations),
     work_models: safe(prefs?.work_models),
     job_types: safe(prefs?.job_types),
+    // Entra no hash pra que editar SÓ o cargo na trilha invalide o cache do
+    // match (senão o +8 só apareceria após mexer noutra dimensão ou o TTL).
+    desired_position: safe(prefs?.desired_position),
     skills: safe(whoIAm.skills),
     summary: safe(whoIAm.summary),
     interests: safe(whoIAm.interests),
@@ -226,8 +229,14 @@ async function loadPrefs(client: any, userId: string): Promise<any> {
 
     if (!hasRelational) {
       // Sem dados no relacional → usa legacy puro (cobre os ~381 users
-      // pré-migração que só têm user_preferences).
-      return legacy
+      // pré-migração que só têm user_preferences). Mas preserva o cargo desejado
+      // (só existe em profile_job_preferences) pro bônus valer no Cenário B (CV).
+      const dp =
+        typeof jp?.desired_position === 'string' &&
+        jp.desired_position.trim().length > 0
+          ? jp.desired_position.trim()
+          : null
+      return dp ? { ...legacy, desired_position: dp } : legacy
     }
 
     // Hidrata cada array preferindo o relacional; cai pro legacy quando o
@@ -237,6 +246,13 @@ async function loadPrefs(client: any, userId: string): Promise<any> {
       locations: relLocations.length > 0 ? relLocations : (legacy.locations ?? []),
       work_models: relWorkModes.length > 0 ? relWorkModes : (legacy.work_models ?? []),
       job_types: relJobTypes.length > 0 ? relJobTypes : (legacy.job_types ?? []),
+      // Cargo desejado: bônus no match (+8) quando bate com o título da vaga.
+      // Não conta como sinal relacional (não cria match sozinho); só refina.
+      desired_position:
+        typeof jp?.desired_position === 'string' &&
+        jp.desired_position.trim().length > 0
+          ? jp.desired_position.trim()
+          : null,
       // min_match_score afeta filtro client-side, não o prompt. Passa adiante.
       min_match_score: legacy.min_match_score ?? null,
     }
@@ -383,6 +399,7 @@ ESTRATÉGIA (escolha o cenário ANTES de pontuar):
 
 CENÁRIO A — candidato TEM preferências declaradas (áreas/cidades/modelo/tipo):
   Pesos: Área 30, Tipo 20, Localização 15, Modelo 15, Skills 10.
+  BÔNUS opcional: Cargo desejado +8 (ver regra abaixo) — só some quando o cargo bate.
   Avalie SOMENTE contra os dados que o candidato declarou.
   (Salário NÃO é dimensão de match — o app não coleta expectativa salarial.)
 
@@ -430,6 +447,15 @@ isso significa que QUALQUER UM desses valores serve pra ele. NÃO é "indeciso" 
     → matched=FALSE (presencial NÃO está na lista), weight=15 não contribui.
 
 Aplica-se identicamente pra areas, locations, job_types.
+
+REGRA — BÔNUS DE CARGO DESEJADO (opcional, +8):
+Se o candidato declarou "Cargo/posição desejada" (ex.: "Desenvolvedor Front-end")
+E ele bate com o título/função da vaga (mesmo cargo, sinônimo, ou variação de gênero/nível —
+ex.: "Desenvolvedor Front-end" ↔ "Desenvolvedora Front-End Júnior"), ADICIONE uma reason EXTRA:
+  {"label":"Cargo desejado","matched":true,"weight":8,"detail":"..."}
+É um bônus PEQUENO que premia o alinhamento exato de cargo — NÃO substitui nem infla as 5 dimensões.
+Se o candidato NÃO declarou cargo, OU o cargo NÃO bate com a vaga, NÃO inclua essa reason (sem bônus).
+Nunca use weight diferente de 8 nessa reason; nunca a inclua com matched=false.
 
 Seja generoso em afinidade SEMÂNTICA REAL (skills):
   "Marketing Digital" ↔ "Designer com Photoshop" = match (Adobe compartilhado)
@@ -489,6 +515,20 @@ OUTPUT (correto — usa CENÁRIO A com SÓ as dimensões que existem):
 ]}
 NOTA: 0 matched=true → score 0. NÃO retornar "Sem perfil" só porque a maioria está vazia — o user JÁ DECLAROU "remoto" e "Excel".
 
+# Exemplo 5 — Cenário A com BÔNUS de cargo desejado
+INPUT: candidato declarou areas=["Tecnologia"], job_types=["estagio"], Cargo/posição desejada="Desenvolvedor Front-end"
+       vaga: "Estágio em Desenvolvimento Front-end", área="Tecnologia", tipo="estagio"
+OUTPUT (correto):
+{"score": 58, "reasons": [
+  {"label":"Área","matched":true,"weight":30,"detail":"Tecnologia bate com seu interesse declarado."},
+  {"label":"Tipo","matched":true,"weight":20,"detail":"Estágio é o tipo que você procura."},
+  {"label":"Localização","matched":false,"weight":0,"detail":"Você não declarou cidade preferida."},
+  {"label":"Modelo","matched":false,"weight":0,"detail":"Você não declarou modelo de trabalho."},
+  {"label":"Skills","matched":false,"weight":0,"detail":"Você não declarou skills para comparar."},
+  {"label":"Cargo desejado","matched":true,"weight":8,"detail":"A vaga é exatamente o cargo Front-end que você busca."}
+]}
+NOTA: 30+20+8 = 58. O bônus de cargo só entra porque o cargo declarado bate com a vaga.
+
 ═══════════════════════════════════════════════════════════════════
 OUTPUT JSON ESTRITO:
 {"score": <int 0..100, soma EXATA dos weights matched>, "reasons": [{"label": "...", "matched": <bool>, "weight": <int>, "detail": "..."}, ...]}
@@ -545,6 +585,11 @@ function buildUserPrompt(opts: {
     lines.push(`Cidades preferidas: ${JSON.stringify(prefs?.locations ?? [])}`)
     lines.push(`Modelos preferidos: ${JSON.stringify(prefs?.work_models ?? [])}`)
     lines.push(`Tipos preferidos: ${JSON.stringify(prefs?.job_types ?? [])}`)
+    if (prefs?.desired_position) {
+      lines.push(
+        `Cargo/posição desejada: ${JSON.stringify(prefs.desired_position)}`,
+      )
+    }
     // whoIAm.derived legacy só entra se NÃO temos profile_text — o
     // profile_text das tabelas relacionais é fonte mais rica e atualizada.
     // Pra users históricos sem migração profile-first, whoIAm.derived ainda
@@ -614,7 +659,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<{
           { role: 'user', content: userPrompt },
         ],
         temperature: 0.2,
-        max_tokens: 700, // 6 reasons × ~250 chars (label + detail 150 + json overhead) ≈ 600 tokens
+        max_tokens: 800, // 5 dims + bônus de cargo (≤6 reasons) × ~250 chars + folga
         response_format: { type: 'json_object' },
       }),
     })
@@ -646,7 +691,17 @@ function parseAndValidate(raw: string): MatchPayload {
   const parsed = JSON.parse(text)
 
   const rawReasons = Array.isArray(parsed.reasons) ? parsed.reasons : []
-  const reasons: MatchReason[] = rawReasons.slice(0, 6).map((r: any) => ({
+  // Preserva a reason de bônus "Cargo desejado" (a IA a emite por último; se ela
+  // emitir reasons extras antes, o slice(0,6) a cortaria e o +8 sumiria do score
+  // E das reasons). Extrai por label e garante que entre nas 6 mantidas.
+  const isCargoReason = (r: any) =>
+    String(r?.label ?? '').toLowerCase().includes('cargo desejado')
+  const cargoReason = rawReasons.find(isCargoReason)
+  const baseReasons = rawReasons.filter((r: any) => !isCargoReason(r))
+  const keptReasons = cargoReason
+    ? [...baseReasons.slice(0, 5), cargoReason]
+    : baseReasons.slice(0, 6)
+  const reasons: MatchReason[] = keptReasons.map((r: any) => ({
     label: String(r?.label ?? ''),
     matched: r?.matched === true,
     weight: Number.isFinite(Number(r?.weight)) ? Number(r.weight) : 0,
