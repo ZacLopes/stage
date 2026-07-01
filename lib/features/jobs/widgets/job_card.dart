@@ -217,12 +217,6 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                             ],
                           ),
 
-                          if (widget.job.applicationMethod == 'email')
-                            Padding(
-                              padding: const EdgeInsets.only(top: 10),
-                              child: _buildAiApplicationCta(),
-                            ),
-
                           // CTA discreto quando confidence != high — orienta
                           // o user a completar perfil. Variante diferente
                           // pra low (âmbar forte) vs medium (azul suave).
@@ -519,36 +513,6 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
             color: _accent,
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildAiApplicationCta() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.primarySoft,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFBFDBFE), width: 1),
-      ),
-      child: const Row(
-        children: [
-          Icon(Icons.auto_awesome_rounded, size: 15, color: AppColors.primary),
-          SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Essa vaga aceita aplicações automáticas por IA, dê o swipe e acompanhe o resultado pelo WhatsApp ou Email!',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: AppColors.primary,
-                height: 1.18,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
