@@ -86,6 +86,7 @@ class TrilhaChatController extends ChangeNotifier {
     required this.userId,
     required this.sessionBuilder,
     this.snapshotService,
+    this.preFilledLoader,
     this.onFinalize,
     this.onStarted,
     this.interpret,
@@ -100,6 +101,11 @@ class TrilhaChatController extends ChangeNotifier {
 
   /// Pra o poll da extração (injetável p/ teste).
   final ProfileSnapshotService? snapshotService;
+
+  /// Rótulos (pt-BR, minúsculo) das seções que o perfil JÁ tem — pra abertura
+  /// adaptativa. Chamado 1x no [start]. null/vazio ⇒ perfil vazio ⇒ mostra o
+  /// gate de import (comportamento padrão). Ex.: `['formação', 'skills', 'idiomas']`.
+  final Future<List<String>> Function()? preFilledLoader;
 
   final Future<String?> Function()? onFinalize;
 
@@ -153,6 +159,28 @@ class TrilhaChatController extends ChangeNotifier {
   // ── Abertura: gate de import ────────────────────────────────────────────────
 
   Future<void> start() async {
+    // Descobre o que o perfil já tem pra escolher a abertura. Enquanto decide,
+    // fica em `converse`+typing (neutro) — o gate só renderiza em phase==gate,
+    // então não pisca os botões durante a decisão.
+    phase = ChatPhase.converse;
+    typing = true;
+    _notify();
+    List<String> filled = const [];
+    try {
+      filled = (await preFilledLoader?.call()) ?? const [];
+    } catch (_) {
+      filled = const []; // failure-safe: cai no gate padrão
+    }
+    if (_disposed) return;
+    if (filled.isEmpty) {
+      await _startGate();
+    } else {
+      await _startAdaptive(filled);
+    }
+  }
+
+  /// Perfil vazio: abertura padrão + gate "começar do zero / já tenho currículo".
+  Future<void> _startGate() async {
     phase = ChatPhase.gate;
     typing = true;
     _notify();
@@ -168,6 +196,42 @@ class TrilhaChatController extends ChangeNotifier {
         'Como prefere começar? Você pode subir um currículo que já tem ou começar do zero.'));
     _notify();
     // A view mostra o widget de escolha do gate enquanto phase == gate.
+  }
+
+  /// Perfil já tem dado: reconhece o que existe e vai DIRETO completar o que
+  /// falta (pula o gate de import — não faz sentido oferecer "começar do zero").
+  Future<void> _startAdaptive(List<String> filled) async {
+    phase = ChatPhase.converse; // sem gate
+    typing = true;
+    _notify();
+    final msg1 = 'Oi! Vi que você já tem ${_humanJoin(filled)} no seu perfil.';
+    await Future.delayed(_typingFor(msg1));
+    if (_disposed) return;
+    typing = false;
+    thread.add(AiMsgItem(msg1));
+    _notify();
+    await Future.delayed(_pauseFor(msg1));
+    if (_disposed) return;
+    typing = true;
+    _notify();
+    const msg2 = 'Bora completar o que falta pra deixar seu currículo redondo?';
+    await Future.delayed(_typingFor(msg2));
+    if (_disposed) return;
+    typing = false;
+    thread.add(const AiMsgItem(msg2));
+    _notify();
+    await Future.delayed(_pauseFor(msg2));
+    if (_disposed) return;
+    await _enterConverse(); // monta a sessão (só as lacunas) e revela o 1º passo
+  }
+
+  /// Junta rótulos numa lista natural pt-BR: [a] → "a"; [a,b] → "a e b";
+  /// [a,b,c] → "a, b e c".
+  static String _humanJoin(List<String> items) {
+    if (items.isEmpty) return '';
+    if (items.length == 1) return items.first;
+    if (items.length == 2) return '${items[0]} e ${items[1]}';
+    return '${items.sublist(0, items.length - 1).join(', ')} e ${items.last}';
   }
 
   /// "Começar do zero" → vai direto pra conversa.

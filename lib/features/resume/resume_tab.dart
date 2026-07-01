@@ -19,6 +19,7 @@ import '../../core/widgets/widgets.dart';
 import '../../services/ai_service.dart';
 import '../../services/analytics_events.dart';
 import '../../services/analytics_service.dart';
+import '../../services/profile_snapshot_service.dart';
 import '../auth/user_viewmodel.dart';
 import '../profile/application/profile_editor_view_model.dart';
 import '../trilha/application/trilha_section.dart';
@@ -86,6 +87,20 @@ class _ResumeTabState extends State<ResumeTab>
     final orch = TrilhaChatController(
       userId: uid,
       sessionBuilder: widget.sessionFactory ?? buildTrilhaSession,
+      // Abertura adaptativa: se o perfil já tem seções, a trilha reconhece e vai
+      // direto completar o que falta (pula o gate "começar do zero"). Vazio ⇒ gate.
+      preFilledLoader: () async {
+        try {
+          final snap = await ProfileSnapshotService().loadSnapshot(uid);
+          final filled = preFilledSectionsFromSnapshot(snap);
+          return kStepperSections
+              .where(filled.contains)
+              .map((s) => trilhaSectionLabel(s).toLowerCase())
+              .toList();
+        } catch (_) {
+          return const <String>[]; // failure-safe: cai no gate
+        }
+      },
       onFinalize: () => AIService().generateProfileSummary(),
       // Disparado ao entrar na conversa (pós-gate/import) com as lacunas já
       // recomputadas — então `total_steps` reflete o que sobrou pra perguntar.

@@ -14,6 +14,7 @@
 // Fica em application/ (não domain/) porque depende de [ConversationExchange] e
 // [TrilhaProgress], ambos desta camada.
 
+import '../../../services/profile_snapshot_service.dart' show ProfileSnapshot;
 import '../domain/conversation_step.dart';
 import 'conversation_controller.dart';
 import 'trilha_progress.dart';
@@ -34,6 +35,19 @@ const List<TrilhaSection> kStepperSections = <TrilhaSection>[
   TrilhaSection.idiomas,
   TrilhaSection.interesses,
 ];
+
+/// Seções (das 5 do stepper) que o perfil JÁ tem preenchidas. Base da abertura
+/// adaptativa da trilha: se retornar não-vazio, o chat reconhece o que existe e
+/// pula o gate de import (em vez de oferecer "começar do zero" a quem já tem dados).
+Set<TrilhaSection> preFilledSectionsFromSnapshot(ProfileSnapshot s) {
+  final out = <TrilhaSection>{};
+  if (s.education.isNotEmpty) out.add(TrilhaSection.formacao);
+  if (s.experiences.isNotEmpty) out.add(TrilhaSection.experiencia);
+  if (s.skills.isNotEmpty) out.add(TrilhaSection.skills);
+  if (s.languages.isNotEmpty) out.add(TrilhaSection.idiomas);
+  if (s.interests.isNotEmpty) out.add(TrilhaSection.interesses);
+  return out;
+}
 
 /// Rótulo curto da seção (pt-BR).
 String trilhaSectionLabel(TrilhaSection s) {
