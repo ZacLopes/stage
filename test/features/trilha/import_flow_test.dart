@@ -38,6 +38,7 @@ void main() {
   TrilhaChatController build({
     required ProfileSnapshotService snap,
     int steps = 1,
+    List<String>? preFilled,
     void Function(int)? onStarted,
   }) {
     Future<void> save(StepAnswer a) async {}
@@ -57,6 +58,7 @@ void main() {
       userId: 'u1',
       sessionBuilder: (_) async => session,
       snapshotService: snap,
+      preFilledLoader: preFilled == null ? null : (() async => preFilled),
       onStarted: onStarted,
       pollInterval: const Duration(milliseconds: 1),
       maxPolls: 5,
@@ -84,6 +86,28 @@ void main() {
     expect(c.phase, ChatPhase.converse);
     expect(c.currentStep?.id, 'gap.0');
     expect(startedWith, 1); // onStarted recebe o nº de passos
+  });
+
+  test('perfil com dados: abertura adaptativa (pula o gate, entra na conversa)',
+      () async {
+    var startedWith = -1;
+    final c = build(
+      snap: _FakeSnap([empty]), // não usado p/ a decisão (preFilled é injetado)
+      preFilled: const ['formação', 'skills', 'idiomas'],
+      onStarted: (n) => startedWith = n,
+    );
+    addTearDown(c.dispose);
+
+    await c.start();
+
+    // NÃO mostra o gate — vai direto pra conversa das lacunas.
+    expect(c.phase, ChatPhase.converse);
+    // Reconhece o que já existe na abertura (lista natural pt-BR).
+    final msgs = c.thread.whereType<AiMsgItem>().map((m) => m.text).join(' ');
+    expect(msgs, contains('formação, skills e idiomas'));
+    // Já revelou o 1º passo (não parou no gate).
+    expect(c.currentStep?.id, 'gap.0');
+    expect(startedWith, 1);
   });
 
   test('import: poll vê counts subirem → card-resumo + aguarda confirmação',
