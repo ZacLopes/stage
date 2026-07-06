@@ -269,6 +269,7 @@ export function renderEmailHtml(p: ReportPayload): string {
     ${bigNumber(match.totalApplies, 'aplicações reais')}
     ${bigNumber(pct(match.swipeToApplyRate), 'conv. swipe→apply')}
     ${bigNumber(match.avgMatchScore.toFixed(0), 'match score médio')}
+    <p style="color:${STYLE.muted};font-size:11px;margin:8px 0 0">Fonte de "aplicações": tabela <code>applications</code> a partir de 10/06 — antes era a coluna DEPRECATED <code>swipe_actions.applied</code>, que builds novos não escrevem mais. O patamar mudou por causa da troca de fonte (também vale p/ a série diária/semanal).</p>
     <h3 style="margin:16px 0 6px;font-size:13px;color:${STYLE.muted};text-transform:uppercase;letter-spacing:0.5px">Top 5 vagas curtidas</h3>
     ${topJobsHtml}
     <h3 style="margin:16px 0 6px;font-size:13px;color:${STYLE.muted};text-transform:uppercase;letter-spacing:0.5px">Top empresas curtidas</h3>
