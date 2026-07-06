@@ -108,3 +108,4 @@
 20260623190000_profile_guided_progress.sql
 20260623200000_completeness_recalibrate_b.sql
 20260630120000_profile_jobprefs_desired_position.sql
+20260706120000_onda2_shortlist_venda.sql

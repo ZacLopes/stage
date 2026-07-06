@@ -13,6 +13,13 @@ import {
 // Scoring puro do auto-rank (extraído p/ ser testável — index.ts chama serve()
 // no top-level e não pode ser importado por deno test). Fase 7 Onda 1.
 import { type CandidateProfile, scoreCandidate, text } from './scoring.ts';
+import {
+  EXPORT_HEADERS,
+  exportRowCells,
+  isInternalAccount,
+  isSyntheticEmail,
+  LANG_LEVEL_PT,
+} from './export_csv.ts';
 
 interface CandidateListsRequest {
   action?: 'list' | 'detail' | 'create' | 'generate' | 'update_item' | 'export';
@@ -36,6 +43,9 @@ interface CandidateListsRequest {
   item?: {
     status?: 'pending' | 'approved' | 'rejected' | 'exported';
     notes?: string | null;
+    // Resultado por candidato entregue (Fase 7 Onda 2 · T-C3).
+    outcome?: 'interviewing' | 'interviewed' | 'hired' | 'not_selected' | 'no_response' | null;
+    outcomeNote?: string | null;
   };
 }
 
@@ -79,27 +89,43 @@ async function buildCandidateProfiles(
   const userIds = (users ?? []).map((row: any) => row.id);
   if (userIds.length === 0) return [];
 
-  const [personalR, skillsR, titlesR, eduR, prefsR, otherLocsR, swipesR, consentsR] = await Promise
-    .all([
-      supabase.from('profile_personal').select('*').in('user_id', userIds),
-      supabase.from('profile_skills').select('user_id, name').in('user_id', userIds),
-      supabase.from('profile_desired_titles').select('user_id, title').in('user_id', userIds),
-      supabase
-        .from('profile_education')
-        .select('user_id, institution, degree, profile_education_majors(name)')
-        .in('user_id', userIds),
-      supabase.from('profile_job_preferences').select('*').in('user_id', userIds),
-      supabase.from('profile_other_locations').select('user_id, city, state, country').in(
-        'user_id',
-        userIds,
-      ),
-      supabase.from('swipe_actions').select('user_id, action, applied').in('user_id', userIds)
-        .limit(100000),
-      supabase.from('candidate_data_sharing_consents').select('user_id, status').in(
-        'user_id',
-        userIds,
-      ),
-    ]);
+  const [
+    personalR,
+    skillsR,
+    titlesR,
+    eduR,
+    prefsR,
+    otherLocsR,
+    swipesR,
+    consentsR,
+    langsR,
+    resumesR,
+  ] = await Promise.all([
+    supabase.from('profile_personal').select('*').in('user_id', userIds),
+    supabase.from('profile_skills').select('user_id, name').in('user_id', userIds),
+    supabase.from('profile_desired_titles').select('user_id, title').in('user_id', userIds),
+    supabase
+      .from('profile_education')
+      .select(
+        'user_id, institution, degree, current_semester, education_level, education_status, end_date, profile_education_majors(name)',
+      )
+      .in('user_id', userIds),
+    supabase.from('profile_job_preferences').select('*').in('user_id', userIds),
+    supabase.from('profile_other_locations').select('user_id, city, state, country').in(
+      'user_id',
+      userIds,
+    ),
+    supabase.from('swipe_actions').select('user_id, action, applied').in('user_id', userIds)
+      .limit(100000),
+    supabase.from('candidate_data_sharing_consents').select('user_id, status').in(
+      'user_id',
+      userIds,
+    ),
+    supabase.from('profile_languages').select('user_id, name, proficiency').in('user_id', userIds),
+    // CSV v2 (Fase 7 Onda 2): link do CV. order desc → 1ª por user = mais recente.
+    supabase.from('saved_resumes').select('user_id, file_path, created_at').in('user_id', userIds)
+      .order('created_at', { ascending: false }),
+  ]);
 
   const personal = new Map<string, any>(
     (personalR.data ?? []).map((row: any) => [row.user_id, row]),
@@ -109,6 +135,9 @@ async function buildCandidateProfiles(
   const skills = new Map<string, string[]>();
   const titles = new Map<string, string[]>();
   const education = new Map<string, string[]>();
+  const eduStructured = new Map<string, any>();
+  const languages = new Map<string, string>();
+  const cvPaths = new Map<string, string>();
   const otherLocations = new Map<string, string[]>();
   const activity = new Map<string, { likes: number; applies: number }>();
 
@@ -128,6 +157,29 @@ async function buildCandidateProfiles(
     values.push(text(row.degree));
     for (const major of row.profile_education_majors ?? []) values.push(text(major.name));
     education.set(row.user_id, values.filter(Boolean));
+    // Estruturado p/ o CSV v2: prefere a formação de faculdade; senão a 1ª vista.
+    const existing = eduStructured.get(row.user_id);
+    const isCollege = row.education_level === 'college';
+    if (!existing || (isCollege && existing.level !== 'college')) {
+      const major = (row.profile_education_majors ?? [])[0]?.name;
+      const gradYear = row.end_date ? Number(String(row.end_date).slice(0, 4)) : NaN;
+      eduStructured.set(row.user_id, {
+        institution: text(row.institution),
+        course: text(major) || text(row.degree),
+        semester: row.current_semester ?? null,
+        graduation: Number.isFinite(gradYear) ? gradYear : null,
+        level: text(row.education_level),
+      });
+    }
+  }
+  for (const row of langsR.data ?? []) {
+    const level = row.proficiency ? (LANG_LEVEL_PT[row.proficiency] ?? row.proficiency) : '';
+    const label = level ? `${row.name} (${level})` : row.name;
+    const prev = languages.get(row.user_id) ?? '';
+    languages.set(row.user_id, prev ? `${prev}, ${label}` : label);
+  }
+  for (const row of resumesR.data ?? []) {
+    if (!cvPaths.has(row.user_id) && row.file_path) cvPaths.set(row.user_id, row.file_path);
   }
   for (const row of otherLocsR.data ?? []) {
     const values = otherLocations.get(row.user_id) ?? [];
@@ -147,10 +199,12 @@ async function buildCandidateProfiles(
     const p = personal.get(user.id);
     const pref = prefs.get(user.id);
     const act = activity.get(user.id) ?? { likes: 0, applies: 0 };
+    const edu = eduStructured.get(user.id);
+    const email = p?.email || user.email || '';
     return {
       userId: user.id,
       name: [p?.first_name, p?.last_name].filter(Boolean).join(' ') || user.name || '',
-      email: p?.email || user.email || '',
+      email,
       phone: p?.phone_number_e164 || p?.phone_number || user.phone || '',
       city: p?.location_city ?? '',
       // Cidade só em JP (176 candidatos legacy): entra no COALESCE de
@@ -171,6 +225,19 @@ async function buildCandidateProfiles(
       applies: act.applies,
       consentStatus: consent.get(user.id) ?? 'not_asked',
       createdAt: user.created_at,
+      // ── CSV v2 (Fase 7 Onda 2) — estruturado p/ o entregável, não p/ o rank ──
+      institution: edu?.institution ?? '',
+      course: edu?.course ?? '',
+      semester: edu?.semester ?? null,
+      graduationYear: edu?.graduation ?? null,
+      educationLevel: edu?.level ?? '',
+      languages: languages.get(user.id) ?? '',
+      linkedin: p?.linkedin_url ?? '',
+      availability: p?.availability ?? '',
+      desiredPosition: pref?.desired_position ?? '',
+      cvPath: cvPaths.get(user.id) ?? '',
+      isSyntheticEmail: isSyntheticEmail(email),
+      isInternal: isInternalAccount(email),
     };
   });
 }
@@ -197,8 +264,18 @@ async function requestPayloadFromInput(
   const title = text(input.title) || text(job?.title);
   if (!title) throw new AdminHttpError(400, 'missing_title', 'Candidate list title is required');
 
+  // Fase 7 Onda 2 (T-C2): cliente é obrigatório — sem isso não há rastreabilidade
+  // de PARA QUEM a PII foi, nem métrica de recompra por empresa.
+  if (!input.clientId) {
+    throw new AdminHttpError(
+      400,
+      'missing_client',
+      'Selecione (ou cadastre) uma empresa cliente para criar a lista',
+    );
+  }
+
   return {
-    client_id: input.clientId ?? null,
+    client_id: input.clientId,
     source_job_id: input.sourceJobId ?? null,
     title,
     area: input.area ?? job?.area ?? null,
@@ -249,6 +326,10 @@ async function loadItems(supabase: any, requestId: string) {
       scoreBreakdown: item.score_breakdown,
       status: item.status,
       notes: item.notes,
+      outcome: item.outcome ?? null,
+      outcomeNote: item.outcome_note ?? null,
+      // Fase 7 Onda 2: export IGNORA consent; `exportable` só informa o status
+      // (a UI pode exibir), não bloqueia mais o export.
       exportable: profile?.consentStatus === 'granted',
       candidate: profile
         ? {
@@ -339,6 +420,12 @@ serve(async (req: Request) => {
       const payload: Record<string, unknown> = {};
       if (body.item.status) payload.status = body.item.status;
       if (body.item.notes !== undefined) payload.notes = body.item.notes;
+      // Fase 7 Onda 2 (T-C3): resultado do candidato entregue à empresa.
+      if (body.item.outcome !== undefined) {
+        payload.outcome = body.item.outcome;
+        payload.outcome_at = body.item.outcome ? new Date().toISOString() : null;
+      }
+      if (body.item.outcomeNote !== undefined) payload.outcome_note = body.item.outcomeNote;
       const { data, error } = await supabase
         .from('candidate_list_items')
         .update(payload)
@@ -360,46 +447,51 @@ serve(async (req: Request) => {
         throw new AdminHttpError(403, 'owner_required', 'Only owner admins can export');
       }
       if (!body.id) return jsonResponse({ error: 'missing_id' }, 400);
+      const requestRow = await loadRequest(supabase, body.id);
       const items = await loadItems(supabase, body.id);
-      const approved = items.filter((item: any) => item.status === 'approved' && item.exportable);
-      if (approved.length === 0) {
-        return jsonResponse({
-          error: 'no_exportable_candidates',
-          message: 'No approved candidates with granted consent',
-        }, 400);
-      }
+      // Fase 7 Onda 2: o export IGNORA o consent (decisão do fundador — é teste
+      // do modelo, não produção comercial). Exporta os itens APROVADOS; exclui
+      // apenas a(s) conta(s) de teste interna(s).
+      const approved = items.filter((item: any) => item.status === 'approved');
 
       const profiles = new Map(
         (await buildCandidateProfiles(supabase, approved.map((item: any) => item.userId)))
           .map((profile) => [profile.userId, profile]),
       );
-      const rows = approved.map((item: any) => profiles.get(item.userId)).filter(
-        Boolean,
-      ) as CandidateProfile[];
-      const headers = ['nome', 'email', 'telefone', 'cidade', 'estado', 'headline', 'skills'];
-      // Delimitador ';' + skills juntas com ', ': o Excel pt-BR usa ';' como
-      // separador de CSV (a vírgula é separador decimal aqui), então com ','
-      // as colunas não separavam. Todo campo já sai entre aspas (csvEscape),
-      // então ';' dentro de um valor é seguro. CRLF + BOM (no downloadCsv)
-      // completam a compatibilidade com Excel.
+      const exportRows = approved
+        .map((item: any) => ({ item, profile: profiles.get(item.userId) as CandidateProfile }))
+        .filter((r: any) => r.profile && !r.profile.isInternal);
+      if (exportRows.length === 0) {
+        return jsonResponse({
+          error: 'no_exportable_candidates',
+          message: 'Nenhum candidato aprovado para exportar',
+        }, 400);
+      }
+
+      // Link assinado do CV (bucket `resumes`, expira em 14 dias). Best-effort:
+      // sem CV acessível → coluna vazia, não derruba o export.
+      const cvUrls = new Map<string, string>();
+      await Promise.all(exportRows.map(async (r: any) => {
+        if (!r.profile.cvPath) return;
+        try {
+          const { data } = await supabase.storage
+            .from('resumes')
+            .createSignedUrl(r.profile.cvPath, 60 * 60 * 24 * 14);
+          if (data?.signedUrl) cvUrls.set(r.profile.userId, data.signedUrl);
+        } catch (_) { /* ignora — coluna vazia */ }
+      }));
+
+      // Delimitador ';' (Excel pt-BR usa ',' como decimal). Cada célula passa por
+      // csvEscape (aspas) e os campos de texto do candidato por sanitizeCsvValue
+      // (anti-injeção de fórmula) dentro de exportRowCells. CRLF + BOM completam.
       const csv = [
-        headers.map(csvEscape).join(';'),
-        ...rows.map((profile) =>
-          [
-            profile.name,
-            profile.email,
-            // Telefone como fórmula-texto ="...": o Excel avalia como string
-            // literal e mantém o "+", em vez de tratar o E.164 (13 dígitos +
-            // sinal) como número e mostrar notação científica / comer o "+".
-            profile.phone ? `="${profile.phone}"` : '',
-            // COALESCE PP.location_city → JP.primary_location_city: sem isso, os
-            // 176 candidatos com cidade só em JP saíam com a coluna cidade vazia
-            // no CSV vendido. Fase 7 Onda 1.
-            profile.city || profile.primaryLocationCity,
-            profile.state,
-            profile.headline,
-            profile.skills.join(', '),
-          ].map(csvEscape).join(';')
+        EXPORT_HEADERS.map(csvEscape).join(';'),
+        ...exportRows.map((r: any) =>
+          exportRowCells(
+            r.profile,
+            { score: r.item.score, scoreBreakdown: r.item.scoreBreakdown },
+            cvUrls.get(r.profile.userId) ?? '',
+          ).map(csvEscape).join(';')
         ),
       ].join('\r\n');
 
@@ -407,10 +499,11 @@ serve(async (req: Request) => {
         .from('candidate_list_exports')
         .insert({
           request_id: body.id,
+          client_id: requestRow.client_id ?? null,
           exported_by: ctx.email,
           format: 'csv',
-          exported_fields: headers,
-          candidate_count: rows.length,
+          exported_fields: EXPORT_HEADERS,
+          candidate_count: exportRows.length,
         })
         .select()
         .single();
@@ -419,7 +512,7 @@ serve(async (req: Request) => {
       await supabase
         .from('candidate_list_items')
         .update({ status: 'exported' })
-        .in('id', approved.map((item: any) => item.id));
+        .in('id', exportRows.map((r: any) => r.item.id));
       await supabase
         .from('candidate_list_requests')
         .update({ status: 'exported' })
@@ -428,12 +521,16 @@ serve(async (req: Request) => {
         action: 'admin_candidate_list_exported',
         entityType: 'candidate_list_request',
         entityId: body.id,
-        metadata: { count: rows.length, export_id: exportRow.id },
+        metadata: {
+          count: exportRows.length,
+          export_id: exportRow.id,
+          client_id: requestRow.client_id ?? null,
+        },
       });
 
       return jsonResponse({
         filename: `stage-candidate-list-${body.id}.csv`,
-        count: rows.length,
+        count: exportRows.length,
         csv,
       });
     }
