@@ -124,6 +124,10 @@ ProfileGaps analyzeProfileGaps({
   required int experienceCount,
   required int languagesCount,
   required bool hasSummary,
+  // Idiomas sem nível (proficiency null). A lacuna de idiomas só é "cheia"
+  // quando TODOS têm nível — senão a trilha volta a perguntar o nível que
+  // faltou. Default 0 pra não quebrar callers antigos. Fase 7 · +10 (Tarefa 3).
+  int languagesMissingLevel = 0,
   bool hasLinkedin = false,
   bool hasDesiredPosition = false,
   bool hasCertifications = false,
@@ -181,7 +185,9 @@ ProfileGaps analyzeProfileGaps({
       key: LacunaKey.languages,
       tier: LacunaTier.tier2,
       label: 'Idiomas',
-      filled: languagesCount >= 1,
+      // Só cheia com ≥1 idioma E todos com nível — assim quem sai entre o
+      // picker e os níveis volta a ser perguntado (Fase 7 · +10 Tarefa 3).
+      filled: languagesCount >= 1 && languagesMissingLevel == 0,
     ),
     // Tier 3 — acabamento.
     Lacuna(
@@ -264,6 +270,8 @@ ProfileGaps profileGapsFromData({
     skillsCount: snapshot.skills.length,
     experienceCount: snapshot.experiences.length,
     languagesCount: snapshot.languages.length,
+    languagesMissingLevel:
+        snapshot.languages.where((l) => l.proficiency == null).length,
     hasSummary: personal?.summary?.trim().isNotEmpty ?? false,
     hasLinkedin: personal?.linkedinUrl?.trim().isNotEmpty ?? false,
     hasDesiredPosition: prefs?.desiredPosition?.trim().isNotEmpty ?? false,

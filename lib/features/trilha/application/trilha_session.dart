@@ -93,6 +93,11 @@ Future<TrilhaSession> buildTrilhaSession(
   final plan = buildConversationPlan(
     gaps,
     addressed: addressed,
+    // Idiomas sem nível → na volta pergunta só o nível que faltou (não o picker).
+    languagesNeedingLevel: snapshot.languages
+        .where((l) => l.proficiency == null)
+        .map((l) => l.name)
+        .toList(),
     skillSuggestions: skillSuggestions,
     skillCatalog: skillCatalog,
     // Depois de marcar skills, a IA sugere mais algumas pelo perfil (opcional).

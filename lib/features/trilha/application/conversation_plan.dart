@@ -35,6 +35,9 @@ List<ConversationStep> buildConversationPlan(
   Future<List<PickSuggestion>> Function(String query)? institutionSearch,
   // Rascunhos de item em construção (resumabilidade por passo): retoma no ponto.
   List<TrilhaItemDraft> drafts = const [],
+  // Idiomas já escolhidos que ainda estão SEM nível (proficiency null). Na volta,
+  // a trilha pergunta SÓ o nível desses — sem re-rodar o picker. Fase 7 · +10 T3.
+  List<String> languagesNeedingLevel = const [],
 }) {
   final missing = gaps.missing.map((l) => l.key).toSet();
   // Pergunta um trecho só se a lacuna existe E ele ainda não foi abordado
@@ -65,7 +68,15 @@ List<ConversationStep> buildConversationPlan(
     if (wants(LacunaKey.skills, 'skills'))
       _skills(skillSuggestions, skillCatalog, skillSuggester,
           skillSuggestionsLoader),
-    if (wants(LacunaKey.languages, 'languages')) _languages(),
+    // Idiomas: se já há idiomas escolhidos sem nível (ex.: voltou depois de
+    // sair no meio, ou import trouxe idioma sem nível), pergunta SÓ os níveis
+    // que faltam — não re-roda o picker. Senão, mostra o picker (que gera os
+    // níveis dos escolhidos). Fase 7 · +10 (Tarefa 3).
+    if (wants(LacunaKey.languages, 'languages'))
+      if (languagesNeedingLevel.isNotEmpty)
+        for (final lang in languagesNeedingLevel) _languageLevel(lang)
+      else
+        _languages(),
     // Experiência (DINÂMICA): entrevista um campo por vez, loop "adicionar outra?".
     // Com rascunho → RETOMA no passo em vez de re-perguntar o item inteiro.
     if (wants(LacunaKey.experience, 'experience'))
