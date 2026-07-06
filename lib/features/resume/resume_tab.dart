@@ -620,13 +620,24 @@ class _ResumeTabState extends State<ResumeTab>
       final userVM = context.read<UserViewModel>();
       final user = userVM.user;
       final uid = user?.id ?? Supabase.instance.client.auth.currentUser?.id;
-      // ResumeRenderer prefere os dados de profile_* (v2) sobre o fallback —
-      // exporta o que a trilha coletou quando a flag templates_v2 está ON.
+      if (uid == null) {
+        throw Exception('Sessão expirada — entre novamente para exportar.');
+      }
+      // O currículo desta aba (trilha de IA) é montado a partir do que a trilha
+      // coletou nas tabelas profile_*, via ProfileSnapshot — NÃO do
+      // resumeVM.resumeData legado (gamificação desligada), que vinha vazio e
+      // gerava um PDF em branco. Assim o export funciona independente da flag
+      // templates_v2. O CV adaptado por vaga é outro fluxo (parte de um CV
+      // importado) e não passa por aqui — segue intacto.
+      final snapshot = await ProfileSnapshotService().loadSnapshot(uid);
+      final resumeFromProfile = snapshot.toResumeData(
+        userFallbackName: user?.name,
+      );
       final rendered = await ResumeRenderer.render(
         userId: uid,
         user: user,
-        fallbackResume: resumeVM.resumeData ?? ResumeData(),
-        templateId: resumeVM.selectedTemplateId,
+        fallbackResume: resumeFromProfile,
+        templateId: resumeVM.selectedTemplateId, // padrão: harvard_ats
         purpose: 'export',
       );
       final safeName = (user?.name ?? 'profissional').replaceAll(' ', '_');
