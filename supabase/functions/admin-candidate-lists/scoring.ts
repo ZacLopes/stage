@@ -32,6 +32,20 @@ export interface CandidateProfile {
   applies: number;
   consentStatus: string;
   createdAt: string;
+  // Campos ricos p/ o CSV v2 (Fase 7 Onda 2). Opcionais — o scoring não usa;
+  // buildCandidateProfiles preenche. Estruturados p/ o export, não p/ o rank.
+  institution?: string;
+  course?: string;
+  semester?: number | null;
+  graduationYear?: number | null;
+  educationLevel?: string;
+  languages?: string;
+  linkedin?: string;
+  availability?: string;
+  desiredPosition?: string;
+  cvPath?: string;
+  isSyntheticEmail?: boolean;
+  isInternal?: boolean;
 }
 
 export function text(value: unknown): string {
