@@ -65,29 +65,17 @@ async function resolveCandidateIds(
 ): Promise<string[]> {
   const sets: Array<Set<string>> = [];
 
-  // Base: todo mundo com perfil relacional (profile_personal), ordenado por
-  // completude DESC (P8 — perfis mais completos primeiro na shortlist; o
-  // completeness_score agora é real, P3). A interseção por Set preserva a ordem
-  // de inserção, então o resultado final sai ordenado por completude.
-  // NOTA: PostgREST corta em 1000 rows → busca cobre os 1000 MAIS COMPLETOS
-  // (subconjunto certo p/ shortlist; universo é ~1.7k).
-  let base = supabase.from('profile_personal').select('user_id')
-    .order('completeness_score', { ascending: false });
-  if (typeof f.minCompleteness === 'number' && f.minCompleteness > 0) {
-    base = base.gte('completeness_score', f.minCompleteness);
-  }
-  const baseR = await base;
-  if (baseR.error) throw new AdminHttpError(500, 'search_base_failed', baseR.error.message);
-  sets.push(new Set((baseR.data ?? []).map((r: { user_id: string }) => r.user_id)));
-
   // Cidade: une as DUAS fontes de verdade — profile_personal.location_city
   // (onboarding/LocationScreen) e profile_job_preferences.primary_location_city
-  // (backfill legacy / trilha +10). Antes o filtro lia só location_city, então
-  // os 176 candidatos com cidade só em JP eram invisíveis à busca (Fase 7 Onda
-  // 1). Mesma mecânica do filtro de curso: OR entre fontes via união de Sets,
-  // AND vs as demais dimensões. Consequência: a cidade deixou de ser filtrada
-  // na base (pré-corte) e virou Set secundário (pós-corte de 1000 do PostgREST,
-  // como TODOS os outros filtros) — o teto de 1000 segue sendo issue separado.
+  // (backfill legacy / trilha +10) — e aplica o union como filtro PRÉ-CORTE na
+  // base (.in abaixo). Antes o filtro lia só location_city, então os 176
+  // candidatos com cidade só em JP eram invisíveis à busca (Fase 7 Onda 1).
+  // Pré-corte (não Set secundário pós-corte) porque a base corta em 1000 por
+  // completude: com o .in a base vira "top 1000 por completude ENTRE quem é
+  // daquela cidade" — pega TODOS os da cidade (inclusive os magros, abaixo do
+  // top-1000 geral) e não derruba candidatos de cidades médias. .in é seguro
+  // nesta base (~1.7k): nenhuma cidade sozinha passa de 1000 rows.
+  let cityIds: Set<string> | null = null;
   if (f.city && f.city.trim()) {
     const [pp, jp] = await Promise.all([
       supabase.from('profile_personal').select('user_id').ilike('location_city', ilike(f.city)),
@@ -96,11 +84,28 @@ async function resolveCandidateIds(
     ]);
     if (pp.error) throw new AdminHttpError(500, 'search_city_pp_failed', pp.error.message);
     if (jp.error) throw new AdminHttpError(500, 'search_city_jp_failed', jp.error.message);
-    const ids = new Set<string>();
-    for (const r of pp.data ?? []) ids.add((r as { user_id: string }).user_id);
-    for (const r of jp.data ?? []) ids.add((r as { user_id: string }).user_id);
-    sets.push(ids);
+    cityIds = new Set<string>();
+    for (const r of pp.data ?? []) cityIds.add((r as { user_id: string }).user_id);
+    for (const r of jp.data ?? []) cityIds.add((r as { user_id: string }).user_id);
+    // Cidade filtrada que não casou ninguém → resultado vazio (e evita .in([])).
+    if (cityIds.size === 0) return [];
   }
+
+  // Base: todo mundo com perfil relacional (profile_personal), ordenado por
+  // completude DESC (P8 — perfis mais completos primeiro na shortlist; o
+  // completeness_score agora é real, P3). A interseção por Set preserva a ordem
+  // de inserção, então o resultado final sai ordenado por completude.
+  // NOTA: PostgREST corta em 1000 rows. Com o filtro de cidade aplicado ANTES do
+  // corte (.in), a base cobre os 1000 mais completos DAQUELA cidade.
+  let base = supabase.from('profile_personal').select('user_id')
+    .order('completeness_score', { ascending: false });
+  if (cityIds) base = base.in('user_id', [...cityIds]);
+  if (typeof f.minCompleteness === 'number' && f.minCompleteness > 0) {
+    base = base.gte('completeness_score', f.minCompleteness);
+  }
+  const baseR = await base;
+  if (baseR.error) throw new AdminHttpError(500, 'search_base_failed', baseR.error.message);
+  sets.push(new Set((baseR.data ?? []).map((r: { user_id: string }) => r.user_id)));
 
   if (f.course && f.course.trim()) {
     const [up, edu] = await Promise.all([
