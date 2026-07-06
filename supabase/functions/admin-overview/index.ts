@@ -77,13 +77,23 @@ serve(async (req: Request) => {
       countRows(supabase, 'jobs', [(q) => q.eq('is_active', true)]),
       countRows(supabase, 'jobs'),
       countRows(supabase, 'swipe_actions', [(q) => q.eq('action', 'liked')]),
-      countRows(supabase, 'swipe_actions', [(q) => q.eq('applied', true)]),
+      // Fonte: applications (verdade viva), NÃO swipe_actions.applied (DEPRECATED,
+      // só builds ≤2.2.0 escrevem). countsAsApplied = qualquer status exceto
+      // withdrawn/expired (espelha applications.dart). Fase 7 Onda 1.
+      countRows(supabase, 'applications', [
+        (q) => q.neq('status', 'withdrawn').neq('status', 'expired'),
+      ]),
       countRows(supabase, 'adapted_resumes'),
       countRows(supabase, 'candidate_data_sharing_consents', [(q) => q.eq('status', 'granted')]),
       countRows(supabase, 'candidate_data_sharing_consents', [(q) => q.eq('status', 'not_asked')]),
     ]);
 
-    const [{ data: recentUsers }, { data: recentSwipes }, { data: jobsByAreaRows }] = await Promise
+    const [
+      { data: recentUsers },
+      { data: recentSwipes },
+      { data: recentApplications },
+      { data: jobsByAreaRows },
+    ] = await Promise
       .all([
         supabase
           .from('user_profiles')
@@ -92,7 +102,15 @@ serve(async (req: Request) => {
           .limit(50000),
         supabase
           .from('swipe_actions')
-          .select('created_at, applied, action')
+          .select('created_at, action')
+          .gte('created_at', sinceIso)
+          .limit(50000),
+        // Série de candidaturas: applications (created_at = quando aplicou; o
+        // backfill/bridge preservam o applied_at histórico), não a coluna
+        // DEPRECATED swipe_actions.applied. Fase 7 Onda 1.
+        supabase
+          .from('applications')
+          .select('created_at, status')
           .gte('created_at', sinceIso)
           .limit(50000),
         supabase
@@ -116,9 +134,12 @@ serve(async (req: Request) => {
       if (row.action === 'liked' && likesByDay.has(key)) {
         likesByDay.set(key, (likesByDay.get(key) ?? 0) + 1);
       }
-      if (row.applied === true && appliesByDay.has(key)) {
-        appliesByDay.set(key, (appliesByDay.get(key) ?? 0) + 1);
-      }
+    }
+    for (const row of recentApplications ?? []) {
+      // countsAsApplied: exclui withdrawn/expired (espelha applications.dart).
+      if (row.status === 'withdrawn' || row.status === 'expired') continue;
+      const key = dateKey(new Date(row.created_at));
+      if (appliesByDay.has(key)) appliesByDay.set(key, (appliesByDay.get(key) ?? 0) + 1);
     }
 
     const areaMap = new Map<string, number>();
