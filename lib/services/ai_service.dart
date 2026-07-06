@@ -51,17 +51,28 @@ class AIService {
   /// descasamento vira cache miss no cliente, evitando que scores de regras
   /// antigas apareçam até a IA recomputar.
   ///
-  /// O valor REAL em uso vem de `app_config.match_prompt_version` (hoje 'v10'),
-  /// lido 1x por sessão em [_resolveMatchPromptVersion]. Trocar esse valor no
-  /// banco é o "botão de rollback" instantâneo, sem precisar de release.
+  /// O valor REAL em uso vem de `app_config.match_prompt_version`, lido 1x por
+  /// sessão em [_resolveMatchPromptVersion]. Trocar esse valor no banco é o
+  /// "botão de rollback" instantâneo, sem precisar de release.
   ///
-  /// Este const é só o FALLBACK conservador pra quando o `app_config` não pode
-  /// ser lido (rede/RLS): 'v4' = comportamento idêntico ao de hoje (lê o cache
-  /// v4 que já existe, sem disparar recomputo em massa).
-  static const String _matchPromptVersionFallback = 'v4';
+  /// SEM FALLBACK de versão: quando o `app_config` não pode ser lido (rede/RLS)
+  /// ou vem vazio, [_resolveMatchPromptVersion] devolve `null` e
+  /// [fetchCachedMatches] NÃO hidrata cache nenhum — o cliente cai no
+  /// determinístico. Antes o fallback era 'v4' hardcoded, que em QUALQUER falha
+  /// de rede hidratava scores da maior coorte MORTA (pré-taxonomia, pré-bônus
+  /// de cargo, ~18k rows que o servidor não grava mais): servir cache de uma
+  /// versão que ninguém escreve é pior do que não servir cache. (Fase 7 Onda 1.)
+  ///
+  /// Puro e testável: dado o valor cru do `app_config`, resolve a versão de
+  /// confiança (trim + não-vazia) ou `null`.
+  static String? resolveMatchPromptVersionFromConfig(String? raw) {
+    final v = raw?.trim();
+    return (v != null && v.isNotEmpty) ? v : null;
+  }
 
   /// Cache em memória da versão lida do `app_config` (1 leitura por sessão).
-  /// Estático pra ser compartilhado entre instâncias de [AIService].
+  /// Estático pra ser compartilhado entre instâncias de [AIService]. Só cacheia
+  /// versão resolvida (não-nula); falha/vazio reavaliam na próxima chamada.
   static String? _matchPromptVersionCache;
 
   /// Permite resetar o cache em teste/diagnóstico (não usado em produção).
@@ -69,9 +80,10 @@ class AIService {
       _matchPromptVersionCache = null;
 
   /// Lê `app_config.match_prompt_version` (id=1) uma vez por sessão e cacheia.
-  /// Best-effort igual ao [VersionService]: qualquer falha cai no fallback
-  /// conservador sem cachear (tenta de novo depois) e NUNCA quebra o feed.
-  Future<String> _resolveMatchPromptVersion() async {
+  /// Best-effort igual ao [VersionService]: retorna `null` se não conseguir
+  /// resolver (rede/RLS ou valor vazio) — o caller então NÃO hidrata cache
+  /// (evita servir versão morta) e cai no determinístico. NUNCA quebra o feed.
+  Future<String?> _resolveMatchPromptVersion() async {
     final cached = _matchPromptVersionCache;
     if (cached != null) return cached;
     try {
@@ -80,14 +92,14 @@ class AIService {
           .select('match_prompt_version')
           .eq('id', 1)
           .maybeSingle();
-      final v = (row?['match_prompt_version'] as String?)?.trim();
-      final resolved =
-          (v != null && v.isNotEmpty) ? v : _matchPromptVersionFallback;
-      _matchPromptVersionCache = resolved;
+      final resolved = resolveMatchPromptVersionFromConfig(
+        row?['match_prompt_version'] as String?,
+      );
+      if (resolved != null) _matchPromptVersionCache = resolved;
       return resolved;
     } catch (_) {
-      // Rede/RLS: usa fallback sem cachear pra reavaliar na próxima chamada.
-      return _matchPromptVersionFallback;
+      // Rede/RLS: sem versão confiável → sem hidratação (cai no determinístico).
+      return null;
     }
   }
 
@@ -97,6 +109,10 @@ class AIService {
   /// Filtra por `prompt_version` pra não pegar cache de prompts antigos. Sem
   /// isso, scores inflados de versões anteriores vazam pra UI até a IA
   /// recomputar (pode demorar uma sessão inteira).
+  ///
+  /// Se a versão não puder ser resolvida (`app_config` ilegível/vazio), devolve
+  /// vazio SEM consultar — sem versão de confiança, hidratar seria servir cache
+  /// de versão morta; melhor deixar o determinístico assumir.
   Future<Map<String, MatchResult>> fetchCachedMatches(List<String> jobIds) async {
     if (jobIds.isEmpty) return const {};
     final userId = _client.auth.currentUser?.id;
@@ -104,6 +120,7 @@ class AIService {
 
     try {
       final promptVersion = await _resolveMatchPromptVersion();
+      if (promptVersion == null) return const {};
       final rows = await _client
           .from('match_analyses')
           .select('job_id, score, reasons')
