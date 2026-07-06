@@ -81,6 +81,8 @@ export interface CandidateListItem {
   status: 'pending' | 'approved' | 'rejected' | 'exported';
   exportable: boolean;
   notes?: string | null;
+  outcome?: 'interviewing' | 'interviewed' | 'hired' | 'not_selected' | 'no_response' | null;
+  outcomeNote?: string | null;
   scoreBreakdown: Array<{ label: string; points: number; detail: string }>;
   candidate: {
     name: string;
