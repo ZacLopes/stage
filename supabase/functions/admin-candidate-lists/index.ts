@@ -6,13 +6,14 @@ import {
   csvEscape,
   errorResponse,
   jsonResponse,
-  normalizeText,
   parsePagination,
   readJson,
   requireAdmin,
-  tokenize,
 } from '../_shared/admin.ts';
 import { publicContactEmailOrEmpty } from '../_shared/contact_email.ts';
+// Scoring puro do auto-rank (extraído p/ ser testável — index.ts chama serve()
+// no top-level e não pode ser importado por deno test). Fase 7 Onda 1.
+import { type CandidateProfile, scoreCandidate, text } from './scoring.ts';
 
 interface CandidateListsRequest {
   action?: 'list' | 'detail' | 'create' | 'generate' | 'update_item' | 'export';
@@ -39,32 +40,6 @@ interface CandidateListsRequest {
   };
 }
 
-interface CandidateProfile {
-  userId: string;
-  name: string;
-  email: string;
-  phone: string;
-  city: string;
-  state: string;
-  headline: string;
-  summary: string;
-  completenessScore: number;
-  skills: string[];
-  desiredTitles: string[];
-  education: string[];
-  workModes: string[];
-  jobTypes: string[];
-  otherLocations: string[];
-  likes: number;
-  applies: number;
-  consentStatus: string;
-  createdAt: string;
-}
-
-function text(value: unknown): string {
-  return String(value ?? '').trim();
-}
-
 function relationObject(value: unknown): Record<string, unknown> | null {
   if (Array.isArray(value)) return value[0] as Record<string, unknown> | null;
   return value && typeof value === 'object' ? value as Record<string, unknown> : null;
@@ -82,143 +57,6 @@ function maskName(value: string): string {
     .filter(Boolean)
     .map((part) => `${part[0]?.toUpperCase() ?? ''}.`)
     .join(' ');
-}
-
-function normalizeWorkMode(value: string): string {
-  switch (value) {
-    case 'remote':
-      return 'remoto';
-    case 'hybrid':
-      return 'hibrido';
-    case 'in_person':
-      return 'presencial';
-    default:
-      return value;
-  }
-}
-
-function normalizeJobType(value: string): string {
-  switch (value) {
-    case 'internship':
-      return 'estagio';
-    case 'full_time':
-      return 'clt_junior';
-    case 'contract':
-      return 'temporario';
-    case 'part_time':
-      return 'temporario';
-    default:
-      return value;
-  }
-}
-
-function hasTokenOverlap(a: string[], b: string[]): boolean {
-  const set = new Set(a);
-  return b.some((token) => set.has(token));
-}
-
-function scoreCandidate(request: any, candidate: CandidateProfile) {
-  const breakdown: Array<{ label: string; points: number; detail: string }> = [];
-  let score = 0;
-
-  const reqTitleTokens = tokenize(`${request.title ?? ''} ${request.area ?? ''}`);
-  const candidateTitleTokens = tokenize([
-    ...candidate.desiredTitles,
-    candidate.headline,
-    candidate.summary,
-  ].join(' '));
-  const titleMatched = hasTokenOverlap(reqTitleTokens, candidateTitleTokens);
-  if (titleMatched) score += 25;
-  breakdown.push({
-    label: 'Cargo/area',
-    points: titleMatched ? 25 : 0,
-    detail: titleMatched
-      ? 'Cargo desejado ou resumo profissional conversa com a vaga.'
-      : 'Nao ha sinal claro de cargo/area desejada para essa vaga.',
-  });
-
-  const reqSkillTokens = tokenize([
-    request.description,
-    ...(Array.isArray(request.requirements) ? request.requirements : []),
-  ].join(' '));
-  const candidateSkillTokens = tokenize([
-    ...candidate.skills,
-    candidate.summary,
-    candidate.headline,
-    ...candidate.education,
-  ].join(' '));
-  const reqSet = new Set(reqSkillTokens);
-  const overlap = Array.from(new Set(candidateSkillTokens)).filter((token) => reqSet.has(token));
-  const skillRatio = reqSet.size > 0 ? Math.min(1, overlap.length / Math.min(reqSet.size, 8)) : 0;
-  const skillPoints = Math.round(skillRatio * 25);
-  score += skillPoints;
-  breakdown.push({
-    label: 'Skills',
-    points: skillPoints,
-    detail: overlap.length > 0
-      ? `Sobreposicao detectada: ${overlap.slice(0, 5).join(', ')}.`
-      : 'Nao houve sobreposicao relevante de skills/requisitos.',
-  });
-
-  const requestCity = normalizeText(request.location_city);
-  const requestState = normalizeText(request.location_state);
-  const candidateLocations = [
-    candidate.city,
-    candidate.state,
-    ...candidate.otherLocations,
-  ].map(normalizeText).filter(Boolean);
-  const locationMatched = normalizeText(request.work_model) === 'remoto' ||
-    !requestCity && !requestState ||
-    (requestCity && candidateLocations.includes(requestCity)) ||
-    (requestState && candidateLocations.includes(requestState));
-  if (locationMatched) score += 15;
-  breakdown.push({
-    label: 'Localizacao',
-    points: locationMatched ? 15 : 0,
-    detail: locationMatched
-      ? 'Localizacao ou remoto parece compativel.'
-      : 'Localizacao declarada nao bate com a vaga.',
-  });
-
-  const requestWorkModel = normalizeWorkMode(text(request.work_model));
-  const candidateWorkModes = candidate.workModes.map(normalizeWorkMode);
-  const workMatched = !requestWorkModel || candidateWorkModes.length === 0 ||
-    candidateWorkModes.includes(requestWorkModel);
-  if (workMatched) score += 10;
-  breakdown.push({
-    label: 'Modelo',
-    points: workMatched ? 10 : 0,
-    detail: workMatched
-      ? 'Modelo de trabalho compativel.'
-      : 'Modelo de trabalho nao declarado como preferido.',
-  });
-
-  const requestJobType = normalizeJobType(text(request.job_type));
-  const candidateJobTypes = candidate.jobTypes.map(normalizeJobType);
-  const typeMatched = !requestJobType || candidateJobTypes.length === 0 ||
-    candidateJobTypes.includes(requestJobType);
-  if (typeMatched) score += 10;
-  breakdown.push({
-    label: 'Tipo',
-    points: typeMatched ? 10 : 0,
-    detail: typeMatched
-      ? 'Tipo/nivel de vaga compativel.'
-      : 'Tipo de vaga nao bate com a preferencia.',
-  });
-
-  let readiness = 0;
-  if (candidate.completenessScore >= 60) readiness += 8;
-  if (candidate.skills.length >= 3) readiness += 3;
-  if (candidate.education.length > 0) readiness += 2;
-  if (candidate.likes > 0 || candidate.applies > 0) readiness += 2;
-  score += readiness;
-  breakdown.push({
-    label: 'Prontidao',
-    points: readiness,
-    detail: 'Pontua perfil completo, skills, formacao e atividade no app.',
-  });
-
-  return { score: Math.max(0, Math.min(100, score)), breakdown };
 }
 
 async function buildCandidateProfiles(
@@ -316,6 +154,10 @@ async function buildCandidateProfiles(
       email: publicContactEmailOrEmpty(p?.email),
       phone: p?.phone_number_e164 || p?.phone_number || user.phone || '',
       city: p?.location_city ?? '',
+      // Cidade só em JP (176 candidatos legacy): entra no COALESCE de
+      // Localização (score) e no CSV. profile_job_preferences já é carregado
+      // acima (prefsR). Fase 7 Onda 1.
+      primaryLocationCity: pref?.primary_location_city ?? '',
       state: p?.location_state ?? '',
       headline: p?.headline ?? '',
       summary: p?.summary ?? '',
@@ -551,7 +393,10 @@ serve(async (req: Request) => {
             // literal e mantém o "+", em vez de tratar o E.164 (13 dígitos +
             // sinal) como número e mostrar notação científica / comer o "+".
             profile.phone ? `="${profile.phone}"` : '',
-            profile.city,
+            // COALESCE PP.location_city → JP.primary_location_city: sem isso, os
+            // 176 candidatos com cidade só em JP saíam com a coluna cidade vazia
+            // no CSV vendido. Fase 7 Onda 1.
+            profile.city || profile.primaryLocationCity,
             profile.state,
             profile.headline,
             profile.skills.join(', '),

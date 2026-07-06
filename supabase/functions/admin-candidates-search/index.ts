@@ -73,13 +73,34 @@ async function resolveCandidateIds(
   // (subconjunto certo p/ shortlist; universo é ~1.7k).
   let base = supabase.from('profile_personal').select('user_id')
     .order('completeness_score', { ascending: false });
-  if (f.city && f.city.trim()) base = base.ilike('location_city', ilike(f.city));
   if (typeof f.minCompleteness === 'number' && f.minCompleteness > 0) {
     base = base.gte('completeness_score', f.minCompleteness);
   }
   const baseR = await base;
   if (baseR.error) throw new AdminHttpError(500, 'search_base_failed', baseR.error.message);
   sets.push(new Set((baseR.data ?? []).map((r: { user_id: string }) => r.user_id)));
+
+  // Cidade: une as DUAS fontes de verdade — profile_personal.location_city
+  // (onboarding/LocationScreen) e profile_job_preferences.primary_location_city
+  // (backfill legacy / trilha +10). Antes o filtro lia só location_city, então
+  // os 176 candidatos com cidade só em JP eram invisíveis à busca (Fase 7 Onda
+  // 1). Mesma mecânica do filtro de curso: OR entre fontes via união de Sets,
+  // AND vs as demais dimensões. Consequência: a cidade deixou de ser filtrada
+  // na base (pré-corte) e virou Set secundário (pós-corte de 1000 do PostgREST,
+  // como TODOS os outros filtros) — o teto de 1000 segue sendo issue separado.
+  if (f.city && f.city.trim()) {
+    const [pp, jp] = await Promise.all([
+      supabase.from('profile_personal').select('user_id').ilike('location_city', ilike(f.city)),
+      supabase.from('profile_job_preferences').select('user_id')
+        .ilike('primary_location_city', ilike(f.city)),
+    ]);
+    if (pp.error) throw new AdminHttpError(500, 'search_city_pp_failed', pp.error.message);
+    if (jp.error) throw new AdminHttpError(500, 'search_city_jp_failed', jp.error.message);
+    const ids = new Set<string>();
+    for (const r of pp.data ?? []) ids.add((r as { user_id: string }).user_id);
+    for (const r of jp.data ?? []) ids.add((r as { user_id: string }).user_id);
+    sets.push(ids);
+  }
 
   if (f.course && f.course.trim()) {
     const [up, edu] = await Promise.all([
