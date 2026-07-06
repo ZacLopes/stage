@@ -75,21 +75,27 @@ Agora `_resolveMatchPromptVersion()` devolve `null` quando não há versão de c
 **176** candidatos têm cidade só em `profile_job_preferences.primary_location_city` (confirmado:
 `jp_only_gap=176`; base 1.718; `has_pp_city=1.132`; `has_any_city=1.308`). Corrigi a LEITURA em 3 pontos:
 
-1. **Busca** (`admin-candidates-search`): o filtro de cidade saiu da query-base (onde lia só
-   `location_city`) e virou Set secundário que **une** `profile_personal.location_city` +
-   `profile_job_preferences.primary_location_city` (mesma mecânica do filtro de curso).
-   → **Efeito colateral honesto:** cidade deixou de ser filtrada pré-corte e passou a pós-corte de
-   1000 do PostgREST, como TODOS os outros filtros. O teto de 1000 continua sendo issue separado (J.1),
-   **fora do escopo** desta onda.
+1. **Busca** (`admin-candidates-search`): o union das duas fontes
+   (`profile_personal.location_city` + `profile_job_preferences.primary_location_city`) é computado
+   ANTES da base e aplicado como `.in('user_id', …)` — cidade continua **filtro PRÉ-corte** (como era),
+   só que agora unindo as duas fontes. A base vira "top 1000 por completude ENTRE quem é daquela cidade",
+   então pega TODOS os 176 (inclusive os magros, abaixo do top-1000 geral) e **não** derruba candidatos
+   de cidades médias que um Set pós-corte derrubaria. `.in` é seguro nesta base (~1.7k; nenhuma cidade
+   sozinha passa de 1000). Guard p/ cohort vazio evita `.in([])`. *(revisão pós-feedback do fundador:
+   a 1ª versão usava Set pós-corte e tinha essa regressão.)*
 2. **Auto-rank** (`admin-candidate-lists`): `primary_location_city` entra em `candidateLocations`
    (15 pts de Localização). `scoreCandidate` foi extraído p/ `scoring.ts` só p/ virar testável (o
    `index.ts` chama `serve()` no top-level e não pode ser importado por `deno test`) — **zero mudança
    no bootstrap de deploy**. `buildCandidateProfiles` já carregava `profile_job_preferences`.
 3. **CSV export**: cidade = `location_city || primary_location_city`.
 
-**Aceite (medido) — user `530575da-…` (PP city NULL, JP city "São Paulo", completude 90):**
-- (a) aparece na busca por "São Paulo" — prova no dado: filtro antigo (só PP) `= 0`; fonte nova (JP)
-  `= 1`. ✅
+**Aceite (medido):**
+- (a) aparece na busca — **re-verificado com candidato MAGRO** `ea0eddd4` (Curitiba, completude 0,
+  rank GERAL 1717, bem abaixo do corte top-1000 = 41): simulação exata das queries do código →
+  aparece no pré-corte NOVO (`target_appears_new=true`) e **sumia** no pós-corte
+  (`target_appears_old_postcut=false`); cohort Curitiba = 37 (< 1000, base retorna todos os 37 sem
+  truncar). O caso "gordo" (`530575da`, SP, completude 90) também casa: filtro antigo só-PP `= 0` →
+  fonte JP `= 1`. ✅
 - (b) recebe os 15 pts de Localização — `scoring.test.ts`: "cidade só em primary_location_city → 15" **passa**; regressões (PP city ainda 15; cidade divergente 0; remoto passa) também. ✅
 - (c) sai com cidade no CSV — `COALESCE(location_city, primary_location_city) = "São Paulo"` (colado). ✅
 - `deno test scoring.test.ts` → **5/5**; `deno check` das 3 edges → **OK**.
@@ -145,7 +151,8 @@ bash scripts/check_functions_drift.sh
 ```
 
 **Verificações que farei logo após o deploy (colo o resultado):**
-- T2(a): `admin-candidates-search` action=search filtro city="São Paulo" → user `530575da` presente.
+- T2(a): `admin-candidates-search` action=search filtro city="Curitiba" → user MAGRO `ea0eddd4`
+  presente (prova o caso geral, não só o top-1000).
 - T2(b): `admin-candidate-lists` auto-rank de vaga em SP → item do user com breakdown Localização=15.
 - T2(c): export CSV de uma lista contendo o user → coluna cidade = "São Paulo".
 - T3: resposta de `admin-overview` → `kpis.totalApplies = 595` (== SELECT).
