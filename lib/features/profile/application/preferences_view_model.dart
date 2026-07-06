@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../services/profile_events.dart';
+import '../../trilha/application/area_canonical.dart';
 import '../domain/entities/entities.dart';
 import '../domain/repositories/profile_repository.dart';
 import 'profile_editor_view_model.dart' show SaveStatus;
@@ -22,7 +23,11 @@ class PreferencesViewModel extends ChangeNotifier {
   String? _lastError;
 
   JobPreferences? get prefs => _prefs;
-  List<DesiredTitle> get desiredTitles => List.unmodifiable(_desiredTitles);
+  // Esconde a canônica oculta ('inferred', mapeada de áreas custom) — o usuário
+  // só vê as áreas que ele escolheu. Os readers (match/feed/admin) leem a tabela
+  // direto, então continuam enxergando as 'inferred'. Fase 7 · +10 (Tarefa 2).
+  List<DesiredTitle> get desiredTitles => List.unmodifiable(
+      _desiredTitles.where((t) => t.source != DesiredTitleSource.inferred));
   List<OtherLocation> get otherLocations => List.unmodifiable(_otherLocations);
   bool get isLoading => _isLoading;
   SaveStatus get saveStatus => _saveStatus;
@@ -129,11 +134,15 @@ class PreferencesViewModel extends ChangeNotifier {
 
   Future<void> replaceDesiredTitles(List<DesiredTitle> titles) async {
     final userId = _requireUserId();
-    _desiredTitles = titles;
+    // Re-deriva a canônica oculta ('inferred') das áreas custom (Fase 7 +10 T2):
+    // sem isso, editar áreas no perfil apagaria o mapeamento e o candidato
+    // sumiria do match/busca. O getter esconde 'inferred' do usuário.
+    final full = withInferredAreas(userId, titles);
+    _desiredTitles = full;
     notifyListeners();
     _saving();
     try {
-      await _repo.replaceDesiredTitles(userId, titles);
+      await _repo.replaceDesiredTitles(userId, full);
       _desiredTitles = await _repo.getDesiredTitles(userId);
       _saved();
     } catch (e) {

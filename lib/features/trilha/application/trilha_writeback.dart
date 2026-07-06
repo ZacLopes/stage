@@ -9,6 +9,7 @@
 import '../../profile/domain/entities/entities.dart';
 import '../../profile/domain/repositories/profile_repository.dart';
 import '../domain/conversation_step.dart';
+import 'area_canonical.dart';
 import 'linkedin_url.dart';
 import 'trilha_draft.dart';
 
@@ -133,27 +134,56 @@ class TrilhaWriteback {
 
   String _text(StepAnswer a) => a.value is String ? a.value as String : '';
 
-  // ── Áreas → profile_desired_titles (merge dedup) ─────────────────────────
+  // ── Áreas → profile_desired_titles (merge dedup + canônica oculta) ───────
+  // O usuário pode adicionar QUALQUER área (texto livre). Guardamos a área dele
+  // (source='user_added', visível) e, se ela não for uma das 13 canônicas, uma
+  // linha CANÔNICA oculta (source='inferred') pro candidato ficar matchável no
+  // match/feed/busca — que só entendem as 13. Fase 7 · +10 (Tarefa 2).
   Future<void> _saveAreas(List<String> areas) async {
     final clean = areas.where((a) => a.trim().isNotEmpty).toList();
     if (clean.isEmpty) return;
     final existing = await _repo.getDesiredTitles(userId);
-    final have = existing.map((t) => t.title.toLowerCase().trim()).toSet();
-    final toAdd =
-        clean.where((a) => !have.contains(a.toLowerCase().trim())).toList();
-    if (toAdd.isEmpty) return;
-    final merged = <DesiredTitle>[
-      ...existing,
-      for (var i = 0; i < toAdd.length; i++)
-        DesiredTitle(
+
+    // Dedup por título (case-insensitive). Precedência: uma área explícita do
+    // usuário nunca fica oculta por um 'inferred' anterior (upgrade abaixo).
+    final byKey = <String, DesiredTitle>{};
+    void put(String rawTitle, DesiredTitleSource source) {
+      final t = rawTitle.trim();
+      if (t.isEmpty) return;
+      final key = t.toLowerCase();
+      final prev = byKey[key];
+      if (prev == null) {
+        byKey[key] = DesiredTitle(
           id: '',
           userId: userId,
-          title: toAdd[i].trim(),
-          source: DesiredTitleSource.userAdded,
-          orderIndex: existing.length + i,
-        ),
-    ];
-    await _repo.replaceDesiredTitles(userId, merged);
+          title: t,
+          source: source,
+          orderIndex: byKey.length,
+        );
+      } else if (prev.source == DesiredTitleSource.inferred &&
+          source != DesiredTitleSource.inferred) {
+        // Área que era só canônica-oculta e agora o usuário escolheu de fato.
+        byKey[key] = prev.copyWith(source: source, title: t);
+      }
+    }
+
+    for (final t in existing) {
+      put(t.title, t.source ?? DesiredTitleSource.userAdded);
+    }
+    for (final area in clean) {
+      put(area, DesiredTitleSource.userAdded);
+      if (!isCanonicalArea(area)) {
+        put(canonicalArea(area), DesiredTitleSource.inferred);
+      }
+    }
+
+    // Só grava se algo mudou (título novo OU upgrade de source).
+    final changed = byKey.length != existing.length ||
+        !existing.every((e) =>
+            byKey[e.title.toLowerCase().trim()]?.source ==
+            (e.source ?? DesiredTitleSource.userAdded));
+    if (!changed) return;
+    await _repo.replaceDesiredTitles(userId, byKey.values.toList());
   }
 
   // ── Modalidade → profile_job_preferences.work_mode (merge) ───────────────

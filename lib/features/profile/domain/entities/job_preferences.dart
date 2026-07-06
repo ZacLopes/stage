@@ -9,7 +9,10 @@ enum WorkMode { remote, hybrid, inPerson }
 enum JobType { internship, trainee, juniorFullTime, temporary }
 enum ExperienceLevel { entry, mid, senior }
 enum WorkAuth { citizen, authorized, sponsorshipNeeded }
-enum DesiredTitleSource { userAdded, fromResume }
+// `inferred` = área canônica mapeada "por trás" a partir de uma área custom do
+// usuário (Fase 7 · +10, Tarefa 2). Não é mostrada ao usuário; existe só pra o
+// candidato ficar visível/matchável quando ele escolhe uma área fora das 13.
+enum DesiredTitleSource { userAdded, fromResume, inferred }
 
 @immutable
 class JobPreferences {
@@ -310,6 +313,7 @@ String? _sourceToDb(DesiredTitleSource? s) {
   switch (s) {
     case DesiredTitleSource.userAdded: return 'user_added';
     case DesiredTitleSource.fromResume: return 'from_resume';
+    case DesiredTitleSource.inferred: return 'inferred';
     case null: return null;
   }
 }
@@ -317,6 +321,7 @@ DesiredTitleSource? _sourceFromDb(String? s) {
   switch (s) {
     case 'user_added': return DesiredTitleSource.userAdded;
     case 'from_resume': return DesiredTitleSource.fromResume;
+    case 'inferred': return DesiredTitleSource.inferred;
     default: return null;
   }
 }
