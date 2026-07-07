@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/theme.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../services/cv_import_service.dart';
+import '../application/trilha_hub_status.dart';
 import '../application/trilha_section.dart';
 import 'trilha_chat_controller.dart';
 import 'widgets/chat_bubbles.dart';
@@ -21,6 +22,7 @@ class TrilhaChatView extends StatefulWidget {
     super.key,
     required this.controller,
     this.onVerifySection,
+    this.hubStatus,
   });
 
   final TrilhaChatController controller;
@@ -28,6 +30,10 @@ class TrilhaChatView extends StatefulWidget {
   /// Toque num tile do resumo do import → abre o sheet de verificação daquela
   /// seção (null = tiles não-tocáveis).
   final void Function(TrilhaSection section)? onVerifySection;
+
+  /// Força honesta do perfil pro card de conclusão (força real + próximo ganho,
+  /// nunca "forte" com lacuna aberta). Null ⇒ cai no texto genérico.
+  final TrilhaHubStatus? hubStatus;
 
   @override
   State<TrilhaChatView> createState() => _TrilhaChatViewState();
@@ -380,27 +386,47 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const Icon(Icons.celebration_rounded,
-                      color: AppColors.onPrimary, size: 36),
+                  Icon(
+                      widget.hubStatus?.level == HubLevel.building
+                          ? Icons.trending_up_rounded
+                          : Icons.celebration_rounded,
+                      color: AppColors.onPrimary,
+                      size: 36),
                   const SizedBox(height: AppSpacing.sm),
                   SizedBox(
                     width: double.infinity,
-                    child: Text('Perfil mais forte! 🎉',
+                    child: Text(
+                        widget.hubStatus?.title ?? 'Perfil mais forte! 🎉',
                         textAlign: TextAlign.center,
                         style: AppTextStyles.titleMd
                             .copyWith(color: AppColors.onPrimary)),
                   ),
                   const SizedBox(height: AppSpacing.xs),
                   Text(
-                    c.generatedSummary != null
-                        ? 'A IA criou um resumo pro seu perfil:'
-                        : 'Quanto mais completo, mais empresas conseguem te achar.',
+                    // Honesto: o próximo ganho (força real) — não "está tudo forte".
+                    widget.hubStatus?.message ??
+                        (c.generatedSummary != null
+                            ? 'A IA criou um resumo pro seu perfil:'
+                            : 'Quanto mais completo, mais empresas conseguem te achar.'),
                     textAlign: TextAlign.center,
                     style: AppTextStyles.bodyMd
                         .copyWith(color: AppColors.onPrimary),
                   ),
                   if (c.generatedSummary != null) ...[
                     const SizedBox(height: AppSpacing.sm),
+                    // Com o hub honesto, o subtítulo virou o "próximo ganho" —
+                    // então rotula o bloco do resumo pra não ficar solto.
+                    if (widget.hubStatus != null) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: Text('Resumo que a IA montou:',
+                            textAlign: TextAlign.center,
+                            style: AppTextStyles.bodySm.copyWith(
+                                color: AppColors.onPrimary
+                                    .withValues(alpha: 0.9))),
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                    ],
                     Container(
                       width: double.infinity,
                       padding: AppSpacing.allMd,

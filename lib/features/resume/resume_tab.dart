@@ -22,6 +22,7 @@ import '../../services/analytics_service.dart';
 import '../../services/profile_snapshot_service.dart';
 import '../auth/user_viewmodel.dart';
 import '../profile/application/profile_editor_view_model.dart';
+import '../trilha/application/trilha_hub_status.dart';
 import '../trilha/application/trilha_section.dart';
 import '../trilha/application/trilha_session.dart';
 import '../trilha/presentation/trilha_chat_controller.dart';
@@ -64,7 +65,25 @@ class _ResumeTabState extends State<ResumeTab>
   /// (cidade/área/LinkedIn) pra o stepper não "apagar".
   TrilhaSection? _stickySection;
 
+  /// Força honesta do perfil (derivada das lacunas reais) — alimenta o header do
+  /// preview e o card de conclusão. Recarregada a cada mudança de perfil (import
+  /// revelado, conclusão da trilha). Null enquanto não carrega → header cai no
+  /// fallback neutro. Fase 7 · +10 Tarefa 4.
+  TrilhaHubStatus? _hubStatus;
+
   bool _isExporting = false;
+
+  /// Recomputa a força honesta a partir do perfil FRESCO. Failure-safe.
+  Future<void> _refreshHubStatus() async {
+    final uid = _orch?.userId ?? Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+    try {
+      final s = await loadTrilhaHubStatus(uid);
+      if (mounted) setState(() => _hubStatus = s);
+    } catch (_) {
+      // Mantém o último status (ou o fallback) — nunca trava a aba.
+    }
+  }
 
   @override
   void initState() {
@@ -118,6 +137,9 @@ class _ResumeTabState extends State<ResumeTab>
     orch.addListener(_onOrch);
     // ignore: unawaited_futures
     orch.start();
+    // Força inicial: um returning user pode cair direto na conclusão/preview.
+    // ignore: unawaited_futures
+    _refreshHubStatus();
     return orch;
   }
 
@@ -133,6 +155,9 @@ class _ResumeTabState extends State<ResumeTab>
         // ignore: unawaited_futures
         context.read<ProfileEditorViewModel>().load();
       } catch (_) {/* sem provider: ignora */}
+      // O import mudou o perfil → recomputa a força honesta.
+      // ignore: unawaited_futures
+      _refreshHubStatus();
     }
     if (!orch.finished || _completionHandled) return;
     _completionHandled = true;
@@ -143,6 +168,9 @@ class _ResumeTabState extends State<ResumeTab>
       // ignore: unawaited_futures
       context.read<ProfileEditorViewModel>().load();
     } catch (_) {/* sem provider: ignora */}
+    // A trilha terminou de gravar → a força honesta reflete o perfil final.
+    // ignore: unawaited_futures
+    _refreshHubStatus();
     if (mounted) setState(() => _tab = 1);
   }
 
@@ -321,6 +349,8 @@ class _ResumeTabState extends State<ResumeTab>
       TrilhaChatController orch, ProfileEditorViewModel profileVM) {
     return TrilhaChatView(
       controller: orch,
+      // Força honesta pro card de conclusão (mesma fonte do header do preview).
+      hubStatus: _hubStatus,
       // Tile do resumo do import → sheet de verificação (categoria já coletada).
       onVerifySection: (section) => showSectionDetailSheet(
         context,
@@ -397,7 +427,10 @@ class _ResumeTabState extends State<ResumeTab>
   Widget _previewHeader(ProfileEditorViewModel p) {
     final name = p.personal?.fullName.trim() ?? '';
     final location = p.personal?.formattedLocation.trim() ?? '';
-    final score = p.completenessScore;
+    final hs = _hubStatus;
+    // Força honesta (ponderada por monetização). Enquanto o hub não carrega, cai
+    // no completeness do banco em cor NEUTRA — nunca o verde de "está ótimo".
+    final pct = hs?.strengthPercent ?? p.completenessScore;
     final initials = _initials(name);
     return Container(
       margin: const EdgeInsets.only(bottom: AppSpacing.base),
@@ -407,53 +440,126 @@ class _ResumeTabState extends State<ResumeTab>
         borderRadius: AppRadius.brLg,
         border: Border.all(color: AppColors.border),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.12),
-              borderRadius: AppRadius.brMd,
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              initials,
-              style: AppTextStyles.titleSm.copyWith(color: AppColors.primary),
-            ),
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.12),
+                  borderRadius: AppRadius.brMd,
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  initials,
+                  style:
+                      AppTextStyles.titleSm.copyWith(color: AppColors.primary),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name.isEmpty ? 'Seu perfil' : name,
+                        style: AppTextStyles.titleSm,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    if (location.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(location,
+                          style: AppTextStyles.bodySm
+                              .copyWith(color: AppColors.textTertiary),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                    ],
+                  ],
+                ),
+              ),
+              _strengthBadge(pct, hs?.level),
+            ],
           ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name.isEmpty ? 'Seu perfil' : name,
-                    style: AppTextStyles.titleSm, maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-                if (location.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text(location,
-                      style: AppTextStyles.bodySm
-                          .copyWith(color: AppColors.textTertiary),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
-                ],
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.sm, vertical: 4),
-            decoration: BoxDecoration(
-              color: AppColors.successSoft,
-              borderRadius: AppRadius.brPill,
-            ),
-            child: Text('$score%',
-                style: AppTextStyles.labelSm
-                    .copyWith(color: AppColors.success)),
-          ),
+          // Painel honesto: nunca "beco sem saída". Mostra o próximo ganho (ou
+          // comemora de verdade quando não falta nada). Fase 7 · +10 Tarefa 4.
+          if (hs != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            _hubNextWin(hs),
+          ],
         ],
       ),
+    );
+  }
+
+  /// Pílula de força colorida pelo ESTÁGIO real — verde só quando é verdade.
+  Widget _strengthBadge(int pct, HubLevel? level) {
+    Color bg;
+    Color fg;
+    switch (level) {
+      case HubLevel.complete:
+      case HubLevel.shortlistReady:
+        bg = AppColors.successSoft;
+        fg = AppColors.success;
+      case HubLevel.building:
+        bg = AppColors.warningSoft;
+        fg = AppColors.warning;
+      case null:
+        bg = AppColors.border;
+        fg = AppColors.textTertiary;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 4),
+      decoration: BoxDecoration(color: bg, borderRadius: AppRadius.brPill),
+      child: Text('$pct%',
+          style: AppTextStyles.labelSm.copyWith(color: fg)),
+    );
+  }
+
+  /// O próximo ganho enquadrado por valor — ou a comemoração honesta (completo).
+  Widget _hubNextWin(TrilhaHubStatus hs) {
+    if (hs.level == HubLevel.complete) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.verified_rounded,
+              size: 16, color: AppColors.success),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(hs.message,
+                style: AppTextStyles.bodySm
+                    .copyWith(color: AppColors.textSecondary)),
+          ),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.trending_up_rounded,
+                size: 15, color: AppColors.warning),
+            const SizedBox(width: AppSpacing.xs),
+            Text('PRÓXIMO GANHO',
+                style: AppTextStyles.overline
+                    .copyWith(color: AppColors.warning, letterSpacing: 0.6)),
+            if (hs.nextStepLabel != null)
+              Expanded(
+                child: Text(' · ${hs.nextStepLabel}',
+                    style: AppTextStyles.overline
+                        .copyWith(color: AppColors.textTertiary),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(hs.message,
+            style:
+                AppTextStyles.bodySm.copyWith(color: AppColors.textSecondary)),
+      ],
     );
   }
 
