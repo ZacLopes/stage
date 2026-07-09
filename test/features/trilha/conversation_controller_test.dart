@@ -41,6 +41,48 @@ void main() {
       expect(c.isDone, false);
     });
 
+    test('injectNext: injetado roda ANTES e o passo aberto RETOMA (parquear)',
+        () async {
+      final c = ConversationController(script());
+      await c.submit(
+          StepAnswer.choice('s1', const [StepOption(id: 'go', label: 'Bora')]));
+      expect(c.current?.id, 's2'); // passo aberto
+      // Assistente injeta uma seção sob demanda ANTES do passo aberto.
+      c.injectNext([
+        ConversationStep.single(
+            id: 'gap.skills',
+            aiMessage: 'q',
+            input: const GuidedTextInput(example: 'x')),
+      ]);
+      expect(c.current?.id, 'gap.skills'); // injetado roda primeiro
+      await c.submit(StepAnswer.text('gap.skills', 'Python'));
+      expect(c.current?.id, 's2'); // o passo aberto retomou naturalmente
+    });
+
+    test('injectNext na trilha concluída: injetados viram o current', () async {
+      final c = ConversationController(script());
+      await c.submit(
+          StepAnswer.choice('s1', const [StepOption(id: 'go', label: 'Bora')]));
+      await c.submit(
+          StepAnswer.choice('s2', const [StepOption(id: 'excel', label: 'Excel')]));
+      expect(c.current, isNull); // concluída
+      c.injectNext([
+        ConversationStep.single(
+            id: 'gap.city',
+            aiMessage: 'q',
+            input: const GuidedTextInput(example: 'x')),
+      ]);
+      expect(c.current?.id, 'gap.city');
+      expect(c.isDone, false);
+    });
+
+    test('injectNext vazio é no-op', () {
+      final c = ConversationController(script());
+      c.injectNext(const []);
+      expect(c.current?.id, 's1');
+      expect(c.totalSteps, 2);
+    });
+
     test('responder todos os passos termina a trilha', () async {
       final c = ConversationController(script());
       await c.submit(StepAnswer.choice('s1', const [StepOption(id: 'go', label: 'Bora')]));

@@ -108,6 +108,21 @@ class ConversationController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Injeta passos na fila NO ponto atual (mesma mecânica do `expand`) — o
+  /// assistente usa isto pra "entregar as perguntas" de uma seção sob demanda.
+  /// Inserindo em [_index] o resultado é elegante nos dois casos:
+  ///  - trilha ociosa/concluída (sem passo atual): os passos injetados viram o
+  ///    novo `current`;
+  ///  - com um passo ABERTO: os injetados entram ANTES dele → rodam primeiro e o
+  ///    passo aberto RETOMA naturalmente depois (parquear/retomar de graça, pela
+  ///    ordem da fila). No-op se vazio.
+  void injectNext(List<ConversationStep> steps) {
+    if (steps.isEmpty) return;
+    final at = _index.clamp(0, _steps.length);
+    _steps.insertAll(at, steps);
+    notifyListeners();
+  }
+
   /// Pode voltar pro passo anterior? Só quando o último passo respondido é
   /// REVERSÍVEL (re-responder corrige, não duplica) — ver [ConversationStep].
   bool get canGoBack =>

@@ -113,6 +113,12 @@ class TrilhaProgress {
         return 'availability';
       case 'gap.interests':
         return 'interests';
+      case 'gap.company_stage':
+        return 'company_stage';
+      case 'gap.work_environment':
+        return 'work_environment';
+      case 'gap.work_style':
+        return 'work_style';
       // Educação: grava no último passo de cada ramo (faculdade=formatura,
       // ensino médio=ano). "Outro" é tratado no segmentToMark.
       case 'gap.edu.graduation':

@@ -196,6 +196,45 @@ class AsyncPickInput extends StepInput {
   });
 }
 
+/// Um TIPO de experiência oferecido no seletor (tile rico: ícone + rótulo +
+/// subtítulo). `id` é o `kind` canônico gravado (estagio, voluntariado…).
+@immutable
+class ExperienceTypeOption {
+  final String id;
+  final String label;
+  final String subtitle;
+
+  /// Nome do ícone material (resolvido na UI — domínio livre de Flutter).
+  final String icon;
+
+  const ExperienceTypeOption({
+    required this.id,
+    required this.label,
+    required this.subtitle,
+    required this.icon,
+  });
+}
+
+/// Seletor de TIPOS de experiência (abertura da seção Experiência): tiles ricos
+/// em MULTISSELEÇÃO com CONTADOR (tocar de novo = +1 do mesmo tipo, ex.: 2
+/// estágios), um "Outro" pra tipos fora da lista, e uma saída honesta ("ainda
+/// não tenho"). A resposta é a lista ORDENADA de `kind`s escolhidos, com
+/// repetição = contagem (ex.: ['estagio','estagio','voluntariado']); 'outro'
+/// entra como 'outro'. Vazio = pulou (sem experiência). O `expand` do passo lê
+/// essa lista e enfileira o bloco de perguntas de cada experiência, por tipo.
+@immutable
+class ExperienceTypeInput extends StepInput {
+  final List<ExperienceTypeOption> types;
+
+  /// Rótulo da saída "ainda não tenho experiência" (submete lista vazia).
+  final String skipLabel;
+
+  const ExperienceTypeInput({
+    required this.types,
+    this.skipLabel = 'Ainda não tenho experiência',
+  });
+}
+
 /// Um passo da conversa: a(s) fala(s) da IA + a entrada esperada + uma reação
 /// opcional da IA após responder (o "Massa!" que dá calor de conversa).
 @immutable
@@ -213,6 +252,13 @@ class ConversationStep {
   /// Reação curta da IA depois que o usuário responde (opcional). Quando nula,
   /// a IA segue direto pro próximo passo sem comentar.
   final String? acknowledgement;
+
+  /// Resumo DINÂMICO ao fechar um item (ex.: a IA mostra a experiência que
+  /// acabou de anotar). Recebe o histórico de respostas (todas até aqui,
+  /// incluindo a deste passo) e compõe o texto a partir das do próprio item —
+  /// tem prioridade sobre [acknowledgement]; null cai no estático. Puro (sem
+  /// Flutter), então funciona nas duas superfícies (chat embutido e pushado).
+  final String? Function(List<StepAnswer> history)? recap;
 
   /// Passos DINÂMICOS: dada a resposta deste passo, devolve passos a inserir
   /// logo em seguida na fila. É o que permite loops (ex.: "adicionar outra
@@ -233,6 +279,7 @@ class ConversationStep {
     this.acknowledgement,
     this.expand,
     this.reversible = true,
+    this.recap,
   });
 
   /// Conveniência: passo com uma única bolha de fala.
@@ -243,6 +290,7 @@ class ConversationStep {
     String? acknowledgement,
     List<ConversationStep> Function(StepAnswer answer)? expand,
     bool reversible = true,
+    String? Function(List<StepAnswer> history)? recap,
   }) : this(
           id: id,
           aiMessages: [aiMessage],
@@ -250,6 +298,7 @@ class ConversationStep {
           acknowledgement: acknowledgement,
           expand: expand,
           reversible: reversible,
+          recap: recap,
         );
 }
 

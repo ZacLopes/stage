@@ -591,6 +591,55 @@ const String evTrilhaColetaInviteDismissed = 'trilha_coleta_invite_dismissed';
 const String evTrilhaColetaFreeTextInterpreted =
     'trilha_coleta_free_text_interpreted';
 
+// ── Assistente de IA na barra da trilha (PLANO-ASSISTENTE, Fase A) ──────────
+// NUNCA o texto cru do usuário (PII/LGPD) — só métricas/enums.
+
+/// Mensagem enviada na barra. Props: char_count, has_active_step (bool),
+/// route ∈ {fast_lane, assistant}.
+const String evTrilhaAssistMessageSent = 'trilha_assist_message_sent';
+
+/// A IA classificou a intenção do turno. Props: intent (enum), tool (enum),
+/// confidence, latency_ms, model, prompt_version.
+const String evTrilhaAssistIntentClassified = 'trilha_assist_intent_classified';
+
+/// O assistente respondeu (leitura/conselho). Props: grounded_in ∈
+/// {profile_gaps, snapshot, llm}, used_llm (bool).
+const String evTrilhaAssistAnswerReturned = 'trilha_assist_answer_returned';
+
+/// O assistente injetou os passos de uma seção sob demanda ("quero preencher
+/// X"). Props: lacuna_key (enum), steps_enqueued.
+const String evTrilhaAssistSectionHandoff = 'trilha_assist_section_handoff';
+
+/// Havia passo aberto quando chegou a mensagem. Props: active_step_id,
+/// resolution ∈ {answered_step, deferred, edited_other}.
+const String evTrilhaAssistStepConflict = 'trilha_assist_step_conflict';
+
+/// Pedido fora de escopo (recusa gentil). Props: category (enum grosso).
+const String evTrilhaAssistOutOfScope = 'trilha_assist_out_of_scope';
+
+/// O assistente pediu pra esclarecer. Props: reason ∈ {low_confidence,
+/// multi_target, no_match}.
+const String evTrilhaAssistClarifyRequested = 'trilha_assist_clarify_requested';
+
+/// Erro/timeout no turno do assistente (caiu no fluxo roteirizado). Props:
+/// stage ∈ {classify, execute}, code.
+const String evTrilhaAssistError = 'trilha_assist_error';
+
+// ── Assistente Fase B: mutações (propõe → confirma → aplica → desfaz) ────────
+
+/// O assistente PROPÔS uma alteração (card de confirmar). Props: lacuna_key
+/// (campo), op ∈ {update, add, remove, replace}.
+const String evTrilhaAssistEditProposed = 'trilha_assist_edit_proposed';
+
+/// Alteração CONFIRMADA e aplicada. Props: lacuna_key, op.
+const String evTrilhaAssistEditApplied = 'trilha_assist_edit_applied';
+
+/// Alteração cancelada (não aplicou). Props: lacuna_key, op.
+const String evTrilhaAssistEditCancelled = 'trilha_assist_edit_cancelled';
+
+/// Alteração DESFEITA depois de aplicada. Props: lacuna_key, op.
+const String evTrilhaAssistEditUndone = 'trilha_assist_edit_undone';
+
 // ════════════════════════════════════════════════════════════════════
 // Allowlist agregada — usada pelo wrapper pra rejeitar nomes não-catalogados.
 // ════════════════════════════════════════════════════════════════════
@@ -756,4 +805,12 @@ const Set<String> kAllowedEventNames = {
   evTrilhaColetaAbandoned, evTrilhaColetaInviteShown,
   evTrilhaColetaInviteAccepted, evTrilhaColetaInviteDismissed,
   evTrilhaColetaFreeTextInterpreted,
+  // PLANO-ASSISTENTE (Fase A) — assistente de IA na barra
+  evTrilhaAssistMessageSent, evTrilhaAssistIntentClassified,
+  evTrilhaAssistAnswerReturned, evTrilhaAssistSectionHandoff,
+  evTrilhaAssistStepConflict, evTrilhaAssistOutOfScope,
+  evTrilhaAssistClarifyRequested, evTrilhaAssistError,
+  // PLANO-ASSISTENTE (Fase B) — mutações
+  evTrilhaAssistEditProposed, evTrilhaAssistEditApplied,
+  evTrilhaAssistEditCancelled, evTrilhaAssistEditUndone,
 };

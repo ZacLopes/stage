@@ -99,6 +99,9 @@ void main() {
         hasProjects: true,
         hasAvailability: true,
         hasInterests: true,
+        hasCompanyStage: true,
+        hasWorkEnvironment: true,
+        hasWorkStyle: true,
       );
       expect(full.completionPercent, 100);
       expect(full.missing, isEmpty);

@@ -57,6 +57,7 @@ class _FakeRepo implements ProfileRepository {
   @override
   Future<JobPreferences> upsertJobPreferences(JobPreferences p) async {
     upsertedPrefs = p;
+    prefs = p; // persiste: a próxima leitura vê o upsert (merge de campos)
     return p;
   }
 
@@ -78,6 +79,7 @@ class _FakeRepo implements ProfileRepository {
       userId: e.userId,
       title: e.title,
       company: e.company,
+      kind: e.kind,
       startDate: e.startDate,
       endDate: e.endDate,
       isCurrent: e.isCurrent,
@@ -216,6 +218,20 @@ void main() {
       expect(repo.upsertedPrefs, isNull);
     });
 
+    test('fit cultural: grava o id da opção em company_stage/work_environment/'
+        'work_style (escolha única)', () async {
+      await wb.save(choice('gap.company_stage', ['startup']));
+      expect(repo.upsertedPrefs?.companyStage, 'startup');
+      await wb.save(choice('gap.work_environment', ['dynamic']));
+      expect(repo.upsertedPrefs?.workEnvironment, 'dynamic');
+      await wb.save(choice('gap.work_style', ['autonomy']));
+      final p = repo.upsertedPrefs;
+      expect(p?.workStyle, 'autonomy');
+      // Os anteriores não se perderam (copyWith preserva).
+      expect(p?.companyStage, 'startup');
+      expect(p?.workEnvironment, 'dynamic');
+    });
+
     test('áreas: grava como desired titles (userAdded)', () async {
       await wb.save(choice('gap.area', ['Tecnologia', 'Produto']));
       expect(repo.replacedDesired?.map((t) => t.title),
@@ -266,20 +282,23 @@ void main() {
       expect(repo.addedLangs, isEmpty);
     });
 
-    test('experiência: acumula os campos e grava experiência + bullet', () async {
-      await wb.save(StepAnswer.text('exp.0.company', 'Magalu'));
-      await wb.save(StepAnswer.text('exp.0.role', 'Estagiário'));
-      await wb.save(StepAnswer.monthYear('exp.0.start', 2024, 3));
-      await wb.save(choice('exp.0.current', ['no']));
-      await wb.save(StepAnswer.monthYear('exp.0.end', 2024, 12));
+    test('experiência (por tipo): acumula campos, grava com kind + bullet',
+        () async {
+      await wb.save(StepAnswer.text('exp.0.estagio.company', 'Magalu'));
+      await wb.save(StepAnswer.text('exp.0.estagio.role', 'Estagiário'));
+      await wb.save(StepAnswer.monthYear('exp.0.estagio.start', 2024, 3));
+      await wb.save(choice('exp.0.estagio.current', ['no']));
+      await wb.save(StepAnswer.monthYear('exp.0.estagio.end', 2024, 12));
       // Ainda não gravou — falta o "o que fazia".
       expect(repo.addedExps, isEmpty);
 
-      await wb.save(StepAnswer.text('exp.0.ofazia', 'Cuidava das redes sociais'));
+      await wb.save(
+          StepAnswer.text('exp.0.estagio.ofazia', 'Cuidava das redes sociais'));
       expect(repo.addedExps, hasLength(1));
       final e = repo.addedExps.first;
       expect(e.company, 'Magalu');
       expect(e.title, 'Estagiário');
+      expect(e.kind, 'estagio'); // tipo veio do id
       expect(e.startDate, DateTime(2024, 3, 1));
       expect(e.endDate, DateTime(2024, 12, 1));
       expect(e.isCurrent, false);
@@ -288,28 +307,43 @@ void main() {
       expect(repo.addedBullets.first.experienceId, e.id);
     });
 
+    test('experiência "outro": o nome do tipo (label) vira o kind', () async {
+      await wb.save(StepAnswer.text('exp.0.outro.label', 'Intercâmbio'));
+      await wb.save(StepAnswer.text('exp.0.outro.company', 'Univ. de Toronto'));
+      await wb.save(StepAnswer.text('exp.0.outro.role', 'Pesquisador'));
+      await wb.save(StepAnswer.monthYear('exp.0.outro.start', 2023, 8));
+      await wb.save(choice('exp.0.outro.current', ['yes']));
+      await wb.save(StepAnswer.text('exp.0.outro.ofazia', 'Fiz pesquisa'));
+      final e = repo.addedExps.single;
+      expect(e.kind, 'Intercâmbio'); // NÃO 'outro' — o nome livre é o kind
+      expect(e.company, 'Univ. de Toronto');
+      expect(e.title, 'Pesquisador');
+    });
+
     test('experiência atual: sem data de fim, isCurrent true', () async {
-      await wb.save(StepAnswer.text('exp.0.company', 'Stage'));
-      await wb.save(StepAnswer.text('exp.0.role', 'Dev'));
-      await wb.save(StepAnswer.monthYear('exp.0.start', 2025, 1));
-      await wb.save(choice('exp.0.current', ['yes']));
-      await wb.save(StepAnswer.text('exp.0.ofazia', 'Codo bastante'));
+      await wb.save(StepAnswer.text('exp.0.emprego.company', 'Stage'));
+      await wb.save(StepAnswer.text('exp.0.emprego.role', 'Dev'));
+      await wb.save(StepAnswer.monthYear('exp.0.emprego.start', 2025, 1));
+      await wb.save(choice('exp.0.emprego.current', ['yes']));
+      await wb.save(StepAnswer.text('exp.0.emprego.ofazia', 'Codo bastante'));
       final e = repo.addedExps.single;
       expect(e.isCurrent, true);
       expect(e.endDate, isNull);
+      expect(e.kind, 'emprego');
     });
 
-    test('exp.gate e exp.N.more: no-op (controle de fluxo)', () async {
-      await wb.save(choice('exp.gate', ['yes']));
-      await wb.save(choice('exp.0.more', ['no']));
+    test('exp.gate e exp.more (seletor de tipos): no-op (controle de fluxo)',
+        () async {
+      await wb.save(choice('exp.gate', ['estagio', 'voluntariado']));
+      await wb.save(choice('exp.more', const <String>[]));
       expect(repo.addedExps, isEmpty);
       expect(repo.addedBullets, isEmpty);
     });
 
     test('experiência incompleta (sem cargo): não grava', () async {
-      await wb.save(StepAnswer.text('exp.0.company', 'Magalu'));
-      await wb.save(StepAnswer.monthYear('exp.0.start', 2024, 3));
-      await wb.save(StepAnswer.text('exp.0.ofazia', 'algo'));
+      await wb.save(StepAnswer.text('exp.0.estagio.company', 'Magalu'));
+      await wb.save(StepAnswer.monthYear('exp.0.estagio.start', 2024, 3));
+      await wb.save(StepAnswer.text('exp.0.estagio.ofazia', 'algo'));
       expect(repo.addedExps, isEmpty); // faltou role
     });
 
@@ -553,18 +587,20 @@ void main() {
       final store = TrilhaDraftStore();
       final wb2 = TrilhaWriteback(repo, 'u1', draftStore: store);
 
-      await wb2.save(StepAnswer.text('exp.0.company', 'Magalu'));
-      await wb2.save(StepAnswer.text('exp.0.role', 'Estágio'));
+      await wb2.save(StepAnswer.text('exp.0.estagio.company', 'Magalu'));
+      await wb2.save(StepAnswer.text('exp.0.estagio.role', 'Estágio'));
       var drafts = await store.load('u1');
       expect(drafts, hasLength(1));
       expect(drafts.first.kind, 'experience');
       expect(drafts.first.fields['company'], 'Magalu');
+      expect(drafts.first.fields['kind'], 'estagio'); // tipo persistido no draft
       expect(repo.addedExps, isEmpty); // ainda não gravou a experiência
 
-      await wb2.save(StepAnswer.monthYear('exp.0.start', 2024, 1));
-      await wb2.save(choice('exp.0.current', ['yes']));
-      await wb2.save(StepAnswer.text('exp.0.ofazia', 'organizava o estoque'));
+      await wb2.save(StepAnswer.monthYear('exp.0.estagio.start', 2024, 1));
+      await wb2.save(choice('exp.0.estagio.current', ['yes']));
+      await wb2.save(StepAnswer.text('exp.0.estagio.ofazia', 'organizava o estoque'));
       expect(repo.addedExps, hasLength(1)); // gravou no terminal
+      expect(repo.addedExps.first.kind, 'estagio');
       expect(await store.load('u1'), isEmpty); // rascunho apagado
     });
 
@@ -576,8 +612,9 @@ void main() {
         const TrilhaItemDraft(
           kind: 'experience',
           itemIndex: 0,
-          lastStepId: 'exp.0.current',
+          lastStepId: 'exp.0.estagio.current',
           fields: {
+            'kind': 'estagio',
             'company': 'Magalu',
             'role': 'Estágio',
             'start': '2024-01-01T00:00:00.000',
@@ -586,10 +623,11 @@ void main() {
         ),
       ]);
       // Retoma: só responde o passo terminal (ofazia).
-      await wb2.save(StepAnswer.text('exp.0.ofazia', 'cuidava do estoque'));
+      await wb2.save(StepAnswer.text('exp.0.estagio.ofazia', 'cuidava do estoque'));
       expect(repo.addedExps, hasLength(1));
       expect(repo.addedExps.first.company, 'Magalu');
       expect(repo.addedExps.first.title, 'Estágio');
+      expect(repo.addedExps.first.kind, 'estagio'); // kind sobreviveu ao resume
     });
 
     test('projeto: rascunho nos intermediários, some no link (terminal)',

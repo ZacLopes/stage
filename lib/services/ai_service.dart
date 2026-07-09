@@ -597,6 +597,45 @@ class AIService {
       return null; // não propaga: o chat cai no widget de toque
     }
   }
+
+  /// Assistente da barra do chat (PLANO-ASSISTENTE, Fase A): manda a mensagem +
+  /// o contexto do perfil (grounding já minimizado) pra edge `trilha-assistant`,
+  /// que devolve UMA ferramenta a executar (leitura/navegação). Failure-safe:
+  /// qualquer não-200/timeout/sem-tool → null, e o chat cai no fluxo
+  /// roteirizado (responde o passo aberto ou pede pra tocar). Não propaga.
+  Future<AssistantTurn?> assistantTurn({
+    required String message,
+    Map<String, dynamic>? openStep,
+    Map<String, dynamic> context = const {},
+    List<Map<String, dynamic>> history = const [],
+  }) async {
+    try {
+      final response = await _client.functions.invoke(
+        'trilha-assistant',
+        body: {
+          'message': message,
+          if (openStep != null) 'openStep': openStep,
+          'context': context,
+          'history': history,
+        },
+      ).timeout(const Duration(seconds: 20));
+      if (response.status != 200) return null;
+      final data = response.data;
+      if (data is! Map) return null;
+      final tool = data['tool'];
+      if (tool is! String || tool.isEmpty || tool == 'none') return null;
+      final rawArgs = data['args'];
+      final args =
+          rawArgs is Map ? Map<String, dynamic>.from(rawArgs) : <String, dynamic>{};
+      final reply = data['reply'] is String ? data['reply'] as String : '';
+      final pv =
+          data['prompt_version'] is String ? data['prompt_version'] as String : '';
+      return AssistantTurn(
+          tool: tool, args: args, reply: reply, promptVersion: pv);
+    } catch (e) {
+      return null; // failure-safe: cai no fluxo roteirizado
+    }
+  }
 }
 
 /// Resultado da interpretação de texto livre num passo de escolha (F4).
@@ -610,5 +649,22 @@ class StepInterpretation {
     required this.matchedIds,
     required this.confidence,
     this.reason = '',
+  });
+}
+
+/// Um turno do assistente da barra (PLANO-ASSISTENTE): a ferramenta escolhida
+/// pela edge + seus argumentos + a fala pro usuário. [tool] roteia no cliente
+/// (`_executeTool`); [args] são específicos por tool (ex.: `section`,
+/// `option_ids`). [reply] é a bolha de resposta da IA.
+class AssistantTurn {
+  final String tool;
+  final Map<String, dynamic> args;
+  final String reply;
+  final String promptVersion;
+  const AssistantTurn({
+    required this.tool,
+    required this.args,
+    required this.reply,
+    required this.promptVersion,
   });
 }

@@ -90,10 +90,74 @@ List<ConversationStep> buildConversationPlan(
       if (projDraft != null) ..._resumeProject(projDraft)
       else _projectGate(),
     if (wants(LacunaKey.interests, 'interests')) _interests(),
+    // Fit cultural: como a pessoa quer trabalhar / que empresa busca.
+    if (wants(LacunaKey.companyStage, 'company_stage')) _companyStageStep(),
+    if (wants(LacunaKey.workEnvironment, 'work_environment'))
+      _workEnvironmentStep(),
+    if (wants(LacunaKey.workStyle, 'work_style')) _workStyleStep(),
     if (wants(LacunaKey.availability, 'availability')) _availabilityStep(),
   ];
   if (steps.isEmpty) return const [];
   return [_intro(), ...steps];
+}
+
+/// Passos REAIS de UMA seção, sob demanda (o assistente injeta quando o usuário
+/// diz "quero preencher X"). Diferente de [buildConversationPlan], IGNORA o gate
+/// por lacuna — permite ADICIONAR a uma seção já preenchida (ex.: mais uma
+/// experiência). Reusa os mesmos builders do plano roteirizado (write-back e
+/// recap idênticos). `summary` não é perguntado (é gerado) → vazio.
+List<ConversationStep> sectionSteps(
+  LacunaKey key, {
+  List<String> skillSuggestions = const [],
+  List<String> skillCatalog = const [],
+  Future<List<String>> Function()? skillSuggester,
+  Future<List<String>> Function()? skillSuggestionsLoader,
+  Future<List<PickSuggestion>> Function(String query)? citySearch,
+  Future<List<PickSuggestion>> Function(String query)? institutionSearch,
+}) {
+  switch (key) {
+    case LacunaKey.area:
+      return [_area()];
+    case LacunaKey.desiredPosition:
+      return [_desiredPositionStep()];
+    case LacunaKey.workMode:
+      return [_workMode()];
+    case LacunaKey.jobType:
+      return [_jobType()];
+    case LacunaKey.city:
+      return [_city(citySearch)];
+    case LacunaKey.educationStatus:
+      return [_educationGate(institutionSearch)];
+    case LacunaKey.skills:
+      return [
+        _skills(skillSuggestions, skillCatalog, skillSuggester,
+            skillSuggestionsLoader)
+      ];
+    case LacunaKey.languages:
+      return [_languages()];
+    case LacunaKey.experience:
+      return [_experienceGate()];
+    case LacunaKey.linkedin:
+      return [_linkedinGate()];
+    case LacunaKey.certifications:
+      return [_certGate()];
+    case LacunaKey.awards:
+      return [_awardGate()];
+    case LacunaKey.projects:
+      return [_projectGate()];
+    case LacunaKey.interests:
+      return [_interests()];
+    case LacunaKey.availability:
+      return [_availabilityStep()];
+    case LacunaKey.companyStage:
+      return [_companyStageStep()];
+    case LacunaKey.workEnvironment:
+      return [_workEnvironmentStep()];
+    case LacunaKey.workStyle:
+      return [_workStyleStep()];
+    case LacunaKey.summary:
+      return const []; // gerado por IA, não perguntado
+  }
 }
 
 bool _answeredYes(StepAnswer a) => a.value is List && (a.value as List).contains('yes');
@@ -147,23 +211,29 @@ List<ConversationStep> _resumeEducation(TrilhaItemDraft d,
 
 List<ConversationStep> _resumeExperience(TrilhaItemDraft d) {
   final n = d.itemIndex;
-  final field = d.lastStepId.split('.').last;
+  final parts = d.lastStepId.split('.'); // exp.{n}.{kind}.{field}
+  final kind = parts.length >= 4 ? parts[2] : 'emprego';
+  final field = parts.last;
   final isCurrent = d.fields['isCurrent'] == true;
+  // Ao retomar um item parcial, o `did` (terminal) reoferece "adicionar outra"
+  // (withMore) — a seleção múltipla original não é persistida, então a volta
+  // detalha o item pendente e segue permitindo adicionar mais.
   switch (field) {
+    case 'label':
     case 'company':
     case 'role':
     case 'start':
-      // _experienceItem = [company, role, start, current(expand → end/tail)].
-      return _stepsAfter(_experienceItem(n), d.lastStepId);
+      // item = [(label se outro), company, role, start, current(→ end/tail)].
+      return _stepsAfter(_experienceItem(n, kind, withMore: true), d.lastStepId);
     case 'current':
       // respondeu o "ainda está?" → cauda (com 'end' se não for atual).
       return isCurrent
-          ? _experienceTail(n)
-          : [_endStep(n), ..._experienceTail(n)];
+          ? _experienceTail(n, kind, withMore: true)
+          : [_experienceEnd(n, kind), ..._experienceTail(n, kind, withMore: true)];
     case 'end':
-      return _experienceTail(n);
+      return _experienceTail(n, kind, withMore: true);
     default:
-      return _experienceItem(n); // fallback defensivo
+      return _experienceItem(n, kind, withMore: true); // fallback defensivo
   }
 }
 
@@ -175,8 +245,11 @@ ConversationStep _intro() => ConversationStep.single(
           'Que bom te ver por aqui! Vou te fazer umas perguntas rapidinhas pra '
           'deixar seu perfil forte o bastante pras empresas te acharem. Pode ser?',
       input: const ChoiceInput(
-        options: [StepOption(id: 'go', label: 'Pode! 🚀')],
+        options: [StepOption(id: 'go', label: 'Bora começar')],
       ),
+      // "Bora começar" não é um dado — é só o start. Nada pra editar/voltar:
+      // sem lápis no card (onEdit fica null; beginEdit também barra por isto).
+      reversible: false,
     );
 
 /// Áreas sugeridas (chips). O usuário também pode buscar ou escrever a sua.
@@ -547,97 +620,336 @@ List<ConversationStep> _eduSchoolSteps() => [
       ),
     ];
 
+// ── Experiência POR TIPO ─────────────────────────────────────────────────────
+// Seletor de tipos (multi, com contador) → detalha cada experiência com as
+// perguntas na LÍNGUA do tipo → a IA resume o que anotou → "adicionar outra?".
+// O `kind` entra no id (exp.{n}.{kind}.{campo}) e é gravado em profile_experiences.
+
+/// Tipos oferecidos no seletor. 'outro' também é um tile — o nome do tipo é
+/// perguntado no fluxo do item (campo 'label') e vira o `kind` gravado.
+const List<ExperienceTypeOption> _kExperienceTypes = [
+  ExperienceTypeOption(
+      id: 'emprego',
+      label: 'Emprego',
+      subtitle: 'CLT, meio período, primeiro emprego',
+      icon: 'work'),
+  ExperienceTypeOption(
+      id: 'estagio',
+      label: 'Estágio',
+      subtitle: 'estágio ou trainee',
+      icon: 'school'),
+  ExperienceTypeOption(
+      id: 'monitoria',
+      label: 'Monitoria / Iniciação científica',
+      subtitle: 'na faculdade',
+      icon: 'menu_book'),
+  ExperienceTypeOption(
+      id: 'voluntariado',
+      label: 'Voluntariado',
+      subtitle: 'ONG, projeto social',
+      icon: 'volunteer'),
+  ExperienceTypeOption(
+      id: 'atletica',
+      label: 'Atlética / Liga / Entidade',
+      subtitle: 'vida universitária',
+      icon: 'groups'),
+  ExperienceTypeOption(
+      id: 'freela',
+      label: 'Freela / Autônomo / Negócio',
+      subtitle: 'projetos, clientes, empreender',
+      icon: 'rocket'),
+  ExperienceTypeOption(
+      id: 'familia',
+      label: 'Empresa da família',
+      subtitle: 'ajudar no negócio',
+      icon: 'store'),
+  ExperienceTypeOption(
+      id: 'outro',
+      label: 'Outro',
+      subtitle: 'algo fora da lista',
+      icon: 'more'),
+];
+
+/// Rótulo humano do tipo (recap). Custom ('outro') cai no nome dado pela pessoa.
+String _expTypeLabel(String kind) {
+  for (final t in _kExperienceTypes) {
+    if (t.id == kind) return t.label;
+  }
+  return kind;
+}
+
+/// Cópia (perguntas) por tipo — mesma estrutura (onde → papel → quando → o que
+/// fazia), mas cada pergunta fala a língua do tipo. Cai no 'outro' se faltar.
+class _ExpCopy {
+  final String whereQ, whereEx, whereHint;
+  final String roleQ, roleEx, roleHint;
+  final String didQ, didEx;
+  const _ExpCopy({
+    required this.whereQ,
+    required this.whereEx,
+    required this.whereHint,
+    required this.roleQ,
+    required this.roleEx,
+    required this.roleHint,
+    required this.didQ,
+    required this.didEx,
+  });
+}
+
+const _kDidDefault =
+    'Atendia clientes, organizava o estoque e montei uma planilha que agilizou os pedidos';
+
+final Map<String, _ExpCopy> _kExpCopy = {
+  'emprego': const _ExpCopy(
+    whereQ: 'Qual foi a empresa?',
+    whereEx: 'Magazine Luiza',
+    whereHint: 'Nome da empresa',
+    roleQ: 'Qual era seu cargo?',
+    roleEx: 'Assistente Administrativo',
+    roleHint: 'Seu cargo',
+    didQ: 'O que você fazia lá? Conta 2-3 coisas concretas — do seu jeito, '
+        'eu organizo. 😉',
+    didEx: _kDidDefault,
+  ),
+  'estagio': const _ExpCopy(
+    whereQ: 'Qual empresa ou organização?',
+    whereEx: 'Magazine Luiza',
+    whereHint: 'Nome da empresa',
+    roleQ: 'Qual era seu cargo de estágio?',
+    roleEx: 'Estagiário de Marketing',
+    roleHint: 'Seu cargo',
+    didQ: 'O que você fazia no estágio? 2-3 coisas concretas — do seu jeito, '
+        'eu organizo. 😉',
+    didEx: _kDidDefault,
+  ),
+  'monitoria': const _ExpCopy(
+    whereQ: 'Em qual faculdade?',
+    whereEx: 'USP',
+    whereHint: 'Nome da faculdade',
+    roleQ: 'Qual matéria/disciplina você monitorava?',
+    roleEx: 'Cálculo I',
+    roleHint: 'Matéria',
+    didQ: 'Como você ajudava os alunos e o professor? 2-3 coisas concretas.',
+    didEx: 'Tirava dúvidas em plantões, corrigia listas e preparava exercícios',
+  ),
+  'voluntariado': const _ExpCopy(
+    whereQ: 'Em qual ONG, causa ou projeto?',
+    whereEx: 'Cruz Vermelha',
+    whereHint: 'Nome da organização',
+    roleQ: 'Qual era seu papel lá?',
+    roleEx: 'Voluntário de eventos',
+    roleHint: 'Seu papel',
+    didQ: 'O que você fazia como voluntário? 2-3 coisas concretas.',
+    didEx: 'Organizava doações, coordenava voluntários e cuidava da divulgação',
+  ),
+  'atletica': const _ExpCopy(
+    whereQ: 'Qual atlética, liga ou entidade?',
+    whereEx: 'Atlética de Engenharia',
+    whereHint: 'Nome da entidade',
+    roleQ: 'Qual era seu cargo ou função?',
+    roleEx: 'Diretor de Marketing',
+    roleHint: 'Seu cargo',
+    didQ: 'O que você fazia na entidade? 2-3 coisas concretas.',
+    didEx: 'Organizava eventos, geria patrocínios e liderava uma equipe de 8',
+  ),
+  'freela': const _ExpCopy(
+    whereQ: 'Do que se tratava? (cliente, projeto ou negócio)',
+    whereEx: 'Loja de roupas no Instagram',
+    whereHint: 'Cliente, projeto ou negócio',
+    roleQ: 'Qual era seu papel?',
+    roleEx: 'Social media / Autônomo',
+    roleHint: 'Seu papel',
+    didQ: 'O que você entregava ou fazia acontecer? 2-3 coisas concretas.',
+    didEx: 'Criava os posts, respondia clientes e as vendas cresceram 30%',
+  ),
+  'familia': const _ExpCopy(
+    whereQ: 'Qual o negócio da família?',
+    whereEx: 'Mercadinho do bairro',
+    whereHint: 'O negócio',
+    roleQ: 'O que você fazia lá? (seu papel)',
+    roleEx: 'Caixa e controle de estoque',
+    roleHint: 'Seu papel',
+    didQ: 'O que você fazia no negócio? 2-3 coisas concretas.',
+    didEx: 'Cuidava do caixa, do estoque e montei o delivery pelo WhatsApp',
+  ),
+  'outro': const _ExpCopy(
+    whereQ: 'Onde foi essa experiência?',
+    whereEx: 'Universidade de Toronto',
+    whereHint: 'Onde foi',
+    roleQ: 'Qual era seu papel?',
+    roleEx: 'Pesquisador',
+    roleHint: 'Seu papel',
+    didQ: 'O que você fazia? 2-3 coisas concretas.',
+    didEx: _kDidDefault,
+  ),
+};
+
+/// Gate da seção Experiência: seletor de tipos (multi, com contador). O expand
+/// lê os tipos escolhidos e enfileira o detalhamento de cada um.
 ConversationStep _experienceGate() => ConversationStep(
       id: 'exp.gate',
       aiMessages: const [
         'Agora a parte que mais conta pras empresas: suas experiências.',
-        'Já fez ALGO que te ensinou no mundo real? Vale muito além de emprego — '
-            'estágio, monitoria, atlética ou liga acadêmica, voluntariado, '
-            'trabalho na empresa da família, freela, ajudar num negócio… conta tudo.',
+        'O que você já fez? Toca em tudo que rolou — vale estágio, voluntariado, '
+            'monitoria, atlética, freela, empresa da família… Pode marcar vários '
+            '(2 estágios? toca duas vezes).',
       ],
-      input: const ChoiceInput(options: [
-        StepOption(id: 'yes', label: 'Já sim'),
-        StepOption(id: 'no', label: 'Ainda não'),
-      ]),
-      expand: (a) => _answeredYes(a) ? _experienceItem(0) : const [],
+      input: const ExperienceTypeInput(types: _kExperienceTypes),
+      expand: (a) => _experienceQueueFrom(a, 0),
     );
 
-List<ConversationStep> _experienceItem(int n) => [
-      ConversationStep.single(
-        id: 'exp.$n.company',
-        aiMessage: n == 0
-            ? 'Bora, uma por vez! Qual foi a empresa ou organização? '
-                'Depois você adiciona as outras.'
-            : 'E a empresa/organização dessa?',
-        input: const GuidedTextInput(
-          example: 'Magazine Luiza',
-          hint: 'Nome da empresa',
-          maxLength: 80,
-          minLines: 1,
-        ),
-      ),
-      ConversationStep.single(
-        id: 'exp.$n.role',
-        aiMessage: 'Qual era seu cargo ou função lá?',
-        input: const GuidedTextInput(
-          example: 'Estagiário de Marketing',
-          hint: 'Seu cargo',
-          maxLength: 80,
-          minLines: 1,
-        ),
-      ),
-      ConversationStep.single(
-        id: 'exp.$n.start',
-        aiMessage: 'Quando você começou?',
-        input: const MonthYearInput(),
-      ),
-      ConversationStep.single(
-        id: 'exp.$n.current',
-        aiMessage: 'Você ainda está nessa experiência?',
-        input: const ChoiceInput(options: [
-          StepOption(id: 'yes', label: 'Sim, ainda estou'),
-          StepOption(id: 'no', label: 'Não, já saí'),
-        ]),
-        expand: (a) => _answeredYes(a)
-            ? _experienceTail(n)
-            : [_endStep(n), ..._experienceTail(n)],
-      ),
-    ];
+/// Lê os tipos escolhidos (ordenados, repetição = contagem) e enfileira o bloco
+/// de perguntas de cada experiência, por tipo; ao fim, "adicionar outra?".
+List<ConversationStep> _experienceQueueFrom(StepAnswer a, int startIndex) {
+  final kinds = a.value is List
+      ? (a.value as List).map((e) => e.toString()).toList()
+      : const <String>[];
+  if (kinds.isEmpty) return const []; // pulou / ainda não tem experiência
+  final steps = <ConversationStep>[];
+  for (var i = 0; i < kinds.length; i++) {
+    steps.addAll(_experienceItem(startIndex + i, kinds[i]));
+  }
+  // Detalhadas as marcadas, oferece adicionar mais (reabre o seletor).
+  steps.add(_experienceMore(startIndex + kinds.length));
+  return steps;
+}
 
-ConversationStep _endStep(int n) => ConversationStep.single(
-      id: 'exp.$n.end',
+/// "Adicionar mais?" — reabre o seletor; o expand CONTINUA a numeração global
+/// (startIndex) pra os buffers do write-back não colidirem.
+ConversationStep _experienceMore(int nextIndex) => ConversationStep.single(
+      id: 'exp.more',
+      aiMessage: 'Quer adicionar mais alguma experiência?',
+      input: const ExperienceTypeInput(
+        types: _kExperienceTypes,
+        skipLabel: 'Não, era só isso',
+      ),
+      // Não volta pra re-perguntar (as anteriores já foram gravadas).
+      reversible: false,
+      expand: (a) => _experienceQueueFrom(a, nextIndex),
+    );
+
+/// Bloco de perguntas de UMA experiência, na língua do [kind]. `withMore` só na
+/// RETOMADA (o item resumido reoferece "adicionar outra" ao fechar).
+List<ConversationStep> _experienceItem(int n, String kind,
+    {bool withMore = false}) {
+  final c = _kExpCopy[kind] ?? _kExpCopy['outro']!;
+  final p = 'exp.$n.$kind';
+  return [
+    // 'Outro': nomeia o tipo (vira o kind gravado).
+    if (kind == 'outro')
+      ConversationStep.single(
+        id: '$p.label',
+        aiMessage: 'Que tipo de experiência foi? Dá um nome. '
+            '(ex.: Intercâmbio, Mentoria)',
+        input: const GuidedTextInput(
+          example: 'Intercâmbio acadêmico',
+          hint: 'Tipo de experiência',
+          maxLength: 60,
+          minLines: 1,
+        ),
+      ),
+    ConversationStep.single(
+      id: '$p.company',
+      aiMessage: n == 0 ? 'Boa! Vamos uma por vez. ${c.whereQ}' : c.whereQ,
+      input: GuidedTextInput(
+          example: c.whereEx, hint: c.whereHint, maxLength: 80, minLines: 1),
+    ),
+    ConversationStep.single(
+      id: '$p.role',
+      aiMessage: c.roleQ,
+      input: GuidedTextInput(
+          example: c.roleEx, hint: c.roleHint, maxLength: 80, minLines: 1),
+    ),
+    ConversationStep.single(
+      id: '$p.start',
+      aiMessage: 'Quando você começou?',
+      input: const MonthYearInput(),
+    ),
+    ConversationStep.single(
+      id: '$p.current',
+      aiMessage: 'Você ainda está nessa?',
+      input: const ChoiceInput(options: [
+        StepOption(id: 'yes', label: 'Sim, ainda estou'),
+        StepOption(id: 'no', label: 'Não, já saí'),
+      ]),
+      expand: (a) => _answeredYes(a)
+          ? _experienceTail(n, kind, withMore: withMore)
+          : [
+              _experienceEnd(n, kind),
+              ..._experienceTail(n, kind, withMore: withMore)
+            ],
+    ),
+  ];
+}
+
+ConversationStep _experienceEnd(int n, String kind) => ConversationStep.single(
+      id: 'exp.$n.$kind.end',
       aiMessage: 'E quando terminou?',
       input: const MonthYearInput(),
     );
 
-List<ConversationStep> _experienceTail(int n) => [
-      ConversationStep(
-        id: 'exp.$n.ofazia',
-        aiMessages: const [
-          'Agora o mais importante: o que você fazia lá? Conta 2-3 coisas '
-              'concretas — pode ser do seu jeito, eu organizo depois. 😉',
-        ],
-        input: const GuidedTextInput(
-          example: 'Atendia clientes, organizava o estoque e montei uma '
-              'planilha que agilizou os pedidos',
-          maxLength: 280,
-          minLines: 3,
-        ),
-        acknowledgement:
-            'Show! Vou guardar isso pra montar um bullet caprichado no seu CV. ✨',
-        // Save terminal (addExperience + bullet) → não dá pra voltar e duplicar.
-        reversible: false,
-      ),
-      ConversationStep.single(
-        id: 'exp.$n.more',
-        aiMessage: 'Trabalhou em mais algum lugar?',
-        input: const ChoiceInput(options: [
-          StepOption(id: 'yes', label: '+ Adicionar outra empresa'),
-          StepOption(id: 'no', label: 'Não, era só essa'),
-        ]),
-        expand: (a) => _answeredYes(a) ? _experienceItem(n + 1) : const [],
-      ),
-    ];
+/// Cauda = o "o que você fazia" (terminal: salva + a IA RESUME o item).
+List<ConversationStep> _experienceTail(int n, String kind,
+    {bool withMore = false}) {
+  final c = _kExpCopy[kind] ?? _kExpCopy['outro']!;
+  return [
+    ConversationStep(
+      id: 'exp.$n.$kind.ofazia',
+      aiMessages: [c.didQ],
+      input: GuidedTextInput(example: c.didEx, maxLength: 280, minLines: 3),
+      // Save terminal (addExperience + bullet) → não volta pra duplicar.
+      reversible: false,
+      recap: _experienceRecap(n, kind),
+      expand: withMore ? (a) => [_experienceMore(n + 1)] : null,
+    ),
+  ];
+}
+
+/// Recap dinâmico: a IA mostra a experiência que acabou de anotar (composta do
+/// histórico do próprio item). Ex.: "✓ Adicionei: Analista · Magazine Luiza —
+/// Estágio · 03/2023 – 12/2024. ✨".
+String? Function(List<StepAnswer>) _experienceRecap(int n, String kind) =>
+    (h) {
+      final p = 'exp.$n.$kind';
+      final role = _lastDisplay(h, '$p.role');
+      final company = _lastDisplay(h, '$p.company');
+      final typeLabel = kind == 'outro'
+          ? (_lastDisplay(h, '$p.label') ?? 'Experiência')
+          : _expTypeLabel(kind);
+      final period = _expPeriod(_lastDisplay(h, '$p.start'),
+          _lastYes(h, '$p.current'), _lastDisplay(h, '$p.end'));
+      final head = [
+        if (role != null && role.isNotEmpty) role,
+        if (company != null && company.isNotEmpty) company,
+      ].join(' · ');
+      final tail = [typeLabel, if (period != null) period].join(' · ');
+      final body = head.isEmpty ? tail : '$head — $tail';
+      return '✓ Adicionei ao seu currículo: $body. ✨';
+    };
+
+String? _lastDisplay(List<StepAnswer> h, String stepId) {
+  for (final a in h.reversed) {
+    if (a.stepId == stepId) return a.displayText.trim();
+  }
+  return null;
+}
+
+bool _lastYes(List<StepAnswer> h, String stepId) {
+  for (final a in h.reversed) {
+    if (a.stepId == stepId) {
+      final v = a.value;
+      return v is List && v.contains('yes');
+    }
+  }
+  return false;
+}
+
+String? _expPeriod(String? start, bool isCurrent, String? end) {
+  if (start == null || start.isEmpty) return null;
+  if (isCurrent) return '$start – Atual';
+  if (end != null && end.isNotEmpty) return '$start – $end';
+  return start;
+}
 
 // ── Extras: LinkedIn + Certificações ─────────────────────────────────────────
 
@@ -870,6 +1182,45 @@ List<ConversationStep> _projectTail(int n) => [
         expand: (a) => _answeredYes(a) ? _projectItem(n + 1) : const [],
       ),
     ];
+
+// ── Fit cultural: como a pessoa quer trabalhar / que empresa busca ───────────
+// Escolha única (chips) → grava o id da opção em profile_job_preferences. Ajuda
+// a conectar por CULTURA, não só por skill. Valor único por passo.
+
+ConversationStep _companyStageStep() => ConversationStep.single(
+      id: 'gap.company_stage',
+      aiMessage: 'Agora umas rapidinhas sobre o jeito que você curte trabalhar. '
+          'Que tipo de empresa tem mais a ver com você agora?',
+      input: const ChoiceInput(options: [
+        StepOption(id: 'startup', label: 'Startup (muda rápido)'),
+        StepOption(id: 'scaleup', label: 'Scale-up (em crescimento)'),
+        StepOption(id: 'established', label: 'Empresa consolidada'),
+        StepOption(id: 'open', label: 'Tanto faz / explorar'),
+      ]),
+      acknowledgement: 'Boa! Isso ajuda a te achar a cultura certa.',
+    );
+
+ConversationStep _workEnvironmentStep() => ConversationStep.single(
+      id: 'gap.work_environment',
+      aiMessage: 'E o dia a dia, como você curte mais?',
+      input: const ChoiceInput(options: [
+        StepOption(id: 'structured', label: 'Metas e processos claros'),
+        StepOption(id: 'dynamic', label: 'Dinâmico, muda rápido'),
+        StepOption(id: 'balanced', label: 'Um equilíbrio dos dois'),
+      ]),
+      acknowledgement: 'Anotado!',
+    );
+
+ConversationStep _workStyleStep() => ConversationStep.single(
+      id: 'gap.work_style',
+      aiMessage: 'E como você rende melhor?',
+      input: const ChoiceInput(options: [
+        StepOption(id: 'autonomy', label: 'Com autonomia, no meu ritmo'),
+        StepOption(id: 'collaboration', label: 'Muito em equipe'),
+        StepOption(id: 'flexible', label: 'Depende, me adapto'),
+      ]),
+      acknowledgement: 'Show, isso fecha bem o seu perfil de fit. ✨',
+    );
 
 // ── Extra: Disponibilidade ───────────────────────────────────────────────────
 

@@ -25,6 +25,9 @@ void main() {
     bool hasProjects = true,
     bool hasAvailability = true,
     bool hasInterests = true,
+    bool hasCompanyStage = true,
+    bool hasWorkEnvironment = true,
+    bool hasWorkStyle = true,
   }) =>
       analyzeProfileGaps(
         hasArea: hasArea,
@@ -43,6 +46,9 @@ void main() {
         hasProjects: hasProjects,
         hasAvailability: hasAvailability,
         hasInterests: hasInterests,
+        hasCompanyStage: hasCompanyStage,
+        hasWorkEnvironment: hasWorkEnvironment,
+        hasWorkStyle: hasWorkStyle,
       );
 
   group('buildConversationPlan', () {
@@ -64,6 +70,40 @@ void main() {
         ]),
       );
       expect(plan, hasLength(9)); // intro + 7 + gate de experiência
+    });
+
+    test('fit cultural: os 3 passos aparecem quando faltam; sumem quando cheios',
+        () {
+      final falta = buildConversationPlan(gaps(
+        hasCompanyStage: false,
+        hasWorkEnvironment: false,
+        hasWorkStyle: false,
+      )).map((s) => s.id);
+      expect(
+          falta,
+          containsAll(const [
+            'gap.company_stage',
+            'gap.work_environment',
+            'gap.work_style',
+          ]));
+      // Cheios (default do helper) → não re-pergunta.
+      final cheio = buildConversationPlan(gaps()).map((s) => s.id);
+      expect(cheio, isNot(contains('gap.company_stage')));
+      expect(cheio, isNot(contains('gap.work_environment')));
+      expect(cheio, isNot(contains('gap.work_style')));
+    });
+
+    test('sectionSteps: entrega os passos reais de UMA seção (ignora o gate)', () {
+      // O assistente usa isto pra "quero preencher X" mesmo com a seção cheia.
+      expect(sectionSteps(LacunaKey.skills).map((s) => s.id), contains('gap.skills'));
+      expect(sectionSteps(LacunaKey.experience).map((s) => s.id), contains('exp.gate'));
+      expect(sectionSteps(LacunaKey.city).map((s) => s.id), contains('gap.city'));
+      expect(sectionSteps(LacunaKey.companyStage).map((s) => s.id),
+          contains('gap.company_stage'));
+      expect(sectionSteps(LacunaKey.availability).map((s) => s.id),
+          contains('gap.availability'));
+      // Resumo é gerado por IA, não perguntado.
+      expect(sectionSteps(LacunaKey.summary), isEmpty);
     });
 
     test('perfil completo (só falta resumo, que é gerado): plano vazio', () {
@@ -251,13 +291,14 @@ void main() {
         TrilhaItemDraft(
             kind: 'experience',
             itemIndex: 0,
-            lastStepId: 'exp.0.start',
-            fields: {'company': 'X', 'role': 'Y'}),
+            lastStepId: 'exp.0.estagio.start',
+            fields: {'kind': 'estagio', 'company': 'X', 'role': 'Y'}),
       ]);
       final ids = plan.map((s) => s.id);
       expect(ids, isNot(contains('exp.gate'))); // gate suprimido
-      expect(ids, contains('exp.0.current')); // retoma logo após 'start'
-      expect(ids, isNot(contains('exp.0.company'))); // não re-pergunta o respondido
+      expect(ids, contains('exp.0.estagio.current')); // retoma logo após 'start'
+      expect(ids,
+          isNot(contains('exp.0.estagio.company'))); // não re-pergunta o feito
     });
 
     test('resumabilidade: draft de projeto retoma após o último passo', () {
@@ -325,15 +366,64 @@ void main() {
           ]))));
     });
 
-    test('experiência: a gate expande em item ao responder "sim", vazio no "não"', () {
+    test('experiência: o seletor enfileira UM item por tipo escolhido + "more"; '
+        'vazio (pulou) não enfileira nada', () {
       final plan = buildConversationPlan(gaps());
       final gate = plan.firstWhere((s) => s.id == 'exp.gate');
-      final yes = gate.expand!(StepAnswer.choice(
-          'exp.gate', const [StepOption(id: 'yes', label: 'Sim')]));
-      expect(yes.map((s) => s.id), contains('exp.0.company'));
-      final no = gate.expand!(StepAnswer.choice(
-          'exp.gate', const [StepOption(id: 'no', label: 'Não')]));
-      expect(no, isEmpty);
+      // Escolheu 2 estágios + 1 voluntariado → 3 itens, com índices globais.
+      final picked = gate.expand!(StepAnswer(
+        stepId: 'exp.gate',
+        value: const ['estagio', 'estagio', 'voluntariado'],
+        displayText: 'Estágio ×2, Voluntariado',
+      ));
+      final ids = picked.map((s) => s.id).toList();
+      // Cada tipo vira um bloco (perguntas na língua do tipo), com n global.
+      expect(ids, contains('exp.0.estagio.company'));
+      expect(ids, contains('exp.1.estagio.company'));
+      expect(ids, contains('exp.2.voluntariado.company'));
+      // Ao fim, "adicionar outra?" (reabre o seletor).
+      expect(ids, contains('exp.more'));
+      // Pulou (lista vazia) → não enfileira nada.
+      final none = gate.expand!(StepAnswer(
+          stepId: 'exp.gate', value: const <String>[], displayText: 'pulou'));
+      expect(none, isEmpty);
+    });
+
+    test('experiência "outro": o bloco começa pedindo o nome do tipo (label)', () {
+      final plan = buildConversationPlan(gaps());
+      final gate = plan.firstWhere((s) => s.id == 'exp.gate');
+      final picked = gate.expand!(StepAnswer(
+          stepId: 'exp.gate', value: const ['outro'], displayText: 'Outro'));
+      expect(picked.map((s) => s.id), contains('exp.0.outro.label'));
+    });
+
+    test('experiência: a IA RESUME o item anotado (recap no passo terminal)', () {
+      final plan = buildConversationPlan(gaps());
+      final gate = plan.firstWhere((s) => s.id == 'exp.gate');
+      final items = gate.expand!(StepAnswer(
+          stepId: 'exp.gate', value: const ['estagio'], displayText: ''));
+      final current =
+          items.firstWhere((s) => s.id == 'exp.0.estagio.current');
+      // "Não estou mais" → revela [end, ofazia].
+      final tail = current.expand!(StepAnswer.choice(
+          'exp.0.estagio.current', const [StepOption(id: 'no', label: 'Não')]));
+      final ofazia = tail.firstWhere((s) => s.id == 'exp.0.estagio.ofazia');
+      expect(ofazia.recap, isNotNull);
+
+      final history = [
+        StepAnswer.text('exp.0.estagio.company', 'Magalu'),
+        StepAnswer.text('exp.0.estagio.role', 'Estagiário'),
+        StepAnswer.monthYear('exp.0.estagio.start', 2023, 3),
+        StepAnswer.choice('exp.0.estagio.current',
+            const [StepOption(id: 'no', label: 'Não')]),
+        StepAnswer.monthYear('exp.0.estagio.end', 2024, 12),
+        StepAnswer.text('exp.0.estagio.ofazia', 'fiz coisas'),
+      ];
+      final recap = ofazia.recap!(history)!;
+      expect(recap, contains('Estagiário'));
+      expect(recap, contains('Magalu'));
+      expect(recap, contains('Estágio')); // rótulo do tipo
+      expect(recap, contains('03/2023 – 12/2024')); // período
     });
 
     test('todo passo do plano tem uma fala e uma entrada', () {

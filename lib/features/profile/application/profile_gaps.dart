@@ -38,6 +38,10 @@ enum LacunaKey {
   projects,
   availability,
   interests,
+  // Fit cultural (trilha): tipo de empresa + jeito do dia a dia + estilo.
+  companyStage,
+  workEnvironment,
+  workStyle,
 }
 
 /// Skills mínimas pra um perfil contar como "tem habilidades" — abaixo disso o
@@ -135,6 +139,9 @@ ProfileGaps analyzeProfileGaps({
   bool hasProjects = false,
   bool hasAvailability = false,
   bool hasInterests = false,
+  bool hasCompanyStage = false,
+  bool hasWorkEnvironment = false,
+  bool hasWorkStyle = false,
 }) {
   final list = <Lacuna>[
     // Tier 1 — filtros duros, ordem do mais barato (clique) ao mais "rico".
@@ -233,6 +240,24 @@ ProfileGaps analyzeProfileGaps({
       filled: hasAvailability,
     ),
     Lacuna(
+      key: LacunaKey.companyStage,
+      tier: LacunaTier.tier3,
+      label: 'Tipo de empresa',
+      filled: hasCompanyStage,
+    ),
+    Lacuna(
+      key: LacunaKey.workEnvironment,
+      tier: LacunaTier.tier3,
+      label: 'Ambiente de trabalho',
+      filled: hasWorkEnvironment,
+    ),
+    Lacuna(
+      key: LacunaKey.workStyle,
+      tier: LacunaTier.tier3,
+      label: 'Estilo de trabalho',
+      filled: hasWorkStyle,
+    ),
+    Lacuna(
       key: LacunaKey.interests,
       tier: LacunaTier.tier3,
       label: 'Interesses',
@@ -280,5 +305,8 @@ ProfileGaps profileGapsFromData({
     hasProjects: snapshot.projects.isNotEmpty,
     hasAvailability: personal?.availability?.trim().isNotEmpty ?? false,
     hasInterests: snapshot.interests.isNotEmpty,
+    hasCompanyStage: prefs?.companyStage?.trim().isNotEmpty ?? false,
+    hasWorkEnvironment: prefs?.workEnvironment?.trim().isNotEmpty ?? false,
+    hasWorkStyle: prefs?.workStyle?.trim().isNotEmpty ?? false,
   );
 }

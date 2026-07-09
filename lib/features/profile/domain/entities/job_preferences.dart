@@ -31,6 +31,16 @@ class JobPreferences {
   /// das áreas amplas em profile_desired_titles. Bônus no match.
   final String? desiredPosition;
 
+  /// Fit cultural (trilha): tipo de empresa buscada
+  /// (startup/scaleup/established/open). Valor único = id da opção.
+  final String? companyStage;
+
+  /// Fit cultural: jeito do dia a dia (structured/dynamic/balanced).
+  final String? workEnvironment;
+
+  /// Fit cultural: estilo de trabalho (autonomy/collaboration/flexible).
+  final String? workStyle;
+
   const JobPreferences({
     required this.userId,
     this.primaryLocationCountry,
@@ -44,6 +54,9 @@ class JobPreferences {
     this.workMode = const [],
     this.jobTypes = const [],
     this.desiredPosition,
+    this.companyStage,
+    this.workEnvironment,
+    this.workStyle,
   });
 
   Map<String, dynamic> toMap() => {
@@ -59,6 +72,11 @@ class JobPreferences {
         'work_mode': workMode.map(_workModeToDb).toList(),
         'job_types': jobTypes.map(_jobTypeToDb).toList(),
         'desired_position': desiredPosition,
+        // Só envia o fit cultural quando presente — assim upserts que não mexem
+        // nele (edição/onboarding) não referenciam colunas talvez sem migration.
+        if (companyStage != null) 'company_stage': companyStage,
+        if (workEnvironment != null) 'work_environment': workEnvironment,
+        if (workStyle != null) 'work_style': workStyle,
       };
 
   factory JobPreferences.fromMap(Map<String, dynamic> m) => JobPreferences(
@@ -83,6 +101,9 @@ class JobPreferences {
             .whereType<JobType>()
             .toList(),
         desiredPosition: m['desired_position'] as String?,
+        companyStage: m['company_stage'] as String?,
+        workEnvironment: m['work_environment'] as String?,
+        workStyle: m['work_style'] as String?,
       );
 
   JobPreferences copyWith({
@@ -98,6 +119,9 @@ class JobPreferences {
     List<WorkMode>? workMode,
     List<JobType>? jobTypes,
     String? desiredPosition,
+    String? companyStage,
+    String? workEnvironment,
+    String? workStyle,
   }) =>
       JobPreferences(
         userId: userId ?? this.userId,
@@ -112,6 +136,9 @@ class JobPreferences {
         workMode: workMode ?? this.workMode,
         jobTypes: jobTypes ?? this.jobTypes,
         desiredPosition: desiredPosition ?? this.desiredPosition,
+        companyStage: companyStage ?? this.companyStage,
+        workEnvironment: workEnvironment ?? this.workEnvironment,
+        workStyle: workStyle ?? this.workStyle,
       );
 }
 

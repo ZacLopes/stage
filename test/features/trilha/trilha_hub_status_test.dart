@@ -49,6 +49,9 @@ ProfileGaps _everything() => analyzeProfileGaps(
       hasProjects: true,
       hasAvailability: true,
       hasInterests: true,
+      hasCompanyStage: true,
+      hasWorkEnvironment: true,
+      hasWorkStyle: true,
     );
 
 void main() {

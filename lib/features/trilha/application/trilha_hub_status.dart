@@ -127,6 +127,12 @@ String _gainFor(LacunaKey key) {
       return 'Diga sua disponibilidade pra facilitar pro recrutador.';
     case LacunaKey.interests:
       return 'Adicione seus interesses pra deixar o perfil mais completo.';
+    case LacunaKey.companyStage:
+      return 'Diga que tipo de empresa você busca — ajuda a conectar por cultura.';
+    case LacunaKey.workEnvironment:
+      return 'Conte como você curte o dia a dia — afina o fit com as empresas.';
+    case LacunaKey.workStyle:
+      return 'Diga seu estilo de trabalho pra melhorar o encaixe cultural.';
   }
 }
 

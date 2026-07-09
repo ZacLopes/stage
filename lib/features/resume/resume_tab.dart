@@ -21,6 +21,7 @@ import '../../services/analytics_events.dart';
 import '../../services/analytics_service.dart';
 import '../../services/profile_snapshot_service.dart';
 import '../auth/user_viewmodel.dart';
+import '../../services/feature_flags_service.dart';
 import '../profile/application/profile_editor_view_model.dart';
 import '../trilha/application/trilha_hub_status.dart';
 import '../trilha/application/trilha_section.dart';
@@ -106,6 +107,42 @@ class _ResumeTabState extends State<ResumeTab>
     final orch = TrilhaChatController(
       userId: uid,
       sessionBuilder: widget.sessionFactory ?? buildTrilhaSession,
+      // Assistente de IA na barra (PLANO-ASSISTENTE, Fase A). Atrás da flag
+      // `trilha_assist_v1`: OFF ⇒ a barra mantém o comportamento de hoje.
+      assistEnabled: FeatureFlagsService.instance
+          .isEnabledForUser(FeatureFlagKeys.trilhaAssistV1, uid),
+      assistContextLoader: () => buildAssistContext(uid),
+      assistSectionSteps: assistSectionStepsFor,
+      // Fase B: alterar um campo (propõe → confirma → aplica → desfaz).
+      assistReadField: (field) async {
+        final m = await assistReadFieldMap(uid, field);
+        return m == null
+            ? null
+            : AssistFieldValue(
+                raw: m['raw'] ?? '',
+                text: m['text'] ?? '—',
+                label: m['label'] ?? field);
+      },
+      assistWriteField: (field, value) => assistWriteFieldValue(uid, field, value),
+      assistItemAdder: (kind, value) => assistAddItem(uid, kind, value),
+      assistItemRemover: (kind, value) => assistRemoveItem(uid, kind, value),
+      assistItemResolver: (kind, query) => assistResolveItems(uid, kind, query),
+      assistBulletReader: (bulletId) async {
+        final m = await assistBulletReadMap(uid, bulletId);
+        return m == null
+            ? null
+            : AssistFieldValue(
+                raw: m['raw'] ?? '',
+                text: m['text'] ?? '',
+                label: m['label'] ?? 'Experiência');
+      },
+      assistBulletWriter: (bulletId, text) =>
+          assistBulletWrite(uid, bulletId, text),
+      // Remoção reversível de experiência (captura + delete + restore pro undo).
+      assistReversibleRemover: (kind, value) =>
+          assistReversibleRemove(uid, kind, value),
+      // Fase C (proativo): sugere a maior lacuna que resta ao concluir.
+      assistProactiveLoader: () => assistTopGap(uid),
       // Abertura adaptativa: se o perfil já tem seções, a trilha reconhece e vai
       // direto completar o que falta (pula o gate "começar do zero"). Vazio ⇒ gate.
       preFilledLoader: () async {

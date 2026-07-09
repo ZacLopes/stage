@@ -172,4 +172,12 @@ class FeatureFlagKeys {
   /// "Completar com a IA" no hub do Perfil. Default OFF (escondido); rollout
   /// 10→50→100 via app_feature_flags. Seed na migration 20260623150000.
   static const String trilhaColetaV1 = 'trilha_coleta_v1';
+
+  /// Assistente de IA na barra do chat da trilha (PLANO-ASSISTENTE): a barra
+  /// "Escreva uma mensagem…" vira assistente (tira dúvida, conduz a coleta,
+  /// altera sob confirmação). ANINHADA em [trilhaColetaV1] — só vale onde a
+  /// trilha existe. Default OFF (com OFF, a barra mantém o comportamento de
+  /// hoje: resposta ao passo aberto). Kill-switch independente; rollout
+  /// 10→50→100.
+  static const String trilhaAssistV1 = 'trilha_assist_v1';
 }

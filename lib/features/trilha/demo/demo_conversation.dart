@@ -14,7 +14,7 @@ List<ConversationStep> buildDemoConversation() => [
             'Oi! Sou seu copiloto de carreira. Em uns minutinhos a gente deixa '
             'seu perfil forte o bastante pra empresas te acharem. Bora?',
         input: const ChoiceInput(
-          options: [StepOption(id: 'go', label: 'Bora! 🚀')],
+          options: [StepOption(id: 'go', label: 'Bora começar')],
         ),
       ),
       ConversationStep.single(

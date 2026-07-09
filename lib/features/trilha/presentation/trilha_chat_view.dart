@@ -44,6 +44,10 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
   final ScrollController _scroll = ScrollController();
   final TextEditingController _text = TextEditingController();
 
+  /// Âncora do card em edição — pra rolar ATÉ ele (e não pro fim do fio) quando
+  /// o usuário toca no lápis de uma resposta lá em cima.
+  final GlobalKey _editAnchorKey = GlobalKey();
+
   TrilhaChatController get _c => widget.controller;
 
   @override
@@ -62,16 +66,33 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
     super.dispose();
   }
 
-  void _onTick() => _scrollToEnd();
+  void _onTick() => _syncScroll();
 
   @override
   void didChangeMetrics() {
-    if (mounted) _scrollToEnd();
+    if (mounted) _syncScroll();
   }
 
-  void _scrollToEnd() {
+  // Editando um card lá em cima? Traz ELE pra vista (perto do topo) e o mantém
+  // visível quando o teclado sobe — em vez de colar no fim do fio. Fora de
+  // edição: acompanha sempre a última bolha.
+  void _syncScroll() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scroll.hasClients) return;
+      if (!mounted || !_scroll.hasClients) return;
+      if (_c.isEditing) {
+        final ctx = _editAnchorKey.currentContext;
+        if (ctx != null) {
+          Scrollable.ensureVisible(
+            ctx,
+            // Encosta o card perto do topo, deixando a pergunta logo acima à
+            // mostra e o widget inteiro acima do teclado.
+            alignment: 0.15,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+          );
+        }
+        return;
+      }
       final target = _scroll.position.maxScrollExtent;
       if ((target - _scroll.offset).abs() < 1) return;
       _scroll.animateTo(target,
@@ -136,6 +157,12 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: AiBubble(text: item.text, showAvatar: !prevIsAi),
         ));
+      } else if (item is UserMsgItem) {
+        children.add(Padding(
+          key: ValueKey('user-$i'),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: _userBubble(item.text),
+        ));
       } else if (item is FileBubbleItem) {
         children.add(Padding(
           key: ValueKey('file-$i'),
@@ -148,12 +175,33 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: _importSummary(item.summary),
         ));
+      } else if (item is AssistEditItem) {
+        children.add(Padding(
+          key: ValueKey('edit-item-${item.id}'),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: _assistEditCard(item),
+        ));
+      } else if (item is AssistExtractItem) {
+        children.add(Padding(
+          key: ValueKey('extract-${item.id}'),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: _assistExtractCard(item),
+        ));
       } else if (item is AnsweredItem) {
         if (c.editingIndex == i && c.activeStep != null) {
           children.add(Padding(
             key: ValueKey('edit-$i'),
             padding: const EdgeInsets.only(bottom: AppSpacing.md),
-            child: InlineStepInput(step: c.activeStep!, onSubmit: c.submit),
+            child: _EditFrame(
+              key: _editAnchorKey,
+              onCancel: c.cancelEdit,
+              // initialAnswer → o widget reabre com o que já estava escrito.
+              child: InlineStepInput(
+                step: c.activeStep!,
+                initialAnswer: item.exchange.answer,
+                onSubmit: c.submit,
+              ),
+            ),
           ));
         } else {
           children.add(KeyedSubtree(
@@ -232,6 +280,28 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
   }
 
   // ── Bolha de arquivo ────────────────────────────────────────────────────────
+
+  Widget _userBubble(String text) {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 300),
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.base, vertical: 11),
+        decoration: const BoxDecoration(
+          color: AppColors.primary,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(16),
+            topRight: Radius.circular(16),
+            bottomLeft: Radius.circular(16),
+            bottomRight: Radius.circular(4),
+          ),
+        ),
+        child: Text(text,
+            style: AppTextStyles.bodyMd.copyWith(color: AppColors.onPrimary)),
+      ),
+    );
+  }
 
   Widget _fileBubble(String name) {
     return Align(
@@ -353,6 +423,349 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
                 style: AppTextStyles.bodySm
                     .copyWith(color: AppColors.textTertiary)),
           ],
+        ),
+      ),
+    );
+  }
+
+  // ── Card de alteração do assistente (Fase B): confirmar → aplicado → desfazer
+
+  Widget _assistEditCard(AssistEditItem item) {
+    // Alinha com o texto das bolhas da IA (avatar 34 + gap).
+    const margin = EdgeInsets.only(left: 34 + AppSpacing.sm);
+    final isRemove = item.op == AssistEditOp.remove;
+    final isAdd = item.op == AssistEditOp.add;
+
+    if (item.status == AssistEditStatus.cancelled) {
+      return Container(
+        margin: margin,
+        child: Text('Cancelado.',
+            style: AppTextStyles.bodySm.copyWith(color: AppColors.textTertiary)),
+      );
+    }
+    if (item.status == AssistEditStatus.undone) {
+      final txt = switch (item.op) {
+        AssistEditOp.update =>
+          '${item.fieldLabel} voltou pra ${item.beforeText.isEmpty ? '—' : item.beforeText}.',
+        AssistEditOp.add => '${item.afterText} removido de novo.',
+        AssistEditOp.remove => '${item.afterText} voltou pra ${item.fieldLabel}.',
+        AssistEditOp.bullet => 'Bullet (${item.fieldLabel}) voltou ao original.',
+      };
+      return Container(
+        margin: margin,
+        child: Row(children: [
+          const Icon(Icons.undo_rounded, size: 15, color: AppColors.textTertiary),
+          const SizedBox(width: 6),
+          Flexible(
+              child: Text(txt,
+                  style: AppTextStyles.bodySm
+                      .copyWith(color: AppColors.textTertiary))),
+        ]),
+      );
+    }
+
+    final applied = item.status == AssistEditStatus.applied;
+    // Cor de acento: destrutivo (remove) usa warning; resto usa primary.
+    final accent = isRemove ? AppColors.warning : AppColors.primary;
+    final headerTitle = applied
+        ? (isRemove ? 'Removi' : isAdd ? 'Adicionei' : 'Alterei no seu perfil')
+        : (isRemove ? 'Confirmar remoção' : 'Confirmar alteração');
+    final headerIcon = applied
+        ? Icons.check_circle_rounded
+        : (isRemove ? Icons.delete_outline_rounded : Icons.edit_rounded);
+
+    return Container(
+      margin: margin,
+      padding: AppSpacing.allBase,
+      decoration: BoxDecoration(
+        color: applied
+            ? AppColors.surface
+            : accent.withValues(alpha: isRemove ? 0.10 : 0.14),
+        borderRadius: AppRadius.brLg,
+        border: Border.all(
+            color: applied ? AppColors.border : accent.withValues(alpha: 0.30)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(headerIcon,
+                  size: 15, color: applied ? AppColors.success : accent),
+              const SizedBox(width: 6),
+              Text(headerTitle,
+                  style: AppTextStyles.overline
+                      .copyWith(color: applied ? AppColors.success : accent)),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            switch (item.op) {
+              AssistEditOp.bullet => 'Bullet · ${item.fieldLabel}',
+              AssistEditOp.remove => 'Remover de ${item.fieldLabel}',
+              AssistEditOp.add => 'Adicionar em ${item.fieldLabel}',
+              AssistEditOp.update => item.fieldLabel,
+            },
+            style: AppTextStyles.labelSm.copyWith(color: AppColors.textTertiary),
+          ),
+          const SizedBox(height: 4),
+          // Texto longo (resumo/bullet) → antes/depois EMPILHADO; curto → inline.
+          if ((item.op == AssistEditOp.update || item.op == AssistEditOp.bullet) &&
+              (item.field == 'summary' ||
+                  item.op == AssistEditOp.bullet ||
+                  item.afterText.length > 60 ||
+                  item.beforeText.length > 60)) ...[
+            if (item.beforeText.isNotEmpty && item.beforeText != '—') ...[
+              _summaryBlock('Antes', item.beforeText, muted: true),
+              const SizedBox(height: AppSpacing.sm),
+            ],
+            _summaryBlock('Depois', item.afterText, muted: false),
+          ] else
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 6,
+              children: [
+                if (item.op == AssistEditOp.update &&
+                    item.beforeText.isNotEmpty &&
+                    item.beforeText != '—') ...[
+                  Text(item.beforeText,
+                      style: AppTextStyles.bodyMd.copyWith(
+                        color: AppColors.textTertiary,
+                        decoration: TextDecoration.lineThrough,
+                      )),
+                  const Icon(Icons.arrow_forward_rounded,
+                      size: 15, color: AppColors.textTertiary),
+                ],
+                Text(item.afterText,
+                    style: AppTextStyles.titleSm.copyWith(
+                      color: AppColors.textPrimary,
+                      decoration: (applied && isRemove)
+                          ? TextDecoration.lineThrough
+                          : null,
+                    )),
+              ],
+            ),
+          const SizedBox(height: AppSpacing.md),
+          if (applied)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _editPill(
+                icon: Icons.undo_rounded,
+                label: 'Desfazer',
+                onTap: () => _c.undoAssistEdit(item.id),
+              ),
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: _confirmButton(
+                    label: isRemove ? 'Remover' : 'Aplicar',
+                    color: isRemove ? AppColors.error : AppColors.primary,
+                    onTap: () => _c.confirmAssistEdit(item.id),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                _editPill(
+                  label: 'Cancelar',
+                  onTap: () => _c.cancelAssistEdit(item.id),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  // Card "Peguei isto 👇": vários campos simples extraídos de um textão colado,
+  // confirmados de uma vez; espelha o ImportSummaryItem (lista + aplicar/desfazer).
+  Widget _assistExtractCard(AssistExtractItem item) {
+    const margin = EdgeInsets.only(left: 34 + AppSpacing.sm);
+
+    if (item.status == AssistEditStatus.cancelled) {
+      return Container(
+        margin: margin,
+        child: Text('Cancelado.',
+            style: AppTextStyles.bodySm.copyWith(color: AppColors.textTertiary)),
+      );
+    }
+    if (item.status == AssistEditStatus.undone) {
+      return Container(
+        margin: margin,
+        child: Row(children: [
+          const Icon(Icons.undo_rounded, size: 15, color: AppColors.textTertiary),
+          const SizedBox(width: 6),
+          Flexible(
+              child: Text('Desfeito — não adicionei nada.',
+                  style: AppTextStyles.bodySm
+                      .copyWith(color: AppColors.textTertiary))),
+        ]),
+      );
+    }
+
+    final applied = item.status == AssistEditStatus.applied;
+    final accent = AppColors.primary;
+
+    return Container(
+      margin: margin,
+      padding: AppSpacing.allBase,
+      decoration: BoxDecoration(
+        color: applied ? AppColors.surface : accent.withValues(alpha: 0.14),
+        borderRadius: AppRadius.brLg,
+        border: Border.all(
+            color: applied ? AppColors.border : accent.withValues(alpha: 0.30)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(applied ? Icons.check_circle_rounded : Icons.auto_awesome_rounded,
+                  size: 15, color: applied ? AppColors.success : accent),
+              const SizedBox(width: 6),
+              Text(applied ? 'Adicionei ao seu currículo' : 'Peguei isto 👇',
+                  style: AppTextStyles.overline
+                      .copyWith(color: applied ? AppColors.success : accent)),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          for (final e in item.entries) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(_extractIcon(e.kind),
+                    size: 15, color: AppColors.textTertiary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(e.label,
+                      style: AppTextStyles.bodyMd
+                          .copyWith(color: AppColors.textPrimary)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+          ],
+          const SizedBox(height: AppSpacing.xs),
+          if (applied)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _editPill(
+                icon: Icons.undo_rounded,
+                label: 'Desfazer',
+                onTap: () => _c.undoExtract(item.id),
+              ),
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: _confirmButton(
+                    label: 'Aplicar tudo',
+                    color: AppColors.primary,
+                    onTap: () => _c.confirmExtract(item.id),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                _editPill(
+                  label: 'Cancelar',
+                  onTap: () => _c.cancelExtract(item.id),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  IconData _extractIcon(String kind) {
+    switch (kind) {
+      case 'skill':
+        return Icons.bolt_rounded;
+      case 'language':
+        return Icons.translate_rounded;
+      case 'desired_position':
+        return Icons.work_outline_rounded;
+      default:
+        return Icons.check_rounded;
+    }
+  }
+
+  Widget _summaryBlock(String label, String text, {required bool muted}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: AppTextStyles.overline.copyWith(
+                color: muted ? AppColors.textTertiary : AppColors.primary)),
+        const SizedBox(height: 2),
+        Container(
+          width: double.infinity,
+          padding: AppSpacing.allSm,
+          decoration: BoxDecoration(
+            color: muted ? AppColors.surfaceVariant : AppColors.surface,
+            borderRadius: AppRadius.brMd,
+            border: Border.all(
+                color: muted
+                    ? AppColors.border
+                    : AppColors.primary.withValues(alpha: 0.25)),
+          ),
+          child: Text(text,
+              style: AppTextStyles.bodySm.copyWith(
+                  color: muted ? AppColors.textTertiary : AppColors.textPrimary,
+                  decoration:
+                      muted ? TextDecoration.lineThrough : null)),
+        ),
+      ],
+    );
+  }
+
+  Widget _confirmButton(
+      {required String label,
+      required Color color,
+      required VoidCallback onTap}) {
+    return Material(
+      color: color,
+      borderRadius: AppRadius.brMd,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: AppRadius.brMd,
+        child: Container(
+          height: 46,
+          alignment: Alignment.center,
+          child: Text(label,
+              style:
+                  AppTextStyles.labelLg.copyWith(color: AppColors.onPrimary)),
+        ),
+      ),
+    );
+  }
+
+  Widget _editPill({IconData? icon, required String label, required VoidCallback onTap}) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: AppRadius.brPill,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: AppRadius.brPill,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.base, vertical: 9),
+          decoration: BoxDecoration(
+            borderRadius: AppRadius.brPill,
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 15, color: AppColors.textSecondary),
+                const SizedBox(width: 5),
+              ],
+              Text(label,
+                  style: AppTextStyles.labelMd
+                      .copyWith(color: AppColors.textSecondary)),
+            ],
+          ),
         ),
       ),
     );
@@ -537,6 +950,71 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
         child: Icon(icon,
             size: 20,
             color: filled ? AppColors.onPrimary : AppColors.textTertiary),
+      ),
+    );
+  }
+}
+
+/// Moldura do modo EDIÇÃO: um realce azul-claro em volta do card sendo
+/// reeditado + um "Cancelar" que sai da edição SEM mexer no que já estava
+/// gravado. Uniforme pra qualquer widget (texto, chips, roda, slider…), então
+/// todo passo editável ganha a saída "não quero mais editar" de graça.
+class _EditFrame extends StatelessWidget {
+  const _EditFrame({super.key, required this.child, required this.onCancel});
+
+  final Widget child;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: AppSpacing.allSm,
+      decoration: BoxDecoration(
+        color: AppColors.primarySoft.withValues(alpha: 0.5),
+        borderRadius: AppRadius.brLg,
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xs, 2, AppSpacing.xs, AppSpacing.sm),
+            child: Row(
+              children: [
+                const Icon(Icons.edit_rounded,
+                    size: 14, color: AppColors.primary),
+                const SizedBox(width: 6),
+                Text('Editando',
+                    style: AppTextStyles.labelSm.copyWith(
+                        color: AppColors.primary, fontWeight: FontWeight.w700)),
+                const Spacer(),
+                // "Cancelar" = sair da edição e manter a resposta anterior.
+                InkWell(
+                  onTap: onCancel,
+                  borderRadius: AppRadius.brPill,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.sm, vertical: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.close_rounded,
+                            size: 14, color: AppColors.textSecondary),
+                        const SizedBox(width: 4),
+                        Text('Cancelar',
+                            style: AppTextStyles.labelSm.copyWith(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          child,
+        ],
       ),
     );
   }
