@@ -120,6 +120,13 @@ Map<TrilhaSection, SectionStatus> sectionStatuses({
     final seg = TrilhaProgress.segmentToMark(ex.step.id, ex.answer.value);
     final sec = _sectionForSegment(seg);
     if (sec != null) done.add(sec);
+    // Idiomas: o picker (gap.languages) NÃO marca a memória de "abordado" (Fase
+    // 7 +10 Tarefa 3 — pra a trilha voltar a perguntar o nível que faltou), mas
+    // no STEPPER ele conta como concluído: o usuário já engajou com a seção.
+    if (ex.step.id.startsWith('gap.languages') ||
+        ex.step.id.startsWith('lang.level')) {
+      done.add(TrilhaSection.idiomas);
+    }
   }
 
   TrilhaSection? cur;

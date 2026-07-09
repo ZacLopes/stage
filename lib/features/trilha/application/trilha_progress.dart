@@ -105,12 +105,20 @@ class TrilhaProgress {
         return 'city';
       case 'gap.skills':
         return 'skills';
-      case 'gap.languages':
-        return 'languages';
+      // 'gap.languages' (o picker) NÃO marca mais: senão sair entre o picker e
+      // os níveis deixava "Inglês" sem nível pra sempre. O trecho é gap-driven
+      // agora — a lacuna só fecha quando todos os idiomas têm nível (Fase 7 +10
+      // Tarefa 3), então a trilha volta a perguntar o nível que faltou.
       case 'gap.availability':
         return 'availability';
       case 'gap.interests':
         return 'interests';
+      case 'gap.company_stage':
+        return 'company_stage';
+      case 'gap.work_environment':
+        return 'work_environment';
+      case 'gap.work_style':
+        return 'work_style';
       // Educação: grava no último passo de cada ramo (faculdade=formatura,
       // ensino médio=ano). "Outro" é tratado no segmentToMark.
       case 'gap.edu.graduation':

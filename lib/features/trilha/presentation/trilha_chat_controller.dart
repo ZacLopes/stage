@@ -64,6 +64,13 @@ class AiMsgItem extends ChatItem {
   const AiMsgItem(this.text);
 }
 
+/// Mensagem do USUÁRIO digitada na barra (assistente) — pra a conversa mostrar
+/// o que a pessoa falou (respostas de passo viram AnsweredItem, não isto).
+class UserMsgItem extends ChatItem {
+  final String text;
+  const UserMsgItem(this.text);
+}
+
 class AnsweredItem extends ChatItem {
   final ConversationExchange exchange;
   const AnsweredItem(this.exchange);
@@ -81,6 +88,92 @@ class ImportSummaryItem extends ChatItem {
   const ImportSummaryItem(this.summary);
 }
 
+/// Estado do card de mutação do assistente (Fase B).
+enum AssistEditStatus { pending, applied, undone, cancelled }
+
+/// Operação da mutação: trocar um campo (update), adicionar (add), remover
+/// (remove — destrutivo) um item de lista, ou reescrever um bullet (bullet,
+/// keyed por id).
+enum AssistEditOp { update, add, remove, bullet }
+
+/// Card de ALTERAÇÃO do assistente: propõe (pending, com Aplicar/Cancelar) →
+/// aplica (applied, com Desfazer) → desfaz (undone). A view renderiza conforme
+/// o [status] e [op]; o controller o transiciona (confirm/cancel/undoAssistEdit).
+class AssistEditItem extends ChatItem {
+  final String id;
+  final AssistEditOp op;
+  final String field; // campo (update) ou kind (add/remove: skill/language)
+  final String fieldLabel; // "Cargo desejado" / "suas skills"
+  final String beforeRaw; // valor cru anterior (update, pro undo)
+  final String beforeText; // "—" ou o texto anterior (update)
+  final String afterText; // exibição do novo valor / do item
+  final String value; // valor cru a aplicar / item a add/remove
+  final String refId; // id da linha (op=bullet: o bullet_id)
+  /// Undo CAPTURADO na aplicação (ex.: remover experiência guarda o restore que
+  /// re-insere o registro). Quando presente, tem prioridade sobre o undo por op.
+  Future<void> Function()? capturedUndo;
+  AssistEditStatus status;
+  AssistEditItem({
+    required this.id,
+    this.op = AssistEditOp.update,
+    required this.field,
+    required this.fieldLabel,
+    this.beforeRaw = '',
+    this.beforeText = '',
+    required this.afterText,
+    required this.value,
+    this.refId = '',
+    this.status = AssistEditStatus.pending,
+  });
+}
+
+/// Um item extraído de um textão colado (Fase C): kind canônico + valor + como
+/// exibir. kinds: skill / language / desired_position.
+class AssistExtractEntry {
+  final String kind;
+  final String value;
+  final String label; // "Skill: Python" / "Cargo: Analista"
+  const AssistExtractEntry(
+      {required this.kind, required this.value, required this.label});
+}
+
+/// Card "Peguei isto 👇" (extração multi-campo): lista os itens, confirma tudo
+/// de uma vez, e um Desfazer reverte o lote inteiro.
+class AssistExtractItem extends ChatItem {
+  final String id;
+  final List<AssistExtractEntry> entries;
+  AssistEditStatus status;
+  final List<Future<void> Function()> undos = []; // preenchido ao aplicar
+  AssistExtractItem({
+    required this.id,
+    required this.entries,
+    this.status = AssistEditStatus.pending,
+  });
+}
+
+/// Valor atual de um campo (pro diff/undo do assistente).
+class AssistFieldValue {
+  final String raw; // valor cru (id/texto) — '' se vazio
+  final String text; // exibição ("São Paulo" / "—")
+  final String label; // rótulo do campo ("Cidade")
+  const AssistFieldValue(
+      {required this.raw, required this.text, required this.label});
+}
+
+/// Lê o valor atual de um campo (pro diff/undo). null ⇒ campo não editável aqui.
+typedef AssistFieldReader = Future<AssistFieldValue?> Function(String field);
+
+/// Aplica um valor cru a um campo (value '' limpa). Reusa o write-back.
+typedef AssistFieldWriter = Future<void> Function(String field, String value);
+
+/// Turno do assistente (injetável p/ teste). Mesma forma de [AIService.assistantTurn].
+typedef AssistantTurnFn = Future<AssistantTurn?> Function({
+  required String message,
+  Map<String, dynamic>? openStep,
+  Map<String, dynamic> context,
+  List<Map<String, dynamic>> history,
+});
+
 class TrilhaChatController extends ChangeNotifier {
   TrilhaChatController({
     required this.userId,
@@ -90,6 +183,19 @@ class TrilhaChatController extends ChangeNotifier {
     this.onFinalize,
     this.onStarted,
     this.interpret,
+    this.assistEnabled = false,
+    this.assistantTurn,
+    this.assistContextLoader,
+    this.assistSectionSteps,
+    this.assistReadField,
+    this.assistWriteField,
+    this.assistItemAdder,
+    this.assistItemRemover,
+    this.assistItemResolver,
+    this.assistBulletReader,
+    this.assistBulletWriter,
+    this.assistReversibleRemover,
+    this.assistProactiveLoader,
     this.pollInterval = const Duration(milliseconds: 1500),
     this.maxPolls = 40,
   });
@@ -115,6 +221,58 @@ class TrilhaChatController extends ChangeNotifier {
   /// Interpretador de texto livre → ids de opção. null ⇒ usa [AIService].
   final StepInterpreter? interpret;
 
+  // ── Assistente de IA na barra (PLANO-ASSISTENTE, Fase A) ──────────────────
+  /// Flag `trilha_assist_v1`. OFF ⇒ a barra mantém o comportamento de hoje
+  /// (responder o passo aberto). ON ⇒ o texto passa pelo assistente.
+  final bool assistEnabled;
+
+  /// Turno do assistente (injetável p/ teste). null ⇒ [AIService.assistantTurn].
+  final AssistantTurnFn? assistantTurn;
+
+  /// Monta o grounding (lacunas + inventário compacto, SEM PII) pro assistente.
+  /// null ⇒ contexto vazio (o assistente ainda responde/conduz, só sem
+  /// personalizar tanto).
+  final Future<Map<String, dynamic>> Function()? assistContextLoader;
+
+  /// Passos reais de uma seção pra "quero preencher X" — o app liga com os
+  /// searchers (cidade/instituição/skills). Recebe o nome da seção (LacunaKey
+  /// em snake). Vazio/null ⇒ sem handoff (cai em conversa).
+  final List<ConversationStep> Function(String section)? assistSectionSteps;
+
+  /// Fase B: lê o valor atual de um campo (pro diff/undo). null ⇒ sem mutação.
+  final AssistFieldReader? assistReadField;
+
+  /// Fase B: aplica um valor a um campo (reusa o write-back). null ⇒ sem mutação.
+  final AssistFieldWriter? assistWriteField;
+
+  /// Fase B: adiciona um item de lista (kind, value) — ex.: skill/idioma (merge).
+  final AssistFieldWriter? assistItemAdder;
+
+  /// Fase B: remove um item de lista (kind, value) — destrutivo.
+  final AssistFieldWriter? assistItemRemover;
+
+  /// Fase B: resolve "qual item" pra remover — (kind, query) → nomes que casam
+  /// (0 ⇒ não achou; 1 ⇒ segue; 2+ ⇒ desambigua).
+  final Future<List<String>> Function(String kind, String query)?
+      assistItemResolver;
+
+  /// Fase B: lê um bullet por id (pro diff/undo). raw/text = o texto atual;
+  /// label = a experiência ("Ambev"). null ⇒ id inválido.
+  final AssistFieldReader? assistBulletReader;
+
+  /// Fase B: reescreve um bullet (bulletId, novo texto). Undo regrava o antigo.
+  final AssistFieldWriter? assistBulletWriter;
+
+  /// Fase B: remoção REVERSÍVEL de item multi-campo (experiência/projeto):
+  /// captura o registro, deleta, e devolve um restore (pro undo re-inserir).
+  /// null / retorno null ⇒ cai no remover simples (skill/idioma). (kind, value).
+  final Future<Future<void> Function()?> Function(String kind, String value)?
+      assistReversibleRemover;
+
+  /// Fase C (proativo): a maior lacuna que resta — `{section, label}` — pra o
+  /// assistente SUGERIR o próximo ganho ao concluir. null ⇒ sem sugestão.
+  final Future<Map<String, String>?> Function()? assistProactiveLoader;
+
   /// Cadência do poll da extração (injetável p/ teste encurtar). ~60s = 40×1.5s.
   final Duration pollInterval;
   final int maxPolls;
@@ -137,6 +295,12 @@ class TrilhaChatController extends ChangeNotifier {
 
   int? editingIndex;
   ConversationStep? _editingStep;
+
+  /// Na VOLTA (abertura adaptativa), a saudação de retorno — msg1 reconhece o
+  /// que já existe + msg2 convida a completar — já diz o "vamos lá". Então o
+  /// passo de abertura ('intro') entra só com o CTA, sem repetir a bolha de
+  /// saudação (que soa como "começando agora"). Vale só pra 1ª revelação.
+  bool _suppressIntroGreeting = false;
 
   ConversationStep? get activeStep => _editingStep ?? _conv?.current;
   bool get isEditing => _editingStep != null;
@@ -202,6 +366,9 @@ class TrilhaChatController extends ChangeNotifier {
   /// falta (pula o gate de import — não faz sentido oferecer "começar do zero").
   Future<void> _startAdaptive(List<String> filled) async {
     phase = ChatPhase.converse; // sem gate
+    // A saudação de retorno abaixo (msg1 + msg2) já dá as boas-vindas e convida
+    // — então o passo de abertura não repete a saudação genérica (só o CTA).
+    _suppressIntroGreeting = true;
     typing = true;
     _notify();
     final msg1 = 'Oi! Vi que você já tem ${_humanJoin(filled)} no seu perfil.';
@@ -341,6 +508,17 @@ class TrilhaChatController extends ChangeNotifier {
       _onDone();
       return;
     }
+    // Na volta, a saudação do passo de abertura ('intro') repetiria o que a
+    // msg1+msg2 já disseram → revela o passo direto (só o CTA "Bora começar"),
+    // sem bolha nem "typing". Vale uma vez só (a flag zera aqui).
+    final skipGreeting = _suppressIntroGreeting && step.id == 'intro';
+    _suppressIntroGreeting = false;
+    if (skipGreeting) {
+      typing = false;
+      inputVisible = true;
+      _notify();
+      return;
+    }
     typing = true;
     inputVisible = false;
     _notify();
@@ -394,7 +572,9 @@ class TrilhaChatController extends ChangeNotifier {
     thread.add(AnsweredItem(conv.history.last));
     _notify();
 
-    final ack = step.acknowledgement;
+    // Recap dinâmico (a IA mostra o que anotou) tem prioridade sobre o ack fixo.
+    final ack = step.recap?.call([for (final e in conv.history) e.answer]) ??
+        step.acknowledgement;
     if (ack != null && ack.trim().isNotEmpty) {
       typing = true;
       _notify();
@@ -409,32 +589,881 @@ class TrilhaChatController extends ChangeNotifier {
     await _reveal();
   }
 
-  /// Texto livre da barra de baixo (F4). Passo de TEXTO (GuidedText) responde
-  /// direto; passo de ESCOLHA (chips/slider) passa por interpretação por IA
-  /// (mapeia o texto → ids de opção). Os demais tipos pedem o widget.
+  /// Texto livre da barra de baixo. Com o assistente OFF (flag): comportamento
+  /// de HOJE — passo de TEXTO responde direto; ESCOLHA passa pela interpretação
+  /// por IA; sem passo aberto, ignora. Com o assistente ON: roteia por intenção
+  /// (atalho local barato → IA), podendo responder, conduzir uma seção ou (Fase
+  /// B) alterar. Failure-safe: erro/timeout cai no fluxo roteirizado.
   Future<void> submitFreeText(String text) async {
     if (_busy) return;
-    final step = activeStep;
-    if (step == null) return;
     final t = text.trim();
     if (t.isEmpty) return;
+    final step = activeStep;
+
+    // Assistente OFF → exatamente o comportamento de hoje (precisa de passo).
+    if (!assistEnabled) {
+      if (step == null) return;
+      _busy = true;
+      try {
+        await _routeToStep(step, t);
+      } finally {
+        _busy = false;
+      }
+      return;
+    }
+
     _busy = true;
     try {
-      final input = step.input;
-      if (input is GuidedTextInput) {
+      // Fase C (proativo): acabei de SUGERIR uma seção e a pessoa topou ("quero",
+      // "bora") → entra direto nela, sem gastar uma chamada de IA.
+      final suggested = _suggestedSection;
+      _suggestedSection = null;
+      if (suggested != null && _isAffirmative(t)) {
+        thread.add(UserMsgItem(t));
+        _notify();
+        final ok = await _injectSection(suggested, 'Boa, bora! 👇');
+        if (!ok) _pushAi('Beleza! O que você quer preencher?');
+        return;
+      }
+
+      // Nível 0 — atalho local (sem IA): passo de TEXTO aberto + mensagem sem
+      // cara de comando ⇒ resposta direta (custo/latência zero, = hoje). Um
+      // textão colado (várias infos) NÃO é resposta do passo — vai pra IA.
+      if (step != null &&
+          step.input is GuidedTextInput &&
+          !_looksLikeCommand(t) &&
+          !_looksLikePaste(t)) {
+        // ignore: unawaited_futures
+        Analytics.shared.track(evTrilhaAssistMessageSent, props: {
+          'char_count': t.length,
+          'has_active_step': true,
+          'route': 'fast_lane',
+        });
         await _doSubmit(StepAnswer.text(step.id, t));
         return;
       }
-      if (input is ChoiceInput) {
-        await _interpretChoice(step, input, t);
-        return;
-      }
-      // Mês/ano e typeahead (cidade/instituição) precisam do widget — texto
-      // livre cru não canoniza com segurança. Convida a tocar.
-      _pushAi('Pra essa aqui, toca numa das opções acima 🙂');
+      // Nível 1 — a IA roteia.
+      await _runAssistant(t, step);
     } finally {
       _busy = false;
     }
+  }
+
+  /// Comportamento roteirizado de hoje (assistente OFF ou fallback).
+  Future<void> _routeToStep(ConversationStep step, String t) async {
+    final input = step.input;
+    if (input is GuidedTextInput) {
+      await _doSubmit(StepAnswer.text(step.id, t));
+      return;
+    }
+    if (input is ChoiceInput) {
+      await _interpretChoice(step, input, t);
+      return;
+    }
+    // Mês/ano e typeahead (cidade/instituição) precisam do widget.
+    _pushAi('Pra essa aqui, toca numa das opções acima 🙂');
+  }
+
+  // ── Assistente: roteia a mensagem por intenção e executa a ferramenta ──────
+
+  Future<void> _runAssistant(String message, ConversationStep? step) async {
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistMessageSent, props: {
+      'char_count': message.length,
+      'has_active_step': step != null,
+      'route': 'assistant',
+    });
+    // Mostra a fala do usuário no fio (respostas de passo já viram card).
+    thread.add(UserMsgItem(message));
+    inputVisible = false;
+    typing = true;
+    _notify();
+
+    Map<String, dynamic> context = const {};
+    try {
+      context = await assistContextLoader?.call() ?? const {};
+    } catch (_) {/* grounding é best-effort */}
+    if (_disposed) return;
+
+    final fn = assistantTurn ?? AIService().assistantTurn;
+    AssistantTurn? turn;
+    try {
+      turn = await fn(
+        message: message,
+        openStep: step == null ? null : _serializeStep(step),
+        context: context,
+        history: _recentHistory(),
+      );
+    } catch (_) {
+      turn = null;
+    }
+    if (_disposed) return;
+    typing = false;
+
+    if (turn == null) {
+      // Failure-safe: sem re-chamar IA. Passo aberto ⇒ mantém o widget; senão
+      // ⇒ nota gentil.
+      // ignore: unawaited_futures
+      Analytics.shared
+          .track(evTrilhaAssistError, props: {'stage': 'classify'});
+      if (step != null) {
+        inputVisible = true;
+        _pushAi(
+            'Não peguei bem 🤔 Toca numa opção aí em cima, ou tenta de outro jeito.');
+      } else {
+        _pushAi('Não consegui agora 🤔 Tenta de novo daqui a pouco.');
+      }
+      _notify();
+      return;
+    }
+
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistIntentClassified, props: {
+      'intent': turn.tool,
+      'tool': turn.tool,
+      'prompt_version': turn.promptVersion,
+    });
+    await _executeTool(turn, step);
+  }
+
+  Future<void> _executeTool(AssistantTurn turn, ConversationStep? step) async {
+    final reply = turn.reply.trim();
+    switch (turn.tool) {
+      case 'answer_current_step':
+        await _applyAnswerCurrentStep(turn, step);
+        return;
+      case 'start_section':
+        await _handleStartSection(turn, step);
+        return;
+      case 'update_field':
+        await _proposeUpdateField(turn, step);
+        return;
+      case 'add_item':
+        await _proposeAddItem(turn, step);
+        return;
+      case 'remove_item':
+        await _proposeRemoveItem(turn, step);
+        return;
+      case 'rewrite_summary':
+        await _proposeRewriteSummary(turn, step);
+        return;
+      case 'improve_bullet':
+        await _proposeImproveBullet(turn, step);
+        return;
+      case 'extract_profile':
+        await _proposeExtract(turn, step);
+        return;
+      case 'skip_step':
+        if (step != null && _stepIsOptional(step)) {
+          if (reply.isNotEmpty) _pushAi(reply);
+          await _doSubmit(StepAnswer(
+              stepId: step.id, value: '', displayText: 'Pular'));
+        } else {
+          _pushAi(reply.isEmpty ? 'Essa aqui não dá pra pular 🙂' : reply);
+          if (step != null) inputVisible = true;
+          _notify();
+        }
+        return;
+      case 'out_of_scope':
+        // ignore: unawaited_futures
+        Analytics.shared.track(evTrilhaAssistOutOfScope,
+            props: {'category': turn.args['category']?.toString() ?? 'other'});
+        _replyAndKeepStep(reply, step);
+        return;
+      case 'clarify':
+        // ignore: unawaited_futures
+        Analytics.shared.track(evTrilhaAssistClarifyRequested,
+            props: {'reason': 'ambiguous'});
+        _replyAndKeepStep(reply, step);
+        return;
+      case 'show_gaps':
+      case 'show_profile_summary':
+        // ignore: unawaited_futures
+        Analytics.shared.track(evTrilhaAssistAnswerReturned,
+            props: {'grounded_in': 'profile_gaps', 'used_llm': true});
+        _replyAndKeepStep(reply, step);
+        return;
+      case 'answer_question':
+      case 'explain_step':
+      default:
+        // ignore: unawaited_futures
+        Analytics.shared.track(evTrilhaAssistAnswerReturned,
+            props: {'grounded_in': 'llm', 'used_llm': true});
+        _replyAndKeepStep(reply, step);
+        return;
+    }
+  }
+
+  /// Empurra a fala e, se há passo aberto, re-exibe o widget (a conversa segue).
+  void _replyAndKeepStep(String reply, ConversationStep? step) {
+    if (reply.isNotEmpty) _pushAi(reply);
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
+  /// `answer_current_step`: aplica a resposta da IA ao passo aberto (texto ou
+  /// ids de opção, validados contra as opções reais). Sem match ⇒ pede toque.
+  Future<void> _applyAnswerCurrentStep(
+      AssistantTurn turn, ConversationStep? step) async {
+    if (step == null) {
+      _replyAndKeepStep(turn.reply.trim(), null);
+      return;
+    }
+    final input = step.input;
+    if (input is GuidedTextInput) {
+      final text = (turn.args['text'] as String?)?.trim() ?? '';
+      if (text.isEmpty) {
+        _replyAndKeepStep('Manda o texto que eu anoto 🙂', step);
+        return;
+      }
+      await _doSubmit(StepAnswer.text(step.id, text));
+      return;
+    }
+    if (input is ChoiceInput) {
+      final rawIds = turn.args['option_ids'];
+      final ids = rawIds is List
+          ? rawIds.map((e) => e.toString()).toSet()
+          : <String>{};
+      final matched = input.options.where((o) => ids.contains(o.id)).toList();
+      if (matched.isEmpty) {
+        _replyAndKeepStep(
+            'Não tenho certeza 🤔 Toca numa opção aí em cima.', step);
+        return;
+      }
+      final selected = input.multi ? matched : [matched.first];
+      await _doSubmit(StepAnswer.choice(step.id, selected));
+      return;
+    }
+    // Mês/ano e typeahead precisam do widget.
+    _replyAndKeepStep('Pra essa aqui, toca na opção acima 🙂', step);
+  }
+
+  /// `start_section`: injeta os passos reais da seção no fio (o app fornece via
+  /// [assistSectionSteps]) e revela o primeiro. O passo que estava aberto
+  /// RETOMA depois (a fila cuida disso — ver ConversationController.injectNext).
+  Future<void> _handleStartSection(
+      AssistantTurn turn, ConversationStep? step) async {
+    final section = turn.args['section']?.toString() ?? '';
+    if (step != null) {
+      // ignore: unawaited_futures
+      Analytics.shared.track(evTrilhaAssistStepConflict, props: {
+        'active_step_id': step.id,
+        'resolution': 'deferred',
+      });
+    }
+    final ok = await _injectSection(section, turn.reply.trim());
+    if (!ok) _replyAndKeepStep(turn.reply.trim(), step); // cai em conversa
+  }
+
+  /// Injeta os passos reais de uma seção no fio e revela o 1º. Reusado pelo
+  /// `start_section` E pela sugestão proativa (Fase C). false ⇒ não deu (sem
+  /// handoff/seção desconhecida). Reabre a trilha se estava concluída.
+  Future<bool> _injectSection(String section, String reply) async {
+    final builder = assistSectionSteps;
+    final steps = builder == null ? const <ConversationStep>[] : builder(section);
+    final conv = _conv;
+    if (steps.isEmpty || conv == null) return false;
+    if (reply.isNotEmpty) _pushAi(reply);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistSectionHandoff,
+        props: {'lacuna_key': section, 'steps_enqueued': steps.length});
+    finished = false; // reabre se estava concluída (proativo pós-conclusão)
+    conv.injectNext(steps);
+    await _reveal();
+    return true;
+  }
+
+  // ── Mutações (Fase B): propõe → confirma → aplica → desfaz ──────────────────
+
+  final Map<String, AssistEditItem> _pendingEdits = {};
+  int _editSeq = 0;
+
+  /// `update_field`: NÃO grava direto — lê o valor atual, mostra um card de
+  /// confirmação (Aplicar/Cancelar) e só grava no [confirmEdit]. Campo não
+  /// editável / sem leitor-gravador ⇒ cai em conversa.
+  Future<void> _proposeUpdateField(
+      AssistantTurn turn, ConversationStep? step) async {
+    final field = turn.args['field']?.toString() ?? '';
+    final value = turn.args['value']?.toString().trim() ?? '';
+    final valueLabel =
+        turn.args['value_label']?.toString().trim() ?? (value.isEmpty ? '' : value);
+    final reader = assistReadField;
+    if (field.isEmpty ||
+        value.isEmpty ||
+        reader == null ||
+        assistWriteField == null) {
+      _replyAndKeepStep(
+          turn.reply.trim().isEmpty
+              ? 'Não peguei o que você quer mudar 🤔'
+              : turn.reply.trim(),
+          step);
+      return;
+    }
+    AssistFieldValue? current;
+    try {
+      current = await reader(field);
+    } catch (_) {
+      current = null;
+    }
+    if (_disposed) return;
+    if (current == null) {
+      _replyAndKeepStep('Essa eu ainda não consigo mudar por aqui 🙂', step);
+      return;
+    }
+    if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
+    final id = 'edit_${_editSeq++}';
+    final item = AssistEditItem(
+      id: id,
+      field: field,
+      fieldLabel: current.label,
+      beforeRaw: current.raw,
+      beforeText: current.text,
+      afterText: valueLabel,
+      value: value,
+    );
+    _pendingEdits[id] = item;
+    thread.add(item);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditProposed,
+        props: {'lacuna_key': field, 'op': 'update'});
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
+  /// `add_item`: propõe ADICIONAR um item de lista (skill/idioma). Confirma
+  /// antes de gravar (postura da Fase B).
+  Future<void> _proposeAddItem(AssistantTurn turn, ConversationStep? step) async {
+    final kind = turn.args['kind']?.toString() ?? '';
+    final value = turn.args['value']?.toString().trim() ?? '';
+    if (kind.isEmpty || value.isEmpty || assistItemAdder == null) {
+      _replyAndKeepStep(
+          turn.reply.trim().isEmpty ? 'O que você quer adicionar? 🙂' : turn.reply.trim(),
+          step);
+      return;
+    }
+    if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
+    _pushEdit(
+        AssistEditItem(
+          id: 'edit_${_editSeq++}',
+          op: AssistEditOp.add,
+          field: kind,
+          fieldLabel: _kindLabel(kind),
+          afterText: value,
+          value: value,
+        ),
+        step,
+        opName: 'add');
+  }
+
+  /// `remove_item`: resolve QUAL item (desambigua se preciso) e propõe REMOVER
+  /// (destrutivo → confirma).
+  Future<void> _proposeRemoveItem(
+      AssistantTurn turn, ConversationStep? step) async {
+    final kind = turn.args['kind']?.toString() ?? '';
+    final query = turn.args['query']?.toString().trim() ?? '';
+    final resolver = assistItemResolver;
+    if (kind.isEmpty ||
+        query.isEmpty ||
+        resolver == null ||
+        (assistItemRemover == null && assistReversibleRemover == null)) {
+      _replyAndKeepStep(
+          turn.reply.trim().isEmpty ? 'O que você quer remover? 🙂' : turn.reply.trim(),
+          step);
+      return;
+    }
+    List<String> matches;
+    try {
+      matches = await resolver(kind, query);
+    } catch (_) {
+      matches = const [];
+    }
+    if (_disposed) return;
+    if (matches.isEmpty) {
+      // ignore: unawaited_futures
+      Analytics.shared.track(evTrilhaAssistClarifyRequested,
+          props: {'reason': 'no_match'});
+      _replyAndKeepStep('Não achei "$query" em ${_kindLabel(kind)} 🤔', step);
+      return;
+    }
+    if (matches.length > 1) {
+      // ignore: unawaited_futures
+      Analytics.shared.track(evTrilhaAssistClarifyRequested,
+          props: {'reason': 'multi_target'});
+      _replyAndKeepStep('Qual você quer remover: ${matches.join(', ')}?', step);
+      return;
+    }
+    if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
+    _pushEdit(
+        AssistEditItem(
+          id: 'edit_${_editSeq++}',
+          op: AssistEditOp.remove,
+          field: kind,
+          fieldLabel: _kindLabel(kind),
+          afterText: matches.first,
+          value: matches.first,
+        ),
+        step,
+        opName: 'remove');
+  }
+
+  void _pushEdit(AssistEditItem item, ConversationStep? step,
+      {required String opName}) {
+    _pendingEdits[item.id] = item;
+    thread.add(item);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditProposed,
+        props: {'lacuna_key': item.field, 'op': opName});
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
+  String _kindLabel(String kind) {
+    switch (kind) {
+      case 'skill':
+        return 'suas skills';
+      case 'language':
+        return 'seus idiomas';
+      case 'experience':
+        return 'suas experiências';
+      case 'project':
+        return 'seus projetos';
+    }
+    return kind;
+  }
+
+  /// `rewrite_summary`: a IA já mandou a nova versão (new_summary). Lê o resumo
+  /// atual, mostra ANTES→DEPOIS e confirma antes de gravar (é um update do campo
+  /// 'summary' cujo valor veio da IA, não do usuário).
+  Future<void> _proposeRewriteSummary(
+      AssistantTurn turn, ConversationStep? step) async {
+    final newSummary = turn.args['new_summary']?.toString().trim() ?? '';
+    final reader = assistReadField;
+    if (newSummary.isEmpty || reader == null || assistWriteField == null) {
+      _replyAndKeepStep(
+          turn.reply.trim().isEmpty
+              ? 'Não consegui reescrever agora 🤔'
+              : turn.reply.trim(),
+          step);
+      return;
+    }
+    AssistFieldValue? current;
+    try {
+      current = await reader('summary');
+    } catch (_) {
+      current = null;
+    }
+    if (_disposed) return;
+    final before = current ??
+        const AssistFieldValue(raw: '', text: '—', label: 'Resumo');
+    if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
+    _pushEdit(
+        AssistEditItem(
+          id: 'edit_${_editSeq++}',
+          op: AssistEditOp.update,
+          field: 'summary',
+          fieldLabel: before.label,
+          beforeRaw: before.raw,
+          beforeText: before.text,
+          afterText: newSummary,
+          value: newSummary,
+        ),
+        step,
+        opName: 'update');
+  }
+
+  /// `improve_bullet`: a IA mandou bullet_id + a versão melhorada (new_bullet).
+  /// Lê o bullet atual (pro antes→depois e undo) e confirma antes de gravar.
+  Future<void> _proposeImproveBullet(
+      AssistantTurn turn, ConversationStep? step) async {
+    final bulletId = turn.args['bullet_id']?.toString().trim() ?? '';
+    final newText = turn.args['new_bullet']?.toString().trim() ?? '';
+    final reader = assistBulletReader;
+    if (bulletId.isEmpty ||
+        newText.isEmpty ||
+        reader == null ||
+        assistBulletWriter == null) {
+      _replyAndKeepStep(
+          turn.reply.trim().isEmpty
+              ? 'Qual bullet você quer que eu melhore? 🙂'
+              : turn.reply.trim(),
+          step);
+      return;
+    }
+    AssistFieldValue? current;
+    try {
+      current = await reader(bulletId);
+    } catch (_) {
+      current = null;
+    }
+    if (_disposed) return;
+    if (current == null) {
+      _replyAndKeepStep('Não achei esse bullet 🤔 De qual experiência é?', step);
+      return;
+    }
+    if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
+    _pushEdit(
+        AssistEditItem(
+          id: 'edit_${_editSeq++}',
+          op: AssistEditOp.bullet,
+          field: 'bullet',
+          fieldLabel: current.label, // a experiência ("Ambev")
+          beforeRaw: current.raw,
+          beforeText: current.text,
+          afterText: newText,
+          value: newText,
+          refId: bulletId,
+        ),
+        step,
+        opName: 'bullet');
+  }
+
+  /// Confirma uma alteração proposta (toque em "Aplicar"/"Remover"). Grava e
+  /// vira card "✓ … [Desfazer]".
+  Future<void> confirmAssistEdit(String id) async {
+    final item = _pendingEdits[id];
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    final ok = await _applyEditOp(item, item.op);
+    if (!ok || _disposed) return;
+    item.status = AssistEditStatus.applied;
+    _pendingEdits.remove(id);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditApplied,
+        props: {'lacuna_key': item.field, 'op': item.op.name});
+    _notify();
+  }
+
+  /// Cancela uma alteração proposta (toque em "Cancelar") — não grava nada.
+  void cancelAssistEdit(String id) {
+    final item = _pendingEdits.remove(id);
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    item.status = AssistEditStatus.cancelled;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditCancelled,
+        props: {'lacuna_key': item.field, 'op': item.op.name});
+    _notify();
+  }
+
+  /// Desfaz uma alteração já aplicada (toque em "Desfazer") — aplica a operação
+  /// INVERSA (add↔remove; update regrava o valor anterior). Savers idempotentes.
+  Future<void> undoAssistEdit(String id) async {
+    AssistEditItem? item;
+    for (final it in thread) {
+      if (it is AssistEditItem && it.id == id) {
+        item = it;
+        break;
+      }
+    }
+    if (item == null || item.status != AssistEditStatus.applied) return;
+    // Undo CAPTURADO (ex.: re-inserir a experiência removida) tem prioridade.
+    final captured = item.capturedUndo;
+    bool ok;
+    if (captured != null) {
+      try {
+        await captured();
+        ok = true;
+      } catch (_) {
+        ok = false;
+        if (!_disposed) {
+          _pushAi('Não consegui desfazer agora 🤔');
+          _notify();
+        }
+      }
+    } else {
+      final inverse = switch (item.op) {
+        AssistEditOp.update => AssistEditOp.update, // regrava beforeRaw
+        AssistEditOp.add => AssistEditOp.remove, // desfaz add = remove
+        AssistEditOp.remove => AssistEditOp.add, // desfaz remove = add
+        AssistEditOp.bullet => AssistEditOp.bullet, // regrava o bullet antigo
+      };
+      ok = await _applyEditOp(item, inverse, undo: true);
+    }
+    if (!ok || _disposed) return;
+    item.status = AssistEditStatus.undone;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditUndone,
+        props: {'lacuna_key': item.field, 'op': item.op.name});
+    _notify();
+  }
+
+  /// Aplica uma operação de mutação reusando os writers injetados. false (com
+  /// aviso) se falhou. Undo de update usa beforeRaw.
+  Future<bool> _applyEditOp(AssistEditItem item, AssistEditOp op,
+      {bool undo = false}) async {
+    try {
+      switch (op) {
+        case AssistEditOp.update:
+          final w = assistWriteField;
+          if (w == null) return false;
+          await w(item.field, undo ? item.beforeRaw : item.value);
+          break;
+        case AssistEditOp.add:
+          final a = assistItemAdder;
+          if (a == null) return false;
+          await a(item.field, item.value);
+          break;
+        case AssistEditOp.remove:
+          // Item multi-campo (experiência/projeto): remoção reversível (captura
+          // o restore pro undo). Se não for tratado ali, cai no remover simples.
+          final rev = assistReversibleRemover;
+          if (rev != null) {
+            final restore = await rev(item.field, item.value);
+            if (restore != null) {
+              item.capturedUndo = restore;
+              break;
+            }
+          }
+          final r = assistItemRemover;
+          if (r == null) return false;
+          await r(item.field, item.value);
+          break;
+        case AssistEditOp.bullet:
+          final bw = assistBulletWriter;
+          if (bw == null) return false;
+          await bw(item.refId, undo ? item.beforeRaw : item.value);
+          break;
+      }
+      return true;
+    } catch (_) {
+      if (_disposed) return false;
+      _pushAi(undo
+          ? 'Não consegui desfazer agora 🤔'
+          : 'Ops, não consegui salvar agora 🤔');
+      _notify();
+      return false;
+    }
+  }
+
+  // ── Extração de textão (Fase C): batch confirmar → aplica cada → desfaz tudo ─
+
+  final Map<String, AssistExtractItem> _pendingExtracts = {};
+
+  /// `extract_profile`: a IA extraiu vários campos de um textão. Mostra um card
+  /// "Peguei isto 👇" — nada grava até confirmar. Só kinds de apply/undo limpos
+  /// (skill/idioma/cargo); complexos (experiência/educação) a IA sugere na fala.
+  Future<void> _proposeExtract(AssistantTurn turn, ConversationStep? step) async {
+    final raw = turn.args['items'];
+    final entries = <AssistExtractEntry>[];
+    if (raw is List) {
+      for (final it in raw) {
+        if (it is! Map) continue;
+        final kind = it['kind']?.toString() ?? '';
+        final value = it['value']?.toString().trim() ?? '';
+        if (value.isEmpty) continue;
+        if (kind == 'skill' || kind == 'language' || kind == 'desired_position') {
+          entries.add(AssistExtractEntry(
+              kind: kind, value: value, label: _extractLabel(kind, value)));
+        }
+      }
+    }
+    if (entries.isEmpty) {
+      _replyAndKeepStep(
+          turn.reply.trim().isEmpty ? 'Não consegui pegar nada 🤔' : turn.reply.trim(),
+          step);
+      return;
+    }
+    if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
+    final item =
+        AssistExtractItem(id: 'edit_${_editSeq++}', entries: entries);
+    _pendingExtracts[item.id] = item;
+    thread.add(item);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditProposed,
+        props: {'lacuna_key': 'extract', 'op': 'add'});
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
+  String _extractLabel(String kind, String value) {
+    switch (kind) {
+      case 'skill':
+        return 'Skill: $value';
+      case 'language':
+        return 'Idioma: $value';
+      case 'desired_position':
+        return 'Cargo: $value';
+    }
+    return value;
+  }
+
+  /// Aplica TODOS os itens extraídos (toque em "Aplicar tudo") e guarda o undo
+  /// de cada um (o Desfazer reverte o lote).
+  Future<void> confirmExtract(String id) async {
+    final item = _pendingExtracts[id];
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    final adder = assistItemAdder;
+    final remover = assistItemRemover;
+    final writer = assistWriteField;
+    final reader = assistReadField;
+    for (final e in item.entries) {
+      try {
+        if (e.kind == 'skill' || e.kind == 'language') {
+          if (adder == null) continue;
+          await adder(e.kind, e.value);
+          if (remover != null) item.undos.add(() => remover(e.kind, e.value));
+        } else if (e.kind == 'desired_position') {
+          if (writer == null) continue;
+          final before =
+              (reader == null ? null : await reader('desired_position'))?.raw ??
+                  '';
+          await writer('desired_position', e.value);
+          item.undos.add(() => writer('desired_position', before));
+        }
+      } catch (_) {/* best-effort por item; os outros seguem */}
+    }
+    if (_disposed) return;
+    item.status = AssistEditStatus.applied;
+    _pendingExtracts.remove(id);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditApplied,
+        props: {'lacuna_key': 'extract', 'op': 'add'});
+    _notify();
+  }
+
+  void cancelExtract(String id) {
+    final item = _pendingExtracts.remove(id);
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    item.status = AssistEditStatus.cancelled;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditCancelled,
+        props: {'lacuna_key': 'extract', 'op': 'add'});
+    _notify();
+  }
+
+  Future<void> undoExtract(String id) async {
+    AssistExtractItem? item;
+    for (final it in thread) {
+      if (it is AssistExtractItem && it.id == id) {
+        item = it;
+        break;
+      }
+    }
+    if (item == null || item.status != AssistEditStatus.applied) return;
+    for (final u in item.undos.reversed) {
+      try {
+        await u();
+      } catch (_) {/* best-effort */}
+    }
+    if (_disposed) return;
+    item.status = AssistEditStatus.undone;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditUndone,
+        props: {'lacuna_key': 'extract', 'op': 'add'});
+    _notify();
+  }
+
+  /// Serializa o passo aberto pro grounding do assistente (sem PII sensível).
+  Map<String, dynamic> _serializeStep(ConversationStep step) {
+    final input = step.input;
+    var kind = 'other';
+    var multi = false;
+    var optional = false;
+    var options = const <Map<String, String>>[];
+    if (input is ChoiceInput) {
+      kind = 'choice';
+      multi = input.multi;
+      options = [for (final o in input.options) {'id': o.id, 'label': o.label}];
+    } else if (input is GuidedTextInput) {
+      kind = 'text';
+      optional = input.optional;
+    } else if (input is MonthYearInput) {
+      kind = 'month_year';
+      optional = input.optional;
+    } else if (input is SuggestPickInput || input is AsyncSuggestInput) {
+      kind = 'suggest';
+    } else if (input is AsyncPickInput) {
+      kind = 'search';
+    } else if (input is ExperienceTypeInput) {
+      kind = 'experience_type';
+    }
+    return {
+      'id': step.id,
+      'question': step.aiMessages.join(' ').trim(),
+      'inputKind': kind,
+      'options': options,
+      'multi': multi,
+      'optional': optional,
+    };
+  }
+
+  /// Últimas ~6 falas do fio (role+texto) — contexto curto pro assistente.
+  List<Map<String, dynamic>> _recentHistory() {
+    final out = <Map<String, dynamic>>[];
+    for (final item in thread) {
+      if (item is AiMsgItem) {
+        out.add({'role': 'ai', 'text': item.text});
+      } else if (item is AnsweredItem) {
+        out.add({'role': 'user', 'text': item.exchange.answer.displayText});
+      }
+    }
+    return out.length <= 6 ? out : out.sublist(out.length - 6);
+  }
+
+  bool _stepIsOptional(ConversationStep step) {
+    final i = step.input;
+    if (i is GuidedTextInput) return i.optional;
+    if (i is MonthYearInput) return i.optional;
+    return false;
+  }
+
+  /// Heurística LOCAL e conservadora: a mensagem tem cara de COMANDO (e não de
+  /// resposta ao passo de texto aberto)? Só é usada pra decidir o ATALHO local
+  /// (Nível 0); falso-positivo apenas manda pro assistente (que reinterpreta).
+  static final RegExp _cmdVerbs = RegExp(
+      r'^(adiciona|adicionar|add|tira|tirar|remove|remover|apaga|apagar|muda|mudar|troca|trocar|corrige|corrigir|edita|editar|reescreve|reescrever|melhora|melhorar|refor[çc]a|refor[çc]ar|pula|pular|mostra|mostrar|explica|explicar|ajuda|quero|como|o que|qual|quais|por que|porque|pq)\b',
+      caseSensitive: false);
+  static final RegExp _sectionWords = RegExp(
+      r'\b(skill|habilidade|experi[eê]ncia|resumo|bullet|cidade|cargo|[aá]rea|idioma|projeto|forma[cç][aã]o|linkedin|certifica|pr[eê]mio|disponibilidade|interesse|perfil|curr[ií]culo)',
+      caseSensitive: false);
+  bool _looksLikeCommand(String t) {
+    final s = t.trim();
+    if (s.endsWith('?')) return true;
+    if (_cmdVerbs.hasMatch(s)) return true;
+    if (_sectionWords.hasMatch(s)) return true;
+    return false;
+  }
+
+  /// Um textão colado (várias infos de uma vez) não é resposta de um passo —
+  /// deve ir pra IA extrair. Heurística: quebra de linha, ou longo com ≥2
+  /// vírgulas (enumeração "curso X, falo Y, sei Z").
+  bool _looksLikePaste(String t) {
+    final s = t.trim();
+    if (s.contains('\n')) return true;
+    if (s.length > 140 && ','.allMatches(s).length >= 2) return true;
+    return false;
+  }
+
+  // ── Fase C: sugestão proativa do próximo ganho ─────────────────────────────
+
+  /// Seção sugerida no último nudge (pra o atalho "quero" cair direto nela).
+  String? _suggestedSection;
+
+  static final RegExp _affirmative = RegExp(
+      r'^(sim|claro|quero|quer[ ]?sim|bora|pode|podemos|vamos|vam[uo]s|partiu|com certeza|isso|manda|ok|beleza|blz|t[aá]|uhum|s)\b',
+      caseSensitive: false);
+  bool _isAffirmative(String t) {
+    final s = t.trim();
+    return s == '👍' || _affirmative.hasMatch(s);
+  }
+
+  /// Ao CONCLUIR, sugere reforçar a maior lacuna que resta. A pessoa aceita com
+  /// "quero/bora" (atalho) ou pedindo a seção. No-op se a flag OFF / sem loader.
+  Future<void> _maybeSuggestNextGap() async {
+    if (!assistEnabled) return;
+    final loader = assistProactiveLoader;
+    if (loader == null) return;
+    Map<String, String>? gap;
+    try {
+      gap = await loader();
+    } catch (_) {
+      gap = null;
+    }
+    if (_disposed || gap == null) return;
+    final section = gap['section'] ?? '';
+    final label = gap['label'] ?? '';
+    if (section.isEmpty || label.isEmpty) return;
+    _suggestedSection = section;
+    _pushAi('Se quiser deixar ainda mais forte, o que mais pesa agora é: '
+        '$label. Quer preencher? (é só dizer "quero" 😉)');
   }
 
   /// Interpreta [text] contra as opções do passo de escolha [input] e, se casar
@@ -572,18 +1601,22 @@ class TrilhaChatController extends ChangeNotifier {
 
   Future<void> _runFinalize() async {
     final fn = onFinalize;
-    if (fn == null) return;
-    finalizing = true;
-    _notify();
-    String? summary;
-    try {
-      summary = await fn();
-    } catch (_) {
-      summary = null;
+    if (fn != null) {
+      finalizing = true;
+      _notify();
+      String? summary;
+      try {
+        summary = await fn();
+      } catch (_) {
+        summary = null;
+      }
+      if (_disposed) return;
+      finalizing = false;
+      generatedSummary = summary;
+      _notify();
     }
-    if (_disposed) return;
-    finalizing = false;
-    generatedSummary = summary;
-    _notify();
+    // Fase C: depois do resumo (ou direto, se não há finalize), sugere o
+    // próximo ganho — se ainda falta algo que o assistente sabe conduzir.
+    await _maybeSuggestNextGap();
   }
 }

@@ -197,8 +197,9 @@ class _ChatThreadViewState extends State<ChatThreadView>
     if (!mounted) return;
     _shownProgress = math.max(_shownProgress, _c.progress);
 
-    // Reação da IA ao que foi respondido.
-    final ack = step.acknowledgement;
+    // Reação da IA ao que foi respondido (recap dinâmico > ack fixo).
+    final ack = step.recap?.call([for (final e in _c.history) e.answer]) ??
+        step.acknowledgement;
     if (ack != null && ack.trim().isNotEmpty) {
       setState(() => _typing = true);
       _scrollToEnd();
@@ -250,7 +251,8 @@ class _ChatThreadViewState extends State<ChatThreadView>
         out.add(_ChatItem(_ItemKind.ai, m));
       }
       out.add(_ChatItem(_ItemKind.user, ex.answer.displayText));
-      final ack = ex.step.acknowledgement;
+      final ack = ex.step.recap?.call([for (final e in _c.history) e.answer]) ??
+          ex.step.acknowledgement;
       if (ack != null && ack.trim().isNotEmpty) {
         out.add(_ChatItem(_ItemKind.ai, ack));
       }

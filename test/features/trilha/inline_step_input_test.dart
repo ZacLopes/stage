@@ -29,6 +29,68 @@ void main() {
     expect(answer!.value, ['tech']);
   });
 
+  testWidgets('ChoiceInput única de 1 opção vira CTA e submete ao tocar',
+      (tester) async {
+    StepAnswer? answer;
+    final step = ConversationStep.single(
+      id: 'intro',
+      aiMessage: 'Pode ser?',
+      input: const ChoiceInput(options: [StepOption(id: 'go', label: 'Bora começar')]),
+    );
+    await tester.pumpWidget(host(step, (a) => answer = a));
+    // Renderiza como CTA de destaque (seta), não como chip miúdo.
+    expect(find.text('Bora começar'), findsOneWidget);
+    expect(find.byIcon(Icons.arrow_forward_rounded), findsOneWidget);
+    await tester.tap(find.text('Bora começar'));
+    expect(answer, isNotNull);
+    expect(answer!.value, ['go']);
+  });
+
+  testWidgets('ExperienceTypeInput: multi + contador emite kinds ordenados',
+      (tester) async {
+    StepAnswer? answer;
+    final step = ConversationStep.single(
+      id: 'exp.gate',
+      aiMessage: 'q',
+      input: const ExperienceTypeInput(types: [
+        ExperienceTypeOption(
+            id: 'estagio', label: 'Estágio', subtitle: '', icon: 'school'),
+        ExperienceTypeOption(
+            id: 'voluntariado',
+            label: 'Voluntariado',
+            subtitle: '',
+            icon: 'volunteer'),
+      ]),
+    );
+    await tester.pumpWidget(host(step, (a) => answer = a));
+    await tester.tap(find.text('Estágio')); // +1
+    await tester.pump();
+    await tester.tap(find.text('Estágio')); // +1 → x2
+    await tester.pump();
+    await tester.tap(find.text('Voluntariado')); // +1
+    await tester.pump();
+    await tester.tap(find.text('Continuar (3)'));
+    // Ordem preservada, repetição = contagem.
+    expect(answer!.value, ['estagio', 'estagio', 'voluntariado']);
+  });
+
+  testWidgets('ExperienceTypeInput: "ainda não tenho" submete vazio',
+      (tester) async {
+    StepAnswer? answer;
+    final step = ConversationStep.single(
+      id: 'exp.gate',
+      aiMessage: 'q',
+      input: const ExperienceTypeInput(types: [
+        ExperienceTypeOption(
+            id: 'estagio', label: 'Estágio', subtitle: '', icon: 'school'),
+      ]),
+    );
+    await tester.pumpWidget(host(step, (a) => answer = a));
+    await tester.tap(find.text('Ainda não tenho experiência'));
+    expect(answer, isNotNull);
+    expect(answer!.value, isEmpty);
+  });
+
   testWidgets('ChoiceInput múltipla: seleciona e confirma', (tester) async {
     StepAnswer? answer;
     final step = ConversationStep.single(
@@ -46,6 +108,78 @@ void main() {
     await tester.pump();
     await tester.tap(find.textContaining('Confirmar'));
     expect(answer!.value, ['a', 'b']);
+  });
+
+  // ── Edição: reabre PRÉ-PREENCHIDO com a resposta anterior (todos widgets) ──
+
+  testWidgets('edição: GuidedText reabre com o texto que já estava',
+      (tester) async {
+    StepAnswer? answer;
+    final step = ConversationStep.single(
+      id: 'gap.desired_position',
+      aiMessage: 'q',
+      input: const GuidedTextInput(example: 'x'),
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: InlineStepInput(
+          step: step,
+          initialAnswer:
+              StepAnswer.text('gap.desired_position', 'Desenvolvedor Front-end'),
+          onSubmit: (a) => answer = a,
+        ),
+      ),
+    ));
+    // Não sumiu: o texto anterior está no campo.
+    expect(find.text('Desenvolvedor Front-end'), findsOneWidget);
+    await tester.tap(find.text('Enviar'));
+    expect(answer!.value, 'Desenvolvedor Front-end');
+  });
+
+  testWidgets('edição: ChoiceInput múltipla reabre com o que estava marcado',
+      (tester) async {
+    StepAnswer? answer;
+    final step = ConversationStep.single(
+      id: 'gap.workmode',
+      aiMessage: 'q',
+      input: const ChoiceInput(multi: true, options: [
+        StepOption(id: 'a', label: 'Remoto'),
+        StepOption(id: 'b', label: 'Híbrido'),
+      ]),
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: InlineStepInput(
+          step: step,
+          initialAnswer: StepAnswer.choice(
+              'gap.workmode', const [StepOption(id: 'a', label: 'Remoto')]),
+          onSubmit: (a) => answer = a,
+        ),
+      ),
+    ));
+    // Já vem com 'a' marcado → confirmar sem tocar em nada devolve ['a'].
+    await tester.tap(find.textContaining('Confirmar'));
+    expect(answer!.value, ['a']);
+  });
+
+  testWidgets('edição: MonthYear reabre no mês/ano gravado', (tester) async {
+    StepAnswer? answer;
+    final step = ConversationStep.single(
+      id: 'exp.0.start',
+      aiMessage: 'q',
+      input: const MonthYearInput(),
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: InlineStepInput(
+          step: step,
+          initialAnswer: StepAnswer.monthYear('exp.0.start', 2021, 3),
+          onSubmit: (a) => answer = a,
+        ),
+      ),
+    ));
+    await tester.tap(find.text('Confirmar'));
+    expect(answer!.value, '2021-03');
   });
 
   testWidgets('slider de idioma submete o id do nível (default Avançado)',

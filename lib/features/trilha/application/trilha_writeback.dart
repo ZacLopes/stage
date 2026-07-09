@@ -9,6 +9,7 @@
 import '../../profile/domain/entities/entities.dart';
 import '../../profile/domain/repositories/profile_repository.dart';
 import '../domain/conversation_step.dart';
+import 'area_canonical.dart';
 import 'linkedin_url.dart';
 import 'trilha_draft.dart';
 
@@ -122,6 +123,15 @@ class TrilhaWriteback {
       case 'gap.interests':
         await _saveInterests(_ids(answer));
         break;
+      case 'gap.company_stage':
+        await _saveCulturalFit(companyStage: _ids(answer));
+        break;
+      case 'gap.work_environment':
+        await _saveCulturalFit(workEnvironment: _ids(answer));
+        break;
+      case 'gap.work_style':
+        await _saveCulturalFit(workStyle: _ids(answer));
+        break;
       default:
         break; // 'intro' e desconhecidos
     }
@@ -133,27 +143,56 @@ class TrilhaWriteback {
 
   String _text(StepAnswer a) => a.value is String ? a.value as String : '';
 
-  // ── Áreas → profile_desired_titles (merge dedup) ─────────────────────────
+  // ── Áreas → profile_desired_titles (merge dedup + canônica oculta) ───────
+  // O usuário pode adicionar QUALQUER área (texto livre). Guardamos a área dele
+  // (source='user_added', visível) e, se ela não for uma das 13 canônicas, uma
+  // linha CANÔNICA oculta (source='inferred') pro candidato ficar matchável no
+  // match/feed/busca — que só entendem as 13. Fase 7 · +10 (Tarefa 2).
   Future<void> _saveAreas(List<String> areas) async {
     final clean = areas.where((a) => a.trim().isNotEmpty).toList();
     if (clean.isEmpty) return;
     final existing = await _repo.getDesiredTitles(userId);
-    final have = existing.map((t) => t.title.toLowerCase().trim()).toSet();
-    final toAdd =
-        clean.where((a) => !have.contains(a.toLowerCase().trim())).toList();
-    if (toAdd.isEmpty) return;
-    final merged = <DesiredTitle>[
-      ...existing,
-      for (var i = 0; i < toAdd.length; i++)
-        DesiredTitle(
+
+    // Dedup por título (case-insensitive). Precedência: uma área explícita do
+    // usuário nunca fica oculta por um 'inferred' anterior (upgrade abaixo).
+    final byKey = <String, DesiredTitle>{};
+    void put(String rawTitle, DesiredTitleSource source) {
+      final t = rawTitle.trim();
+      if (t.isEmpty) return;
+      final key = t.toLowerCase();
+      final prev = byKey[key];
+      if (prev == null) {
+        byKey[key] = DesiredTitle(
           id: '',
           userId: userId,
-          title: toAdd[i].trim(),
-          source: DesiredTitleSource.userAdded,
-          orderIndex: existing.length + i,
-        ),
-    ];
-    await _repo.replaceDesiredTitles(userId, merged);
+          title: t,
+          source: source,
+          orderIndex: byKey.length,
+        );
+      } else if (prev.source == DesiredTitleSource.inferred &&
+          source != DesiredTitleSource.inferred) {
+        // Área que era só canônica-oculta e agora o usuário escolheu de fato.
+        byKey[key] = prev.copyWith(source: source, title: t);
+      }
+    }
+
+    for (final t in existing) {
+      put(t.title, t.source ?? DesiredTitleSource.userAdded);
+    }
+    for (final area in clean) {
+      put(area, DesiredTitleSource.userAdded);
+      if (!isCanonicalArea(area)) {
+        put(canonicalArea(area), DesiredTitleSource.inferred);
+      }
+    }
+
+    // Só grava se algo mudou (título novo OU upgrade de source).
+    final changed = byKey.length != existing.length ||
+        !existing.every((e) =>
+            byKey[e.title.toLowerCase().trim()]?.source ==
+            (e.source ?? DesiredTitleSource.userAdded));
+    if (!changed) return;
+    await _repo.replaceDesiredTitles(userId, byKey.values.toList());
   }
 
   // ── Modalidade → profile_job_preferences.work_mode (merge) ───────────────
@@ -304,6 +343,32 @@ class TrilhaWriteback {
     await _repo.upsertPersonal(existing.copyWith(availability: id));
   }
 
+  // ── Fit cultural → profile_job_preferences (id da opção escolhida) ───────────
+  // Um saver flexível: cada passo manda só o seu campo (escolha única → 1º id);
+  // copyWith deixa os outros intactos. Vazio ⇒ no-op.
+  Future<void> _saveCulturalFit({
+    List<String>? companyStage,
+    List<String>? workEnvironment,
+    List<String>? workStyle,
+  }) async {
+    String? pick(List<String>? ids) {
+      final id = (ids != null && ids.isNotEmpty) ? ids.first.trim() : '';
+      return id.isEmpty ? null : id;
+    }
+
+    final cs = pick(companyStage);
+    final we = pick(workEnvironment);
+    final ws = pick(workStyle);
+    if (cs == null && we == null && ws == null) return;
+    final existing =
+        await _repo.getJobPreferences(userId) ?? JobPreferences(userId: userId);
+    await _repo.upsertJobPreferences(existing.copyWith(
+      companyStage: cs,
+      workEnvironment: we,
+      workStyle: ws,
+    ));
+  }
+
   // ── Habilidades → profile_skills (merge dedup) ───────────────────────────
   Future<void> _saveSkills(List<String> names) async {
     final clean = names.where((n) => n.trim().isNotEmpty).toList();
@@ -399,13 +464,23 @@ class TrilhaWriteback {
 
   // ── Experiência → profile_experiences + 1 bullet (acumula campos) ────────
   Future<void> _handleExperience(StepAnswer a) async {
-    final parts = a.stepId.split('.'); // exp.{n}.{field}
-    if (parts.length < 3) return; // 'exp.gate' etc.
+    final parts = a.stepId.split('.'); // exp.{n}.{kind}.{field}
+    // 'exp.gate' / 'exp.more' (seletor de tipos) → controle de fluxo, no-op.
+    if (parts.length < 4) return;
     final n = int.tryParse(parts[1]);
     if (n == null) return;
-    final field = parts[2];
+    final kind = parts[2];
+    final field = parts[3];
     final buf = _expBuffers.putIfAbsent(n, () => _ExpBuffer());
+    // Kind vem do id (tipo canônico). Pra 'outro', o campo 'label' (nome livre
+    // do tipo) vira o kind — então NÃO sobrescreve aqui.
+    if (kind != 'outro') buf.kind = kind;
     switch (field) {
+      case 'label':
+        // 'Outro': o nome que a pessoa deu é o próprio kind gravado.
+        final t = _text(a);
+        buf.kind = t.isEmpty ? 'outro' : t;
+        break;
       case 'company':
         buf.company = _text(a);
         break;
@@ -425,10 +500,9 @@ class TrilhaWriteback {
         buf.ofazia = _text(a);
         await _saveExperience(n, buf);
         break;
-      // 'more' → controle de fluxo, no-op
     }
     // Resumabilidade: rascunho nos passos intermediários, apaga no terminal.
-    const intermediate = {'company', 'role', 'start', 'current', 'end'};
+    const intermediate = {'label', 'company', 'role', 'start', 'current', 'end'};
     if (intermediate.contains(field)) {
       await _persistDraft('experience', n, a.stepId, buf.toJson());
     } else if (field == 'ofazia') {
@@ -448,6 +522,7 @@ class TrilhaWriteback {
       userId: userId,
       title: role,
       company: company,
+      kind: buf.kind, // tipo da experiência (trilha por tipo)
       startDate: buf.start!,
       endDate: buf.isCurrent == true ? null : buf.end,
       isCurrent: buf.isCurrent == true,
@@ -666,6 +741,7 @@ DateTime? _fromIso(Object? s) =>
 
 /// Buffer temporário dos campos de uma experiência em construção.
 class _ExpBuffer {
+  String? kind;
   String? company;
   String? role;
   DateTime? start;
@@ -674,6 +750,7 @@ class _ExpBuffer {
   String? ofazia;
 
   Map<String, dynamic> toJson() => {
+        'kind': kind,
         'company': company,
         'role': role,
         'start': _iso(start),
@@ -683,6 +760,7 @@ class _ExpBuffer {
       };
 
   static _ExpBuffer fromJson(Map<String, dynamic> j) => _ExpBuffer()
+    ..kind = j['kind'] as String?
     ..company = j['company'] as String?
     ..role = j['role'] as String?
     ..start = _fromIso(j['start'])

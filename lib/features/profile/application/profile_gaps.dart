@@ -38,6 +38,10 @@ enum LacunaKey {
   projects,
   availability,
   interests,
+  // Fit cultural (trilha): tipo de empresa + jeito do dia a dia + estilo.
+  companyStage,
+  workEnvironment,
+  workStyle,
 }
 
 /// Skills mínimas pra um perfil contar como "tem habilidades" — abaixo disso o
@@ -124,6 +128,10 @@ ProfileGaps analyzeProfileGaps({
   required int experienceCount,
   required int languagesCount,
   required bool hasSummary,
+  // Idiomas sem nível (proficiency null). A lacuna de idiomas só é "cheia"
+  // quando TODOS têm nível — senão a trilha volta a perguntar o nível que
+  // faltou. Default 0 pra não quebrar callers antigos. Fase 7 · +10 (Tarefa 3).
+  int languagesMissingLevel = 0,
   bool hasLinkedin = false,
   bool hasDesiredPosition = false,
   bool hasCertifications = false,
@@ -131,6 +139,9 @@ ProfileGaps analyzeProfileGaps({
   bool hasProjects = false,
   bool hasAvailability = false,
   bool hasInterests = false,
+  bool hasCompanyStage = false,
+  bool hasWorkEnvironment = false,
+  bool hasWorkStyle = false,
 }) {
   final list = <Lacuna>[
     // Tier 1 — filtros duros, ordem do mais barato (clique) ao mais "rico".
@@ -181,7 +192,9 @@ ProfileGaps analyzeProfileGaps({
       key: LacunaKey.languages,
       tier: LacunaTier.tier2,
       label: 'Idiomas',
-      filled: languagesCount >= 1,
+      // Só cheia com ≥1 idioma E todos com nível — assim quem sai entre o
+      // picker e os níveis volta a ser perguntado (Fase 7 · +10 Tarefa 3).
+      filled: languagesCount >= 1 && languagesMissingLevel == 0,
     ),
     // Tier 3 — acabamento.
     Lacuna(
@@ -227,6 +240,24 @@ ProfileGaps analyzeProfileGaps({
       filled: hasAvailability,
     ),
     Lacuna(
+      key: LacunaKey.companyStage,
+      tier: LacunaTier.tier3,
+      label: 'Tipo de empresa',
+      filled: hasCompanyStage,
+    ),
+    Lacuna(
+      key: LacunaKey.workEnvironment,
+      tier: LacunaTier.tier3,
+      label: 'Ambiente de trabalho',
+      filled: hasWorkEnvironment,
+    ),
+    Lacuna(
+      key: LacunaKey.workStyle,
+      tier: LacunaTier.tier3,
+      label: 'Estilo de trabalho',
+      filled: hasWorkStyle,
+    ),
+    Lacuna(
       key: LacunaKey.interests,
       tier: LacunaTier.tier3,
       label: 'Interesses',
@@ -264,6 +295,8 @@ ProfileGaps profileGapsFromData({
     skillsCount: snapshot.skills.length,
     experienceCount: snapshot.experiences.length,
     languagesCount: snapshot.languages.length,
+    languagesMissingLevel:
+        snapshot.languages.where((l) => l.proficiency == null).length,
     hasSummary: personal?.summary?.trim().isNotEmpty ?? false,
     hasLinkedin: personal?.linkedinUrl?.trim().isNotEmpty ?? false,
     hasDesiredPosition: prefs?.desiredPosition?.trim().isNotEmpty ?? false,
@@ -272,5 +305,8 @@ ProfileGaps profileGapsFromData({
     hasProjects: snapshot.projects.isNotEmpty,
     hasAvailability: personal?.availability?.trim().isNotEmpty ?? false,
     hasInterests: snapshot.interests.isNotEmpty,
+    hasCompanyStage: prefs?.companyStage?.trim().isNotEmpty ?? false,
+    hasWorkEnvironment: prefs?.workEnvironment?.trim().isNotEmpty ?? false,
+    hasWorkStyle: prefs?.workStyle?.trim().isNotEmpty ?? false,
   );
 }

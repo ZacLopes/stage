@@ -11,8 +11,11 @@ import '../../../services/analytics_service.dart';
 import '../../../services/profile_snapshot_service.dart';
 import '../../profile/application/profile_gaps.dart';
 import '../../profile/data/repositories/profile_repository_supabase.dart';
+import '../../profile/domain/entities/job_preferences.dart' show JobPreferences;
+import '../../profile/domain/entities/personal_info.dart' show PersonalInfo;
 import '../../profile/domain/repositories/profile_repository.dart';
-import '../domain/conversation_step.dart' show PickSuggestion, StepAnswer;
+import '../domain/conversation_step.dart'
+    show PickSuggestion, StepAnswer, StepOption, ConversationStep;
 import 'conversation_controller.dart';
 import 'conversation_plan.dart';
 import 'trilha_draft.dart';
@@ -93,6 +96,11 @@ Future<TrilhaSession> buildTrilhaSession(
   final plan = buildConversationPlan(
     gaps,
     addressed: addressed,
+    // Idiomas sem nível → na volta pergunta só o nível que faltou (não o picker).
+    languagesNeedingLevel: snapshot.languages
+        .where((l) => l.proficiency == null)
+        .map((l) => l.name)
+        .toList(),
     skillSuggestions: skillSuggestions,
     skillCatalog: skillCatalog,
     // Depois de marcar skills, a IA sugere mais algumas pelo perfil (opcional).
@@ -155,4 +163,366 @@ Future<List<String>> _safeSkillCatalog(ProfileRepository repo) async {
   } catch (_) {
     return const [];
   }
+}
+
+// ── Assistente de IA na barra (PLANO-ASSISTENTE, Fase A) ─────────────────────
+
+/// Nome de seção (que o assistente devolve) → LacunaKey.
+const Map<String, LacunaKey> _kAssistSection = {
+  'area': LacunaKey.area,
+  'desired_position': LacunaKey.desiredPosition,
+  'work_mode': LacunaKey.workMode,
+  'job_type': LacunaKey.jobType,
+  'city': LacunaKey.city,
+  'education': LacunaKey.educationStatus,
+  'skills': LacunaKey.skills,
+  'languages': LacunaKey.languages,
+  'experience': LacunaKey.experience,
+  'linkedin': LacunaKey.linkedin,
+  'certifications': LacunaKey.certifications,
+  'awards': LacunaKey.awards,
+  'projects': LacunaKey.projects,
+  'interests': LacunaKey.interests,
+  'availability': LacunaKey.availability,
+  'company_stage': LacunaKey.companyStage,
+  'work_environment': LacunaKey.workEnvironment,
+  'work_style': LacunaKey.workStyle,
+};
+
+/// LacunaKey → nome de seção (reverso de [_kAssistSection]).
+String? _sectionForLacuna(LacunaKey key) {
+  for (final e in _kAssistSection.entries) {
+    if (e.value == key) return e.key;
+  }
+  return null;
+}
+
+/// Fase C (proativo) — a MAIOR lacuna que resta e que o assistente sabe
+/// conduzir (`{section, label}`), pra sugerir o próximo ganho ao concluir.
+/// null ⇒ nada a sugerir. Failure-safe.
+Future<Map<String, String>?> assistTopGap(
+  String userId, {
+  ProfileRepository? repository,
+  ProfileSnapshotService? snapshotService,
+}) async {
+  try {
+    final repo = repository ?? ProfileRepositorySupabase();
+    final snapSvc = snapshotService ?? ProfileSnapshotService();
+    final snapshot = await snapSvc.loadSnapshot(userId);
+    final prefs = await repo.getJobPreferences(userId);
+    final desired = await repo.getDesiredTitles(userId);
+    final gaps = profileGapsFromData(
+        snapshot: snapshot, prefs: prefs, desiredTitles: desired);
+    for (final l in gaps.missing) {
+      if (l.key == LacunaKey.summary) continue; // gerado, não perguntado
+      final section = _sectionForLacuna(l.key);
+      if (section != null) return {'section': section, 'label': l.label};
+    }
+  } catch (_) {/* best-effort */}
+  return null;
+}
+
+/// Passos reais de uma seção pra o assistente INJETAR ("quero preencher X"),
+/// com os searchers canônicos (cidade IBGE + instituição + skills pela IA).
+/// Seção desconhecida ⇒ lista vazia (o controller cai em conversa).
+List<ConversationStep> assistSectionStepsFor(String section) {
+  final key = _kAssistSection[section];
+  if (key == null) return const [];
+  return sectionSteps(
+    key,
+    skillSuggestions:
+        key == LacunaKey.skills ? suggestedSkillsForAreas(const []) : const [],
+    skillSuggester:
+        key == LacunaKey.skills ? () => AIService().suggestProfileSkills() : null,
+    citySearch: (q) async => (await _ibge.search(q))
+        .map((c) => PickSuggestion(
+              label: c.uf.isEmpty ? c.name : '${c.name} - ${c.uf}',
+              value: c.uf.isEmpty ? c.name : '${c.name}|${c.uf}',
+            ))
+        .toList(),
+    institutionSearch: (q) async => (await searchInstitutions(q))
+        .map((i) => PickSuggestion(label: i.name, value: '${i.id}|${i.name}'))
+        .toList(),
+  );
+}
+
+/// Grounding compacto (SEM PII sensível) pro assistente: o que falta + um
+/// inventário resumido. Failure-safe (erro ⇒ mapa vazio; o assistente ainda
+/// responde/conduz, só sem personalizar tanto).
+Future<Map<String, dynamic>> buildAssistContext(
+  String userId, {
+  ProfileRepository? repository,
+  ProfileSnapshotService? snapshotService,
+}) async {
+  try {
+    final repo = repository ?? ProfileRepositorySupabase();
+    final snapSvc = snapshotService ?? ProfileSnapshotService();
+    final snapshot = await snapSvc.loadSnapshot(userId);
+    final prefs = await repo.getJobPreferences(userId);
+    final desired = await repo.getDesiredTitles(userId);
+    final gaps = profileGapsFromData(
+        snapshot: snapshot, prefs: prefs, desiredTitles: desired);
+    return {
+      'completion_percent': gaps.completionPercent,
+      'missing': [for (final l in gaps.missing) l.label],
+      'areas': desired.map((d) => d.title).toList(),
+      'desired_position': prefs?.desiredPosition,
+      'skills_count': snapshot.skills.length,
+      'experiences_count': snapshot.experiences.length,
+      // Experiências com bullets (id + texto) — pro improve_bullet escolher qual.
+      'experiences': [
+        for (final e in snapshot.experiences.take(6))
+          {
+            'company': e.company,
+            'title': e.title,
+            'bullets': [
+              for (final b in e.bullets)
+                {
+                  'id': b.id,
+                  'text': b.text.length > 160
+                      ? '${b.text.substring(0, 160)}…'
+                      : b.text,
+                }
+            ],
+          }
+      ],
+      'languages': [for (final l in snapshot.languages) l.name],
+      'has_summary': (snapshot.personal?.summary?.trim().isNotEmpty ?? false),
+      // Resumo atual (texto do próprio usuário) — pra rewrite_summary reescrever
+      // sem inventar. Cortado pra não estourar tokens.
+      'summary': (snapshot.personal?.summary?.trim() ?? ''),
+    };
+  } catch (_) {
+    return const {};
+  }
+}
+
+/// Fase B — LEITOR: valor atual de um campo editável pelo assistente
+/// (`{raw, text, label}`; null ⇒ não editável por aqui — vai via start_section).
+/// Por ora só `desired_position` (texto livre); o resto muda via chips/typeahead.
+Future<Map<String, String>?> assistReadFieldMap(
+  String userId,
+  String field, {
+  ProfileRepository? repository,
+}) async {
+  final repo = repository ?? ProfileRepositorySupabase();
+  switch (field) {
+    case 'desired_position':
+      final prefs = await repo.getJobPreferences(userId);
+      final pos = prefs?.desiredPosition?.trim() ?? '';
+      return {
+        'raw': pos,
+        'text': pos.isEmpty ? '—' : pos,
+        'label': 'Cargo desejado',
+      };
+    case 'summary':
+      final personal = await repo.getPersonal(userId);
+      final s = personal?.summary?.trim() ?? '';
+      return {'raw': s, 'text': s.isEmpty ? '—' : s, 'label': 'Resumo'};
+  }
+  return null;
+}
+
+/// Fase B — GRAVADOR: aplica um valor a um campo (reusa o write-back; savers
+/// idempotentes). value '' ⇒ limpa (pro undo de um set-a-partir-de-vazio, que o
+/// saver sozinho ignoraria).
+Future<void> assistWriteFieldValue(
+  String userId,
+  String field,
+  String value, {
+  ProfileRepository? repository,
+}) async {
+  final repo = repository ?? ProfileRepositorySupabase();
+  switch (field) {
+    case 'desired_position':
+      final v = value.trim();
+      if (v.isEmpty) {
+        final prefs =
+            await repo.getJobPreferences(userId) ?? JobPreferences(userId: userId);
+        await repo.upsertJobPreferences(prefs.copyWith(desiredPosition: ''));
+      } else {
+        await TrilhaWriteback(repo, userId)
+            .save(StepAnswer.text('gap.desired_position', v));
+      }
+      return;
+    case 'summary':
+      final personal =
+          await repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
+      await repo.upsertPersonal(personal.copyWith(summary: value.trim()));
+      return;
+  }
+}
+
+/// Fase B — ADICIONA um item de lista (skill/idioma) reusando o write-back
+/// (merge/dedup — idempotente).
+Future<void> assistAddItem(
+  String userId,
+  String kind,
+  String value, {
+  ProfileRepository? repository,
+}) async {
+  final repo = repository ?? ProfileRepositorySupabase();
+  final v = value.trim();
+  if (v.isEmpty) return;
+  final wb = TrilhaWriteback(repo, userId);
+  switch (kind) {
+    case 'skill':
+      await wb.save(
+          StepAnswer.choice('gap.skills', [StepOption(id: v, label: v)]));
+      return;
+    case 'language':
+      await wb.save(
+          StepAnswer.choice('gap.languages', [StepOption(id: v, label: v)]));
+      return;
+  }
+}
+
+/// Fase B — REMOVE um item de lista pelo nome (case-insensitive; remove todos
+/// os que casam exato).
+Future<void> assistRemoveItem(
+  String userId,
+  String kind,
+  String value, {
+  ProfileRepository? repository,
+}) async {
+  final repo = repository ?? ProfileRepositorySupabase();
+  final lc = value.trim().toLowerCase();
+  if (lc.isEmpty) return;
+  switch (kind) {
+    case 'skill':
+      for (final s in await repo.getSkills(userId)) {
+        if (s.name.trim().toLowerCase() == lc) await repo.deleteSkill(s.id);
+      }
+      return;
+    case 'language':
+      for (final l in await repo.getLanguages(userId)) {
+        if (l.name.trim().toLowerCase() == lc) await repo.deleteLanguage(l.id);
+      }
+      return;
+  }
+}
+
+/// Fase B — RESOLVE "qual item" remover: nomes que casam com a query (exato
+/// primeiro; senão contains). 0 ⇒ não achou; 1 ⇒ segue; 2+ ⇒ desambigua.
+Future<List<String>> assistResolveItems(
+  String userId,
+  String kind,
+  String query, {
+  ProfileRepository? repository,
+}) async {
+  final repo = repository ?? ProfileRepositorySupabase();
+  final q = query.trim().toLowerCase();
+  if (q.isEmpty) return const [];
+  // Experiência: casa por cargo OU empresa; devolve um rótulo distinguível.
+  if (kind == 'experience') {
+    final out = <String>[];
+    for (final e in await repo.getExperiences(userId)) {
+      if ('${e.title} ${e.company}'.toLowerCase().contains(q)) {
+        out.add(_expLabelOf(e.title, e.company));
+      }
+    }
+    return out;
+  }
+  List<String> names;
+  switch (kind) {
+    case 'skill':
+      names = (await repo.getSkills(userId)).map((s) => s.name).toList();
+      break;
+    case 'language':
+      names = (await repo.getLanguages(userId)).map((l) => l.name).toList();
+      break;
+    default:
+      return const [];
+  }
+  final exact = names.where((n) => n.trim().toLowerCase() == q).toList();
+  if (exact.isNotEmpty) return exact;
+  return names
+      .where((n) =>
+          n.trim().toLowerCase().contains(q) ||
+          q.contains(n.trim().toLowerCase()))
+      .toList();
+}
+
+/// Fase B — LÊ um bullet por id ({raw, text, label=experiência}). null ⇒ id
+/// inválido.
+Future<Map<String, String>?> assistBulletReadMap(
+  String userId,
+  String bulletId, {
+  ProfileRepository? repository,
+}) async {
+  final repo = repository ?? ProfileRepositorySupabase();
+  for (final e in await repo.getExperiences(userId)) {
+    for (final b in e.bullets) {
+      if (b.id == bulletId) {
+        return {
+          'raw': b.text,
+          'text': b.text,
+          'label': e.company.trim().isEmpty ? e.title : e.company,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/// Fase B — REESCREVE um bullet por id (updateBullet, preservando ângulo/ordem).
+Future<void> assistBulletWrite(
+  String userId,
+  String bulletId,
+  String text, {
+  ProfileRepository? repository,
+}) async {
+  final repo = repository ?? ProfileRepositorySupabase();
+  final t = text.trim();
+  if (t.isEmpty) return;
+  for (final e in await repo.getExperiences(userId)) {
+    for (final b in e.bullets) {
+      if (b.id == bulletId) {
+        await repo.updateBullet(b.copyWith(text: t));
+        return;
+      }
+    }
+  }
+}
+
+/// Rótulo distinguível de uma experiência ("Cargo · Empresa").
+String _expLabelOf(String title, String company) {
+  final t = title.trim();
+  final co = company.trim();
+  if (t.isEmpty) return co;
+  if (co.isEmpty) return t;
+  return '$t · $co';
+}
+
+/// Fase B — remoção REVERSÍVEL de item multi-campo. Captura o registro, deleta,
+/// e devolve um restore (que re-insere com id novo — o item volta, íntegro).
+/// null ⇒ kind não tratado aqui (skill/idioma seguem no remover simples).
+Future<Future<void> Function()?> assistReversibleRemove(
+  String userId,
+  String kind,
+  String value, {
+  ProfileRepository? repository,
+}) async {
+  final repo = repository ?? ProfileRepositorySupabase();
+  switch (kind) {
+    case 'experience':
+      for (final e in await repo.getExperiences(userId)) {
+        final label = _expLabelOf(e.title, e.company);
+        if (label == value ||
+            e.company.trim() == value.trim() ||
+            e.title.trim() == value.trim()) {
+          final captured = e; // com bullets
+          await repo.deleteExperience(e.id);
+          return () async {
+            final r = repository ?? ProfileRepositorySupabase();
+            final saved = await r.addExperience(captured.copyWith(id: ''));
+            for (final b in captured.bullets) {
+              await r.addBullet(b.copyWith(id: '', experienceId: saved.id));
+            }
+          };
+        }
+      }
+      return null;
+  }
+  return null;
 }

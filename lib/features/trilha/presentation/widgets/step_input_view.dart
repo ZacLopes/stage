@@ -13,6 +13,7 @@ import '../../../../core/theme/theme.dart';
 import '../../../../core/widgets/widgets.dart';
 import '../../domain/conversation_step.dart';
 import 'chat_bubbles.dart';
+import 'experience_type_picker.dart';
 
 class StepInputView extends StatefulWidget {
   const StepInputView({
@@ -193,6 +194,12 @@ class _StepInputViewState extends State<StepInputView> {
       SuggestPickInput() => _buildSuggestPick(input),
       AsyncSuggestInput() => _buildAsyncSuggest(input),
       AsyncPickInput() => _buildAsyncPick(input),
+      ExperienceTypeInput() => ExperienceTypePicker(
+          stepId: widget.step.id,
+          input: input,
+          onSubmit: widget.onSubmit,
+          enabled: widget.enabled,
+        ),
     };
   }
 

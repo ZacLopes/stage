@@ -83,6 +83,11 @@ class Experience {
   final bool needsReview;
   final List<Bullet> bullets;
 
+  /// Tipo da experiência (trilha de coleta): emprego/estagio/monitoria/
+  /// voluntariado/atletica/freela/familia/outro — ou rótulo livre. Null p/
+  /// import/legado (coluna aditiva, ver migration 20260707130000).
+  final String? kind;
+
   const Experience({
     required this.id,
     required this.userId,
@@ -96,6 +101,7 @@ class Experience {
     this.confidence,
     this.needsReview = false,
     this.bullets = const [],
+    this.kind,
   });
 
   /// Exibição: "Jan 2024 - Atual" ou "Jan 2024 - Dez 2024"
@@ -118,6 +124,9 @@ class Experience {
         'order_index': orderIndex,
         'confidence': confidence,
         'needs_review': needsReview,
+        // Só envia `kind` quando presente (trilha) — assim o caminho de import
+        // não referencia a coluna (tolera bases sem a migration ainda aplicada).
+        if (kind != null) 'kind': kind,
       };
 
   factory Experience.fromMap(Map<String, dynamic> map) {
@@ -136,6 +145,7 @@ class Experience {
       orderIndex: (map['order_index'] as num?)?.toInt() ?? 0,
       confidence: (map['confidence'] as num?)?.toDouble(),
       needsReview: map['needs_review'] as bool? ?? false,
+      kind: map['kind'] as String?,
       bullets: bulletsRaw == null
           ? const []
           : (bulletsRaw
@@ -158,6 +168,7 @@ class Experience {
     double? confidence,
     bool? needsReview,
     List<Bullet>? bullets,
+    String? kind,
   }) =>
       Experience(
         id: id ?? this.id,
@@ -172,6 +183,7 @@ class Experience {
         confidence: confidence ?? this.confidence,
         needsReview: needsReview ?? this.needsReview,
         bullets: bullets ?? this.bullets,
+        kind: kind ?? this.kind,
       );
 }
 

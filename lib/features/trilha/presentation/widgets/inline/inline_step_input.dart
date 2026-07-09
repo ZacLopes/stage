@@ -17,6 +17,7 @@ import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../../../../../core/theme/theme.dart';
 import '../../../domain/conversation_step.dart';
+import '../experience_type_picker.dart';
 
 /// Dispatcher: renderiza o widget inline certo pro [step.input].
 class InlineStepInput extends StatelessWidget {
@@ -25,11 +26,17 @@ class InlineStepInput extends StatelessWidget {
     required this.step,
     required this.onSubmit,
     this.enabled = true,
+    this.initialAnswer,
   });
 
   final ConversationStep step;
   final ValueChanged<StepAnswer> onSubmit;
   final bool enabled;
+
+  /// Resposta já dada, pra PRÉ-PREENCHER o widget ao EDITAR (toque no lápis).
+  /// Null no fluxo normal (passo novo, em branco). Cada widget lê daqui pra
+  /// abrir com o que o usuário tinha escrito — nunca zerado.
+  final StepAnswer? initialAnswer;
 
   @override
   Widget build(BuildContext context) {
@@ -38,21 +45,56 @@ class InlineStepInput extends StatelessWidget {
     if (input is ChoiceInput &&
         input.compact &&
         step.id.startsWith('lang.level.')) {
-      return _LevelSlider(step: step, input: input, onSubmit: onSubmit, enabled: enabled);
+      return _LevelSlider(
+          step: step,
+          input: input,
+          onSubmit: onSubmit,
+          enabled: enabled,
+          initialAnswer: initialAnswer);
     }
     return switch (input) {
-      ChoiceInput() =>
-        _ChoiceChips(step: step, input: input, onSubmit: onSubmit, enabled: enabled),
-      GuidedTextInput() =>
-        _GuidedText(step: step, input: input, onSubmit: onSubmit, enabled: enabled),
-      MonthYearInput() =>
-        _MonthYear(step: step, input: input, onSubmit: onSubmit, enabled: enabled),
-      SuggestPickInput() =>
-        _SuggestPick(step: step, input: input, onSubmit: onSubmit, enabled: enabled),
-      AsyncSuggestInput() =>
-        _AsyncSuggest(step: step, input: input, onSubmit: onSubmit, enabled: enabled),
-      AsyncPickInput() =>
-        _AsyncPick(step: step, input: input, onSubmit: onSubmit, enabled: enabled),
+      ChoiceInput() => _ChoiceChips(
+          step: step,
+          input: input,
+          onSubmit: onSubmit,
+          enabled: enabled,
+          initialAnswer: initialAnswer),
+      GuidedTextInput() => _GuidedText(
+          step: step,
+          input: input,
+          onSubmit: onSubmit,
+          enabled: enabled,
+          initialAnswer: initialAnswer),
+      MonthYearInput() => _MonthYear(
+          step: step,
+          input: input,
+          onSubmit: onSubmit,
+          enabled: enabled,
+          initialAnswer: initialAnswer),
+      SuggestPickInput() => _SuggestPick(
+          step: step,
+          input: input,
+          onSubmit: onSubmit,
+          enabled: enabled,
+          initialAnswer: initialAnswer),
+      AsyncSuggestInput() => _AsyncSuggest(
+          step: step,
+          input: input,
+          onSubmit: onSubmit,
+          enabled: enabled,
+          initialAnswer: initialAnswer),
+      AsyncPickInput() => _AsyncPick(
+          step: step,
+          input: input,
+          onSubmit: onSubmit,
+          enabled: enabled,
+          initialAnswer: initialAnswer),
+      ExperienceTypeInput() => ExperienceTypePicker(
+          stepId: step.id,
+          input: input,
+          onSubmit: onSubmit,
+          enabled: enabled,
+          initialAnswer: initialAnswer),
     };
   }
 }
@@ -106,6 +148,81 @@ class TrilhaChip extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// CTA de destaque pra escolha ÚNICA de uma opção (a abertura da trilha).
+/// Largura cheia, gradiente da marca, seta e mola no toque (com haptic) — pra
+/// o "Bora começar" ter cara de convite, não de chip solto. Desabilitado
+/// enquanto o passo anterior salva (esmaece + ignora o toque).
+class _ChoiceCta extends StatefulWidget {
+  const _ChoiceCta({
+    required this.label,
+    required this.onTap,
+    this.enabled = true,
+  });
+  final String label;
+  final VoidCallback onTap;
+  final bool enabled;
+
+  @override
+  State<_ChoiceCta> createState() => _ChoiceCtaState();
+}
+
+class _ChoiceCtaState extends State<_ChoiceCta> {
+  bool _pressed = false;
+
+  void _setPressed(bool v) {
+    if (widget.enabled) setState(() => _pressed = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      opacity: widget.enabled ? 1 : 0.5,
+      duration: const Duration(milliseconds: 150),
+      child: GestureDetector(
+        onTapDown: (_) => _setPressed(true),
+        onTapUp: (_) => _setPressed(false),
+        onTapCancel: () => _setPressed(false),
+        onTap: widget.enabled
+            ? () {
+                HapticFeedback.mediumImpact();
+                widget.onTap();
+              }
+            : null,
+        child: AnimatedScale(
+          scale: _pressed ? 0.97 : 1,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          child: Container(
+            width: double.infinity,
+            height: 54,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              gradient: AppGradients.brand,
+              borderRadius: AppRadius.brPill,
+              boxShadow: widget.enabled ? AppShadows.brand : null,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  widget.label,
+                  style: AppTextStyles.labelLg.copyWith(
+                    color: AppColors.onPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                const Icon(Icons.arrow_forward_rounded,
+                    size: 20, color: AppColors.onPrimary),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -177,11 +294,13 @@ class _ChoiceChips extends StatefulWidget {
       {required this.step,
       required this.input,
       required this.onSubmit,
-      required this.enabled});
+      required this.enabled,
+      this.initialAnswer});
   final ConversationStep step;
   final ChoiceInput input;
   final ValueChanged<StepAnswer> onSubmit;
   final bool enabled;
+  final StepAnswer? initialAnswer;
 
   @override
   State<_ChoiceChips> createState() => _ChoiceChipsState();
@@ -189,6 +308,14 @@ class _ChoiceChips extends StatefulWidget {
 
 class _ChoiceChipsState extends State<_ChoiceChips> {
   final Set<String> _selected = {};
+
+  @override
+  void initState() {
+    super.initState();
+    // Edição: re-marca o que já estava escolhido (ids da resposta anterior).
+    final init = widget.initialAnswer?.value;
+    if (init is List) _selected.addAll(init.map((e) => e.toString()));
+  }
 
   void _toggle(StepOption o) {
     if (!widget.enabled) return;
@@ -216,6 +343,18 @@ class _ChoiceChipsState extends State<_ChoiceChips> {
 
   @override
   Widget build(BuildContext context) {
+    // Escolha ÚNICA de UMA opção (a abertura "Bora começar", o único passo
+    // assim): não é um chip solto e miúdo perdido no canto — é O convite pra
+    // começar. Vira um CTA cheio, com o gradiente da marca, seta e mola no
+    // toque. (Yes/Não e afins têm 2+ opções → seguem como chips lado a lado.)
+    if (!widget.input.multi && widget.input.options.length == 1) {
+      final o = widget.input.options.first;
+      return _ChoiceCta(
+        label: o.label,
+        enabled: widget.enabled,
+        onTap: () => widget.onSubmit(StepAnswer.choice(widget.step.id, [o])),
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -253,11 +392,13 @@ class _LevelSlider extends StatefulWidget {
       {required this.step,
       required this.input,
       required this.onSubmit,
-      required this.enabled});
+      required this.enabled,
+      this.initialAnswer});
   final ConversationStep step;
   final ChoiceInput input;
   final ValueChanged<StepAnswer> onSubmit;
   final bool enabled;
+  final StepAnswer? initialAnswer;
 
   @override
   State<_LevelSlider> createState() => _LevelSliderState();
@@ -267,9 +408,14 @@ class _LevelSliderState extends State<_LevelSlider> {
   late int _index = _initialIndex();
 
   /// Português começa em "Nativo" (caso comum p/ usuário BR); os demais idiomas
-  /// começam no meio da escala.
+  /// começam no meio da escala. Na EDIÇÃO, começa no nível já escolhido.
   int _initialIndex() {
     final opts = widget.input.options;
+    final init = widget.initialAnswer?.value;
+    if (init is List && init.isNotEmpty) {
+      final i = opts.indexWhere((o) => o.id == init.first.toString());
+      if (i >= 0) return i;
+    }
     if (widget.step.id.toLowerCase() == 'lang.level.português') {
       final i = opts.indexWhere((o) => o.id == 'native');
       if (i >= 0) return i;
@@ -398,11 +544,13 @@ class _GuidedText extends StatefulWidget {
       {required this.step,
       required this.input,
       required this.onSubmit,
-      required this.enabled});
+      required this.enabled,
+      this.initialAnswer});
   final ConversationStep step;
   final GuidedTextInput input;
   final ValueChanged<StepAnswer> onSubmit;
   final bool enabled;
+  final StepAnswer? initialAnswer;
 
   @override
   State<_GuidedText> createState() => _GuidedTextState();
@@ -410,6 +558,14 @@ class _GuidedText extends StatefulWidget {
 
 class _GuidedTextState extends State<_GuidedText> {
   final _controller = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    // Edição: reabre com o texto que o usuário já tinha escrito.
+    final init = widget.initialAnswer?.value;
+    if (init is String) _controller.text = init;
+  }
 
   @override
   void dispose() {
@@ -505,11 +661,13 @@ class _MonthYear extends StatefulWidget {
       {required this.step,
       required this.input,
       required this.onSubmit,
-      required this.enabled});
+      required this.enabled,
+      this.initialAnswer});
   final ConversationStep step;
   final MonthYearInput input;
   final ValueChanged<StepAnswer> onSubmit;
   final bool enabled;
+  final StepAnswer? initialAnswer;
 
   @override
   State<_MonthYear> createState() => _MonthYearState();
@@ -536,6 +694,20 @@ class _MonthYearState extends State<_MonthYear> {
     ];
     _monthIndex = now.month - 1;
     _yearIndex = 0;
+    // Edição: reposiciona as rodas no mês/ano já gravado ('YYYY-MM').
+    final init = widget.initialAnswer?.value;
+    if (init is String) {
+      final parts = init.split('-');
+      if (parts.length == 2) {
+        final y = int.tryParse(parts[0]);
+        final m = int.tryParse(parts[1]);
+        if (m != null && m >= 1 && m <= 12) _monthIndex = m - 1;
+        if (y != null) {
+          final yi = _years.indexOf(y);
+          if (yi >= 0) _yearIndex = yi;
+        }
+      }
+    }
     _monthCtrl = FixedExtentScrollController(initialItem: _monthIndex);
     _yearCtrl = FixedExtentScrollController(initialItem: _yearIndex);
   }
@@ -679,11 +851,13 @@ class _SuggestPick extends StatefulWidget {
       {required this.step,
       required this.input,
       required this.onSubmit,
-      required this.enabled});
+      required this.enabled,
+      this.initialAnswer});
   final ConversationStep step;
   final SuggestPickInput input;
   final ValueChanged<StepAnswer> onSubmit;
   final bool enabled;
+  final StepAnswer? initialAnswer;
 
   @override
   State<_SuggestPick> createState() => _SuggestPickState();
@@ -698,6 +872,9 @@ class _SuggestPickState extends State<_SuggestPick> {
   @override
   void initState() {
     super.initState();
+    // Edição: reabre com o que já estava selecionado (nomes da resposta).
+    final init = widget.initialAnswer?.value;
+    if (init is List) _selected.addAll(init.map((e) => e.toString()));
     final loader = widget.input.suggestionsLoader;
     if (loader != null) {
       _loading = true;
@@ -844,11 +1021,13 @@ class _AsyncSuggest extends StatefulWidget {
       {required this.step,
       required this.input,
       required this.onSubmit,
-      required this.enabled});
+      required this.enabled,
+      this.initialAnswer});
   final ConversationStep step;
   final AsyncSuggestInput input;
   final ValueChanged<StepAnswer> onSubmit;
   final bool enabled;
+  final StepAnswer? initialAnswer;
 
   @override
   State<_AsyncSuggest> createState() => _AsyncSuggestState();
@@ -901,6 +1080,7 @@ class _AsyncSuggestState extends State<_AsyncSuggest> {
       ),
       onSubmit: widget.onSubmit,
       enabled: widget.enabled,
+      initialAnswer: widget.initialAnswer,
     );
   }
 }
@@ -912,11 +1092,13 @@ class _AsyncPick extends StatefulWidget {
       {required this.step,
       required this.input,
       required this.onSubmit,
-      required this.enabled});
+      required this.enabled,
+      this.initialAnswer});
   final ConversationStep step;
   final AsyncPickInput input;
   final ValueChanged<StepAnswer> onSubmit;
   final bool enabled;
+  final StepAnswer? initialAnswer;
 
   @override
   State<_AsyncPick> createState() => _AsyncPickState();
@@ -927,6 +1109,16 @@ class _AsyncPickState extends State<_AsyncPick> {
   Timer? _debounce;
   List<PickSuggestion> _results = const [];
   bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Edição: reabre com o valor já escolhido no campo (sem re-disparar busca —
+    // setar .text não chama onChanged). O usuário vê o atual e pode manter
+    // ("Usar …") ou apagar e buscar outro.
+    final label = widget.initialAnswer?.displayText;
+    if (label != null && label.isNotEmpty) _search.text = label;
+  }
 
   @override
   void dispose() {

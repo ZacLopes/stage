@@ -40,9 +40,19 @@ void main() {
     int steps = 1,
     List<String>? preFilled,
     void Function(int)? onStarted,
+    bool withIntro = false,
   }) {
     Future<void> save(StepAnswer a) async {}
     final plan = [
+      // Espelha o plano real (buildConversationPlan prefixa o passo 'intro').
+      if (withIntro)
+        ConversationStep.single(
+          id: 'intro',
+          aiMessage: 'GREETING_INTRO',
+          input: const ChoiceInput(
+              options: [StepOption(id: 'go', label: 'Bora começar')]),
+          reversible: false,
+        ),
       for (var i = 0; i < steps; i++)
         ConversationStep.single(
           id: 'gap.$i',
@@ -108,6 +118,40 @@ void main() {
     // Já revelou o 1º passo (não parou no gate).
     expect(c.currentStep?.id, 'gap.0');
     expect(startedWith, 1);
+  });
+
+  test('volta (perfil com dados): NÃO repete a saudação do passo de abertura',
+      () async {
+    final c = build(
+      snap: _FakeSnap([empty]),
+      preFilled: const ['formação', 'skills', 'idiomas'],
+      withIntro: true,
+    );
+    addTearDown(c.dispose);
+
+    await c.start();
+
+    final msgs = c.thread.whereType<AiMsgItem>().map((m) => m.text).toList();
+    // Reconhece o que já tem (saudação de retorno)...
+    expect(msgs.any((m) => m.contains('formação, skills e idiomas')), isTrue);
+    // ...e NÃO mostra a saudação genérica do 'intro' (sem 3ª bolha repetida).
+    expect(msgs.any((m) => m.contains('GREETING_INTRO')), isFalse);
+    // O passo de abertura está ativo (só o CTA), pronto pra tocar.
+    expect(c.currentStep?.id, 'intro');
+    expect(c.inputVisible, isTrue);
+  });
+
+  test('começando agora (do zero): a saudação do passo de abertura aparece',
+      () async {
+    final c = build(snap: _FakeSnap([empty]), withIntro: true);
+    addTearDown(c.dispose);
+
+    await c.start(); // gate
+    await c.chooseZero(); // entra na conversa → revela o 'intro' com saudação
+
+    final msgs = c.thread.whereType<AiMsgItem>().map((m) => m.text).toList();
+    expect(msgs.any((m) => m.contains('GREETING_INTRO')), isTrue);
+    expect(c.currentStep?.id, 'intro');
   });
 
   test('import: poll vê counts subirem → card-resumo + aguarda confirmação',
