@@ -1075,4 +1075,69 @@ void main() {
             .any((m) => m.text.contains('Tranquilo não saber')),
         isTrue);
   });
+
+  // ── Médios: remover multi-campo (cert) + editar campo pessoal (nome) ───────
+
+  test('remove_item certification: resolve → confirma (deleta) → desfaz',
+      () async {
+    var deleted = false;
+    var restored = false;
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'remove_item',
+        args: {'kind': 'certification', 'query': 'inglês'},
+        reply: '',
+        promptVersion: 'assistant_v7',
+      )),
+      itemResolver: (kind, query) async =>
+          kind == 'certification' ? ['Certificado de Inglês'] : const [],
+      reversibleRemover: (kind, value) async {
+        deleted = true;
+        return () async => restored = true;
+      },
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('remove minha certificação de inglês');
+    final pending = c.thread
+        .whereType<AssistEditItem>()
+        .singleWhere((e) => e.status == AssistEditStatus.pending);
+    expect(pending.op, AssistEditOp.remove);
+    expect(pending.value, 'Certificado de Inglês');
+    expect(deleted, isFalse);
+    await c.confirmAssistEdit(pending.id);
+    expect(deleted, isTrue);
+    await c.undoAssistEdit(pending.id);
+    expect(restored, isTrue);
+  });
+
+  test('update_field name: propõe → confirma (grava) → desfaz', () async {
+    final writes = <List<String>>[];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'update_field',
+        args: {'field': 'name', 'value': 'João Pereira', 'value_label': 'João Pereira'},
+        reply: '',
+        promptVersion: 'assistant_v7',
+      )),
+      readField: (field) async => field == 'name'
+          ? const AssistFieldValue(raw: 'João', text: 'João', label: 'Nome')
+          : null,
+      writeField: (field, value) async => writes.add([field, value]),
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('muda meu nome pra João Pereira');
+    final pending = c.thread
+        .whereType<AssistEditItem>()
+        .singleWhere((e) => e.status == AssistEditStatus.pending);
+    expect(pending.beforeText, 'João');
+    expect(pending.afterText, 'João Pereira');
+    await c.confirmAssistEdit(pending.id);
+    expect(writes, [
+      ['name', 'João Pereira']
+    ]);
+    await c.undoAssistEdit(pending.id);
+    expect(writes.last, ['name', 'João']); // regrava o anterior
+  });
 }

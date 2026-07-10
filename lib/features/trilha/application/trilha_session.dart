@@ -13,8 +13,9 @@ import '../../profile/application/profile_gaps.dart';
 import '../../profile/data/repositories/profile_repository_supabase.dart';
 import '../../profile/domain/entities/job_preferences.dart' show JobPreferences;
 import '../../profile/domain/entities/personal_info.dart' show PersonalInfo;
+import '../../profile/domain/entities/education.dart' show Education;
 import '../../profile/domain/entities/simple_lists.dart'
-    show Language, languageProficiencyFromId;
+    show Language, Certification, Award, Project, languageProficiencyFromId;
 import '../../profile/domain/repositories/profile_repository.dart';
 import '../domain/conversation_step.dart'
     show PickSuggestion, StepAnswer, StepOption, ConversationStep;
@@ -300,6 +301,14 @@ Future<Map<String, dynamic>> buildAssistContext(
       // Nomes dos interesses atuais — pro assistente escolher edit_interests
       // (ver/editar) vs start_section (coletar do zero).
       'interests': [for (final i in snapshot.interests.take(30)) i.name],
+      // Seções multi-campo — só os rótulos, pro assistente SABER que existem
+      // (ver/remover/referenciar). O app resolve o item real pelo rótulo.
+      'education': [for (final Education e in snapshot.education) eduLabel(e)],
+      'certifications': [
+        for (final Certification c in snapshot.certifications) c.name
+      ],
+      'awards': [for (final Award a in snapshot.awards) a.name],
+      'projects': [for (final Project p in snapshot.projects) p.name],
       'has_summary': (snapshot.personal?.summary?.trim().isNotEmpty ?? false),
       // Resumo atual (texto do próprio usuário) — pra rewrite_summary reescrever
       // sem inventar. Cortado pra não estourar tokens.
@@ -440,6 +449,23 @@ Future<Map<String, String>?> assistReadFieldMap(
       final personal = await repo.getPersonal(userId);
       final s = personal?.summary?.trim() ?? '';
       return {'raw': s, 'text': s.isEmpty ? '—' : s, 'label': 'Resumo'};
+    case 'name':
+      final p = await repo.getPersonal(userId);
+      final full =
+          '${p?.firstName ?? ''} ${p?.lastName ?? ''}'.replaceAll(RegExp(r'\s+'), ' ').trim();
+      return {'raw': full, 'text': full.isEmpty ? '—' : full, 'label': 'Nome'};
+    case 'linkedin':
+      final p = await repo.getPersonal(userId);
+      final v = p?.linkedinUrl?.trim() ?? '';
+      return {'raw': v, 'text': v.isEmpty ? '—' : v, 'label': 'LinkedIn'};
+    case 'website':
+      final p = await repo.getPersonal(userId);
+      final v = p?.website?.trim() ?? '';
+      return {'raw': v, 'text': v.isEmpty ? '—' : v, 'label': 'Site/portfólio'};
+    case 'phone':
+      final p = await repo.getPersonal(userId);
+      final v = p?.phoneNumber?.trim() ?? '';
+      return {'raw': v, 'text': v.isEmpty ? '—' : v, 'label': 'Telefone'};
   }
   return null;
 }
@@ -470,6 +496,32 @@ Future<void> assistWriteFieldValue(
       final personal =
           await repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
       await repo.upsertPersonal(personal.copyWith(summary: value.trim()));
+      return;
+    case 'name':
+      final p = await repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
+      final parts =
+          value.trim().split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
+      // Sobrenome = ÚLTIMA palavra; nome = o resto. Isso torna o par
+      // read("nome sobrenome")→write→read um round-trip idempotente (o Desfazer
+      // vira no-op de verdade) e casa melhor com nomes compostos pt-BR
+      // ("Ana Paula Ferreira" → nome "Ana Paula", sobrenome "Ferreira").
+      final first = parts.length <= 1
+          ? (parts.isEmpty ? '' : parts.first)
+          : parts.sublist(0, parts.length - 1).join(' ');
+      final last = parts.length <= 1 ? '' : parts.last;
+      await repo.upsertPersonal(p.copyWith(firstName: first, lastName: last));
+      return;
+    case 'linkedin':
+      final p = await repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
+      await repo.upsertPersonal(p.copyWith(linkedinUrl: value.trim()));
+      return;
+    case 'website':
+      final p = await repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
+      await repo.upsertPersonal(p.copyWith(website: value.trim()));
+      return;
+    case 'phone':
+      final p = await repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
+      await repo.upsertPersonal(p.copyWith(phoneNumber: value.trim()));
       return;
   }
 }
@@ -569,9 +621,23 @@ Future<List<String>> assistResolveItems(
     case 'interest':
       names = (await repo.getInterests(userId)).map((i) => i.name).toList();
       break;
+    case 'certification':
+      names = (await repo.getCertifications(userId)).map((c) => c.name).toList();
+      break;
+    case 'award':
+      names = (await repo.getAwards(userId)).map((a) => a.name).toList();
+      break;
+    case 'project':
+      names = (await repo.getProjects(userId)).map((p) => p.name).toList();
+      break;
+    case 'education':
+      names = (await repo.getEducation(userId)).map(eduLabel).toList();
+      break;
     default:
       return const [];
   }
+  // Ignora nomes vazios (senão q.contains('') casa qualquer query = fantasma).
+  names = names.where((n) => n.trim().isNotEmpty).toList();
   final exact = names.where((n) => n.trim().toLowerCase() == q).toList();
   if (exact.isNotEmpty) return exact;
   return names
@@ -661,6 +727,61 @@ Future<Future<void> Function()?> assistReversibleRemove(
         }
       }
       return null;
+    case 'certification':
+      final c = _pickByName(await repo.getCertifications(userId), (x) => x.name, value);
+      if (c == null) return null;
+      await repo.deleteCertification(c.id);
+      return () async => (repository ?? ProfileRepositorySupabase())
+          .addCertification(c.copyWith(id: ''));
+    case 'award':
+      final a = _pickByName(await repo.getAwards(userId), (x) => x.name, value);
+      if (a == null) return null;
+      await repo.deleteAward(a.id);
+      return () async => (repository ?? ProfileRepositorySupabase())
+          .addAward(a.copyWith(id: ''));
+    case 'project':
+      final p = _pickByName(await repo.getProjects(userId), (x) => x.name, value);
+      if (p == null) return null;
+      await repo.deleteProject(p.id);
+      return () async => (repository ?? ProfileRepositorySupabase())
+          .addProject(p.copyWith(id: ''));
+    case 'education':
+      final list = await repo.getEducation(userId);
+      // Casa pelo rótulo composto (curso · instituição) e, se não, por
+      // instituição — mas SEMPRE exato-primeiro (via _pickByName).
+      final ed = _pickByName(list, eduLabel, value) ??
+          _pickByName(list, (x) => x.institution, value);
+      if (ed == null) return null;
+      await repo.deleteEducation(ed.id);
+      // Undo re-insere o registro (nível superior; sub-itens raros).
+      return () async => (repository ?? ProfileRepositorySupabase())
+          .addEducation(ed.copyWith(id: ''));
+  }
+  return null;
+}
+
+/// Rótulo distinguível de uma formação ("Curso · Instituição").
+String eduLabel(Education e) {
+  final d = (e.degree ?? '').trim();
+  final inst = e.institution.trim();
+  if (d.isEmpty) return inst;
+  if (inst.isEmpty) return d;
+  return '$d · $inst';
+}
+
+/// Escolhe QUAL item casar com o que o resolver/usuário disse: nome EXATO
+/// (case-insensitive) primeiro; senão o 1º cujo nome CONTÉM o value. NÃO usa o
+/// sentido value.contains(name) — senão um item curto ("Java") engoliria uma
+/// query longa ("Java SE 8") e o app removeria o item ERRADO.
+T? _pickByName<T>(List<T> items, String Function(T) nameOf, String value) {
+  final b = value.trim().toLowerCase();
+  if (b.isEmpty) return null;
+  for (final it in items) {
+    if (nameOf(it).trim().toLowerCase() == b) return it;
+  }
+  for (final it in items) {
+    final a = nameOf(it).trim().toLowerCase();
+    if (a.isNotEmpty && a.contains(b)) return it;
   }
   return null;
 }

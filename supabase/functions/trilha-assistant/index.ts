@@ -21,7 +21,7 @@ import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
 import { trackAIGeneration, withEdgeAnalytics } from '../_shared/posthog.ts'
 
-const PROMPT_VERSION = 'assistant_v6'
+const PROMPT_VERSION = 'assistant_v7'
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -152,13 +152,14 @@ function toolsFor(openStep: OpenStep | null) {
         function: {
             name: 'update_field',
             description:
-                'Use quando o usuário quer MUDAR o cargo/posição desejada (ex.: "muda meu cargo pra Analista de Dados", "quero ser dev front-end"). ' +
-                'NÃO grava direto — o app mostra um card de confirmar. Pra mudar OUTRA coisa (cidade, disponibilidade, área, skills, modalidade…), use start_section (o app mostra as opções certas).',
+                'Use quando o usuário quer MUDAR um campo de TEXTO simples do perfil: cargo/posição desejada (desired_position), NOME (name), LINKEDIN (linkedin), SITE/GITHUB/PORTFÓLIO (website) ou TELEFONE (phone). ' +
+                'Ex.: "muda meu cargo pra Analista de Dados", "meu nome agora é João Pereira", "adiciona meu linkedin linkedin.com/in/joao", "meu github é github.com/joao", "meu telefone é (11) 99999-9999". ' +
+                'NÃO grava direto — o app mostra um card de confirmar. Pra CIDADE, disponibilidade, área ou modalidade (que têm opções/typeahead), use start_section.',
             parameters: {
                 type: 'object',
                 properties: {
-                    field: { type: 'string', enum: ['desired_position'], description: 'O campo a mudar.' },
-                    value: { type: 'string', description: 'O novo valor (texto do cargo, como o usuário disse).' },
+                    field: { type: 'string', enum: ['desired_position', 'name', 'linkedin', 'website', 'phone'], description: 'O campo a mudar.' },
+                    value: { type: 'string', description: 'O novo valor, como o usuário disse.' },
                     value_label: { type: 'string', description: 'Como mostrar o novo valor (geralmente = value).' },
                     ...REPLY_PARAM,
                 },
@@ -190,12 +191,13 @@ function toolsFor(openStep: OpenStep | null) {
         function: {
             name: 'remove_item',
             description:
-                'Use quando o usuário quer REMOVER uma skill, um idioma, um interesse ou uma EXPERIÊNCIA (ex.: "tira Python das skills", "remove espanhol", "tira futebol dos interesses", "apaga minha experiência na Ambev"). ' +
-                'É destrutivo — o app confirma (e dá pra desfazer). Passe em query o que o usuário disse; o app resolve qual item é (e desambigua se houver mais de um).',
+                'Use quando o usuário quer REMOVER algo que ele já tem: skill, idioma, interesse, EXPERIÊNCIA, FORMAÇÃO/faculdade (education), CERTIFICAÇÃO, PRÊMIO (award) ou PROJETO. ' +
+                'Ex.: "tira Python", "apaga minha experiência na Ambev", "remove minha certificação de inglês", "tira minha faculdade", "apaga o projeto do app de finanças". ' +
+                'É destrutivo — o app confirma (e dá pra desfazer). Passe em query o que o usuário disse (nome/empresa/curso); o app resolve qual item é (e desambigua se houver mais de um). Os itens que a pessoa tem estão no bloco DADOS.',
             parameters: {
                 type: 'object',
                 properties: {
-                    kind: { type: 'string', enum: ['skill', 'language', 'interest', 'experience'], description: 'O tipo de item.' },
+                    kind: { type: 'string', enum: ['skill', 'language', 'interest', 'experience', 'education', 'certification', 'award', 'project'], description: 'O tipo de item.' },
                     query: { type: 'string', description: 'O que remover, como o usuário disse (o app casa com o item real).' },
                     ...REPLY_PARAM,
                 },

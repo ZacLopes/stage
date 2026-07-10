@@ -1059,7 +1059,12 @@ class TrilhaChatController extends ChangeNotifier {
   Future<void> _proposeAddItem(AssistantTurn turn, ConversationStep? step) async {
     final kind = turn.args['kind']?.toString() ?? '';
     final rawValue = turn.args['value']?.toString().trim() ?? '';
-    if (kind.isEmpty || rawValue.isEmpty || assistItemAdder == null) {
+    // add_item só sabe skill/idioma/interesse (lista simples). Qualquer outro
+    // kind (experiência/cert/…) tem vários campos → conduz pela conversa, sem
+    // card falso.
+    const addable = {'skill', 'language', 'interest'};
+    if (kind.isEmpty || rawValue.isEmpty || assistItemAdder == null ||
+        !addable.contains(kind)) {
       _replyAndKeepStep(
           turn.reply.trim().isEmpty ? 'O que você quer adicionar? 🙂' : turn.reply.trim(),
           step);
@@ -1208,6 +1213,12 @@ class TrilhaChatController extends ChangeNotifier {
         return 'suas experiências';
       case 'project':
         return 'seus projetos';
+      case 'certification':
+        return 'suas certificações';
+      case 'award':
+        return 'seus prêmios';
+      case 'education':
+        return 'sua formação';
     }
     return kind;
   }
