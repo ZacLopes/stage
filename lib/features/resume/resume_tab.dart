@@ -9,6 +9,8 @@
 // O "Importar CV" saiu desta aba (segue vivo no onboarding e no adapt-de-vaga).
 // A trilha gamificada antiga (TracksTab) também saiu — arquivo congelado (R6).
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
@@ -92,11 +94,33 @@ class _ResumeTabState extends State<ResumeTab>
     _future = _load();
   }
 
+  /// Debounce do reload do preview após edições do assistente (o "Salvar" de um
+  /// editor chama os writers N vezes → coalescem num único reload).
+  Timer? _reloadDebounce;
+
   @override
   void dispose() {
+    _reloadDebounce?.cancel();
     _orch?.removeListener(_onOrch);
     _orch?.dispose();
     super.dispose();
+  }
+
+  /// Após uma escrita do assistente que MUTA o perfil (add/remove/edita skill,
+  /// idioma, campo, bullet, experiência…), recarrega o preview (a aba Currículo
+  /// e o stepper leem do ProfileEditorViewModel in-memory) + a força honesta.
+  /// Sem isso o preview mostra dados velhos mesmo com o banco já atualizado.
+  void _scheduleProfileReload() {
+    _reloadDebounce?.cancel();
+    _reloadDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      try {
+        // ignore: unawaited_futures
+        context.read<ProfileEditorViewModel>().load();
+      } catch (_) {/* sem provider (teste): ignora */}
+      // ignore: unawaited_futures
+      _refreshHubStatus();
+    });
   }
 
   Future<TrilhaChatController> _load() async {
@@ -123,9 +147,23 @@ class _ResumeTabState extends State<ResumeTab>
                 text: m['text'] ?? '—',
                 label: m['label'] ?? field);
       },
-      assistWriteField: (field, value) => assistWriteFieldValue(uid, field, value),
-      assistItemAdder: (kind, value) => assistAddItem(uid, kind, value),
-      assistItemRemover: (kind, value) => assistRemoveItem(uid, kind, value),
+      // Os writers do assistente gravam DIRETO no banco (fora do
+      // ProfileEditorViewModel). Envolvo cada um pra, no sucesso, reagendar um
+      // reload do preview — assim a aba Currículo/stepper refletem a edição na
+      // hora (adds aparecem, removes somem). Cobre também os undos, que reusam
+      // estes mesmos callbacks.
+      assistWriteField: (field, value) async {
+        await assistWriteFieldValue(uid, field, value);
+        _scheduleProfileReload();
+      },
+      assistItemAdder: (kind, value) async {
+        await assistAddItem(uid, kind, value);
+        _scheduleProfileReload();
+      },
+      assistItemRemover: (kind, value) async {
+        await assistRemoveItem(uid, kind, value);
+        _scheduleProfileReload();
+      },
       assistItemResolver: (kind, query) => assistResolveItems(uid, kind, query),
       assistBulletReader: (bulletId) async {
         final m = await assistBulletReadMap(uid, bulletId);
@@ -136,16 +174,38 @@ class _ResumeTabState extends State<ResumeTab>
                 text: m['text'] ?? '',
                 label: m['label'] ?? 'Experiência');
       },
-      assistBulletWriter: (bulletId, text) =>
-          assistBulletWrite(uid, bulletId, text),
+      assistBulletWriter: (bulletId, text) async {
+        await assistBulletWrite(uid, bulletId, text);
+        _scheduleProfileReload();
+      },
       // Remoção reversível de experiência (captura + delete + restore pro undo).
-      assistReversibleRemover: (kind, value) =>
-          assistReversibleRemove(uid, kind, value),
+      assistReversibleRemover: (kind, value) async {
+        final restore = await assistReversibleRemove(uid, kind, value);
+        _scheduleProfileReload();
+        if (restore == null) return null;
+        return () async {
+          await restore();
+          _scheduleProfileReload();
+        };
+      },
       // Fase C (proativo): sugere a maior lacuna que resta ao concluir.
       assistProactiveLoader: () => assistTopGap(uid),
       // Editor visual de skills: skills atuais (chips) + sugestões pela área.
       assistSkillsLoader: () => loadAssistSkills(uid),
       assistSkillSuggester: () => assistSkillSuggestionsFor(uid),
+      // Editor visual de interesses (replace-all) e idiomas (nome + nível).
+      assistInterestsLoader: () => loadAssistInterests(uid),
+      assistInterestsReplacer: (names) async {
+        await assistReplaceInterests(uid, names);
+        _scheduleProfileReload();
+      },
+      assistLanguagesLoader: () => loadAssistLanguages(uid),
+      assistLanguageUpserter: (name, level) async {
+        await assistUpsertLanguage(uid, name, level);
+        _scheduleProfileReload();
+      },
+      // Edição in-place de card (✏️) grava fora dos writers → recarrega o preview.
+      onProfileEdited: _scheduleProfileReload,
       // Abertura adaptativa: se o perfil já tem seções, a trilha reconhece e vai
       // direto completar o que falta (pula o gate "começar do zero"). Vazio ⇒ gate.
       preFilledLoader: () async {

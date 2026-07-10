@@ -5,6 +5,43 @@ import 'package:flutter/foundation.dart';
 
 enum LanguageProficiency { native, fluent, advanced, intermediate, basic }
 
+/// Escala de níveis de idioma do MENOR pro MAIOR (ids canônicos do banco —
+/// iguais aos `LanguageProficiency.name`). Fonte única pro editor/seletores.
+const List<String> kLanguageLevelsAscending = [
+  'basic',
+  'intermediate',
+  'advanced',
+  'fluent',
+  'native',
+];
+
+/// Rótulo pt-BR de um nível canônico ('basic'..'native'). '' se null/desconhecido.
+String languageLevelLabel(String? canonical) {
+  switch (canonical) {
+    case 'basic':
+      return 'Básico';
+    case 'intermediate':
+      return 'Intermediário';
+    case 'advanced':
+      return 'Avançado';
+    case 'fluent':
+      return 'Fluente';
+    case 'native':
+      return 'Nativo';
+    default:
+      return '';
+  }
+}
+
+/// Parser público do id canônico ('basic'..'native') → enum. null se inválido.
+LanguageProficiency? languageProficiencyFromId(String? id) {
+  if (id == null) return null;
+  for (final p in LanguageProficiency.values) {
+    if (p.name == id) return p;
+  }
+  return null;
+}
+
 @immutable
 class Language {
   final String id;

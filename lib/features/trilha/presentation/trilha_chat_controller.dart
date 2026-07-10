@@ -151,23 +151,54 @@ class AssistExtractItem extends ChatItem {
   });
 }
 
-/// Editor VISUAL de skills (Fase C): mostra as skills atuais em chips (✕ pra
-/// tirar) + campo/sugestões pra adicionar. "Salvar" aplica o líquido (adds +
-/// removes) e deixa um Desfazer que reverte o lote. O estado de edição vive no
-/// widget; aqui ficam só o baseline (skills no momento de abrir), as sugestões,
-/// e o resultado aplicado (pro undo).
-class SkillsEditorItem extends ChatItem {
+/// Editor VISUAL de lista simples (Fase C): mostra os itens atuais em chips (✕
+/// pra tirar) + campo/sugestões pra adicionar. "Salvar" aplica o líquido (adds +
+/// removes) e deixa um Desfazer que reverte o lote. Serve SKILLS e INTERESSES
+/// (`kind`). O estado de edição vive no widget; aqui ficam o baseline (itens no
+/// momento de abrir), as sugestões, e o resultado aplicado (pro undo).
+class ListEditorItem extends ChatItem {
   final String id;
+  final String kind; // 'skill' | 'interest'
+  final String title; // "Suas habilidades" / "Seus interesses"
   final List<String> initial;
   final List<String> suggestions;
   AssistEditStatus status;
   List<String> addedApplied = const [];
   List<String> removedApplied = const [];
   final List<Future<void> Function()> undos = [];
-  SkillsEditorItem({
+  ListEditorItem({
     required this.id,
+    required this.kind,
+    required this.title,
     required this.initial,
     this.suggestions = const [],
+    this.status = AssistEditStatus.pending,
+  });
+}
+
+/// Um idioma no editor visual: nome + nível canônico ('basic'..'native' ou null).
+class LangEntry {
+  final String name;
+  final String? level;
+  const LangEntry(this.name, this.level);
+}
+
+/// Editor VISUAL de idiomas (Fase C): como o [ListEditorItem], mas cada item tem
+/// NÍVEL. O líquido tem 3 ops (adicionado c/ nível, removido, nível alterado);
+/// o baseline guarda os níveis antigos pro undo.
+class LanguagesEditorItem extends ChatItem {
+  final String id;
+  final List<LangEntry> initial;
+  final List<String> options; // idiomas canônicos que dá pra adicionar
+  AssistEditStatus status;
+  List<LangEntry> addedApplied = const [];
+  List<String> removedApplied = const [];
+  List<LangEntry> changedApplied = const [];
+  final List<Future<void> Function()> undos = [];
+  LanguagesEditorItem({
+    required this.id,
+    required this.initial,
+    this.options = const [],
     this.status = AssistEditStatus.pending,
   });
 }
@@ -219,6 +250,11 @@ class TrilhaChatController extends ChangeNotifier {
     this.assistProactiveLoader,
     this.assistSkillsLoader,
     this.assistSkillSuggester,
+    this.assistInterestsLoader,
+    this.assistInterestsReplacer,
+    this.assistLanguagesLoader,
+    this.assistLanguageUpserter,
+    this.onProfileEdited,
     this.pollInterval = const Duration(milliseconds: 1500),
     this.maxPolls = 40,
   });
@@ -302,6 +338,23 @@ class TrilhaChatController extends ChangeNotifier {
 
   /// Editor visual de skills: sugestões pra adicionar (pela área), best-effort.
   final Future<List<String>> Function()? assistSkillSuggester;
+
+  /// Editor visual de interesses: nomes atuais. null/vazio ⇒ cai na coleta.
+  final Future<List<String>> Function()? assistInterestsLoader;
+
+  /// Editor visual de interesses: grava a lista FINAL (replace-all).
+  final Future<void> Function(List<String>)? assistInterestsReplacer;
+
+  /// Editor visual de idiomas: pares (nome, nível-canônico) atuais.
+  final Future<List<(String, String?)>> Function()? assistLanguagesLoader;
+
+  /// Editor visual de idiomas: upsert de um idioma (nome, nível-canônico|null).
+  final Future<void> Function(String name, String? level)? assistLanguageUpserter;
+
+  /// Chamado após uma edição in-place de card respondido (✏️) gravar — pra o
+  /// preview da aba Currículo recarregar. As edições do assistente já recarregam
+  /// pelos próprios writers; isto cobre o lápis (que grava via saveAnswer).
+  final VoidCallback? onProfileEdited;
 
   /// Cadência do poll da extração (injetável p/ teste encurtar). ~60s = 40×1.5s.
   final Duration pollInterval;
@@ -580,6 +633,9 @@ class TrilhaChatController extends ChangeNotifier {
   Future<void> _doSubmit(StepAnswer answer) async {
     if (_editingStep != null) {
       await _applyEdit(answer);
+      // O lápis grava via saveAnswer (fora dos writers do assistente) → avisa o
+      // host pra recarregar o preview da aba Currículo.
+      onProfileEdited?.call();
       return;
     }
     final conv = _conv;
@@ -793,7 +849,13 @@ class TrilhaChatController extends ChangeNotifier {
         await _proposeExtract(turn, step);
         return;
       case 'edit_skills':
-        await _proposeSkillsEditor(turn);
+        await _proposeListEditor('skill', turn);
+        return;
+      case 'edit_interests':
+        await _proposeListEditor('interest', turn);
+        return;
+      case 'edit_languages':
+        await _proposeLanguagesEditor(turn);
         return;
       case 'skip_step':
         if (step != null && _stepIsOptional(step)) {
@@ -1393,14 +1455,18 @@ class TrilhaChatController extends ChangeNotifier {
     _notify();
   }
 
-  // ── Editor visual de skills (Fase C) ───────────────────────────────────────
+  // ── Editor visual de lista simples: skills / interesses (Fase C) ───────────
 
-  final Map<String, SkillsEditorItem> _pendingSkillEditors = {};
+  final Map<String, ListEditorItem> _pendingListEditors = {};
 
-  /// `edit_skills`: abre o editor visual com as skills atuais. Sem skills ainda
-  /// ⇒ editar não faz sentido → cai na COLETA (start_section 'skills').
-  Future<void> _proposeSkillsEditor(AssistantTurn turn) async {
-    final loader = assistSkillsLoader;
+  /// `edit_skills`/`edit_interests`: abre o editor visual com os itens atuais.
+  /// Sem itens ainda ⇒ editar não faz sentido → cai na COLETA (start_section).
+  Future<void> _proposeListEditor(String kind, AssistantTurn turn) async {
+    final isSkill = kind == 'skill';
+    final loader = isSkill ? assistSkillsLoader : assistInterestsLoader;
+    final section = isSkill ? 'skills' : 'interests';
+    final noun = isSkill ? 'skills' : 'interesses';
+    final title = isSkill ? 'Suas habilidades' : 'Seus interesses';
     List<String> current = const [];
     if (loader != null) {
       try {
@@ -1410,14 +1476,14 @@ class TrilhaChatController extends ChangeNotifier {
     if (_disposed) return;
     if (current.isEmpty) {
       final reply = turn.reply.trim();
-      final ok = await _injectSection('skills',
-          reply.isEmpty ? 'Você ainda não tem skills — bora adicionar? 👇' : reply);
-      if (!ok) _pushAi('Bora adicionar suas skills? Me conta uma que você manja.');
+      final ok = await _injectSection(section,
+          reply.isEmpty ? 'Você ainda não tem $noun — bora adicionar? 👇' : reply);
+      if (!ok) _pushAi('Bora adicionar seus $noun? Me conta um.');
       return;
     }
-    // Sugestões pra adicionar (pela área) — best-effort, tira as que já tem.
+    // Sugestões (só skills, pela área) — best-effort, tira as que já tem.
     var suggestions = const <String>[];
-    final suggester = assistSkillSuggester;
+    final suggester = isSkill ? assistSkillSuggester : null;
     if (suggester != null) {
       try {
         final lower = current.map((s) => s.toLowerCase()).toSet();
@@ -1429,67 +1495,98 @@ class TrilhaChatController extends ChangeNotifier {
     }
     if (_disposed) return;
     if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
-    final item = SkillsEditorItem(
-        id: 'edit_${_editSeq++}', initial: current, suggestions: suggestions);
-    _pendingSkillEditors[item.id] = item;
+    final item = ListEditorItem(
+        id: 'edit_${_editSeq++}',
+        kind: kind,
+        title: title,
+        initial: current,
+        suggestions: suggestions);
+    _pendingListEditors[item.id] = item;
     thread.add(item);
     // ignore: unawaited_futures
     Analytics.shared.track(evTrilhaAssistEditProposed,
-        props: {'lacuna_key': 'skills', 'op': 'edit'});
+        props: {'lacuna_key': kind, 'op': 'edit'});
     _notify();
   }
 
-  /// "Salvar" no editor: aplica o líquido (adds + removes via os callbacks de
-  /// item) e guarda o undo do LOTE. Sem mudança ⇒ fecha como cancelado.
-  Future<void> applySkillsEditor(String id,
+  /// "Salvar" no editor de lista: aplica o líquido (adds + removes) e guarda o
+  /// undo do LOTE. Skills = adder/remover por item; interesses = replace-all da
+  /// lista final (com undo pra lista original). Sem mudança ⇒ cancela.
+  Future<void> applyListEditor(String id,
       {required List<String> added, required List<String> removed}) async {
-    final item = _pendingSkillEditors[id];
+    final item = _pendingListEditors[id];
     if (item == null || item.status != AssistEditStatus.pending) return;
     if (added.isEmpty && removed.isEmpty) {
-      cancelSkillsEditor(id);
+      cancelListEditor(id);
       return;
     }
-    final adder = assistItemAdder;
-    final remover = assistItemRemover;
-    for (final s in added) {
-      if (adder == null) continue;
-      try {
-        await adder('skill', s);
-        if (remover != null) item.undos.add(() => remover('skill', s));
-      } catch (_) {/* best-effort por item */}
-    }
-    for (final s in removed) {
-      if (remover == null) continue;
-      try {
-        await remover('skill', s);
-        if (adder != null) item.undos.add(() => adder('skill', s));
-      } catch (_) {/* best-effort por item */}
+    if (item.kind == 'interest') {
+      final replacer = assistInterestsReplacer;
+      if (replacer != null) {
+        final before = List<String>.of(item.initial);
+        // `removed` são strings EXATAS do baseline (item.initial) — comparar por
+        // igualdade exata (não case-insensitive, senão apagaria variantes de
+        // caixa que o usuário não tocou, ex.: 'Music' e 'music').
+        final rm = removed.toSet();
+        final after = [
+          ...item.initial.where((s) => !rm.contains(s)),
+          ...added,
+        ];
+        try {
+          await replacer(after);
+          item.undos.add(() => replacer(before));
+        } catch (_) {
+          // Falha na gravação (all-or-nothing): NÃO marca aplicado — mantém o
+          // card pendente pra reaplicar, sem alegar sucesso falso.
+          if (_disposed) return;
+          _pushAi('Não consegui salvar seus interesses agora 🤔 Tenta de novo.');
+          _notify();
+          return;
+        }
+      }
+    } else {
+      final adder = assistItemAdder;
+      final remover = assistItemRemover;
+      for (final s in added) {
+        if (adder == null) continue;
+        try {
+          await adder(item.kind, s);
+          if (remover != null) item.undos.add(() => remover(item.kind, s));
+        } catch (_) {/* best-effort por item */}
+      }
+      for (final s in removed) {
+        if (remover == null) continue;
+        try {
+          await remover(item.kind, s);
+          if (adder != null) item.undos.add(() => adder(item.kind, s));
+        } catch (_) {/* best-effort por item */}
+      }
     }
     if (_disposed) return;
     item.addedApplied = added;
     item.removedApplied = removed;
     item.status = AssistEditStatus.applied;
-    _pendingSkillEditors.remove(id);
+    _pendingListEditors.remove(id);
     // ignore: unawaited_futures
     Analytics.shared.track(evTrilhaAssistEditApplied,
-        props: {'lacuna_key': 'skills', 'op': 'edit'});
+        props: {'lacuna_key': item.kind, 'op': 'edit'});
     _notify();
   }
 
-  void cancelSkillsEditor(String id) {
-    final item = _pendingSkillEditors.remove(id);
+  void cancelListEditor(String id) {
+    final item = _pendingListEditors.remove(id);
     if (item == null || item.status != AssistEditStatus.pending) return;
     item.status = AssistEditStatus.cancelled;
     // ignore: unawaited_futures
     Analytics.shared.track(evTrilhaAssistEditCancelled,
-        props: {'lacuna_key': 'skills', 'op': 'edit'});
+        props: {'lacuna_key': item.kind, 'op': 'edit'});
     _notify();
   }
 
-  Future<void> undoSkillsEditor(String id) async {
-    SkillsEditorItem? item;
+  Future<void> undoListEditor(String id) async {
+    ListEditorItem? item;
     for (final it in thread) {
-      if (it is SkillsEditorItem && it.id == id) {
+      if (it is ListEditorItem && it.id == id) {
         item = it;
         break;
       }
@@ -1504,7 +1601,146 @@ class TrilhaChatController extends ChangeNotifier {
     item.status = AssistEditStatus.undone;
     // ignore: unawaited_futures
     Analytics.shared.track(evTrilhaAssistEditUndone,
-        props: {'lacuna_key': 'skills', 'op': 'edit'});
+        props: {'lacuna_key': item.kind, 'op': 'edit'});
+    _notify();
+  }
+
+  // ── Editor visual de idiomas (Fase C) — cada item tem nível ────────────────
+
+  final Map<String, LanguagesEditorItem> _pendingLangEditors = {};
+
+  /// Os 7 idiomas que a trilha oferece (mesma lista canônica da coleta).
+  static const List<String> _kCanonicalLanguages = [
+    'Português',
+    'Inglês',
+    'Espanhol',
+    'Francês',
+    'Alemão',
+    'Italiano',
+    'Mandarim',
+  ];
+
+  /// `edit_languages`: abre o editor visual de idiomas (nome + nível). Sem
+  /// idiomas ainda ⇒ cai na COLETA (start_section 'languages').
+  Future<void> _proposeLanguagesEditor(AssistantTurn turn) async {
+    final loader = assistLanguagesLoader;
+    List<(String, String?)> current = const [];
+    if (loader != null) {
+      try {
+        current = await loader();
+      } catch (_) {/* best-effort */}
+    }
+    if (_disposed) return;
+    if (current.isEmpty) {
+      final reply = turn.reply.trim();
+      final ok = await _injectSection('languages',
+          reply.isEmpty ? 'Você ainda não tem idiomas — bora adicionar? 👇' : reply);
+      if (!ok) _pushAi('Bora adicionar seus idiomas?');
+      return;
+    }
+    final have = current.map((e) => e.$1.toLowerCase()).toSet();
+    final options = _kCanonicalLanguages
+        .where((l) => !have.contains(l.toLowerCase()))
+        .toList();
+    if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
+    final item = LanguagesEditorItem(
+      id: 'edit_${_editSeq++}',
+      initial: [for (final e in current) LangEntry(e.$1, e.$2)],
+      options: options,
+    );
+    _pendingLangEditors[item.id] = item;
+    thread.add(item);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditProposed,
+        props: {'lacuna_key': 'languages', 'op': 'edit'});
+    _notify();
+  }
+
+  /// "Salvar" no editor de idiomas: upsert dos adicionados/alterados, remove dos
+  /// tirados; undo inverso do lote (níveis antigos capturados do baseline).
+  Future<void> applyLanguagesEditor(String id,
+      {required List<LangEntry> added,
+      required List<String> removed,
+      required List<LangEntry> changed}) async {
+    final item = _pendingLangEditors[id];
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    if (added.isEmpty && removed.isEmpty && changed.isEmpty) {
+      cancelLanguagesEditor(id);
+      return;
+    }
+    final upsert = assistLanguageUpserter;
+    final remover = assistItemRemover;
+    String? oldLevelOf(String name) {
+      for (final e in item.initial) {
+        if (e.name.toLowerCase() == name.toLowerCase()) return e.level;
+      }
+      return null;
+    }
+
+    for (final e in added) {
+      if (upsert == null) continue;
+      try {
+        await upsert(e.name, e.level);
+        if (remover != null) item.undos.add(() => remover('language', e.name));
+      } catch (_) {/* best-effort */}
+    }
+    for (final e in changed) {
+      if (upsert == null) continue;
+      final old = oldLevelOf(e.name);
+      try {
+        await upsert(e.name, e.level);
+        item.undos.add(() => upsert(e.name, old));
+      } catch (_) {/* best-effort */}
+    }
+    for (final name in removed) {
+      if (remover == null) continue;
+      final old = oldLevelOf(name);
+      try {
+        await remover('language', name);
+        if (upsert != null) item.undos.add(() => upsert(name, old));
+      } catch (_) {/* best-effort */}
+    }
+    if (_disposed) return;
+    item.addedApplied = added;
+    item.removedApplied = removed;
+    item.changedApplied = changed;
+    item.status = AssistEditStatus.applied;
+    _pendingLangEditors.remove(id);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditApplied,
+        props: {'lacuna_key': 'languages', 'op': 'edit'});
+    _notify();
+  }
+
+  void cancelLanguagesEditor(String id) {
+    final item = _pendingLangEditors.remove(id);
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    item.status = AssistEditStatus.cancelled;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditCancelled,
+        props: {'lacuna_key': 'languages', 'op': 'edit'});
+    _notify();
+  }
+
+  Future<void> undoLanguagesEditor(String id) async {
+    LanguagesEditorItem? item;
+    for (final it in thread) {
+      if (it is LanguagesEditorItem && it.id == id) {
+        item = it;
+        break;
+      }
+    }
+    if (item == null || item.status != AssistEditStatus.applied) return;
+    for (final u in item.undos.reversed) {
+      try {
+        await u();
+      } catch (_) {/* best-effort */}
+    }
+    if (_disposed) return;
+    item.status = AssistEditStatus.undone;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditUndone,
+        props: {'lacuna_key': 'languages', 'op': 'edit'});
     _notify();
   }
 

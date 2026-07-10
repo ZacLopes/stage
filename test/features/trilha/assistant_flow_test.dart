@@ -71,6 +71,10 @@ void main() {
     Future<Map<String, String>?> Function()? proactiveLoader,
     Future<List<String>> Function()? skillsLoader,
     Future<List<String>> Function()? skillSuggester,
+    Future<List<String>> Function()? interestsLoader,
+    Future<void> Function(List<String>)? interestsReplacer,
+    Future<List<(String, String?)>> Function()? languagesLoader,
+    Future<void> Function(String, String?)? languageUpserter,
     List<ConversationStep>? plan,
   }) {
     Future<void> save(StepAnswer a) async {}
@@ -98,6 +102,10 @@ void main() {
       assistProactiveLoader: proactiveLoader,
       assistSkillsLoader: skillsLoader,
       assistSkillSuggester: skillSuggester,
+      assistInterestsLoader: interestsLoader,
+      assistInterestsReplacer: interestsReplacer,
+      assistLanguagesLoader: languagesLoader,
+      assistLanguageUpserter: languageUpserter,
       pollInterval: const Duration(milliseconds: 1),
       maxPolls: 2,
     );
@@ -713,7 +721,7 @@ void main() {
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('quero editar minhas habilidades');
-    final card = c.thread.whereType<SkillsEditorItem>().single;
+    final card = c.thread.whereType<ListEditorItem>().single;
     expect(card.initial, ['Excel', 'Python', 'Canva']);
     expect(card.suggestions, ['SQL', 'Power BI']); // tira o que já tem (Python)
     expect(card.status, AssistEditStatus.pending);
@@ -737,9 +745,9 @@ void main() {
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('quero mexer nas minhas habilidades');
-    final card = c.thread.whereType<SkillsEditorItem>().single;
+    final card = c.thread.whereType<ListEditorItem>().single;
 
-    await c.applySkillsEditor(card.id, added: ['SQL'], removed: ['Python']);
+    await c.applyListEditor(card.id, added: ['SQL'], removed: ['Python']);
     expect(adds, [
       ['skill', 'SQL']
     ]);
@@ -749,7 +757,7 @@ void main() {
     expect(card.status, AssistEditStatus.applied);
 
     // Desfazer (ordem inversa): re-adiciona Python e remove SQL.
-    await c.undoSkillsEditor(card.id);
+    await c.undoListEditor(card.id);
     expect(adds.last, ['skill', 'Python']); // desfaz a remoção
     expect(removes.last, ['skill', 'SQL']); // desfaz a adição
     expect(card.status, AssistEditStatus.undone);
@@ -772,8 +780,8 @@ void main() {
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('quero editar minhas habilidades');
-    final card = c.thread.whereType<SkillsEditorItem>().single;
-    await c.applySkillsEditor(card.id, added: const [], removed: const []);
+    final card = c.thread.whereType<ListEditorItem>().single;
+    await c.applyListEditor(card.id, added: const [], removed: const []);
     expect(adds, isEmpty);
     expect(removes, isEmpty);
     expect(card.status, AssistEditStatus.cancelled); // fechou sem aplicar
@@ -799,7 +807,141 @@ void main() {
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('quero editar minhas habilidades');
-    expect(c.thread.whereType<SkillsEditorItem>(), isEmpty);
+    expect(c.thread.whereType<ListEditorItem>(), isEmpty);
     expect(c.currentStep?.id, 'gap.skills'); // caiu na coleta
+  });
+
+  // ── Fase C: editor de interesses (replace-all) ────────────────────────────
+
+  test('edit_interests: Salvar grava a lista FINAL (replace); Desfazer reverte',
+      () async {
+    final replaced = <List<String>>[];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'edit_interests',
+        args: {},
+        reply: '',
+        promptVersion: 'assistant_v4',
+      )),
+      interestsLoader: () async => ['Xadrez', 'Corrida'],
+      interestsReplacer: (names) async => replaced.add(List.of(names)),
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('quero editar meus interesses');
+    final card = c.thread.whereType<ListEditorItem>().single;
+    expect(card.kind, 'interest');
+    expect(card.initial, ['Xadrez', 'Corrida']);
+
+    // Adiciona Leitura, tira Corrida → lista final [Xadrez, Leitura].
+    await c.applyListEditor(card.id, added: ['Leitura'], removed: ['Corrida']);
+    expect(replaced, [
+      ['Xadrez', 'Leitura']
+    ]);
+    expect(card.status, AssistEditStatus.applied);
+
+    // Desfazer → replace de volta pra lista original.
+    await c.undoListEditor(card.id);
+    expect(replaced.last, ['Xadrez', 'Corrida']);
+    expect(card.status, AssistEditStatus.undone);
+  });
+
+  test('edit_interests: tirar "Music" NÃO apaga a variante "music" (regressão)',
+      () async {
+    final replaced = <List<String>>[];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'edit_interests',
+        args: {},
+        reply: '',
+        promptVersion: 'assistant_v4',
+      )),
+      interestsLoader: () async => ['Music', 'music', 'Cinema'],
+      interestsReplacer: (names) async => replaced.add(List.of(names)),
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('quero editar meus interesses');
+    final card = c.thread.whereType<ListEditorItem>().single;
+    // Tira SÓ 'Music' (string exata) — 'music' e 'Cinema' têm que ficar.
+    await c.applyListEditor(card.id, added: const [], removed: ['Music']);
+    expect(replaced, [
+      ['music', 'Cinema']
+    ]);
+  });
+
+  // ── Fase C: editor de idiomas (nome + nível) ──────────────────────────────
+
+  test('edit_languages: abre com idiomas+nível; opções = canônicos que faltam',
+      () async {
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'edit_languages',
+        args: {},
+        reply: '',
+        promptVersion: 'assistant_v4',
+      )),
+      languagesLoader: () async => [('Português', 'native'), ('Inglês', 'basic')],
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('quero editar meus idiomas');
+    final card = c.thread.whereType<LanguagesEditorItem>().single;
+    expect(card.initial.map((e) => e.name).toList(), ['Português', 'Inglês']);
+    expect(card.initial.first.level, 'native');
+    expect(card.options.contains('Português'), isFalse); // já tem
+    expect(card.options.contains('Espanhol'), isTrue); // dá pra adicionar
+  });
+
+  test('edit_languages: adiciona + muda nível + remove; Desfazer reverte o lote',
+      () async {
+    final upserts = <List<String?>>[];
+    final removes = <List<String>>[];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'edit_languages',
+        args: {},
+        reply: '',
+        promptVersion: 'assistant_v4',
+      )),
+      itemRemover: (kind, value) async => removes.add([kind, value]),
+      languagesLoader: () async => [('Português', 'native'), ('Inglês', 'basic')],
+      languageUpserter: (name, level) async => upserts.add([name, level]),
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('quero editar meus idiomas');
+    final card = c.thread.whereType<LanguagesEditorItem>().single;
+
+    await c.applyLanguagesEditor(
+      card.id,
+      added: [const LangEntry('Espanhol', 'advanced')],
+      changed: [const LangEntry('Inglês', 'fluent')],
+      removed: ['Português'],
+    );
+    expect(upserts, [
+      ['Espanhol', 'advanced'], // adicionado
+      ['Inglês', 'fluent'], // nível alterado
+    ]);
+    expect(removes, [
+      ['language', 'Português']
+    ]);
+    expect(card.status, AssistEditStatus.applied);
+
+    // Desfazer (ordem inversa): re-upsert Português(native) + Inglês(basic),
+    // e remove Espanhol.
+    await c.undoLanguagesEditor(card.id);
+    expect(
+        upserts,
+        containsAll([
+          ['Português', 'native'],
+          ['Inglês', 'basic'],
+        ]));
+    expect(
+        removes,
+        containsAll([
+          ['language', 'Espanhol'],
+        ]));
+    expect(card.status, AssistEditStatus.undone);
   });
 }

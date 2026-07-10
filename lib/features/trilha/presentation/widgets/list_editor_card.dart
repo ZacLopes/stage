@@ -1,16 +1,17 @@
-// Editor VISUAL de skills no fio da conversa (assistente, Fase C): mostra as
-// skills atuais em chips com ✕ pra tirar, um campo + sugestões pra adicionar, e
-// um "Salvar" que aplica o líquido (adds + removes) deixando um Desfazer. O
-// estado de edição é local; ao salvar, o controller aplica e o item vira
-// `applied` (resumo + Desfazer). Tudo no design system.
+// Editor VISUAL de lista simples no fio da conversa (assistente, Fase C): serve
+// SKILLS e INTERESSES (o `kind`/`title` vêm do ListEditorItem). Mostra os itens
+// atuais em chips com ✕ pra tirar, um campo + sugestões pra adicionar, e um
+// "Salvar" que aplica o líquido (adds + removes) deixando um Desfazer. O estado
+// de edição é local; ao salvar, o controller aplica e o item vira `applied`
+// (resumo + Desfazer). Idiomas têm nível → editor próprio (languages_editor_card).
 
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/theme.dart';
-import '../trilha_chat_controller.dart' show SkillsEditorItem, AssistEditStatus;
+import '../trilha_chat_controller.dart' show ListEditorItem, AssistEditStatus;
 
-class SkillsEditorCard extends StatefulWidget {
-  const SkillsEditorCard({
+class ListEditorCard extends StatefulWidget {
+  const ListEditorCard({
     super.key,
     required this.item,
     required this.onApply,
@@ -18,7 +19,7 @@ class SkillsEditorCard extends StatefulWidget {
     required this.onUndo,
   });
 
-  final SkillsEditorItem item;
+  final ListEditorItem item;
 
   /// Aplica o líquido: (novas, removidas). O controller grava e marca applied.
   final Future<void> Function(List<String> added, List<String> removed) onApply;
@@ -26,10 +27,10 @@ class SkillsEditorCard extends StatefulWidget {
   final VoidCallback onUndo;
 
   @override
-  State<SkillsEditorCard> createState() => _SkillsEditorCardState();
+  State<ListEditorCard> createState() => _ListEditorCardState();
 }
 
-class _SkillsEditorCardState extends State<SkillsEditorCard> {
+class _ListEditorCardState extends State<ListEditorCard> {
   final Set<String> _removed = {}; // skills iniciais marcadas pra tirar
   final List<String> _added = []; // novas
   final TextEditingController _addCtrl = TextEditingController();
@@ -38,6 +39,10 @@ class _SkillsEditorCardState extends State<SkillsEditorCard> {
   static const _margin = EdgeInsets.only(left: 34 + AppSpacing.sm);
 
   bool get _hasChanges => _removed.isNotEmpty || _added.isNotEmpty;
+
+  String get _noun => widget.item.kind == 'skill' ? 'skills' : 'interesses';
+  String get _singular =>
+      widget.item.kind == 'skill' ? 'habilidade' : 'interesse';
 
   @override
   void dispose() {
@@ -80,9 +85,9 @@ class _SkillsEditorCardState extends State<SkillsEditorCard> {
   Widget build(BuildContext context) {
     switch (widget.item.status) {
       case AssistEditStatus.cancelled:
-        return _muted('Beleza, não mexi nas suas skills.');
+        return _muted('Beleza, não mexi nos seus $_noun.');
       case AssistEditStatus.undone:
-        return _muted('Desfeito — suas skills voltaram como estavam.');
+        return _muted('Desfeito — seus $_noun voltaram como estavam.');
       case AssistEditStatus.applied:
         return _appliedCard();
       case AssistEditStatus.pending:
@@ -122,7 +127,10 @@ class _SkillsEditorCardState extends State<SkillsEditorCard> {
             const Icon(Icons.check_circle_rounded,
                 size: 15, color: AppColors.success),
             const SizedBox(width: 6),
-            Text('Skills atualizadas',
+            Text(
+                widget.item.kind == 'skill'
+                    ? 'Skills atualizadas'
+                    : 'Interesses atualizados',
                 style: AppTextStyles.overline.copyWith(color: AppColors.success)),
           ]),
           if (added.isNotEmpty) ...[
@@ -198,7 +206,7 @@ class _SkillsEditorCardState extends State<SkillsEditorCard> {
           Row(children: [
             const Icon(Icons.tune_rounded, size: 15, color: AppColors.primary),
             const SizedBox(width: 6),
-            Text('Suas habilidades',
+            Text(widget.item.title,
                 style: AppTextStyles.overline.copyWith(color: AppColors.primary)),
           ]),
           const SizedBox(height: AppSpacing.xs),
@@ -352,7 +360,7 @@ class _SkillsEditorCardState extends State<SkillsEditorCard> {
               onSubmitted: _addSkill,
               style: AppTextStyles.bodyMd.copyWith(color: AppColors.textPrimary),
               decoration: InputDecoration(
-                hintText: 'Adicionar habilidade…',
+                hintText: 'Adicionar $_singular…',
                 hintStyle: AppTextStyles.bodyMd
                     .copyWith(color: AppColors.textTertiary),
                 isDense: true,

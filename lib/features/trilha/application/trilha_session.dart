@@ -13,6 +13,8 @@ import '../../profile/application/profile_gaps.dart';
 import '../../profile/data/repositories/profile_repository_supabase.dart';
 import '../../profile/domain/entities/job_preferences.dart' show JobPreferences;
 import '../../profile/domain/entities/personal_info.dart' show PersonalInfo;
+import '../../profile/domain/entities/simple_lists.dart'
+    show Language, languageProficiencyFromId;
 import '../../profile/domain/repositories/profile_repository.dart';
 import '../domain/conversation_step.dart'
     show PickSuggestion, StepAnswer, StepOption, ConversationStep;
@@ -290,6 +292,9 @@ Future<Map<String, dynamic>> buildAssistContext(
           }
       ],
       'languages': [for (final l in snapshot.languages) l.name],
+      // Nomes dos interesses atuais — pro assistente escolher edit_interests
+      // (ver/editar) vs start_section (coletar do zero).
+      'interests': [for (final i in snapshot.interests.take(30)) i.name],
       'has_summary': (snapshot.personal?.summary?.trim().isNotEmpty ?? false),
       // Resumo atual (texto do próprio usuário) — pra rewrite_summary reescrever
       // sem inventar. Cortado pra não estourar tokens.
@@ -328,6 +333,84 @@ Future<List<String>> assistSkillSuggestionsFor(
   } catch (_) {
     return const [];
   }
+}
+
+/// Editor visual de IDIOMAS — pares (nome, nível-canônico) atuais. O nível é o
+/// id do banco ('basic'..'native') ou null. Failure-safe: vazio ⇒ cai na coleta.
+Future<List<(String, String?)>> loadAssistLanguages(
+  String userId, {
+  ProfileSnapshotService? snapshotService,
+}) async {
+  try {
+    final snap =
+        await (snapshotService ?? ProfileSnapshotService()).loadSnapshot(userId);
+    return [for (final l in snap.languages) (l.name, l.proficiency?.name)];
+  } catch (_) {
+    return const [];
+  }
+}
+
+/// Editor visual de IDIOMAS — upsert de um idioma pelo nome (case-insensitive):
+/// existe ⇒ atualiza o nível; não existe ⇒ insere com o nível. `level` é o id
+/// canônico ('basic'..'native') ou null.
+Future<void> assistUpsertLanguage(
+  String userId,
+  String name,
+  String? level, {
+  ProfileRepository? repository,
+}) async {
+  final repo = repository ?? ProfileRepositorySupabase();
+  final n = name.trim();
+  if (n.isEmpty) return;
+  final prof = languageProficiencyFromId(level);
+  final langs = await repo.getLanguages(userId);
+  for (final l in langs) {
+    if (l.name.trim().toLowerCase() == n.toLowerCase()) {
+      // NÃO usar copyWith: `proficiency ?? this.proficiency` não consegue LIMPAR
+      // o nível (setar null) — o undo de "definir nível" precisa disso.
+      await repo.updateLanguage(Language(
+          id: l.id,
+          userId: l.userId,
+          name: l.name,
+          proficiency: prof,
+          orderIndex: l.orderIndex));
+      return;
+    }
+  }
+  await repo.addLanguage(Language(id: '', userId: userId, name: n, proficiency: prof));
+}
+
+/// Editor visual de INTERESSES — nomes atuais. Failure-safe.
+Future<List<String>> loadAssistInterests(
+  String userId, {
+  ProfileSnapshotService? snapshotService,
+}) async {
+  try {
+    final snap =
+        await (snapshotService ?? ProfileSnapshotService()).loadSnapshot(userId);
+    return [for (final i in snap.interests) i.name];
+  } catch (_) {
+    return const [];
+  }
+}
+
+/// Editor visual de INTERESSES — grava a lista FINAL (replace-all, como o
+/// write-back da coleta). O editor computa o conjunto final e chama isto 1x.
+Future<void> assistReplaceInterests(
+  String userId,
+  List<String> names, {
+  ProfileRepository? repository,
+}) async {
+  final repo = repository ?? ProfileRepositorySupabase();
+  final clean = <String>[];
+  final seen = <String>{};
+  for (final raw in names) {
+    final n = raw.trim();
+    if (n.isEmpty) continue;
+    final lc = n.toLowerCase();
+    if (seen.add(lc)) clean.add(n);
+  }
+  await repo.replaceInterests(userId, clean);
 }
 
 /// Fase B — LEITOR: valor atual de um campo editável pelo assistente

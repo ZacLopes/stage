@@ -14,7 +14,8 @@ import '../application/trilha_hub_status.dart';
 import '../application/trilha_section.dart';
 import 'trilha_chat_controller.dart';
 import 'widgets/chat_bubbles.dart';
-import 'widgets/skills_editor_card.dart';
+import 'widgets/languages_editor_card.dart';
+import 'widgets/list_editor_card.dart';
 import 'widgets/inline/inline_step_input.dart';
 import 'widgets/inline/trilha_answer_card.dart';
 
@@ -188,16 +189,28 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: _assistExtractCard(item),
         ));
-      } else if (item is SkillsEditorItem) {
+      } else if (item is ListEditorItem) {
         children.add(Padding(
-          key: ValueKey('skills-editor-${item.id}'),
+          key: ValueKey('list-editor-${item.id}'),
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
-          child: SkillsEditorCard(
+          child: ListEditorCard(
             item: item,
             onApply: (added, removed) =>
-                _c.applySkillsEditor(item.id, added: added, removed: removed),
-            onCancel: () => _c.cancelSkillsEditor(item.id),
-            onUndo: () => _c.undoSkillsEditor(item.id),
+                _c.applyListEditor(item.id, added: added, removed: removed),
+            onCancel: () => _c.cancelListEditor(item.id),
+            onUndo: () => _c.undoListEditor(item.id),
+          ),
+        ));
+      } else if (item is LanguagesEditorItem) {
+        children.add(Padding(
+          key: ValueKey('lang-editor-${item.id}'),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: LanguagesEditorCard(
+            item: item,
+            onApply: (added, removed, changed) => _c.applyLanguagesEditor(
+                item.id, added: added, removed: removed, changed: changed),
+            onCancel: () => _c.cancelLanguagesEditor(item.id),
+            onUndo: () => _c.undoLanguagesEditor(item.id),
           ),
         ));
       } else if (item is AnsweredItem) {
