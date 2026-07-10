@@ -108,7 +108,10 @@ class AssistEditItem extends ChatItem {
   final String beforeText; // "—" ou o texto anterior (update)
   final String afterText; // exibição do novo valor / do item
   final String value; // valor cru a aplicar / item a add/remove
-  final String refId; // id da linha (op=bullet: o bullet_id)
+  final String refId; // id da linha (op=bullet: bullet_id; item-field: id do item)
+  /// Editar um CAMPO de item multi-campo (experiência/formação/cert): o kind da
+  /// seção. Vazio ⇒ é um campo global (update normal). Usa op=update + refId=id.
+  final String itemKind;
   /// Undo CAPTURADO na aplicação (ex.: remover experiência guarda o restore que
   /// re-insere o registro). Quando presente, tem prioridade sobre o undo por op.
   Future<void> Function()? capturedUndo;
@@ -123,6 +126,7 @@ class AssistEditItem extends ChatItem {
     required this.afterText,
     required this.value,
     this.refId = '',
+    this.itemKind = '',
     this.status = AssistEditStatus.pending,
   });
 }
@@ -254,6 +258,8 @@ class TrilhaChatController extends ChangeNotifier {
     this.assistInterestsReplacer,
     this.assistLanguagesLoader,
     this.assistLanguageUpserter,
+    this.assistItemFieldReader,
+    this.assistItemFieldWriter,
     this.onProfileEdited,
     this.pollInterval = const Duration(milliseconds: 1500),
     this.maxPolls = 40,
@@ -350,6 +356,16 @@ class TrilhaChatController extends ChangeNotifier {
 
   /// Editor visual de idiomas: upsert de um idioma (nome, nível-canônico|null).
   final Future<void> Function(String name, String? level)? assistLanguageUpserter;
+
+  /// Editar CAMPO de item multi-campo: lê o valor atual de um campo (resolve o
+  /// item pela query). Retorna {id, raw, text, label}; null ⇒ não achou/campo
+  /// inválido pro kind.
+  final Future<Map<String, String>?> Function(
+      String kind, String query, String field)? assistItemFieldReader;
+
+  /// Editar CAMPO de item multi-campo: grava o campo do item (por id, estável).
+  final Future<void> Function(
+      String kind, String id, String field, String value)? assistItemFieldWriter;
 
   /// Chamado após uma edição in-place de card respondido (✏️) gravar — pra o
   /// preview da aba Currículo recarregar. As edições do assistente já recarregam
@@ -853,6 +869,9 @@ class TrilhaChatController extends ChangeNotifier {
       case 'update_field':
         await _proposeUpdateField(turn, step);
         return;
+      case 'update_item':
+        await _proposeUpdateItem(turn, step);
+        return;
       case 'add_item':
         await _proposeAddItem(turn, step);
         return;
@@ -1050,6 +1069,90 @@ class TrilhaChatController extends ChangeNotifier {
     // ignore: unawaited_futures
     Analytics.shared.track(evTrilhaAssistEditProposed,
         props: {'lacuna_key': field, 'op': 'update'});
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
+  /// `update_item`: muda UM campo de um item multi-campo (experiência/formação/
+  /// cert). Resolve QUAL item (desambigua 2+), lê o campo (id estável) e propõe
+  /// o card update; confirmar/desfazer gravam por id via assistItemFieldWriter.
+  Future<void> _proposeUpdateItem(
+      AssistantTurn turn, ConversationStep? step) async {
+    final kind = turn.args['kind']?.toString() ?? '';
+    final query = turn.args['item']?.toString().trim() ?? '';
+    final field = turn.args['field']?.toString() ?? '';
+    final value = turn.args['value']?.toString().trim() ?? '';
+    final reader = assistItemFieldReader;
+    final resolver = assistItemResolver;
+    if (kind.isEmpty ||
+        query.isEmpty ||
+        field.isEmpty ||
+        value.isEmpty ||
+        reader == null ||
+        assistItemFieldWriter == null ||
+        resolver == null) {
+      _replyAndKeepStep(
+          turn.reply.trim().isEmpty ? 'Não peguei o que mudar 🤔' : turn.reply.trim(),
+          step);
+      return;
+    }
+    // Semestre precisa ser NÚMERO — senão o card diria "feito" sem gravar nada.
+    if (kind == 'education' && field == 'semester') {
+      final n = int.tryParse(value.replaceAll(RegExp(r'[^0-9]'), ''));
+      if (n == null || n < 1 || n > 14) {
+        _replyAndKeepStep('Me diz o número do semestre (ex.: 5) 🙂', step);
+        return;
+      }
+    }
+    // Resolve QUAL item (0 ⇒ não achou; 2+ ⇒ desambigua; 1 ⇒ segue).
+    List<String> matches;
+    try {
+      matches = await resolver(kind, query);
+    } catch (_) {
+      matches = const [];
+    }
+    if (_disposed) return;
+    if (matches.isEmpty) {
+      _replyAndKeepStep('Não achei "$query" em ${_kindLabel(kind)} 🤔', step);
+      return;
+    }
+    if (matches.length > 1) {
+      _replyAndKeepStep(
+          'Qual você quer mudar: ${matches.join(", ")}?', step);
+      if (step != null) inputVisible = true;
+      _notify();
+      return;
+    }
+    // Lê o campo atual (id estável pro write/undo).
+    Map<String, String>? cur;
+    try {
+      cur = await reader(kind, matches.first, field);
+    } catch (_) {
+      cur = null;
+    }
+    if (_disposed) return;
+    if (cur == null || (cur['id'] ?? '').isEmpty) {
+      _replyAndKeepStep('Esse campo eu ainda não consigo mudar aí 🙂', step);
+      return;
+    }
+    if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
+    final id = 'edit_${_editSeq++}';
+    final item = AssistEditItem(
+      id: id,
+      field: field,
+      itemKind: kind,
+      refId: cur['id']!,
+      fieldLabel: cur['label'] ?? field,
+      beforeRaw: cur['raw'] ?? '',
+      beforeText: cur['text'] ?? '—',
+      afterText: value,
+      value: value,
+    );
+    _pendingEdits[id] = item;
+    thread.add(item);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditProposed,
+        props: {'lacuna_key': kind, 'op': 'update'});
     if (step != null) inputVisible = true;
     _notify();
   }
@@ -1384,6 +1487,15 @@ class TrilhaChatController extends ChangeNotifier {
     try {
       switch (op) {
         case AssistEditOp.update:
+          // Campo de item multi-campo (itemKind setado) → grava por id; senão,
+          // campo global (cargo/resumo/nome…).
+          if (item.itemKind.isNotEmpty) {
+            final iw = assistItemFieldWriter;
+            if (iw == null) return false;
+            await iw(item.itemKind, item.refId, item.field,
+                undo ? item.beforeRaw : item.value);
+            break;
+          }
           final w = assistWriteField;
           if (w == null) return false;
           await w(item.field, undo ? item.beforeRaw : item.value);

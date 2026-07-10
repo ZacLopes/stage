@@ -21,7 +21,7 @@ import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
 import { trackAIGeneration, withEdgeAnalytics } from '../_shared/posthog.ts'
 
-const PROMPT_VERSION = 'assistant_v7'
+const PROMPT_VERSION = 'assistant_v8'
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -164,6 +164,28 @@ function toolsFor(openStep: OpenStep | null) {
                     ...REPLY_PARAM,
                 },
                 required: ['field', 'value', 'reply'],
+            },
+        },
+    })
+    tools.push({
+        type: 'function',
+        function: {
+            name: 'update_item',
+            description:
+                'Use quando o usuário quer MUDAR UM CAMPO de um item que JÁ existe: uma EXPERIÊNCIA (cargo/empresa), uma FORMAÇÃO (curso/instituição/semestre) ou uma CERTIFICAÇÃO (nome/emissor). ' +
+                'Ex.: "muda o cargo da minha experiência na Ambev pra Analista", "a empresa era Ambev agora é Heineken", "corrige o semestre da faculdade pra 6", "minha certificação era TOEIC não TOEFL". ' +
+                'Passe: kind (a seção), item (o que o usuário disse pra ACHAR o item — empresa/cargo/curso/instituição/nome), field (qual campo) e value (o novo valor). O app confirma antes de gravar (e dá desfazer). Os itens que a pessoa tem estão no bloco DADOS. ' +
+                'Campos válidos por kind: experience→title|company; education→degree|institution|semester; certification→name|issuer.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    kind: { type: 'string', enum: ['experience', 'education', 'certification'], description: 'A seção do item.' },
+                    item: { type: 'string', description: 'O que o usuário disse pra achar o item (empresa/cargo/curso/nome).' },
+                    field: { type: 'string', enum: ['title', 'company', 'degree', 'institution', 'semester', 'name', 'issuer'], description: 'O campo a mudar (compatível com o kind).' },
+                    value: { type: 'string', description: 'O novo valor.' },
+                    ...REPLY_PARAM,
+                },
+                required: ['kind', 'item', 'field', 'value', 'reply'],
             },
         },
     })
@@ -350,7 +372,7 @@ function systemPrompt(hasStep: boolean): string {
         'Seu ESCOPO é fechado: currículo, carreira, vagas/estágio e como o app funciona. Qualquer coisa fora disso → chame out_of_scope.',
         'A cada mensagem você DEVE chamar EXATAMENTE UMA ferramenta. Toda ferramenta tem o campo reply (sua fala pro usuário).',
         'Você é PLANNER, não escreve nada no perfil. Para o usuário PREENCHER/ADICIONAR algo, chame start_section (o app entrega as perguntas certas). NUNCA invente dados que o usuário não disse.',
-        'Pra ALTERAR o perfil você PROPÕE — o app confirma antes de gravar. Mudar o CARGO/posição desejada → update_field. ADICIONAR uma skill/idioma → add_item; REMOVER uma skill/idioma → remove_item. REESCREVER o resumo → rewrite_summary. MELHORAR um bullet de experiência → improve_bullet (escolha pelo bullet_id do inventário). Mudar cidade/disponibilidade/área/modalidade, ou adicionar experiência/projeto/certificação → start_section (o app mostra as opções certas e canoniza).',
+        'Pra ALTERAR o perfil você PROPÕE — o app confirma antes de gravar. Campos de texto pessoais (cargo, nome, linkedin, site, telefone) → update_field. ADICIONAR skill/idioma/interesse → add_item; REMOVER algo (skill/idioma/interesse/experiência/formação/cert/prêmio/projeto) → remove_item. Mudar UM CAMPO de uma experiência/formação/certificação que JÁ existe (cargo, empresa, curso, instituição, semestre, emissor) → update_item. REESCREVER o resumo → rewrite_summary. MELHORAR um bullet de experiência → improve_bullet. Mudar cidade/disponibilidade/área/modalidade, ou ADICIONAR experiência/projeto/certificação do zero → start_section.',
         hasStep
             ? 'HÁ UM PASSO ABERTO. Se a mensagem é plausivelmente a resposta a ele, chame answer_current_step. Na dúvida entre responder o passo e conversar, PREFIRA responder o passo. Se ele não entendeu a pergunta, explain_step; se quer pular (e é opcional), skip_step.'
             : 'Não há passo aberto no momento.',

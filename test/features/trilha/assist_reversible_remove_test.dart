@@ -3,10 +3,28 @@
 // match bidirecional (value.contains(name)) fazia "Java" ser removido quando o
 // usuário pediu "Java SE 8".
 
+import 'package:career_gamification/features/profile/domain/entities/education.dart';
 import 'package:career_gamification/features/profile/domain/entities/simple_lists.dart';
 import 'package:career_gamification/features/profile/domain/repositories/profile_repository.dart';
 import 'package:career_gamification/features/trilha/application/trilha_session.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+class _EduRepo implements ProfileRepository {
+  final List<Education> edu;
+  Education? updated;
+  _EduRepo(this.edu);
+
+  @override
+  Future<List<Education>> getEducation(String userId) async => edu;
+  @override
+  Future<Education> updateEducation(Education e) async {
+    updated = e;
+    return e;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
+}
 
 class _CertRepo implements ProfileRepository {
   final List<Certification> certs;
@@ -45,5 +63,18 @@ void main() {
         await assistReversibleRemove('u', 'certification', 'Kotlin', repository: repo);
     expect(restore, isNull);
     expect(repo.deleted, isEmpty);
+  });
+
+  test('assistWriteItemField education institution: limpa o institution_id stale',
+      () async {
+    final repo = _EduRepo([
+      const Education(
+          id: 'e1', userId: 'u', institution: 'UFPE', institutionId: 'ies-ufpe'),
+    ]);
+    await assistWriteItemField('u', 'education', 'e1', 'institution', 'USP',
+        repository: repo);
+    expect(repo.updated?.institution, 'USP');
+    // Trocar o nome quebra o vínculo canônico antigo (senão fica sob a IES errada).
+    expect(repo.updated?.institutionId, isNull);
   });
 }

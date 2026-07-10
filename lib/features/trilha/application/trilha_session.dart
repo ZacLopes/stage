@@ -526,6 +526,120 @@ Future<void> assistWriteFieldValue(
   }
 }
 
+/// Médios — LÊ um campo de item multi-campo (experiência/formação/cert),
+/// resolvendo QUAL item pela query. Retorna {id, raw, text, label}; null ⇒ item
+/// ou campo não encontrado. O `id` é estável (pro write/undo por id).
+Future<Map<String, String>?> assistReadItemField(
+  String userId,
+  String kind,
+  String query,
+  String field, {
+  ProfileRepository? repository,
+}) async {
+  final repo = repository ?? ProfileRepositorySupabase();
+  Map<String, String> m(String id, String raw, String label) =>
+      {'id': id, 'raw': raw, 'text': raw.trim().isEmpty ? '—' : raw, 'label': label};
+  switch (kind) {
+    case 'experience':
+      final list = await repo.getExperiences(userId);
+      final e = _pickByName(list, (x) => _expLabelOf(x.title, x.company), query) ??
+          _pickByName(list, (x) => x.company, query) ??
+          _pickByName(list, (x) => x.title, query);
+      if (e == null) return null;
+      switch (field) {
+        case 'title':
+          return m(e.id, e.title, 'Cargo · ${e.company}');
+        case 'company':
+          return m(e.id, e.company, 'Empresa · ${e.title}');
+      }
+      return null;
+    case 'education':
+      final list = await repo.getEducation(userId);
+      final ed = _pickByName(list, eduLabel, query) ??
+          _pickByName(list, (x) => x.institution, query);
+      if (ed == null) return null;
+      final tag = eduLabel(ed);
+      switch (field) {
+        case 'degree':
+          return m(ed.id, ed.degree ?? '', 'Curso · $tag');
+        case 'institution':
+          return m(ed.id, ed.institution, 'Instituição');
+        case 'semester':
+          return m(ed.id, ed.currentSemester?.toString() ?? '', 'Semestre · $tag');
+      }
+      return null;
+    case 'certification':
+      final list = await repo.getCertifications(userId);
+      final c = _pickByName(list, (x) => x.name, query);
+      if (c == null) return null;
+      switch (field) {
+        case 'name':
+          return m(c.id, c.name, 'Certificação');
+        case 'issuer':
+          return m(c.id, c.issuer ?? '', 'Emissor · ${c.name}');
+      }
+      return null;
+  }
+  return null;
+}
+
+/// Médios — GRAVA um campo de um item multi-campo (por id estável, via updateX).
+Future<void> assistWriteItemField(
+  String userId,
+  String kind,
+  String id,
+  String field,
+  String value, {
+  ProfileRepository? repository,
+}) async {
+  final repo = repository ?? ProfileRepositorySupabase();
+  final v = value.trim();
+  switch (kind) {
+    case 'experience':
+      final e = _firstById(await repo.getExperiences(userId), (x) => x.id, id);
+      if (e == null) return;
+      if (field == 'title') await repo.updateExperience(e.copyWith(title: v));
+      if (field == 'company') await repo.updateExperience(e.copyWith(company: v));
+      return;
+    case 'education':
+      final ed = _firstById(await repo.getEducation(userId), (x) => x.id, id);
+      if (ed == null) return;
+      if (field == 'degree') await repo.updateEducation(ed.copyWith(degree: v));
+      if (field == 'institution') {
+        // Trocar o NOME da instituição invalida o vínculo canônico antigo
+        // (institution_id) — senão o candidato fica classificado sob a IES
+        // errada na busca das empresas.
+        await repo.updateEducation(
+            ed.copyWith(institution: v, clearInstitutionId: true));
+      }
+      if (field == 'semester') {
+        if (v.isEmpty) {
+          // undo pra vazio → LIMPA o semestre (senão o valor novo ficaria).
+          await repo.updateEducation(ed.copyWith(clearCurrentSemester: true));
+        } else {
+          final n = int.tryParse(v.replaceAll(RegExp(r'[^0-9]'), ''));
+          if (n != null) {
+            await repo.updateEducation(ed.copyWith(currentSemester: n));
+          }
+        }
+      }
+      return;
+    case 'certification':
+      final c = _firstById(await repo.getCertifications(userId), (x) => x.id, id);
+      if (c == null) return;
+      if (field == 'name') await repo.updateCertification(c.copyWith(name: v));
+      if (field == 'issuer') await repo.updateCertification(c.copyWith(issuer: v));
+      return;
+  }
+}
+
+T? _firstById<T>(List<T> items, String Function(T) idOf, String id) {
+  for (final it in items) {
+    if (idOf(it) == id) return it;
+  }
+  return null;
+}
+
 /// Fase B — ADICIONA um item de lista (skill/idioma) reusando o write-back
 /// (merge/dedup — idempotente).
 Future<void> assistAddItem(
@@ -604,7 +718,11 @@ Future<List<String>> assistResolveItems(
   if (kind == 'experience') {
     final out = <String>[];
     for (final e in await repo.getExperiences(userId)) {
-      if ('${e.title} ${e.company}'.toLowerCase().contains(q)) {
+      final flat = '${e.title} ${e.company}'.toLowerCase();
+      // Casa também o rótulo "Cargo · Empresa" (o que a desambiguação mostra),
+      // pra a pessoa poder re-digitar a opção oferecida.
+      final lbl = _expLabelOf(e.title, e.company).toLowerCase();
+      if (flat.contains(q) || lbl.contains(q)) {
         out.add(_expLabelOf(e.title, e.company));
       }
     }

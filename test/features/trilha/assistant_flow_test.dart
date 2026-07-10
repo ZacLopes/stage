@@ -75,6 +75,9 @@ void main() {
     Future<void> Function(List<String>)? interestsReplacer,
     Future<List<(String, String?)>> Function()? languagesLoader,
     Future<void> Function(String, String?)? languageUpserter,
+    Future<Map<String, String>?> Function(String, String, String)?
+        itemFieldReader,
+    Future<void> Function(String, String, String, String)? itemFieldWriter,
     List<ConversationStep>? plan,
   }) {
     Future<void> save(StepAnswer a) async {}
@@ -106,6 +109,8 @@ void main() {
       assistInterestsReplacer: interestsReplacer,
       assistLanguagesLoader: languagesLoader,
       assistLanguageUpserter: languageUpserter,
+      assistItemFieldReader: itemFieldReader,
+      assistItemFieldWriter: itemFieldWriter,
       pollInterval: const Duration(milliseconds: 1),
       maxPolls: 2,
     );
@@ -1139,5 +1144,110 @@ void main() {
     ]);
     await c.undoAssistEdit(pending.id);
     expect(writes.last, ['name', 'João']); // regrava o anterior
+  });
+
+  // ── Médios pt2: editar UM campo de item multi-campo ────────────────────────
+
+  test('update_item: muda a empresa da experiência → confirma (por id) → desfaz',
+      () async {
+    final writes = <List<String>>[];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'update_item',
+        args: {
+          'kind': 'experience',
+          'item': 'Ambev',
+          'field': 'company',
+          'value': 'Heineken'
+        },
+        reply: '',
+        promptVersion: 'assistant_v8',
+      )),
+      itemResolver: (kind, query) async =>
+          kind == 'experience' ? ['Estagiário · Ambev'] : const [],
+      itemFieldReader: (kind, query, field) async =>
+          (kind == 'experience' && field == 'company')
+              ? {
+                  'id': 'exp1',
+                  'raw': 'Ambev',
+                  'text': 'Ambev',
+                  'label': 'Empresa · Estagiário'
+                }
+              : null,
+      itemFieldWriter: (kind, id, field, value) async =>
+          writes.add([kind, id, field, value]),
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('muda a empresa da minha experiência pra Heineken');
+    final pending = c.thread
+        .whereType<AssistEditItem>()
+        .singleWhere((e) => e.status == AssistEditStatus.pending);
+    expect(pending.op, AssistEditOp.update);
+    expect(pending.beforeText, 'Ambev');
+    expect(pending.afterText, 'Heineken');
+    await c.confirmAssistEdit(pending.id);
+    expect(writes, [
+      ['experience', 'exp1', 'company', 'Heineken']
+    ]);
+    // Undo grava por ID (estável) o valor anterior — não depende do nome.
+    await c.undoAssistEdit(pending.id);
+    expect(writes.last, ['experience', 'exp1', 'company', 'Ambev']);
+  });
+
+  test('update_item: item não encontrado → "Não achei", sem card', () async {
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'update_item',
+        args: {
+          'kind': 'experience',
+          'item': 'Nubank',
+          'field': 'company',
+          'value': 'X'
+        },
+        reply: '',
+        promptVersion: 'assistant_v8',
+      )),
+      itemResolver: (kind, query) async => const [],
+      itemFieldReader: (kind, query, field) async => null,
+      itemFieldWriter: (kind, id, field, value) async {},
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('muda a empresa da minha experiência na Nubank pra X');
+    expect(c.thread.whereType<AssistEditItem>(), isEmpty);
+    expect(
+        c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Não achei')),
+        isTrue);
+  });
+
+  test('update_item semester não-numérico → pede o número, sem card (regressão)',
+      () async {
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'update_item',
+        args: {
+          'kind': 'education',
+          'item': 'ADM',
+          'field': 'semester',
+          'value': 'sétimo'
+        },
+        reply: '',
+        promptVersion: 'assistant_v8',
+      )),
+      itemResolver: (kind, query) async => ['ADM · USP'],
+      itemFieldReader: (kind, query, field) async =>
+          {'id': 'e1', 'raw': '5', 'text': '5', 'label': 'Semestre'},
+      itemFieldWriter: (kind, id, field, value) async {},
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('corrige o semestre da minha faculdade pra sétimo');
+    expect(c.thread.whereType<AssistEditItem>(), isEmpty); // sem card falso
+    expect(
+        c.thread
+            .whereType<AiMsgItem>()
+            .any((m) => m.text.contains('número do semestre')),
+        isTrue);
   });
 }

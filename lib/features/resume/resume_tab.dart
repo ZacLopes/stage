@@ -204,6 +204,13 @@ class _ResumeTabState extends State<ResumeTab>
         await assistUpsertLanguage(uid, name, level);
         _scheduleProfileReload();
       },
+      // Editar UM campo de item multi-campo (experiência/formação/cert).
+      assistItemFieldReader: (kind, query, field) =>
+          assistReadItemField(uid, kind, query, field),
+      assistItemFieldWriter: (kind, id, field, value) async {
+        await assistWriteItemField(uid, kind, id, field, value);
+        _scheduleProfileReload();
+      },
       // Edição in-place de card (✏️) grava fora dos writers → recarrega o preview.
       onProfileEdited: _scheduleProfileReload,
       // Abertura adaptativa: se o perfil já tem seções, a trilha reconhece e vai
