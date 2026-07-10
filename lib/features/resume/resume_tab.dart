@@ -143,6 +143,9 @@ class _ResumeTabState extends State<ResumeTab>
           assistReversibleRemove(uid, kind, value),
       // Fase C (proativo): sugere a maior lacuna que resta ao concluir.
       assistProactiveLoader: () => assistTopGap(uid),
+      // Editor visual de skills: skills atuais (chips) + sugestões pela área.
+      assistSkillsLoader: () => loadAssistSkills(uid),
+      assistSkillSuggester: () => assistSkillSuggestionsFor(uid),
       // Abertura adaptativa: se o perfil já tem seções, a trilha reconhece e vai
       // direto completar o que falta (pula o gate "começar do zero"). Vazio ⇒ gate.
       preFilledLoader: () async {

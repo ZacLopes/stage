@@ -69,6 +69,8 @@ void main() {
     Future<Future<void> Function()?> Function(String, String)?
         reversibleRemover,
     Future<Map<String, String>?> Function()? proactiveLoader,
+    Future<List<String>> Function()? skillsLoader,
+    Future<List<String>> Function()? skillSuggester,
     List<ConversationStep>? plan,
   }) {
     Future<void> save(StepAnswer a) async {}
@@ -94,6 +96,8 @@ void main() {
       assistBulletWriter: bulletWriter,
       assistReversibleRemover: reversibleRemover,
       assistProactiveLoader: proactiveLoader,
+      assistSkillsLoader: skillsLoader,
+      assistSkillSuggester: skillSuggester,
       pollInterval: const Duration(milliseconds: 1),
       maxPolls: 2,
     );
@@ -688,5 +692,114 @@ void main() {
     expect(card.status, AssistEditStatus.cancelled);
     expect(adds, isEmpty);
     expect(writes, isEmpty);
+  });
+
+  // ── Fase C: editor visual de skills ───────────────────────────────────────
+
+  test('edit_skills: abre editor com skills atuais + sugestões (sem gravar)',
+      () async {
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'edit_skills',
+        args: {},
+        reply: 'Bora editar 👇',
+        promptVersion: 'assistant_v3',
+      )),
+      itemAdder: (kind, value) async {},
+      itemRemover: (kind, value) async {},
+      skillsLoader: () async => ['Excel', 'Python', 'Canva'],
+      skillSuggester: () async => ['SQL', 'Power BI', 'Python'], // Python já tem
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('quero editar minhas habilidades');
+    final card = c.thread.whereType<SkillsEditorItem>().single;
+    expect(card.initial, ['Excel', 'Python', 'Canva']);
+    expect(card.suggestions, ['SQL', 'Power BI']); // tira o que já tem (Python)
+    expect(card.status, AssistEditStatus.pending);
+  });
+
+  test('edit_skills: "Salvar" aplica adds+removes; Desfazer reverte o lote',
+      () async {
+    final adds = <List<String>>[];
+    final removes = <List<String>>[];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'edit_skills',
+        args: {},
+        reply: '',
+        promptVersion: 'assistant_v3',
+      )),
+      itemAdder: (kind, value) async => adds.add([kind, value]),
+      itemRemover: (kind, value) async => removes.add([kind, value]),
+      skillsLoader: () async => ['Excel', 'Python'],
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('quero mexer nas minhas habilidades');
+    final card = c.thread.whereType<SkillsEditorItem>().single;
+
+    await c.applySkillsEditor(card.id, added: ['SQL'], removed: ['Python']);
+    expect(adds, [
+      ['skill', 'SQL']
+    ]);
+    expect(removes, [
+      ['skill', 'Python']
+    ]);
+    expect(card.status, AssistEditStatus.applied);
+
+    // Desfazer (ordem inversa): re-adiciona Python e remove SQL.
+    await c.undoSkillsEditor(card.id);
+    expect(adds.last, ['skill', 'Python']); // desfaz a remoção
+    expect(removes.last, ['skill', 'SQL']); // desfaz a adição
+    expect(card.status, AssistEditStatus.undone);
+  });
+
+  test('edit_skills: sem mudança → Salvar fecha sem gravar', () async {
+    final adds = <List<String>>[];
+    final removes = <List<String>>[];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'edit_skills',
+        args: {},
+        reply: '',
+        promptVersion: 'assistant_v3',
+      )),
+      itemAdder: (kind, value) async => adds.add([kind, value]),
+      itemRemover: (kind, value) async => removes.add([kind, value]),
+      skillsLoader: () async => ['Excel'],
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('quero editar minhas habilidades');
+    final card = c.thread.whereType<SkillsEditorItem>().single;
+    await c.applySkillsEditor(card.id, added: const [], removed: const []);
+    expect(adds, isEmpty);
+    expect(removes, isEmpty);
+    expect(card.status, AssistEditStatus.cancelled); // fechou sem aplicar
+  });
+
+  test('edit_skills sem skills ainda: cai na coleta (injeta a seção)', () async {
+    final injected = [
+      ConversationStep.single(
+          id: 'gap.skills',
+          aiMessage: 'Suas skills?',
+          input: const GuidedTextInput(example: 'x')),
+    ];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'edit_skills',
+        args: {},
+        reply: '',
+        promptVersion: 'assistant_v3',
+      )),
+      sectionSteps: (s) => s == 'skills' ? injected : const [],
+      skillsLoader: () async => const [], // ainda sem skills
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('quero editar minhas habilidades');
+    expect(c.thread.whereType<SkillsEditorItem>(), isEmpty);
+    expect(c.currentStep?.id, 'gap.skills'); // caiu na coleta
   });
 }

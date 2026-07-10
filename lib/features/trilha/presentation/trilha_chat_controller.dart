@@ -151,6 +151,27 @@ class AssistExtractItem extends ChatItem {
   });
 }
 
+/// Editor VISUAL de skills (Fase C): mostra as skills atuais em chips (✕ pra
+/// tirar) + campo/sugestões pra adicionar. "Salvar" aplica o líquido (adds +
+/// removes) e deixa um Desfazer que reverte o lote. O estado de edição vive no
+/// widget; aqui ficam só o baseline (skills no momento de abrir), as sugestões,
+/// e o resultado aplicado (pro undo).
+class SkillsEditorItem extends ChatItem {
+  final String id;
+  final List<String> initial;
+  final List<String> suggestions;
+  AssistEditStatus status;
+  List<String> addedApplied = const [];
+  List<String> removedApplied = const [];
+  final List<Future<void> Function()> undos = [];
+  SkillsEditorItem({
+    required this.id,
+    required this.initial,
+    this.suggestions = const [],
+    this.status = AssistEditStatus.pending,
+  });
+}
+
 /// Valor atual de um campo (pro diff/undo do assistente).
 class AssistFieldValue {
   final String raw; // valor cru (id/texto) — '' se vazio
@@ -196,6 +217,8 @@ class TrilhaChatController extends ChangeNotifier {
     this.assistBulletWriter,
     this.assistReversibleRemover,
     this.assistProactiveLoader,
+    this.assistSkillsLoader,
+    this.assistSkillSuggester,
     this.pollInterval = const Duration(milliseconds: 1500),
     this.maxPolls = 40,
   });
@@ -272,6 +295,13 @@ class TrilhaChatController extends ChangeNotifier {
   /// Fase C (proativo): a maior lacuna que resta — `{section, label}` — pra o
   /// assistente SUGERIR o próximo ganho ao concluir. null ⇒ sem sugestão.
   final Future<Map<String, String>?> Function()? assistProactiveLoader;
+
+  /// Editor visual de skills: nomes das skills atuais (pra mostrar em chips).
+  /// null/vazio ⇒ sem skills → cai na coleta (start_section).
+  final Future<List<String>> Function()? assistSkillsLoader;
+
+  /// Editor visual de skills: sugestões pra adicionar (pela área), best-effort.
+  final Future<List<String>> Function()? assistSkillSuggester;
 
   /// Cadência do poll da extração (injetável p/ teste encurtar). ~60s = 40×1.5s.
   final Duration pollInterval;
@@ -761,6 +791,9 @@ class TrilhaChatController extends ChangeNotifier {
         return;
       case 'extract_profile':
         await _proposeExtract(turn, step);
+        return;
+      case 'edit_skills':
+        await _proposeSkillsEditor(turn);
         return;
       case 'skip_step':
         if (step != null && _stepIsOptional(step)) {
@@ -1357,6 +1390,121 @@ class TrilhaChatController extends ChangeNotifier {
     // ignore: unawaited_futures
     Analytics.shared.track(evTrilhaAssistEditUndone,
         props: {'lacuna_key': 'extract', 'op': 'add'});
+    _notify();
+  }
+
+  // ── Editor visual de skills (Fase C) ───────────────────────────────────────
+
+  final Map<String, SkillsEditorItem> _pendingSkillEditors = {};
+
+  /// `edit_skills`: abre o editor visual com as skills atuais. Sem skills ainda
+  /// ⇒ editar não faz sentido → cai na COLETA (start_section 'skills').
+  Future<void> _proposeSkillsEditor(AssistantTurn turn) async {
+    final loader = assistSkillsLoader;
+    List<String> current = const [];
+    if (loader != null) {
+      try {
+        current = await loader();
+      } catch (_) {/* best-effort */}
+    }
+    if (_disposed) return;
+    if (current.isEmpty) {
+      final reply = turn.reply.trim();
+      final ok = await _injectSection('skills',
+          reply.isEmpty ? 'Você ainda não tem skills — bora adicionar? 👇' : reply);
+      if (!ok) _pushAi('Bora adicionar suas skills? Me conta uma que você manja.');
+      return;
+    }
+    // Sugestões pra adicionar (pela área) — best-effort, tira as que já tem.
+    var suggestions = const <String>[];
+    final suggester = assistSkillSuggester;
+    if (suggester != null) {
+      try {
+        final lower = current.map((s) => s.toLowerCase()).toSet();
+        suggestions = (await suggester())
+            .where((s) => !lower.contains(s.toLowerCase()))
+            .take(8)
+            .toList();
+      } catch (_) {/* best-effort */}
+    }
+    if (_disposed) return;
+    if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
+    final item = SkillsEditorItem(
+        id: 'edit_${_editSeq++}', initial: current, suggestions: suggestions);
+    _pendingSkillEditors[item.id] = item;
+    thread.add(item);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditProposed,
+        props: {'lacuna_key': 'skills', 'op': 'edit'});
+    _notify();
+  }
+
+  /// "Salvar" no editor: aplica o líquido (adds + removes via os callbacks de
+  /// item) e guarda o undo do LOTE. Sem mudança ⇒ fecha como cancelado.
+  Future<void> applySkillsEditor(String id,
+      {required List<String> added, required List<String> removed}) async {
+    final item = _pendingSkillEditors[id];
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    if (added.isEmpty && removed.isEmpty) {
+      cancelSkillsEditor(id);
+      return;
+    }
+    final adder = assistItemAdder;
+    final remover = assistItemRemover;
+    for (final s in added) {
+      if (adder == null) continue;
+      try {
+        await adder('skill', s);
+        if (remover != null) item.undos.add(() => remover('skill', s));
+      } catch (_) {/* best-effort por item */}
+    }
+    for (final s in removed) {
+      if (remover == null) continue;
+      try {
+        await remover('skill', s);
+        if (adder != null) item.undos.add(() => adder('skill', s));
+      } catch (_) {/* best-effort por item */}
+    }
+    if (_disposed) return;
+    item.addedApplied = added;
+    item.removedApplied = removed;
+    item.status = AssistEditStatus.applied;
+    _pendingSkillEditors.remove(id);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditApplied,
+        props: {'lacuna_key': 'skills', 'op': 'edit'});
+    _notify();
+  }
+
+  void cancelSkillsEditor(String id) {
+    final item = _pendingSkillEditors.remove(id);
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    item.status = AssistEditStatus.cancelled;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditCancelled,
+        props: {'lacuna_key': 'skills', 'op': 'edit'});
+    _notify();
+  }
+
+  Future<void> undoSkillsEditor(String id) async {
+    SkillsEditorItem? item;
+    for (final it in thread) {
+      if (it is SkillsEditorItem && it.id == id) {
+        item = it;
+        break;
+      }
+    }
+    if (item == null || item.status != AssistEditStatus.applied) return;
+    for (final u in item.undos.reversed) {
+      try {
+        await u();
+      } catch (_) {/* best-effort */}
+    }
+    if (_disposed) return;
+    item.status = AssistEditStatus.undone;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditUndone,
+        props: {'lacuna_key': 'skills', 'op': 'edit'});
     _notify();
   }
 

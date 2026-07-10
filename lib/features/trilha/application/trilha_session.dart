@@ -300,6 +300,36 @@ Future<Map<String, dynamic>> buildAssistContext(
   }
 }
 
+/// Editor visual de skills — nomes das skills atuais (pra mostrar em chips).
+/// Failure-safe: vazio ⇒ o assistente cai na coleta.
+Future<List<String>> loadAssistSkills(
+  String userId, {
+  ProfileSnapshotService? snapshotService,
+}) async {
+  try {
+    final snap =
+        await (snapshotService ?? ProfileSnapshotService()).loadSnapshot(userId);
+    return [for (final s in snap.skills) s.name];
+  } catch (_) {
+    return const [];
+  }
+}
+
+/// Editor visual de skills — sugestões de skills pela ÁREA desejada (pra propor
+/// adições). Failure-safe: vazio ⇒ o editor mostra só o campo de digitar.
+Future<List<String>> assistSkillSuggestionsFor(
+  String userId, {
+  ProfileRepository? repository,
+}) async {
+  try {
+    final repo = repository ?? ProfileRepositorySupabase();
+    final desired = await repo.getDesiredTitles(userId);
+    return suggestedSkillsForAreas(desired.map((d) => d.title).toList());
+  } catch (_) {
+    return const [];
+  }
+}
+
 /// Fase B — LEITOR: valor atual de um campo editável pelo assistente
 /// (`{raw, text, label}`; null ⇒ não editável por aqui — vai via start_section).
 /// Por ora só `desired_position` (texto livre); o resto muda via chips/typeahead.

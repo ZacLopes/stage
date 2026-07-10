@@ -14,6 +14,7 @@ import '../application/trilha_hub_status.dart';
 import '../application/trilha_section.dart';
 import 'trilha_chat_controller.dart';
 import 'widgets/chat_bubbles.dart';
+import 'widgets/skills_editor_card.dart';
 import 'widgets/inline/inline_step_input.dart';
 import 'widgets/inline/trilha_answer_card.dart';
 
@@ -186,6 +187,18 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
           key: ValueKey('extract-${item.id}'),
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: _assistExtractCard(item),
+        ));
+      } else if (item is SkillsEditorItem) {
+        children.add(Padding(
+          key: ValueKey('skills-editor-${item.id}'),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: SkillsEditorCard(
+            item: item,
+            onApply: (added, removed) =>
+                _c.applySkillsEditor(item.id, added: added, removed: removed),
+            onCancel: () => _c.cancelSkillsEditor(item.id),
+            onUndo: () => _c.undoSkillsEditor(item.id),
+          ),
         ));
       } else if (item is AnsweredItem) {
         if (c.editingIndex == i && c.activeStep != null) {
