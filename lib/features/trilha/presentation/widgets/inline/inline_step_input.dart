@@ -18,6 +18,7 @@ import 'package:flutter/services.dart' show HapticFeedback;
 import '../../../../../core/theme/theme.dart';
 import '../../../domain/conversation_step.dart';
 import '../experience_type_picker.dart';
+import '../trilha_option_tile.dart';
 
 /// Dispatcher: renderiza o widget inline certo pro [step.input].
 class InlineStepInput extends StatelessWidget {
@@ -355,6 +356,28 @@ class _ChoiceChipsState extends State<_ChoiceChips> {
         onTap: () => widget.onSubmit(StepAnswer.choice(widget.step.id, [o])),
       );
     }
+
+    // Escolha ÚNICA com 2+ opções "com respiro" (não-compacta) → tiles cheios
+    // empilhados (título + subtítulo + seta), tocar já avança. Bem mais legível
+    // que chips soltos pra perguntas tipo "que empresa combina com você?".
+    if (!widget.input.multi && !widget.input.compact) {
+      final options = widget.input.options;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < options.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.sm),
+            TrilhaOptionTile(
+              label: options[i].label,
+              subtitle: options[i].subtitle,
+              onTap: widget.enabled ? () => _toggle(options[i]) : null,
+            ),
+          ],
+        ],
+      );
+    }
+
+    // Compacta (escalas/nível) ou multisseleção → chips lado a lado.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

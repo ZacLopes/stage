@@ -1192,10 +1192,22 @@ ConversationStep _companyStageStep() => ConversationStep.single(
       aiMessage: 'Agora umas rapidinhas sobre o jeito que você curte trabalhar. '
           'Que tipo de empresa tem mais a ver com você agora?',
       input: const ChoiceInput(options: [
-        StepOption(id: 'startup', label: 'Startup (muda rápido)'),
-        StepOption(id: 'scaleup', label: 'Scale-up (em crescimento)'),
-        StepOption(id: 'established', label: 'Empresa consolidada'),
-        StepOption(id: 'open', label: 'Tanto faz / explorar'),
+        StepOption(
+            id: 'startup',
+            label: 'Startup',
+            subtitle: 'Ritmo acelerado, mão na massa'),
+        StepOption(
+            id: 'scaleup',
+            label: 'Scale-up',
+            subtitle: 'Empresa em crescimento'),
+        StepOption(
+            id: 'established',
+            label: 'Empresa consolidada',
+            subtitle: 'Estrutura e estabilidade'),
+        StepOption(
+            id: 'open',
+            label: 'Tanto faz',
+            subtitle: 'Quero explorar as opções'),
       ]),
       acknowledgement: 'Boa! Isso ajuda a te achar a cultura certa.',
     );

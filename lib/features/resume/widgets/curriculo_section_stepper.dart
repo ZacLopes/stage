@@ -75,9 +75,11 @@ class CurriculoSectionStepper extends StatelessWidget {
           textAlign: TextAlign.center,
           style: AppTextStyles.labelSm.copyWith(
             fontSize: 10,
-            color: status == SectionStatus.pending
-                ? AppColors.textDisabled
-                : AppColors.textSecondary,
+            color: switch (status) {
+              SectionStatus.current => AppColors.primary,
+              SectionStatus.done => AppColors.textSecondary,
+              SectionStatus.pending => AppColors.textDisabled,
+            },
             fontWeight: status == SectionStatus.current
                 ? FontWeight.w700
                 : FontWeight.w500,
@@ -88,8 +90,12 @@ class CurriculoSectionStepper extends StatelessWidget {
   }
 
   Widget _connector(bool filled) => Container(
-        height: 2,
-        color: filled ? AppColors.success : AppColors.border,
+        height: 3,
+        margin: const EdgeInsets.symmetric(horizontal: 3),
+        decoration: BoxDecoration(
+          color: filled ? AppColors.success : AppColors.border,
+          borderRadius: BorderRadius.circular(2),
+        ),
       );
 
   Widget _circle(int i, SectionStatus status) {
