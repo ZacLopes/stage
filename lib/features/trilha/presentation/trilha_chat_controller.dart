@@ -1830,8 +1830,12 @@ class TrilhaChatController extends ChangeNotifier {
   /// Seção sugerida no último nudge (pra o atalho "quero" cair direto nela).
   String? _suggestedSection;
 
+  // A mensagem TODA precisa ser uma confirmação curta (ancorado no fim) —
+  // opcionalmente + 1 palavrinha de reforço + pontuação. Senão "quero editar
+  // minhas habilidades" (que começa com "quero") sequestraria o atalho da seção
+  // sugerida em vez de ir pro assistente.
   static final RegExp _affirmative = RegExp(
-      r'^(sim|claro|quero|quer[ ]?sim|bora|pode|podemos|vamos|vam[uo]s|partiu|com certeza|isso|manda|ok|beleza|blz|t[aá]|uhum|s)\b',
+      r'^(sim|claro|quero|bora|pode|podemos|vamos|vam[uo]s|partiu|com certeza|isso|manda|ok|beleza|blz|t[aá]|uhum|s)( sim| l[áa]| ent[ãa]o| a[íi])?[\s!.]*$',
       caseSensitive: false);
   bool _isAffirmative(String t) {
     final s = t.trim();

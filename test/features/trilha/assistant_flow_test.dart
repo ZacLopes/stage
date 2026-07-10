@@ -548,6 +548,47 @@ void main() {
         isTrue);
   });
 
+  test('proativo: "quero editar minhas habilidades" NÃO cai no atalho (regressão)',
+      () async {
+    // Bug: a frase começa com "quero" e sequestrava a seção sugerida (experiência)
+    // em vez de ir pro assistente abrir o editor de skills.
+    final injectedExp = [
+      ConversationStep.single(
+          id: 'gap.experience',
+          aiMessage: 'Suas experiências?',
+          input: const GuidedTextInput(example: 'x')),
+    ];
+    final c = build(
+      plan: [
+        ConversationStep.single(
+            id: 'q.only',
+            aiMessage: 'Alguma coisa?',
+            input: const GuidedTextInput(example: 'x')),
+      ],
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'edit_skills',
+        args: {},
+        reply: 'Bora editar 👇',
+        promptVersion: 'assistant_v4',
+      )),
+      sectionSteps: (s) => s == 'experience' ? injectedExp : const [],
+      proactiveLoader: () async =>
+          {'section': 'experience', 'label': '1 experiência'},
+      skillsLoader: () async => ['Excel', 'Python'],
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('Empresa X'); // conclui → sugere experiência
+    expect(c.finished, isTrue);
+
+    await c.submitFreeText('quero editar minhas habilidades');
+    // NÃO entrou na seção sugerida (experiência)…
+    expect(c.currentStep?.id, isNot('gap.experience'));
+    // …abriu o editor de SKILLS pelo assistente.
+    expect(c.thread.whereType<ListEditorItem>().any((e) => e.kind == 'skill'),
+        isTrue);
+  });
+
   test('remove_item: 2+ matches → desambigua, sem card', () async {
     final c = build(
       assistantTurn: _fixed(const AssistantTurn(
