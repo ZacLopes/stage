@@ -291,7 +291,12 @@ Future<Map<String, dynamic>> buildAssistContext(
             ],
           }
       ],
-      'languages': [for (final l in snapshot.languages) l.name],
+      // Nome + nível dos idiomas — pro assistente responder "qual meu nível de
+      // inglês?" e o edit_languages ter base. '' quando sem nível.
+      'languages': [
+        for (final l in snapshot.languages)
+          {'name': l.name, 'level': l.proficiencyLabel}
+      ],
       // Nomes dos interesses atuais — pro assistente escolher edit_interests
       // (ver/editar) vs start_section (coletar do zero).
       'interests': [for (final i in snapshot.interests.take(30)) i.name],
