@@ -985,4 +985,94 @@ void main() {
         ]));
     expect(card.status, AssistEditStatus.undone);
   });
+
+  // ── Rápidos: add de interesse, duplicado, lista, não-resposta ─────────────
+
+  test('add_item interest: comando direto → card → aplica', () async {
+    final adds = <List<String>>[];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'add_item',
+        args: {'kind': 'interest', 'value': 'Sustentabilidade'},
+        reply: 'Boa!',
+        promptVersion: 'assistant_v6',
+      )),
+      itemAdder: (kind, value) async => adds.add([kind, value]),
+      itemResolver: (kind, query) async => const [], // ainda não tem
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('adiciona sustentabilidade nos interesses');
+    final pending = c.thread
+        .whereType<AssistEditItem>()
+        .singleWhere((e) => e.status == AssistEditStatus.pending);
+    expect(pending.op, AssistEditOp.add);
+    await c.confirmAssistEdit(pending.id);
+    expect(adds, [
+      ['interest', 'Sustentabilidade']
+    ]);
+  });
+
+  test('add_item duplicado: NÃO cria card (não mente nem apaga o existente)',
+      () async {
+    final adds = <List<String>>[];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'add_item',
+        args: {'kind': 'skill', 'value': 'Python'},
+        reply: '',
+        promptVersion: 'assistant_v6',
+      )),
+      itemAdder: (kind, value) async => adds.add([kind, value]),
+      itemResolver: (kind, query) async => ['Python'], // já tem
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('adiciona Python nas skills');
+    expect(c.thread.whereType<AssistEditItem>(), isEmpty); // sem card
+    expect(
+        c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('já tá')),
+        isTrue);
+    expect(adds, isEmpty);
+  });
+
+  test('add_item lista: "SQL, Power BI e Excel" → card em lote', () async {
+    final adds = <List<String>>[];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'add_item',
+        args: {'kind': 'skill', 'value': 'SQL, Power BI e Excel'},
+        reply: '',
+        promptVersion: 'assistant_v6',
+      )),
+      itemAdder: (kind, value) async => adds.add([kind, value]),
+      itemResolver: (kind, query) async => const [],
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('adiciona 3 skills: SQL, Power BI e Excel');
+    final card = c.thread.whereType<AssistExtractItem>().single;
+    expect(card.entries.map((e) => e.value).toList(),
+        ['SQL', 'Power BI', 'Excel']);
+    await c.confirmExtract(card.id);
+    expect(adds, [
+      ['skill', 'SQL'],
+      ['skill', 'Power BI'],
+      ['skill', 'Excel'],
+    ]);
+  });
+
+  test('"não sei" num passo de texto: não grava literal, repergunta', () async {
+    final c = build(assistantTurn: _nullTurn());
+    addTearDown(c.dispose);
+    await c.start();
+    expect(c.currentStep?.id, 'q.text');
+    await c.submitFreeText('não sei');
+    expect(c.currentStep?.id, 'q.text'); // NÃO avançou (não gravou 'não sei')
+    expect(
+        c.thread
+            .whereType<AiMsgItem>()
+            .any((m) => m.text.contains('Tranquilo não saber')),
+        isTrue);
+  });
 }

@@ -686,6 +686,26 @@ class TrilhaChatController extends ChangeNotifier {
     if (t.isEmpty) return;
     final step = activeStep;
 
+    // "não sei"/"sla"/"passa" num passo de TEXTO NUNCA é resposta — não grava
+    // literal (poluiria cargo/empresa/curso). Opcional ⇒ pula; senão ⇒
+    // repergunta com jeito. Vale com o assistente ON ou OFF, sem gastar IA.
+    if (step != null && step.input is GuidedTextInput && _looksLikeNonAnswer(t)) {
+      _busy = true;
+      try {
+        if (_stepIsOptional(step)) {
+          _pushAi('Sem problema, vou pular essa 🙂');
+          await _doSubmit(
+              StepAnswer(stepId: step.id, value: '', displayText: 'Pular'));
+        } else {
+          _pushAi('Tranquilo não saber! Me dá qualquer coisa que vier à cabeça '
+              '— dá pra ajustar depois.');
+        }
+      } finally {
+        _busy = false;
+      }
+      return;
+    }
+
     // Assistente OFF → comportamento de hoje (responder o passo aberto).
     if (!assistEnabled) {
       if (step == null) {
@@ -1038,13 +1058,52 @@ class TrilhaChatController extends ChangeNotifier {
   /// antes de gravar (postura da Fase B).
   Future<void> _proposeAddItem(AssistantTurn turn, ConversationStep? step) async {
     final kind = turn.args['kind']?.toString() ?? '';
-    final value = turn.args['value']?.toString().trim() ?? '';
-    if (kind.isEmpty || value.isEmpty || assistItemAdder == null) {
+    final rawValue = turn.args['value']?.toString().trim() ?? '';
+    if (kind.isEmpty || rawValue.isEmpty || assistItemAdder == null) {
       _replyAndKeepStep(
           turn.reply.trim().isEmpty ? 'O que você quer adicionar? 🙂' : turn.reply.trim(),
           step);
       return;
     }
+
+    // "adiciona SQL, Power BI e Excel" → vários itens. Sem isso viraria UMA
+    // skill-lixo com vírgulas. Card em LOTE (reusa o AssistExtractItem: aplica
+    // todos + Desfazer do lote). Só skill/idioma (interesse é replace-all).
+    final names = _splitAddList(rawValue);
+    if (names.length > 1 && (kind == 'skill' || kind == 'language')) {
+      final entries = [
+        for (final n in names)
+          AssistExtractEntry(kind: kind, value: n, label: _extractLabel(kind, n))
+      ];
+      if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
+      final item = AssistExtractItem(id: 'edit_${_editSeq++}', entries: entries);
+      _pendingExtracts[item.id] = item;
+      thread.add(item);
+      // ignore: unawaited_futures
+      Analytics.shared.track(evTrilhaAssistEditProposed,
+          props: {'lacuna_key': kind, 'op': 'add'});
+      if (step != null) inputVisible = true;
+      _notify();
+      return;
+    }
+
+    final value = names.isNotEmpty ? names.first : rawValue;
+
+    // Já tem esse item? NÃO propõe card — senão ele mente "Adicionei" (o
+    // write-back dedupa, não grava) E o Desfazer apagaria o item que já
+    // existia. Só avisa. (resolver = match exato/contains no que já tem.)
+    final resolver = assistItemResolver;
+    if (resolver != null) {
+      try {
+        final existing = await resolver(kind, value);
+        if (existing.any((m) => m.trim().toLowerCase() == value.toLowerCase())) {
+          if (_disposed) return;
+          _replyAndKeepStep('"$value" já tá em ${_kindLabel(kind)} 🙂', step);
+          return;
+        }
+      } catch (_) {/* best-effort: sem check, segue pro card */}
+    }
+    if (_disposed) return;
     if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
     _pushEdit(
         AssistEditItem(
@@ -1057,6 +1116,22 @@ class TrilhaChatController extends ChangeNotifier {
         ),
         step,
         opName: 'add');
+  }
+
+  /// Quebra "SQL, Power BI e Excel" em ["SQL","Power BI","Excel"]. Só divide se
+  /// tem vírgula (pra não picar "React e Redux" quando é um item só). Dedup.
+  List<String> _splitAddList(String raw) {
+    final s = raw.trim();
+    if (!s.contains(',')) return [s];
+    final out = <String>[];
+    final seen = <String>{};
+    for (final chunk in s.split(',')) {
+      for (final p in chunk.split(RegExp(r'\s+e\s+', caseSensitive: false))) {
+        final t = p.trim();
+        if (t.isNotEmpty && seen.add(t.toLowerCase())) out.add(t);
+      }
+    }
+    return out.isEmpty ? [s] : out;
   }
 
   /// `remove_item`: resolve QUAL item (desambigua se preciso) e propõe REMOVER
@@ -1127,6 +1202,8 @@ class TrilhaChatController extends ChangeNotifier {
         return 'suas skills';
       case 'language':
         return 'seus idiomas';
+      case 'interest':
+        return 'seus interesses';
       case 'experience':
         return 'suas experiências';
       case 'project':
@@ -1814,6 +1891,12 @@ class TrilhaChatController extends ChangeNotifier {
     if (_sectionWords.hasMatch(s)) return true;
     return false;
   }
+
+  /// "não sei"/"sla"/"passa" e afins — não-resposta a um passo de texto.
+  static final RegExp _nonAnswerRe = RegExp(
+      r'^(n[aã]o sei|nao sei|sei l[aá]|sla|sei n[aã]o|nem sei|n[aã]o fa[çc]o ideia|nao faco ideia|sem ideia|passa|pula|prefiro n[aã]o|deixa (pra|pro) depois|talvez)[\s!.?]*$',
+      caseSensitive: false);
+  bool _looksLikeNonAnswer(String t) => _nonAnswerRe.hasMatch(t.trim());
 
   /// Um textão colado (várias infos de uma vez) não é resposta de um passo —
   /// deve ir pra IA extrair. Heurística: quebra de linha, ou longo com ≥2

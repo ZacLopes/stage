@@ -495,6 +495,12 @@ Future<void> assistAddItem(
       await wb.save(
           StepAnswer.choice('gap.languages', [StepOption(id: v, label: v)]));
       return;
+    case 'interest':
+      // Interesses são replace-all: acrescenta ao conjunto atual (dedup).
+      final names = [for (final i in await repo.getInterests(userId)) i.name];
+      if (names.any((n) => n.trim().toLowerCase() == v.toLowerCase())) return;
+      await repo.replaceInterests(userId, [...names, v]);
+      return;
   }
 }
 
@@ -519,6 +525,14 @@ Future<void> assistRemoveItem(
       for (final l in await repo.getLanguages(userId)) {
         if (l.name.trim().toLowerCase() == lc) await repo.deleteLanguage(l.id);
       }
+      return;
+    case 'interest':
+      // Replace-all sem o que casa exato.
+      final keep = [
+        for (final i in await repo.getInterests(userId))
+          if (i.name.trim().toLowerCase() != lc) i.name
+      ];
+      await repo.replaceInterests(userId, keep);
       return;
   }
 }
@@ -551,6 +565,9 @@ Future<List<String>> assistResolveItems(
       break;
     case 'language':
       names = (await repo.getLanguages(userId)).map((l) => l.name).toList();
+      break;
+    case 'interest':
+      names = (await repo.getInterests(userId)).map((i) => i.name).toList();
       break;
     default:
       return const [];
