@@ -46,6 +46,14 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
   final ScrollController _scroll = ScrollController();
   final TextEditingController _text = TextEditingController();
 
+  /// FocusNode ESTÁVEL da barra de digitar. Sem ele, o TextField usa um node
+  /// interno que, nesta subárvore muito re-buildada (watch do VM + 2
+  /// AnimatedBuilder + reflow do teclado), pode ficar destacado no frame do
+  /// toque — aí o guard global de "tocar fora fecha o teclado" (main.dart) lê
+  /// "nenhum campo focado" e FECHA o teclado ao tocar na própria barra (ex.:
+  /// pra colar). Um node próprio do State persiste e mantém o foco estável.
+  final FocusNode _inputFocus = FocusNode();
+
   /// Âncora do card em edição — pra rolar ATÉ ele (e não pro fim do fio) quando
   /// o usuário toca no lápis de uma resposta lá em cima.
   final GlobalKey _editAnchorKey = GlobalKey();
@@ -65,6 +73,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
     _c.removeListener(_onTick);
     _scroll.dispose();
     _text.dispose();
+    _inputFocus.dispose();
     super.dispose();
   }
 
@@ -921,6 +930,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
                   Expanded(
                     child: TextField(
                       controller: _text,
+                      focusNode: _inputFocus,
                       minLines: 1,
                       maxLines: 4,
                       textInputAction: TextInputAction.send,
