@@ -112,6 +112,39 @@ void main() {
     expect(c.currentStep?.id, 'q.choice'); // texto virou resposta e avançou
   });
 
+  test('flag OFF + sem passo aberto: não engole a mensagem — bolha + dica',
+      () async {
+    // Regressão: com o assistente OFF e a trilha concluída (sem passo aberto),
+    // apertar enviar sumia com o texto em silêncio (botão "morto"). Agora mostra
+    // a fala e ensina a editar pela seção.
+    final c = build(
+      assistEnabled: false,
+      assistantTurn: _nullTurn(),
+      plan: [
+        ConversationStep.single(
+            id: 'q.only',
+            aiMessage: 'Alguma coisa?',
+            input: const GuidedTextInput(example: 'x')),
+      ],
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('Empresa X'); // responde o único passo → conclui
+    expect(c.currentStep, isNull); // sem passo aberto
+
+    await c.submitFreeText('edita minhas habilidades');
+    expect(
+        c.thread
+            .whereType<UserMsgItem>()
+            .any((m) => m.text == 'edita minhas habilidades'),
+        isTrue); // a fala não sumiu
+    expect(
+        c.thread
+            .whereType<AiMsgItem>()
+            .any((m) => m.text.contains('tocar na seção')),
+        isTrue); // recebeu uma dica em vez de silêncio
+  });
+
   test('fast-lane: texto sem cara de comando responde o passo SEM chamar a IA',
       () async {
     var called = false;

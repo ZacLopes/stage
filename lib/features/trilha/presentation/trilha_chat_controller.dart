@@ -600,9 +600,18 @@ class TrilhaChatController extends ChangeNotifier {
     if (t.isEmpty) return;
     final step = activeStep;
 
-    // Assistente OFF → exatamente o comportamento de hoje (precisa de passo).
+    // Assistente OFF → comportamento de hoje (responder o passo aberto).
     if (!assistEnabled) {
-      if (step == null) return;
+      if (step == null) {
+        // Sem passo aberto e sem assistente não há o que responder — mas NÃO
+        // engolir a mensagem em silêncio (o botão parecia morto: sumia o texto
+        // e baixava o teclado). Mostra o que a pessoa disse e ensina a editar o
+        // que já está preenchido.
+        thread.add(UserMsgItem(t));
+        _pushAi('Pra mudar algo que você já preencheu, é só tocar na seção lá '
+            'em cima 👆 (ou no ✏️ de uma resposta).');
+        return;
+      }
       _busy = true;
       try {
         await _routeToStep(step, t);

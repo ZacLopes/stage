@@ -268,6 +268,9 @@ Future<Map<String, dynamic>> buildAssistContext(
       'areas': desired.map((d) => d.title).toList(),
       'desired_position': prefs?.desiredPosition,
       'skills_count': snapshot.skills.length,
+      // Nomes das skills atuais — pro assistente MOSTRAR o que a pessoa já tem
+      // (ver/editar) em vez de recomeçar a coleta. Cap pra não estourar tokens.
+      'skills': [for (final s in snapshot.skills.take(40)) s.name],
       'experiences_count': snapshot.experiences.length,
       // Experiências com bullets (id + texto) — pro improve_bullet escolher qual.
       'experiences': [
