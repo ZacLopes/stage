@@ -386,6 +386,11 @@ serve(withEdgeAnalytics('extract-profile', async (req) => {
   try {
     const body = await req.json().catch(() => ({}))
     const force: boolean = body?.force === true
+    // DRY-RUN (widget de conflito de import): save:false PARSEIA e DEVOLVE o
+    // profile_data SEM gravar (nem o JSONB legacy, nem a RPC relacional). Assim
+    // o cliente vira dono do apply (aceita/rejeita/edita por campo) em vez de a
+    // RPC preserve-mode decidir sozinha. Default true = comportamento de sempre.
+    const save: boolean = body?.save !== false
     const pdfBase64: string = typeof body?.pdf_base64 === 'string' ? body.pdf_base64 : ''
     const rawTextFallback: string = typeof body?.raw_text_fallback === 'string'
       ? body.raw_text_fallback
@@ -668,28 +673,31 @@ serve(withEdgeAnalytics('extract-profile', async (req) => {
     }
     const updatedGd = { ...gd, imported_resume: updatedImported }
 
-    const updateR = await supabaseAdmin
-      .from('user_profiles')
-      .update({ gamification_data: updatedGd })
-      .eq('id', userId)
+    // DRY-RUN: pula TODA a persistência (JSONB + relacional). Só parseia e devolve.
+    if (save) {
+      const updateR = await supabaseAdmin
+        .from('user_profiles')
+        .update({ gamification_data: updatedGd })
+        .eq('id', userId)
 
-    if (updateR.error) {
-      console.error(`[extract-profile] persist JSONB failed user=${userId}: ${updateR.error.message}`)
-      // Não logamos em profile_extraction_logs como sucesso aqui — falha
-      // em persistir o JSONB é falha terminal mesmo, e a transação nas
-      // tabelas relacionais também não rodou.
-      await logExtraction({
-        supabaseAdmin,
-        userId,
-        aiGenerationLogId,
-        status: 'failed',
-        rawJsonOutput: profileData,
-        confidenceGlobal,
-        lowConfidenceFields: inv.lowConfidenceFields,
-        rawTextInputHash: rawTextHash,
-        errorMessage: `jsonb_persist_failed: ${updateR.error.message}`,
-      })
-      return jsonResponse({ error: 'persist_failed', detail: updateR.error.message }, 500)
+      if (updateR.error) {
+        console.error(`[extract-profile] persist JSONB failed user=${userId}: ${updateR.error.message}`)
+        // Não logamos em profile_extraction_logs como sucesso aqui — falha
+        // em persistir o JSONB é falha terminal mesmo, e a transação nas
+        // tabelas relacionais também não rodou.
+        await logExtraction({
+          supabaseAdmin,
+          userId,
+          aiGenerationLogId,
+          status: 'failed',
+          rawJsonOutput: profileData,
+          confidenceGlobal,
+          lowConfidenceFields: inv.lowConfidenceFields,
+          rawTextInputHash: rawTextHash,
+          errorMessage: `jsonb_persist_failed: ${updateR.error.message}`,
+        })
+        return jsonResponse({ error: 'persist_failed', detail: updateR.error.message }, 500)
+      }
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -699,7 +707,7 @@ serve(withEdgeAnalytics('extract-profile', async (req) => {
     // Risco 3: alarme ntfy em produção quando ambas tentativas falham.
     // Dev: retorna 500 / Prod: loga e retorna 200
     // ──────────────────────────────────────────────────────────────────────
-    let saveProfileStatus: 'success' | 'failed' = 'success'
+    let saveProfileStatus: 'success' | 'failed' | 'skipped' = save ? 'success' : 'skipped'
     let saveErrorMessage: string | null = null
     let saveAttempts = 0
 
@@ -714,28 +722,31 @@ serve(withEdgeAnalytics('extract-profile', async (req) => {
     // O wrapper edge function save-profile foi deletado em 2026-05-27 —
     // ficou órfão (zero invocações em 14d). Se precisar rollback, restaurar
     // via git history.
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      saveAttempts = attempt
-      try {
-        const { error: rpcError } = await supabaseAdmin.rpc('save_profile_from_json', {
-          p_user_id: userId,
-          p_data: profileData,
-        })
-        if (!rpcError) {
-          saveProfileStatus = 'success'
-          saveErrorMessage = null
-          break
+    // DRY-RUN (save:false): pula a RPC — o cliente aplica o merge seletivo.
+    if (save) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        saveAttempts = attempt
+        try {
+          const { error: rpcError } = await supabaseAdmin.rpc('save_profile_from_json', {
+            p_user_id: userId,
+            p_data: profileData,
+          })
+          if (!rpcError) {
+            saveProfileStatus = 'success'
+            saveErrorMessage = null
+            break
+          }
+          saveProfileStatus = 'failed'
+          saveErrorMessage = `rpc: ${rpcError.message || 'unknown'}`
+          console.error(`[extract-profile] save_profile_from_json attempt ${attempt} failed user=${userId}: ${saveErrorMessage}`)
+        } catch (e) {
+          saveProfileStatus = 'failed'
+          saveErrorMessage = `rpc_exception: ${(e as Error).message}`
+          console.error(`[extract-profile] save_profile_from_json attempt ${attempt} exception user=${userId}: ${saveErrorMessage}`)
         }
-        saveProfileStatus = 'failed'
-        saveErrorMessage = `rpc: ${rpcError.message || 'unknown'}`
-        console.error(`[extract-profile] save_profile_from_json attempt ${attempt} failed user=${userId}: ${saveErrorMessage}`)
-      } catch (e) {
-        saveProfileStatus = 'failed'
-        saveErrorMessage = `rpc_exception: ${(e as Error).message}`
-        console.error(`[extract-profile] save_profile_from_json attempt ${attempt} exception user=${userId}: ${saveErrorMessage}`)
-      }
-      if (attempt < 2) {
-        await new Promise(r => setTimeout(r, SAVE_PROFILE_RETRY_DELAY_MS))
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, SAVE_PROFILE_RETRY_DELAY_MS))
+        }
       }
     }
 
