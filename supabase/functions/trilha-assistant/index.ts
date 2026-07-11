@@ -21,7 +21,7 @@ import { serve } from 'std/http/server'
 import { createClient } from 'supabase'
 import { trackAIGeneration, withEdgeAnalytics } from '../_shared/posthog.ts'
 
-const PROMPT_VERSION = 'assistant_v8'
+const PROMPT_VERSION = 'assistant_v9'
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -136,7 +136,7 @@ function toolsFor(openStep: OpenStep | null) {
             description:
                 'Use quando o usuário quer PREENCHER do zero uma seção que ainda falta (ex.: "quero pôr minhas skills", "adicionar experiência"). ' +
                 'O cliente injeta as perguntas reais daquela seção no chat. Escolha a section certa. ' +
-                'NÃO use pra EDITAR o que já existe (recomeça a coleta e a pessoa não vê o que já tem) — pra editar use os editores visuais: skills→edit_skills, interesses→edit_interests, idiomas→edit_languages.',
+                'NÃO use pra EDITAR o que já existe (recomeça a coleta e a pessoa não vê o que já tem) — pra editar use: skills→edit_skills, interesses→edit_interests, idiomas→edit_languages, áreas→edit_areas, cidade/modalidade→update_field.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -152,14 +152,15 @@ function toolsFor(openStep: OpenStep | null) {
         function: {
             name: 'update_field',
             description:
-                'Use quando o usuário quer MUDAR um campo de TEXTO simples do perfil: cargo/posição desejada (desired_position), NOME (name), LINKEDIN (linkedin), SITE/GITHUB/PORTFÓLIO (website) ou TELEFONE (phone). ' +
-                'Ex.: "muda meu cargo pra Analista de Dados", "meu nome agora é João Pereira", "adiciona meu linkedin linkedin.com/in/joao", "meu github é github.com/joao", "meu telefone é (11) 99999-9999". ' +
-                'NÃO grava direto — o app mostra um card de confirmar. Pra CIDADE, disponibilidade, área ou modalidade (que têm opções/typeahead), use start_section.',
+                'Use quando o usuário quer MUDAR um campo simples do perfil: cargo (desired_position), NOME (name), LINKEDIN (linkedin), SITE/GITHUB (website), TELEFONE (phone), CIDADE (city) ou MODALIDADE de trabalho (work_mode). ' +
+                'Ex.: "muda meu cargo pra Analista", "meu nome é João Pereira", "meu linkedin é linkedin.com/in/joao", "me mudei pra Recife" (city), "agora só quero remoto" (work_mode). ' +
+                'CITY value = "Cidade, UF". WORK_MODE value = os modos que ele QUER, separados por vírgula, dentre remote|hybrid|in_person (substitui os atuais — "só remoto"→"remote"; "remoto e híbrido"→"remote,hybrid"). ' +
+                'NÃO grava direto — o app mostra um card de confirmar. Pra ÁREA de interesse (lista), use edit_areas.',
             parameters: {
                 type: 'object',
                 properties: {
-                    field: { type: 'string', enum: ['desired_position', 'name', 'linkedin', 'website', 'phone'], description: 'O campo a mudar.' },
-                    value: { type: 'string', description: 'O novo valor, como o usuário disse.' },
+                    field: { type: 'string', enum: ['desired_position', 'name', 'linkedin', 'website', 'phone', 'city', 'work_mode'], description: 'O campo a mudar.' },
+                    value: { type: 'string', description: 'O novo valor (ver formato de city/work_mode na descrição).' },
                     value_label: { type: 'string', description: 'Como mostrar o novo valor (geralmente = value).' },
                     ...REPLY_PARAM,
                 },
@@ -326,6 +327,20 @@ function toolsFor(openStep: OpenStep | null) {
     tools.push({
         type: 'function',
         function: {
+            name: 'edit_areas',
+            description:
+                'Use quando o usuário quer VER/EDITAR/MEXER nas ÁREAS de interesse (o que mais pesa no match) que JÁ tem — geral ou uma troca/remoção ("muda minha área pra Marketing", "não quero mais trabalhar com vendas", "editar minhas áreas"). ' +
+                'O app abre um EDITOR VISUAL com as áreas em chips (tirar/adicionar). Se ele ainda NÃO tem áreas, use start_section.',
+            parameters: {
+                type: 'object',
+                properties: { ...REPLY_PARAM },
+                required: ['reply'],
+            },
+        },
+    })
+    tools.push({
+        type: 'function',
+        function: {
             name: 'edit_languages',
             description:
                 'Use quando o usuário quer VER/EDITAR/MEXER nos IDIOMAS que JÁ tem, de forma geral ("editar meus idiomas", "mudar o nível do meu inglês", "ver meus idiomas"). ' +
@@ -372,11 +387,12 @@ function systemPrompt(hasStep: boolean): string {
         'Seu ESCOPO é fechado: currículo, carreira, vagas/estágio e como o app funciona. Qualquer coisa fora disso → chame out_of_scope.',
         'A cada mensagem você DEVE chamar EXATAMENTE UMA ferramenta. Toda ferramenta tem o campo reply (sua fala pro usuário).',
         'Você é PLANNER, não escreve nada no perfil. Para o usuário PREENCHER/ADICIONAR algo, chame start_section (o app entrega as perguntas certas). NUNCA invente dados que o usuário não disse.',
-        'Pra ALTERAR o perfil você PROPÕE — o app confirma antes de gravar. Campos de texto pessoais (cargo, nome, linkedin, site, telefone) → update_field. ADICIONAR skill/idioma/interesse → add_item; REMOVER algo (skill/idioma/interesse/experiência/formação/cert/prêmio/projeto) → remove_item. Mudar UM CAMPO de uma experiência/formação/certificação que JÁ existe (cargo, empresa, curso, instituição, semestre, emissor) → update_item. REESCREVER o resumo → rewrite_summary. MELHORAR um bullet de experiência → improve_bullet. Mudar cidade/disponibilidade/área/modalidade, ou ADICIONAR experiência/projeto/certificação do zero → start_section.',
+        'Pra ALTERAR o perfil você PROPÕE — o app confirma antes de gravar. Campos simples (cargo, nome, linkedin, site, telefone, CIDADE, MODALIDADE de trabalho) → update_field. ÁREA de interesse → edit_areas. ADICIONAR skill/idioma/interesse → add_item; REMOVER algo (skill/idioma/interesse/experiência/formação/cert/prêmio/projeto) → remove_item. Mudar UM CAMPO de uma experiência/formação/certificação que JÁ existe (cargo, empresa, curso, instituição, semestre, emissor) → update_item. REESCREVER o resumo → rewrite_summary. MELHORAR um bullet de experiência → improve_bullet. Só pra ADICIONAR experiência/projeto/certificação do zero, ou preencher disponibilidade → start_section.',
         hasStep
             ? 'HÁ UM PASSO ABERTO. Se a mensagem é plausivelmente a resposta a ele, chame answer_current_step. Na dúvida entre responder o passo e conversar, PREFIRA responder o passo. Se ele não entendeu a pergunta, explain_step; se quer pular (e é opcional), skip_step.'
             : 'Não há passo aberto no momento.',
-        'Pra VER/EDITAR/MEXER no que a pessoa JÁ tem, de forma geral, use o editor visual certo: SKILLS → edit_skills; INTERESSES/temas → edit_interests; IDIOMAS (nome + nível) → edit_languages. Se ela diz EXATAMENTE o que fazer numa skill ("tira Python", "adiciona SQL") → remove_item/add_item. NUNCA use start_section pra editar o que já existe (recomeça a coleta do zero) — start_section só quando a seção está VAZIA.',
+        'Pra VER/EDITAR/MEXER no que a pessoa JÁ tem, de forma geral, use o editor visual certo: SKILLS → edit_skills; INTERESSES/temas → edit_interests; IDIOMAS (nome + nível) → edit_languages; ÁREAS de interesse → edit_areas. Se ela diz EXATAMENTE o que fazer numa skill/idioma/interesse ("tira Python", "adiciona SQL") → remove_item/add_item. NUNCA use start_section pra editar o que já existe (recomeça a coleta do zero) — start_section só quando a seção está VAZIA.',
+        'Se o usuário pede DUAS ou mais mudanças na MESMA lista numa frase só ("adiciona SQL e tira Excel", "troca Python por Java", "edita minhas skills"), abra o EDITOR daquela lista (edit_skills/edit_interests/edit_areas/edit_languages) — lá ele tira e adiciona vários de uma vez. Você chama UMA ferramenta por vez; se ele pede mudanças em seções DIFERENTES numa frase, faça a 1ª e ofereça a próxima na reply.',
         'Se o usuário COLAR um bloco com vários dados de uma vez, use extract_profile pros campos simples (skills/idiomas/cargo) e mencione o resto (experiência/formação/cidade) na reply pra ele preencher.',
         'Seja honesto (realismo > inflação): se o perfil está incompleto, diga o que falta; se já está achável, diga que match baixo numa vaga é fit real, não perfil incompleto.',
         // COMO O APP FUNCIONA — pra responder mecânica do app sem inventar tela/botão.

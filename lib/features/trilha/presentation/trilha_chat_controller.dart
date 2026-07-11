@@ -256,6 +256,8 @@ class TrilhaChatController extends ChangeNotifier {
     this.assistSkillSuggester,
     this.assistInterestsLoader,
     this.assistInterestsReplacer,
+    this.assistAreasLoader,
+    this.assistAreasReplacer,
     this.assistLanguagesLoader,
     this.assistLanguageUpserter,
     this.assistItemFieldReader,
@@ -350,6 +352,12 @@ class TrilhaChatController extends ChangeNotifier {
 
   /// Editor visual de interesses: grava a lista FINAL (replace-all).
   final Future<void> Function(List<String>)? assistInterestsReplacer;
+
+  /// Editor visual de ÁREAS: áreas visíveis atuais (user_added).
+  final Future<List<String>> Function()? assistAreasLoader;
+
+  /// Editor visual de ÁREAS: grava a lista FINAL (replace-all + canônica oculta).
+  final Future<void> Function(List<String>)? assistAreasReplacer;
 
   /// Editor visual de idiomas: pares (nome, nível-canônico) atuais.
   final Future<List<(String, String?)>> Function()? assistLanguagesLoader;
@@ -893,6 +901,9 @@ class TrilhaChatController extends ChangeNotifier {
       case 'edit_interests':
         await _proposeListEditor('interest', turn);
         return;
+      case 'edit_areas':
+        await _proposeListEditor('area', turn);
+        return;
       case 'edit_languages':
         await _proposeLanguagesEditor(turn);
         return;
@@ -1051,6 +1062,13 @@ class TrilhaChatController extends ChangeNotifier {
     if (_disposed) return;
     if (current == null) {
       _replyAndKeepStep('Essa eu ainda não consigo mudar por aqui 🙂', step);
+      return;
+    }
+    // Modalidade precisa casar ≥1 id válido — senão o card diria "mudei" e
+    // zeraria o campo (a gravação é replace). Pede a modalidade certa.
+    if (field == 'work_mode' && !assistWorkModeValueValid(value)) {
+      _replyAndKeepStep(
+          'Qual modalidade você quer: remoto, híbrido ou presencial? 🙂', step);
       return;
     }
     if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
@@ -1312,6 +1330,8 @@ class TrilhaChatController extends ChangeNotifier {
         return 'seus idiomas';
       case 'interest':
         return 'seus interesses';
+      case 'area':
+        return 'suas áreas';
       case 'experience':
         return 'suas experiências';
       case 'project':
@@ -1663,10 +1683,26 @@ class TrilhaChatController extends ChangeNotifier {
   /// Sem itens ainda ⇒ editar não faz sentido → cai na COLETA (start_section).
   Future<void> _proposeListEditor(String kind, AssistantTurn turn) async {
     final isSkill = kind == 'skill';
-    final loader = isSkill ? assistSkillsLoader : assistInterestsLoader;
-    final section = isSkill ? 'skills' : 'interests';
-    final noun = isSkill ? 'skills' : 'interesses';
-    final title = isSkill ? 'Suas habilidades' : 'Seus interesses';
+    final loader = kind == 'skill'
+        ? assistSkillsLoader
+        : kind == 'interest'
+            ? assistInterestsLoader
+            : assistAreasLoader;
+    final section = kind == 'skill'
+        ? 'skills'
+        : kind == 'interest'
+            ? 'interests'
+            : 'area';
+    final noun = kind == 'skill'
+        ? 'skills'
+        : kind == 'interest'
+            ? 'interesses'
+            : 'áreas';
+    final title = kind == 'skill'
+        ? 'Suas habilidades'
+        : kind == 'interest'
+            ? 'Seus interesses'
+            : 'Suas áreas de interesse';
     List<String> current = const [];
     if (loader != null) {
       try {
@@ -1720,8 +1756,10 @@ class TrilhaChatController extends ChangeNotifier {
       cancelListEditor(id);
       return;
     }
-    if (item.kind == 'interest') {
-      final replacer = assistInterestsReplacer;
+    // interesses E áreas gravam REPLACE-ALL da lista final (idem write-back).
+    if (item.kind == 'interest' || item.kind == 'area') {
+      final replacer =
+          item.kind == 'area' ? assistAreasReplacer : assistInterestsReplacer;
       if (replacer != null) {
         final before = List<String>.of(item.initial);
         // `removed` são strings EXATAS do baseline (item.initial) — comparar por
@@ -1739,7 +1777,7 @@ class TrilhaChatController extends ChangeNotifier {
           // Falha na gravação (all-or-nothing): NÃO marca aplicado — mantém o
           // card pendente pra reaplicar, sem alegar sucesso falso.
           if (_disposed) return;
-          _pushAi('Não consegui salvar seus interesses agora 🤔 Tenta de novo.');
+          _pushAi('Não consegui salvar agora 🤔 Tenta de novo.');
           _notify();
           return;
         }

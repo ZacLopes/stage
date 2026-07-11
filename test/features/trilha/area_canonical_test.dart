@@ -49,5 +49,16 @@ void main() {
       final tec = out.firstWhere((t) => t.title == 'Tecnologia');
       expect(tec.source, DesiredTitleSource.userAdded);
     });
+    test('canônica mis-cased → grava na grafia canônica (bucket exato)', () {
+      // "recursos humanos" (autocapitalize do teclado) tem que virar
+      // "Recursos Humanos" pra cair no bucket EXATO da busca do admin, não
+      // num bucket órfão minúsculo que o recrutador não filtra.
+      final out = withInferredAreas('u', [_dt('recursos humanos')]);
+      final titles = out.map((t) => t.title).toList();
+      expect(titles, contains('Recursos Humanos'));
+      expect(titles, isNot(contains('recursos humanos')));
+      final rh = out.firstWhere((t) => t.title == 'Recursos Humanos');
+      expect(rh.source, DesiredTitleSource.userAdded);
+    });
   });
 }

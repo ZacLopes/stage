@@ -11,7 +11,15 @@ import '../../../services/analytics_service.dart';
 import '../../../services/profile_snapshot_service.dart';
 import '../../profile/application/profile_gaps.dart';
 import '../../profile/data/repositories/profile_repository_supabase.dart';
-import '../../profile/domain/entities/job_preferences.dart' show JobPreferences;
+import '../../profile/domain/entities/job_preferences.dart'
+    show
+        JobPreferences,
+        WorkMode,
+        workModeFromId,
+        workModeLabel,
+        DesiredTitle,
+        DesiredTitleSource;
+import 'area_canonical.dart' show withInferredAreas;
 import '../../profile/domain/entities/personal_info.dart' show PersonalInfo;
 import '../../profile/domain/entities/education.dart' show Education;
 import '../../profile/domain/entities/simple_lists.dart'
@@ -427,6 +435,54 @@ Future<void> assistReplaceInterests(
   await repo.replaceInterests(userId, clean);
 }
 
+/// Editor visual de ÁREAS — só as áreas VISÍVEIS do usuário (user_added), sem as
+/// canônicas ocultas (inferred). Failure-safe.
+Future<List<String>> loadAssistAreas(
+  String userId, {
+  ProfileRepository? repository,
+}) async {
+  try {
+    final repo = repository ?? ProfileRepositorySupabase();
+    return [
+      for (final t in await repo.getDesiredTitles(userId))
+        if ((t.source ?? DesiredTitleSource.userAdded) !=
+            DesiredTitleSource.inferred)
+          t.title
+    ];
+  } catch (_) {
+    return const [];
+  }
+}
+
+/// Editor visual de ÁREAS — grava a lista FINAL (replace-all), REGERANDO a
+/// canônica oculta (inferred) de cada área não-canônica pra o candidato seguir
+/// matchável no feed/busca (mesma lógica do write-back da coleta).
+Future<void> assistReplaceAreas(
+  String userId,
+  List<String> areas, {
+  ProfileRepository? repository,
+}) async {
+  final repo = repository ?? ProfileRepositorySupabase();
+  // Constrói as áreas VISÍVEIS (user_added, dedup por título) e delega o resto
+  // — canônica oculta + normalização de caixa — pro ponto único withInferredAreas
+  // (mesma derivação da coleta e do editor do perfil).
+  final userAreas = <DesiredTitle>[];
+  final seen = <String>{};
+  for (final area in areas) {
+    final t = area.trim();
+    if (t.isEmpty) continue;
+    if (!seen.add(t.toLowerCase())) continue;
+    userAreas.add(DesiredTitle(
+      id: '',
+      userId: userId,
+      title: t,
+      source: DesiredTitleSource.userAdded,
+      orderIndex: userAreas.length,
+    ));
+  }
+  await repo.replaceDesiredTitles(userId, withInferredAreas(userId, userAreas));
+}
+
 /// Fase B — LEITOR: valor atual de um campo editável pelo assistente
 /// (`{raw, text, label}`; null ⇒ não editável por aqui — vai via start_section).
 /// Por ora só `desired_position` (texto livre); o resto muda via chips/typeahead.
@@ -466,6 +522,18 @@ Future<Map<String, String>?> assistReadFieldMap(
       final p = await repo.getPersonal(userId);
       final v = p?.phoneNumber?.trim() ?? '';
       return {'raw': v, 'text': v.isEmpty ? '—' : v, 'label': 'Telefone'};
+    case 'city':
+      final p = await repo.getPersonal(userId);
+      final city = p?.locationCity?.trim() ?? '';
+      final st = p?.locationState?.trim() ?? '';
+      final show = city.isEmpty ? '' : (st.isEmpty ? city : '$city, $st');
+      return {'raw': show, 'text': show.isEmpty ? '—' : show, 'label': 'Cidade'};
+    case 'work_mode':
+      final prefs = await repo.getJobPreferences(userId);
+      final modes = prefs?.workMode ?? const <WorkMode>[];
+      final ids = modes.map((mo) => mo.name).join(',');
+      final labels = modes.map(workModeLabel).join(', ');
+      return {'raw': ids, 'text': labels.isEmpty ? '—' : labels, 'label': 'Modalidade'};
   }
   return null;
 }
@@ -523,8 +591,57 @@ Future<void> assistWriteFieldValue(
       final p = await repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
       await repo.upsertPersonal(p.copyWith(phoneNumber: value.trim()));
       return;
+    case 'city':
+      final p = await repo.getPersonal(userId) ?? PersonalInfo(userId: userId);
+      // "Cidade|UF" (typeahead) ou "Cidade, UF" ou só "Cidade".
+      final raw = value.trim();
+      var city = raw;
+      String? st;
+      if (raw.contains('|')) {
+        final parts = raw.split('|');
+        city = parts[0].trim();
+        if (parts.length >= 2 && parts[1].trim().isNotEmpty) st = parts[1].trim();
+      } else if (raw.contains(',')) {
+        final parts = raw.split(',');
+        city = parts[0].trim();
+        if (parts.length >= 2 && parts[1].trim().isNotEmpty) st = parts[1].trim();
+      }
+      // UF do value é autoritativa: sem UF no texto ⇒ estado limpo (troca de
+      // cidade não herda a UF antiga, e o undo pra uma cidade sem UF restaura
+      // null certinho). O reader reemite "Cidade, UF" sempre que há estado.
+      await repo.upsertPersonal(p.copyWith(
+        locationCity: city,
+        locationState: st,
+        clearLocationState: true,
+        locationCountry: p.locationCountry ?? 'BR',
+      ));
+      return;
+    case 'work_mode':
+      final prefs =
+          await repo.getJobPreferences(userId) ?? JobPreferences(userId: userId);
+      // value = ids separados por vírgula (remote,hybrid,in_person). Replace.
+      final modes = value
+          .split(',')
+          .map((s) => workModeFromId(s))
+          .whereType<WorkMode>()
+          .toSet()
+          .toList();
+      // Guarda: value NÃO-vazio que não casa nenhum id NÃO apaga a modalidade
+      // (o card mostraria um label plausível e zeraria o campo). Só o undo
+      // pra vazio (value == '') pode gravar lista vazia.
+      if (modes.isEmpty && value.trim().isNotEmpty) return;
+      await repo.upsertJobPreferences(prefs.copyWith(workMode: modes));
+      return;
   }
 }
+
+/// True se [value] (ids separados por vírgula) casa ≥1 modalidade válida.
+/// Usado no propose de work_mode pra não mostrar um card que zeraria o campo.
+bool assistWorkModeValueValid(String value) => value
+    .split(',')
+    .map((s) => workModeFromId(s))
+    .whereType<WorkMode>()
+    .isNotEmpty;
 
 /// Médios — LÊ um campo de item multi-campo (experiência/formação/cert),
 /// resolvendo QUAL item pela query. Retorna {id, raw, text, label}; null ⇒ item

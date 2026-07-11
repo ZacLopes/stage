@@ -40,9 +40,16 @@ class _ListEditorCardState extends State<ListEditorCard> {
 
   bool get _hasChanges => _removed.isNotEmpty || _added.isNotEmpty;
 
-  String get _noun => widget.item.kind == 'skill' ? 'skills' : 'interesses';
-  String get _singular =>
-      widget.item.kind == 'skill' ? 'habilidade' : 'interesse';
+  String get _noun => widget.item.kind == 'skill'
+      ? 'skills'
+      : widget.item.kind == 'area'
+          ? 'áreas'
+          : 'interesses';
+  String get _singular => widget.item.kind == 'skill'
+      ? 'habilidade'
+      : widget.item.kind == 'area'
+          ? 'área'
+          : 'interesse';
 
   @override
   void dispose() {
@@ -130,7 +137,9 @@ class _ListEditorCardState extends State<ListEditorCard> {
             Text(
                 widget.item.kind == 'skill'
                     ? 'Skills atualizadas'
-                    : 'Interesses atualizados',
+                    : widget.item.kind == 'area'
+                        ? 'Áreas atualizadas'
+                        : 'Interesses atualizados',
                 style: AppTextStyles.overline.copyWith(color: AppColors.success)),
           ]),
           if (added.isNotEmpty) ...[

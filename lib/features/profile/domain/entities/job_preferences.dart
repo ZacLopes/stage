@@ -285,6 +285,38 @@ ExperienceLevel? _expLevelFromDb(String s) {
   }
 }
 
+/// Parser público de um id/nome de modalidade → enum (aceita pt/en). null se inválido.
+WorkMode? workModeFromId(String s) {
+  switch (s.trim().toLowerCase()) {
+    case 'remote':
+    case 'remoto':
+      return WorkMode.remote;
+    case 'hybrid':
+    case 'hibrido':
+    case 'híbrido':
+      return WorkMode.hybrid;
+    case 'in_person':
+    case 'inperson':
+    case 'presencial':
+    case 'onsite':
+      return WorkMode.inPerson;
+    default:
+      return null;
+  }
+}
+
+/// Rótulo pt-BR de uma modalidade.
+String workModeLabel(WorkMode m) {
+  switch (m) {
+    case WorkMode.remote:
+      return 'Remoto';
+    case WorkMode.hybrid:
+      return 'Híbrido';
+    case WorkMode.inPerson:
+      return 'Presencial';
+  }
+}
+
 String _workModeToDb(WorkMode m) {
   switch (m) {
     case WorkMode.remote: return 'remote';

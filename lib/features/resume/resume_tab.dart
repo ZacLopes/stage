@@ -199,6 +199,11 @@ class _ResumeTabState extends State<ResumeTab>
         await assistReplaceInterests(uid, names);
         _scheduleProfileReload();
       },
+      assistAreasLoader: () => loadAssistAreas(uid),
+      assistAreasReplacer: (names) async {
+        await assistReplaceAreas(uid, names);
+        _scheduleProfileReload();
+      },
       assistLanguagesLoader: () => loadAssistLanguages(uid),
       assistLanguageUpserter: (name, level) async {
         await assistUpsertLanguage(uid, name, level);

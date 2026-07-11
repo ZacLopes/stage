@@ -4,6 +4,8 @@
 // usuário pediu "Java SE 8".
 
 import 'package:career_gamification/features/profile/domain/entities/education.dart';
+import 'package:career_gamification/features/profile/domain/entities/job_preferences.dart';
+import 'package:career_gamification/features/profile/domain/entities/personal_info.dart';
 import 'package:career_gamification/features/profile/domain/entities/simple_lists.dart';
 import 'package:career_gamification/features/profile/domain/repositories/profile_repository.dart';
 import 'package:career_gamification/features/trilha/application/trilha_session.dart';
@@ -37,6 +39,38 @@ class _CertRepo implements ProfileRepository {
   Future<void> deleteCertification(String id) async => deleted.add(id);
   @override
   Future<Certification> addCertification(Certification c) async => c;
+
+  @override
+  dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
+}
+
+class _PersonalRepo implements ProfileRepository {
+  PersonalInfo? personal;
+  _PersonalRepo(this.personal);
+
+  @override
+  Future<PersonalInfo?> getPersonal(String userId) async => personal;
+  @override
+  Future<PersonalInfo> upsertPersonal(PersonalInfo p) async {
+    personal = p;
+    return p;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
+}
+
+class _PrefsRepo implements ProfileRepository {
+  JobPreferences? prefs;
+  _PrefsRepo(this.prefs);
+
+  @override
+  Future<JobPreferences?> getJobPreferences(String userId) async => prefs;
+  @override
+  Future<JobPreferences> upsertJobPreferences(JobPreferences p) async {
+    prefs = p;
+    return p;
+  }
 
   @override
   dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
@@ -76,5 +110,41 @@ void main() {
     expect(repo.updated?.institution, 'USP');
     // Trocar o nome quebra o vínculo canônico antigo (senão fica sob a IES errada).
     expect(repo.updated?.institutionId, isNull);
+  });
+
+  // Regressão do review dos "Médios": a UF vem do value da cidade — sem UF no
+  // texto o estado é LIMPO, não herda o antigo (senão o undo pra uma cidade sem
+  // UF deixaria par cidade/UF impossível, mislocando o candidato).
+  test('assistWriteFieldValue city: value sem UF limpa o estado antigo', () async {
+    final repo = _PersonalRepo(
+        const PersonalInfo(userId: 'u', locationCity: 'São Paulo', locationState: 'SP'));
+    await assistWriteFieldValue('u', 'city', 'Salvador', repository: repo);
+    expect(repo.personal?.locationCity, 'Salvador');
+    expect(repo.personal?.locationState, isNull); // não herda 'SP'
+  });
+
+  test('assistWriteFieldValue city: value com UF grava cidade + estado', () async {
+    final repo = _PersonalRepo(
+        const PersonalInfo(userId: 'u', locationCity: 'Salvador', locationState: null));
+    await assistWriteFieldValue('u', 'city', 'Recife, PE', repository: repo);
+    expect(repo.personal?.locationCity, 'Recife');
+    expect(repo.personal?.locationState, 'PE');
+  });
+
+  // Regressão do review: um value não-vazio que não casa nenhum id NÃO pode
+  // zerar a modalidade (o card mostraria label bonito e apagaria o campo).
+  test('assistWriteFieldValue work_mode: value inválido NÃO zera a modalidade',
+      () async {
+    final repo = _PrefsRepo(const JobPreferences(
+        userId: 'u', workMode: [WorkMode.remote, WorkMode.hybrid]));
+    await assistWriteFieldValue('u', 'work_mode', 'flexível', repository: repo);
+    expect(repo.prefs?.workMode, [WorkMode.remote, WorkMode.hybrid]);
+  });
+
+  test('assistWriteFieldValue work_mode: value vazio (undo) zera', () async {
+    final repo =
+        _PrefsRepo(const JobPreferences(userId: 'u', workMode: [WorkMode.remote]));
+    await assistWriteFieldValue('u', 'work_mode', '', repository: repo);
+    expect(repo.prefs?.workMode, isEmpty);
   });
 }

@@ -73,6 +73,8 @@ void main() {
     Future<List<String>> Function()? skillSuggester,
     Future<List<String>> Function()? interestsLoader,
     Future<void> Function(List<String>)? interestsReplacer,
+    Future<List<String>> Function()? areasLoader,
+    Future<void> Function(List<String>)? areasReplacer,
     Future<List<(String, String?)>> Function()? languagesLoader,
     Future<void> Function(String, String?)? languageUpserter,
     Future<Map<String, String>?> Function(String, String, String)?
@@ -107,6 +109,8 @@ void main() {
       assistSkillSuggester: skillSuggester,
       assistInterestsLoader: interestsLoader,
       assistInterestsReplacer: interestsReplacer,
+      assistAreasLoader: areasLoader,
+      assistAreasReplacer: areasReplacer,
       assistLanguagesLoader: languagesLoader,
       assistLanguageUpserter: languageUpserter,
       assistItemFieldReader: itemFieldReader,
@@ -1248,6 +1252,123 @@ void main() {
         c.thread
             .whereType<AiMsgItem>()
             .any((m) => m.text.contains('número do semestre')),
+        isTrue);
+  });
+
+  // ── Médios restante: áreas (editor), cidade e modalidade (update_field) ────
+
+  test('edit_areas: editor → salvar (replace) → desfazer', () async {
+    final replaced = <List<String>>[];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'edit_areas',
+        args: {},
+        reply: '',
+        promptVersion: 'assistant_v9',
+      )),
+      areasLoader: () async => ['Vendas', 'Marketing'],
+      areasReplacer: (names) async => replaced.add(List.of(names)),
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('quero editar minhas áreas');
+    final card = c.thread.whereType<ListEditorItem>().single;
+    expect(card.kind, 'area');
+    expect(card.initial, ['Vendas', 'Marketing']);
+    await c.applyListEditor(card.id, added: ['Dados'], removed: ['Vendas']);
+    expect(replaced, [
+      ['Marketing', 'Dados']
+    ]);
+    await c.undoListEditor(card.id);
+    expect(replaced.last, ['Vendas', 'Marketing']);
+  });
+
+  test('update_field city: propõe → confirma → desfaz', () async {
+    final writes = <List<String>>[];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'update_field',
+        args: {'field': 'city', 'value': 'Recife, PE', 'value_label': 'Recife, PE'},
+        reply: '',
+        promptVersion: 'assistant_v9',
+      )),
+      readField: (field) async => field == 'city'
+          ? const AssistFieldValue(
+              raw: 'São Paulo, SP', text: 'São Paulo, SP', label: 'Cidade')
+          : null,
+      writeField: (field, value) async => writes.add([field, value]),
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('muda minha cidade pra Recife, PE');
+    final pending = c.thread
+        .whereType<AssistEditItem>()
+        .singleWhere((e) => e.status == AssistEditStatus.pending);
+    expect(pending.beforeText, 'São Paulo, SP');
+    expect(pending.afterText, 'Recife, PE');
+    await c.confirmAssistEdit(pending.id);
+    expect(writes, [
+      ['city', 'Recife, PE']
+    ]);
+    await c.undoAssistEdit(pending.id);
+    expect(writes.last, ['city', 'São Paulo, SP']);
+  });
+
+  test('update_field work_mode: propõe → confirma (replace) → desfaz', () async {
+    final writes = <List<String>>[];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'update_field',
+        args: {'field': 'work_mode', 'value': 'remote', 'value_label': 'Remoto'},
+        reply: '',
+        promptVersion: 'assistant_v9',
+      )),
+      readField: (field) async => field == 'work_mode'
+          ? const AssistFieldValue(
+              raw: 'remote,hybrid', text: 'Remoto, Híbrido', label: 'Modalidade')
+          : null,
+      writeField: (field, value) async => writes.add([field, value]),
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('muda minha modalidade pra só remoto');
+    final pending = c.thread
+        .whereType<AssistEditItem>()
+        .singleWhere((e) => e.status == AssistEditStatus.pending);
+    expect(pending.beforeText, 'Remoto, Híbrido');
+    expect(pending.afterText, 'Remoto');
+    await c.confirmAssistEdit(pending.id);
+    expect(writes, [
+      ['work_mode', 'remote']
+    ]);
+    // Undo regrava os ids anteriores (não os rótulos).
+    await c.undoAssistEdit(pending.id);
+    expect(writes.last, ['work_mode', 'remote,hybrid']);
+  });
+
+  test('update_field work_mode inválido → pede a modalidade, sem card nem write',
+      () async {
+    final writes = <List<String>>[];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'update_field',
+        args: {'field': 'work_mode', 'value': 'flexível', 'value_label': 'Flexível'},
+        reply: '',
+        promptVersion: 'assistant_v9',
+      )),
+      readField: (field) async => field == 'work_mode'
+          ? const AssistFieldValue(raw: 'remote', text: 'Remoto', label: 'Modalidade')
+          : null,
+      writeField: (field, value) async => writes.add([field, value]),
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('quero trabalhar de forma flexível');
+    // Não propõe card (não gravaria nada), pede a modalidade certa.
+    expect(c.thread.whereType<AssistEditItem>(), isEmpty);
+    expect(writes, isEmpty);
+    expect(
+        c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('modalidade')),
         isTrue);
   });
 }
