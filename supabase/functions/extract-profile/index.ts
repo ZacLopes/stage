@@ -785,7 +785,10 @@ serve(withEdgeAnalytics('extract-profile', async (req) => {
       supabaseAdmin,
       userId,
       aiGenerationLogId,
-      status: saveProfileStatus === 'success' ? 'success' : 'partial',
+      // 'partial' SÓ quando a RPC FALHOU. Dry-run (save:false) tem status
+      // 'skipped' e NÃO é 'partial' — senão todo preview de conflito inflaria o
+      // monitor de partial-rate (alarme >5%) com falso positivo.
+      status: saveProfileStatus === 'failed' ? 'partial' : 'success',
       rawJsonOutput: profileData,
       confidenceGlobal,
       lowConfidenceFields: inv.lowConfidenceFields,

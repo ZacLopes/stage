@@ -140,20 +140,81 @@ class CvConflictDiff {
       }
     }
 
+    // NOME: só conflita se genuinamente diferente. Se um é PREFIXO do outro (CV
+    // sem sobrenome, ou mais completo) NÃO propõe — evita sobrescrever/derrubar
+    // o sobrenome que a pessoa digitou.
     final cvName =
         '${_s(p['first_name'])} ${_s(p['last_name'])}'.replaceAll(RegExp(r'\s+'), ' ').trim();
     final curName = '${cur?.firstName ?? ''} ${cur?.lastName ?? ''}'
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
-    scalar(ConflictSection.name, 'name', 'Nome', cvName, curName);
+    if (cvName.isNotEmpty) {
+      final cn = _norm(cvName), yn = _norm(curName);
+      if (curName.isEmpty) {
+        rows.add(ConflictRow(
+            id: nextId(),
+            section: ConflictSection.name,
+            kind: ConflictKind.addition,
+            label: 'Nome',
+            cvText: cvName,
+            field: 'name',
+            value: cvName));
+      } else if (cn != yn && !cn.startsWith(yn) && !yn.startsWith(cn)) {
+        rows.add(ConflictRow(
+            id: nextId(),
+            section: ConflictSection.name,
+            kind: ConflictKind.conflict,
+            label: 'Nome',
+            cvText: cvName,
+            currentText: curName,
+            field: 'name',
+            value: cvName));
+      }
+    }
 
     scalar(ConflictSection.phone, 'phone', 'Telefone', _s(p['phone_number']),
         cur?.phoneNumber ?? '');
 
-    final cvCity = _joinCity(_s(p['location_city']), _s(p['location_state']));
-    final curCity =
-        _joinCity(cur?.locationCity ?? '', cur?.locationState ?? '');
-    scalar(ConflictSection.city, 'city', 'Cidade', cvCity, curCity);
+    // CIDADE: compara só o NOME da cidade pro conflito. UF ausente no CV NÃO
+    // vira conflito (aceitar apagaria a UF salva). CV com UF que o perfil não
+    // tem → adição (enriquece), sem risco.
+    final cvCityName = _s(p['location_city']);
+    final cvUf = _s(p['location_state']);
+    final curCityName = (cur?.locationCity ?? '').trim();
+    final curUf = (cur?.locationState ?? '').trim();
+    if (cvCityName.isNotEmpty) {
+      final cvFull = _joinCity(cvCityName, cvUf);
+      if (curCityName.isEmpty) {
+        rows.add(ConflictRow(
+            id: nextId(),
+            section: ConflictSection.city,
+            kind: ConflictKind.addition,
+            label: 'Cidade',
+            cvText: cvFull,
+            field: 'city',
+            value: cvFull));
+      } else if (_norm(cvCityName) != _norm(curCityName)) {
+        rows.add(ConflictRow(
+            id: nextId(),
+            section: ConflictSection.city,
+            kind: ConflictKind.conflict,
+            label: 'Cidade',
+            cvText: cvFull,
+            currentText: _joinCity(curCityName, curUf),
+            field: 'city',
+            value: cvFull));
+      } else if (cvUf.isNotEmpty && curUf.isEmpty) {
+        // Mesma cidade, o CV traz a UF que faltava → adiciona (não apaga nada).
+        rows.add(ConflictRow(
+            id: nextId(),
+            section: ConflictSection.city,
+            kind: ConflictKind.addition,
+            label: 'Cidade (UF)',
+            cvText: cvFull,
+            field: 'city',
+            value: cvFull));
+      }
+    }
 
     scalar(ConflictSection.summary, 'summary', 'Resumo', _s(p['summary']),
         cur?.summary ?? '');
@@ -288,73 +349,80 @@ class CvConflictDiff {
 
   static void _diffExperiences(Map<String, dynamic> cv, ProfileSnapshot current,
       List<ConflictRow> rows, String Function() nextId) {
-    // Casa por EMPRESA normalizada (o caso comum de re-import é a mesma empresa
-    // com cargo/datas refinados). Sem empresa correspondente → experiência nova.
-    final curByCompany = <String, Experience>{};
+    // Chave composta (empresa|cargo) pra "idêntico"; lista por empresa pra
+    // decidir conflito de cargo SÓ quando há EXATAMENTE 1 experiência na empresa
+    // (senão 2 papéis diferentes na mesma empresa colapsariam num conflito falso
+    // que sobrescreveria o cargo errado).
+    final byCompany = <String, List<Experience>>{};
+    final composite = <String>{};
     for (final e in current.experiences) {
-      curByCompany.putIfAbsent(_norm(e.company), () => e);
+      byCompany.putIfAbsent(_norm(e.company), () => []).add(e);
+      composite.add(_norm('${e.company}|${e.title}'));
     }
     for (final it in _list(cv['experiences'])) {
       final title = _s(it['title']);
       final company = _s(it['company']);
       if (title.isEmpty && company.isEmpty) continue;
-      final match = company.isEmpty ? null : curByCompany[_norm(company)];
-      final label = [title, company].where((s) => s.isNotEmpty).join(' · ');
-      if (match == null) {
-        rows.add(ConflictRow(
-            id: nextId(),
-            section: ConflictSection.experience,
-            kind: ConflictKind.addition,
-            label: label,
-            cvText: label,
-            cvItem: it));
-      } else if (title.isNotEmpty && _norm(title) != _norm(match.title)) {
-        // Mesma empresa, CARGO diferente → conflito editável (assistWriteItemField).
+      if (composite.contains(_norm('$company|$title'))) continue; // idêntico
+      final same = company.isEmpty ? const <Experience>[] : (byCompany[_norm(company)] ?? const []);
+      if (same.length == 1 && title.isNotEmpty) {
         rows.add(ConflictRow(
             id: nextId(),
             section: ConflictSection.experience,
             kind: ConflictKind.conflict,
-            label: 'Cargo · ${match.company}',
+            label: 'Cargo · ${same.first.company}',
             cvText: title,
-            currentText: match.title,
+            currentText: same.first.title,
             field: 'title',
             value: title,
-            refId: match.id));
+            refId: same.first.id));
+      } else if (_s(it['start_date']).isNotEmpty) {
+        // Papel novo (0 ou 2+ na empresa). Só oferece com data (o apply precisa
+        // de start_date; sem data seria "iniciada hoje").
+        rows.add(ConflictRow(
+            id: nextId(),
+            section: ConflictSection.experience,
+            kind: ConflictKind.addition,
+            label: [title, company].where((s) => s.isNotEmpty).join(' · '),
+            cvText: [title, company].where((s) => s.isNotEmpty).join(' · '),
+            cvItem: it));
       }
     }
   }
 
   static void _diffEducation(Map<String, dynamic> cv, ProfileSnapshot current,
       List<ConflictRow> rows, String Function() nextId) {
-    final curByInst = <String, Education>{};
+    final byInst = <String, List<Education>>{};
+    final composite = <String>{};
     for (final e in current.education) {
-      curByInst.putIfAbsent(_norm(e.institution), () => e);
+      byInst.putIfAbsent(_norm(e.institution), () => []).add(e);
+      composite.add(_norm('${e.institution}|${e.degree ?? ''}'));
     }
     for (final it in _list(cv['education'])) {
       final inst = _s(it['institution']);
       final degree = _s(it['degree']);
       if (inst.isEmpty && degree.isEmpty) continue;
-      final match = inst.isEmpty ? null : curByInst[_norm(inst)];
-      final label = [degree, inst].where((s) => s.isNotEmpty).join(' · ');
-      if (match == null) {
-        rows.add(ConflictRow(
-            id: nextId(),
-            section: ConflictSection.education,
-            kind: ConflictKind.addition,
-            label: label,
-            cvText: label,
-            cvItem: it));
-      } else if (degree.isNotEmpty && _norm(degree) != _norm(match.degree ?? '')) {
+      if (composite.contains(_norm('$inst|$degree'))) continue; // idêntico
+      final same = inst.isEmpty ? const <Education>[] : (byInst[_norm(inst)] ?? const []);
+      if (same.length == 1 && degree.isNotEmpty) {
         rows.add(ConflictRow(
             id: nextId(),
             section: ConflictSection.education,
             kind: ConflictKind.conflict,
-            label: 'Curso · ${match.institution}',
+            label: 'Curso · ${same.first.institution}',
             cvText: degree,
-            currentText: match.degree ?? '—',
+            currentText: same.first.degree ?? '—',
             field: 'degree',
             value: degree,
-            refId: match.id));
+            refId: same.first.id));
+      } else {
+        rows.add(ConflictRow(
+            id: nextId(),
+            section: ConflictSection.education,
+            kind: ConflictKind.addition,
+            label: [degree, inst].where((s) => s.isNotEmpty).join(' · '),
+            cvText: [degree, inst].where((s) => s.isNotEmpty).join(' · '),
+            cvItem: it));
       }
     }
   }

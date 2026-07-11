@@ -4,6 +4,7 @@
 // função do assistente (AssistantTurnFn) é injetada.
 
 import 'package:career_gamification/features/trilha/application/conversation_controller.dart';
+import 'package:career_gamification/features/trilha/application/cv_conflict.dart';
 import 'package:career_gamification/features/trilha/application/trilha_session.dart';
 import 'package:career_gamification/features/trilha/domain/conversation_step.dart';
 import 'package:career_gamification/features/trilha/presentation/trilha_chat_controller.dart';
@@ -85,6 +86,8 @@ void main() {
     Future<AssistExportOutcome> Function()? exportPdf,
     Future<AssistImportResult> Function()? importCv,
     Future<AssistGaps> Function()? gapsLoader,
+    Future<Future<void> Function()?> Function(ConflictRow, String)?
+        conflictApplier,
     List<ConversationStep>? plan,
   }) {
     Future<void> save(StepAnswer a) async {}
@@ -125,6 +128,7 @@ void main() {
       assistExportPdf: exportPdf,
       assistImportCv: importCv,
       assistGapsLoader: gapsLoader,
+      assistConflictApplier: conflictApplier,
       pollInterval: const Duration(milliseconds: 1),
       maxPolls: 2,
     );
@@ -1527,7 +1531,9 @@ void main() {
         reply: 'Boa! Escolhe o PDF 👇',
         promptVersion: 'assistant_v11',
       )),
-      importCv: () async => const AssistImportResult(AssistImportOutcome.ok),
+      // A mensagem agora vem do _startAssistImport (o controller só relaia).
+      importCv: () async => const AssistImportResult(AssistImportOutcome.ok,
+          message: 'Importei seu CV! 📄'),
     );
     addTearDown(ok.dispose);
     await ok.start();
@@ -1641,5 +1647,110 @@ void main() {
     expect(c.thread.whereType<GapsCardItem>(), isEmpty);
     expect(c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('60%')),
         isTrue);
+  });
+
+  // ── Widget de conflito de import ──────────────────────────────────────────
+
+  test('import_cv com conflitos → card; editar+aplicar chama o applier; desfaz',
+      () async {
+    final applied = <String>[];
+    final undone = <String>[];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+          tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
+      importCv: () async => const AssistImportResult(
+        AssistImportOutcome.ok,
+        message: 'Comparei 👇',
+        conflicts: [
+          ConflictRow(
+              id: 'r1',
+              section: ConflictSection.skill,
+              kind: ConflictKind.addition,
+              label: 'SQL',
+              cvText: 'SQL',
+              value: 'SQL'),
+          ConflictRow(
+              id: 'r2',
+              section: ConflictSection.city,
+              kind: ConflictKind.conflict,
+              label: 'Cidade',
+              cvText: 'Recife, PE',
+              currentText: 'São Paulo, SP',
+              field: 'city',
+              value: 'Recife, PE'),
+        ],
+      ),
+      conflictApplier: (row, value) async {
+        applied.add('${row.id}=$value');
+        return () async => undone.add(row.id);
+      },
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('importa meu cv');
+    final card = c.thread.whereType<ImportConflictItem>().single;
+    expect(card.choices.length, 2);
+    // Adição default aceita; conflito default NÃO (seguro: mantém o seu).
+    expect(card.choices[0].accepted, isTrue);
+    expect(card.choices[1].accepted, isFalse);
+    // Edita o conflito (implica aceitar) → apply usa o valor editado.
+    c.editConflictRow(card.id, 'r2', 'Olinda, PE');
+    expect(card.choices[1].accepted, isTrue);
+    await c.applyConflicts(card.id);
+    expect(applied, containsAll(['r1=SQL', 'r2=Olinda, PE']));
+    expect(card.status, AssistEditStatus.applied);
+    expect(card.appliedCount, 2);
+    // Desfaz → roda os undos.
+    await c.undoConflicts(card.id);
+    expect(undone, containsAll(['r1', 'r2']));
+    expect(card.status, AssistEditStatus.undone);
+  });
+
+  test('import_cv sem conflitos (perfil bate) → só mensagem, sem card', () async {
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+          tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
+      importCv: () async => const AssistImportResult(AssistImportOutcome.ok,
+          message: 'Li seu CV, nada novo 🙂'),
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('importa meu cv');
+    expect(c.thread.whereType<ImportConflictItem>(), isEmpty);
+    expect(
+        c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('nada novo')),
+        isTrue);
+  });
+
+  test('conflito: rejeitar tudo → aplica nada', () async {
+    var calls = 0;
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+          tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
+      importCv: () async => const AssistImportResult(
+        AssistImportOutcome.ok,
+        conflicts: [
+          ConflictRow(
+              id: 'r1',
+              section: ConflictSection.skill,
+              kind: ConflictKind.addition,
+              label: 'SQL',
+              cvText: 'SQL',
+              value: 'SQL'),
+        ],
+      ),
+      conflictApplier: (row, value) async {
+        calls++;
+        return null;
+      },
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('importa meu cv');
+    final card = c.thread.whereType<ImportConflictItem>().single;
+    c.toggleConflictRow(card.id, 'r1', false); // rejeita a adição
+    await c.applyConflicts(card.id);
+    expect(calls, 0);
+    expect(card.appliedCount, 0);
   });
 }

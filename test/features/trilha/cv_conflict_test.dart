@@ -60,6 +60,35 @@ void main() {
           {'personal': {'linkedin': ''}}, const ProfileSnapshot());
       expect(rows, isEmpty);
     });
+
+    test('cidade: CV sem UF, perfil com UF, mesma cidade → OMITIDO (não apaga)',
+        () {
+      final rows = CvConflictDiff.compute({
+        'personal': {'location_city': 'São Paulo'} // sem location_state
+      }, const ProfileSnapshot(
+          personal: PersonalInfo(
+              userId: 'u', locationCity: 'São Paulo', locationState: 'SP')));
+      expect(_has(rows, ConflictSection.city), isFalse);
+    });
+
+    test('cidade: CV traz UF que faltava → ADIÇÃO (enriquece)', () {
+      final rows = CvConflictDiff.compute({
+        'personal': {'location_city': 'São Paulo', 'location_state': 'SP'}
+      }, const ProfileSnapshot(
+          personal: PersonalInfo(userId: 'u', locationCity: 'São Paulo')));
+      final c = _by(rows, ConflictSection.city);
+      expect(c.kind, ConflictKind.addition);
+      expect(c.value, 'São Paulo, SP');
+    });
+
+    test('nome: CV sem sobrenome (prefixo do atual) → OMITIDO (não derruba)', () {
+      final rows = CvConflictDiff.compute({
+        'personal': {'first_name': 'João'} // sem last_name
+      }, const ProfileSnapshot(
+          personal:
+              PersonalInfo(userId: 'u', firstName: 'João', lastName: 'Silva')));
+      expect(_has(rows, ConflictSection.name), isFalse);
+    });
   });
 
   group('CvConflictDiff — listas planas', () {
@@ -198,6 +227,46 @@ void main() {
             userId: 'u',
             title: 'estagiário',
             company: 'ambev',
+            startDate: DateTime(2023))
+      ]));
+      expect(_has(rows, ConflictSection.experience), isFalse);
+    });
+
+    test('2 cargos na MESMA empresa → cargo novo vira ADIÇÃO, não conflito', () {
+      final rows = CvConflictDiff.compute({
+        'experiences': [
+          {'title': 'Analista', 'company': 'Ambev', 'start_date': '2021'}
+        ]
+      }, ProfileSnapshot(experiences: [
+        Experience(
+            id: 'e1',
+            userId: 'u',
+            title: 'Estágio',
+            company: 'Ambev',
+            startDate: DateTime(2019)),
+        Experience(
+            id: 'e2',
+            userId: 'u',
+            title: 'Trainee',
+            company: 'Ambev',
+            startDate: DateTime(2020)),
+      ]));
+      final e = _by(rows, ConflictSection.experience);
+      // 2 experiências na Ambev ⇒ ambíguo ⇒ NÃO mexe em nenhuma (adição).
+      expect(e.kind, ConflictKind.addition);
+    });
+
+    test('experiência sem start_date → NÃO oferecida (não inventa "hoje")', () {
+      final rows = CvConflictDiff.compute({
+        'experiences': [
+          {'title': 'Freelancer', 'company': 'Autônomo'} // sem start_date
+        ]
+      }, ProfileSnapshot(experiences: [
+        Experience(
+            id: 'e1',
+            userId: 'u',
+            title: 'Outro',
+            company: 'OutraEmpresa',
             startDate: DateTime(2023))
       ]));
       expect(_has(rows, ConflictSection.experience), isFalse);

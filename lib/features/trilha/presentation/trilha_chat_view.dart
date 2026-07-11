@@ -14,6 +14,7 @@ import '../application/trilha_hub_status.dart';
 import '../application/trilha_section.dart';
 import 'trilha_chat_controller.dart';
 import 'widgets/chat_bubbles.dart';
+import 'widgets/import_conflict_card.dart';
 import 'widgets/languages_editor_card.dart';
 import 'widgets/list_editor_card.dart';
 import 'widgets/inline/inline_step_input.dart';
@@ -233,6 +234,26 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
           key: ValueKey('gaps-$i'),
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: _gapsCard(item),
+        ));
+      } else if (item is ImportConflictItem) {
+        children.add(Padding(
+          key: ValueKey('conflict-${item.id}'),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: ImportConflictCard(
+            item: item,
+            onToggle: (rowId, accepted) =>
+                _c.toggleConflictRow(item.id, rowId, accepted),
+            onEdit: (rowId, value) => _c.editConflictRow(item.id, rowId, value),
+            onApply: () {
+              // ignore: unawaited_futures
+              _c.applyConflicts(item.id);
+            },
+            onCancel: () => _c.cancelConflicts(item.id),
+            onUndo: () {
+              // ignore: unawaited_futures
+              _c.undoConflicts(item.id);
+            },
+          ),
         ));
       } else if (item is AnsweredItem) {
         if (c.editingIndex == i && c.activeStep != null) {

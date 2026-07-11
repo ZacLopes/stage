@@ -7,7 +7,10 @@
 
 import '../../../services/ai_service.dart';
 import '../../../services/analytics_events.dart';
+import 'dart:typed_data';
+
 import '../../../services/analytics_service.dart';
+import '../../../services/cv_import_service.dart';
 import '../../../services/profile_snapshot_service.dart';
 import '../../profile/application/profile_gaps.dart';
 import '../../profile/data/repositories/profile_repository_supabase.dart';
@@ -22,9 +25,11 @@ import '../../profile/domain/entities/job_preferences.dart'
 import 'area_canonical.dart' show withInferredAreas;
 import '../../profile/domain/entities/personal_info.dart' show PersonalInfo;
 import '../../profile/domain/entities/education.dart' show Education;
+import '../../profile/domain/entities/experiences.dart' show Experience, Bullet;
 import '../../profile/domain/entities/simple_lists.dart'
     show Language, Certification, Award, Project, languageProficiencyFromId;
 import '../../profile/domain/repositories/profile_repository.dart';
+import 'cv_conflict.dart';
 import '../domain/conversation_step.dart'
     show PickSuggestion, StepAnswer, StepOption, ConversationStep;
 import 'conversation_controller.dart';
@@ -259,6 +264,159 @@ Future<({int completionPercent, List<({String key, String tier, String label})> 
   ]..sort((a, b) =>
       (tierOrder[a.tier] ?? 9).compareTo(tierOrder[b.tier] ?? 9));
   return (completionPercent: gaps.completionPercent, missing: missing);
+}
+
+/// Widget de conflito de import — carrega o CV parseado (dry-run: sem gravar) e
+/// diffa contra o perfil atual. Devolve as linhas do card. Failure-safe: erro
+/// ou CV sem dados úteis ⇒ lista vazia.
+Future<List<ConflictRow>> loadCvConflicts(
+  String userId,
+  Uint8List pdfBytes, {
+  String? rawTextFallback,
+  ProfileRepository? repository,
+  ProfileSnapshotService? snapshotService,
+}) async {
+  try {
+    final cv = await CvImportService.extractProfile(pdfBytes,
+        save: false, rawTextFallback: rawTextFallback);
+    if (cv == null) return const [];
+    final snapSvc = snapshotService ?? ProfileSnapshotService();
+    final snapshot = await snapSvc.loadSnapshot(userId);
+    return CvConflictDiff.compute(cv, snapshot);
+  } catch (_) {
+    return const [];
+  }
+}
+
+DateTime? _parseCvDate(String s) {
+  final t = s.trim();
+  if (t.isEmpty) return null;
+  final m = RegExp(r'^(\d{4})(?:-(\d{1,2}))?').firstMatch(t);
+  if (m == null) return null;
+  final year = int.tryParse(m.group(1)!);
+  if (year == null) return null;
+  final month = int.tryParse(m.group(2) ?? '1') ?? 1;
+  return DateTime(year, month.clamp(1, 12));
+}
+
+String? _nn(dynamic v) {
+  final s = (v ?? '').toString().trim();
+  return s.isEmpty ? null : s;
+}
+
+/// Aplica UMA linha de conflito ESCOLHIDA e devolve o undo (reverte só ela).
+/// [value] = valor efetivo (pode ter sido editado pelo usuário). null ⇒ não
+/// aplicou (nada a fazer). Centraliza o apply de todas as seções reusando os
+/// write-backs do assistente + os adders do repo.
+Future<Future<void> Function()?> assistApplyConflictRow(
+  String userId,
+  ConflictRow row,
+  String value, {
+  ProfileRepository? repository,
+}) async {
+  final repo = repository ?? ProfileRepositorySupabase();
+  switch (row.section) {
+    // Escalares → write-back; undo restaura o valor anterior ('' se era adição).
+    case ConflictSection.name:
+    case ConflictSection.phone:
+    case ConflictSection.city:
+    case ConflictSection.summary:
+    case ConflictSection.linkedin:
+    case ConflictSection.website:
+      final before = row.currentText;
+      await assistWriteFieldValue(userId, row.field, value, repository: repo);
+      return () =>
+          assistWriteFieldValue(userId, row.field, before, repository: repo);
+    case ConflictSection.skill:
+      await assistAddItem(userId, 'skill', value, repository: repo);
+      return () => assistRemoveItem(userId, 'skill', value, repository: repo);
+    case ConflictSection.interest:
+      await assistAddItem(userId, 'interest', value, repository: repo);
+      return () => assistRemoveItem(userId, 'interest', value, repository: repo);
+    case ConflictSection.language:
+      // Captura o nível anterior (pro undo do conflito de nível).
+      final existing = (await repo.getLanguages(userId))
+          .where((l) => l.name.toLowerCase() == value.toLowerCase())
+          .toList();
+      final oldLevel = existing.isEmpty ? null : existing.first.proficiency;
+      await assistUpsertLanguage(userId, value,
+          row.extra.isEmpty ? null : row.extra,
+          repository: repo);
+      if (existing.isEmpty) {
+        return () => assistRemoveItem(userId, 'language', value, repository: repo);
+      }
+      return () => repo.updateLanguage(existing.first.copyWith(proficiency: oldLevel));
+    case ConflictSection.certification:
+      final c = await repo.addCertification(Certification(
+          id: '', userId: userId, name: value, issuer: _nn(row.extra)));
+      return () => repo.deleteCertification(c.id);
+    case ConflictSection.award:
+      final a = await repo.addAward(Award(id: '', userId: userId, name: value));
+      return () => repo.deleteAward(a.id);
+    case ConflictSection.project:
+      final p = await repo.addProject(Project(id: '', userId: userId, name: value));
+      return () => repo.deleteProject(p.id);
+    case ConflictSection.coursework:
+      final cur = (await repo.getCoursework(userId)).map((c) => c.name).toList();
+      await repo.replaceCoursework(userId, [...cur, value]);
+      return () => repo.replaceCoursework(userId, cur);
+    case ConflictSection.experience:
+      if (row.kind == ConflictKind.conflict) {
+        final before = row.currentText;
+        await assistWriteItemField(
+            userId, 'experience', row.refId, row.field, value,
+            repository: repo);
+        return () => assistWriteItemField(
+            userId, 'experience', row.refId, row.field, before,
+            repository: repo);
+      }
+      final it = row.cvItem;
+      final start = _parseCvDate((it['start_date'] ?? '').toString());
+      // Sem data parseável → NÃO inventa "hoje" (poluiria a ordenação/PDF).
+      if (start == null) return null;
+      final created = await repo.addExperience(Experience(
+        id: '',
+        userId: userId,
+        title: (it['title'] ?? '').toString().trim(),
+        company: (it['company'] ?? '').toString().trim(),
+        location: _nn(it['location']),
+        startDate: start,
+        endDate: _parseCvDate((it['end_date'] ?? '').toString()),
+        isCurrent: it['is_current'] == true,
+      ));
+      // Bullets best-effort: uma falha aqui NÃO pode deixar a experiência órfã
+      // sem undo (o undo já é a deleção da experiência, com cascade nos bullets).
+      try {
+        for (final b
+            in (it['bullets'] is List ? it['bullets'] as List : const [])) {
+          final text = b is Map ? (b['text'] ?? '').toString().trim() : '';
+          if (text.isNotEmpty) {
+            await repo.addBullet(
+                Bullet(id: '', experienceId: created.id, text: text));
+          }
+        }
+      } catch (_) {/* bullets são best-effort */}
+      return () => repo.deleteExperience(created.id);
+    case ConflictSection.education:
+      if (row.kind == ConflictKind.conflict) {
+        final before = row.currentText;
+        await assistWriteItemField(
+            userId, 'education', row.refId, row.field, value,
+            repository: repo);
+        return () => assistWriteItemField(
+            userId, 'education', row.refId, row.field, before,
+            repository: repo);
+      }
+      final it = row.cvItem;
+      final created = await repo.addEducation(Education(
+        id: '',
+        userId: userId,
+        institution: (it['institution'] ?? '').toString().trim(),
+        degree: _nn(it['degree']),
+        location: _nn(it['location']),
+      ));
+      return () => repo.deleteEducation(created.id);
+  }
 }
 
 /// Passos reais de uma seção pra o assistente INJETAR ("quero preencher X"),

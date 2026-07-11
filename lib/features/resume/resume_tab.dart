@@ -239,6 +239,16 @@ class _ResumeTabState extends State<ResumeTab>
       },
       assistExportPdf: _exportForAssistant,
       assistImportCv: _startAssistImport,
+      // Widget de conflito: aplica UMA linha escolhida + recarrega o preview.
+      assistConflictApplier: (row, value) async {
+        final undo = await assistApplyConflictRow(uid, row, value);
+        _scheduleProfileReload();
+        if (undo == null) return null;
+        return () async {
+          await undo();
+          _scheduleProfileReload();
+        };
+      },
       // Render estruturado: lacunas do perfil (% + o que falta) pro card.
       assistGapsLoader: () async {
         final g = await loadAssistGaps(uid);
@@ -943,9 +953,12 @@ class _ResumeTabState extends State<ResumeTab>
   /// Distingue cancelado (sem arquivo) / falha (arquivo inválido/não-CV) / ok.
   Future<AssistImportResult> _startAssistImport() async {
     if (!mounted) return const AssistImportResult(AssistImportOutcome.failed);
+    final uid = Supabase.instance.client.auth.currentUser?.id;
     CvImportResult r;
     try {
-      r = await CvImportService.pickAndImport(context);
+      // triggerExtraction:false → pega os bytes e roda a extração à parte
+      // (dry-run pro diff, ou save:true se o perfil está vazio).
+      r = await CvImportService.pickAndImport(context, triggerExtraction: false);
     } catch (_) {
       return const AssistImportResult(AssistImportOutcome.failed);
     }
@@ -957,20 +970,64 @@ class _ResumeTabState extends State<ResumeTab>
           : AssistImportResult(AssistImportOutcome.failed, message: r.errorMessage);
     }
     // PDF salvo mas texto ILEGÍVEL (escaneado/imagem): o extract-profile NÃO
-    // dispara → nada seria extraído. Não prometer extração que não vai rolar.
-    if (!r.textWasUsable) {
+    // extrai nada. Não prometer extração que não vai rolar.
+    if (!r.textWasUsable || r.pdfBytes == null || uid == null) {
       return const AssistImportResult(AssistImportOutcome.failed,
           message:
               'Salvei seu PDF, mas não consegui ler o texto dele (parece digitalizado/imagem) — me conta os dados aqui na conversa que eu anoto 🙂');
     }
-    // Sucesso legível: recarrega já + re-poll até a extração async cair (~15s),
-    // pra o que foi importado aparecer no preview sem o user fazer mais nada.
+    final bytes = r.pdfBytes!;
+
+    // Falha ao carregar o perfil NÃO pode virar "perfil vazio" (isso levaria ao
+    // save:true destrutivo, sobrescrevendo/descartando sem card). Aborta com aviso.
+    ProfileSnapshot snap;
     try {
-      await context.read<ProfileEditorViewModel>().load();
-    } catch (_) {/* best-effort */}
-    _scheduleProfileReload();
-    _scheduleImportRefresh();
-    return const AssistImportResult(AssistImportOutcome.ok);
+      snap = await ProfileSnapshotService().loadSnapshot(uid);
+    } catch (_) {
+      return const AssistImportResult(AssistImportOutcome.failed,
+          message:
+              'Não consegui comparar com seu perfil agora 😕 Tenta de novo daqui a pouco.');
+    }
+    if (!mounted) return const AssistImportResult(AssistImportOutcome.ok);
+
+    // "Vazio" pro import = SEM nenhum dado que o diff protege. snap.isEmpty
+    // ignora os escalares pessoais (nome/telefone/cidade/linkedin/site), então
+    // checo também eles — senão um perfil só-com-identidade pularia o card e
+    // teria esses campos sobrescritos em silêncio pela extração.
+    final pp = snap.personal;
+    final hasPersonal = pp != null &&
+        [
+          '${pp.firstName ?? ''}${pp.lastName ?? ''}',
+          pp.phoneNumber,
+          pp.locationCity,
+          pp.linkedinUrl,
+          pp.website,
+        ].any((s) => (s ?? '').trim().isNotEmpty);
+    final profileIsEmpty = snap.isEmpty && !hasPersonal;
+
+    // Perfil VAZIO → nada com que conflitar: grava direto (save:true) + re-poll.
+    if (profileIsEmpty) {
+      // ignore: unawaited_futures
+      CvImportService.extractProfile(bytes, save: true);
+      _scheduleProfileReload();
+      _scheduleImportRefresh();
+      return const AssistImportResult(AssistImportOutcome.ok,
+          message:
+              'Importei seu CV! 📄 Tô lendo pra preencher o que ainda falta (uns 15s) — vai aparecendo no seu currículo 👇');
+    }
+
+    // Perfil COM dados → dry-run + diff → card de conflito.
+    final conflicts = await loadCvConflicts(uid, bytes);
+    if (!mounted) return const AssistImportResult(AssistImportOutcome.ok);
+    if (conflicts.isEmpty) {
+      return const AssistImportResult(AssistImportOutcome.ok,
+          message:
+              'Li seu CV, mas ele bate com o que você já tem — nada novo pra mexer 🙂');
+    }
+    return AssistImportResult(AssistImportOutcome.ok,
+        message:
+            'Li seu CV e comparei com o que você já tem 👇 Escolhe o que quer trazer:',
+        conflicts: conflicts);
   }
 
   /// Re-poll do preview após um import: a extração (extract-profile) é async

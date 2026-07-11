@@ -18,6 +18,7 @@ import '../../../services/analytics_events.dart';
 import '../../../services/analytics_service.dart';
 import '../../../services/profile_snapshot_service.dart';
 import '../application/conversation_controller.dart';
+import '../application/cv_conflict.dart';
 import '../application/trilha_session.dart';
 import '../domain/conversation_step.dart';
 
@@ -246,7 +247,37 @@ enum AssistImportOutcome { cancelled, failed, ok }
 class AssistImportResult {
   final AssistImportOutcome outcome;
   final String? message;
-  const AssistImportResult(this.outcome, {this.message});
+
+  /// Linhas de conflito (import mid-trilha com perfil não-vazio) → card.
+  final List<ConflictRow> conflicts;
+  const AssistImportResult(this.outcome,
+      {this.message, this.conflicts = const []});
+}
+
+/// Escolha do usuário por linha no card de conflito de import.
+class ConflictChoice {
+  final ConflictRow row;
+  bool accepted;
+  String editedValue; // vazio ⇒ usa row.value
+  ConflictChoice(this.row, {required this.accepted, this.editedValue = ''});
+  String get effectiveValue =>
+      editedValue.trim().isEmpty ? row.value : editedValue.trim();
+}
+
+/// Card "o CV diz X × você tem Y": lista as linhas (adição/conflito), cada uma
+/// com aceitar/rejeitar/editar; "Aplicar seleção" grava as aceitas + Desfazer.
+class ImportConflictItem extends ChatItem {
+  final String id;
+  final List<ConflictChoice> choices;
+  AssistEditStatus status;
+  bool applying = false; // guarda de reentrância (evita duplo-apply)
+  int appliedCount = 0;
+  final List<Future<void> Function()> undos = [];
+  ImportConflictItem({
+    required this.id,
+    required this.choices,
+    this.status = AssistEditStatus.pending,
+  });
 }
 
 /// Uma lacuna do perfil pro card estruturado (show_gaps/show_profile_summary).
@@ -346,6 +377,7 @@ class TrilhaChatController extends ChangeNotifier {
     this.assistExportPdf,
     this.assistImportCv,
     this.assistGapsLoader,
+    this.assistConflictApplier,
     this.onProfileEdited,
     this.pollInterval = const Duration(milliseconds: 1500),
     this.maxPolls = 40,
@@ -479,6 +511,11 @@ class TrilhaChatController extends ChangeNotifier {
   /// Grande: lacunas do perfil (% + o que falta) pro card estruturado de
   /// show_gaps/show_profile_summary. null ⇒ cai na resposta de texto.
   final Future<AssistGaps> Function()? assistGapsLoader;
+
+  /// Widget de conflito: aplica UMA linha escolhida (o app grava via os writers
+  /// + repo) e devolve o undo (reverte só ela). null ⇒ não aplica.
+  final Future<Future<void> Function()?> Function(ConflictRow row, String value)?
+      assistConflictApplier;
 
   /// Chamado após uma edição in-place de card respondido (✏️) gravar — pra o
   /// preview da aba Currículo recarregar. As edições do assistente já recarregam
@@ -1217,13 +1254,27 @@ class TrilhaChatController extends ChangeNotifier {
     if (_disposed) return;
     switch (res.outcome) {
       case AssistImportOutcome.ok:
-        // Copy honesta: a extração preenche o que ainda FALTA (não sobrescreve
-        // o que a trilha já coletou) e leva uns 15s — o preview atualiza sozinho.
-        _pushAi(
-            'Importei seu CV! 📄 Tô lendo pra preencher o que ainda falta (uns 15s) — pode seguir aqui que vai aparecendo no seu currículo 👇');
+        if (res.message != null && res.message!.isNotEmpty) {
+          _pushAi(res.message!);
+        }
+        if (res.conflicts.isNotEmpty) {
+          // Perfil não-vazio → card de conflito (aceitar/rejeitar/editar).
+          final id = 'conflict_${_editSeq++}';
+          final item = ImportConflictItem(
+            id: id,
+            choices: [
+              for (final r in res.conflicts)
+                ConflictChoice(r, accepted: r.kind == ConflictKind.addition)
+            ],
+          );
+          _pendingConflicts[id] = item;
+          thread.add(item);
+        }
         // ignore: unawaited_futures
-        Analytics.shared
-            .track(evTrilhaAssistActionUsed, props: {'action': 'import_cv'});
+        Analytics.shared.track(evTrilhaAssistActionUsed, props: {
+          'action': 'import_cv',
+          'conflicts': res.conflicts.length,
+        });
       case AssistImportOutcome.cancelled:
         _pushAi('Beleza! Quando quiser importar é só falar 🙂');
       case AssistImportOutcome.failed:
@@ -1337,7 +1388,84 @@ class TrilhaChatController extends ChangeNotifier {
   // ── Mutações (Fase B): propõe → confirma → aplica → desfaz ──────────────────
 
   final Map<String, AssistEditItem> _pendingEdits = {};
+  final Map<String, ImportConflictItem> _pendingConflicts = {};
   int _editSeq = 0;
+
+  // ── Widget de conflito de import: toggle/editar por linha + aplicar/desfazer ─
+
+  void toggleConflictRow(String cardId, String rowId, bool accepted) {
+    final item = _pendingConflicts[cardId];
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    for (final c in item.choices) {
+      if (c.row.id == rowId) c.accepted = accepted;
+    }
+    _notify();
+  }
+
+  void editConflictRow(String cardId, String rowId, String value) {
+    final item = _pendingConflicts[cardId];
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    for (final c in item.choices) {
+      if (c.row.id == rowId) {
+        c.editedValue = value;
+        c.accepted = true; // editar implica aceitar
+      }
+    }
+    _notify();
+  }
+
+  Future<void> applyConflicts(String cardId) async {
+    final item = _pendingConflicts[cardId];
+    final applier = assistConflictApplier;
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    if (item.applying) return; // guarda de reentrância (duplo-toque)
+    if (applier == null) {
+      item.status = AssistEditStatus.cancelled;
+      _notify();
+      return;
+    }
+    item.applying = true;
+    _notify();
+    final undos = <Future<void> Function()>[];
+    for (final c in item.choices.where((c) => c.accepted)) {
+      try {
+        final undo = await applier(c.row, c.effectiveValue);
+        if (undo != null) undos.add(undo);
+      } catch (_) {/* best-effort por linha */}
+    }
+    if (_disposed) return;
+    item.applying = false;
+    item.undos.addAll(undos);
+    item.appliedCount = undos.length;
+    item.status = AssistEditStatus.applied;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditApplied,
+        props: {'lacuna_key': 'import_conflict', 'op': 'apply'});
+    _notify();
+  }
+
+  void cancelConflicts(String cardId) {
+    final item = _pendingConflicts[cardId];
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    item.status = AssistEditStatus.cancelled;
+    _notify();
+  }
+
+  Future<void> undoConflicts(String cardId) async {
+    final item = _pendingConflicts[cardId];
+    if (item == null || item.status != AssistEditStatus.applied) return;
+    for (final undo in item.undos.reversed) {
+      try {
+        await undo();
+      } catch (_) {/* best-effort */}
+    }
+    if (_disposed) return;
+    item.status = AssistEditStatus.undone;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditUndone,
+        props: {'lacuna_key': 'import_conflict', 'op': 'apply'});
+    _notify();
+  }
 
   /// `update_field`: NÃO grava direto — lê o valor atual, mostra um card de
   /// confirmação (Aplicar/Cancelar) e só grava no [confirmEdit]. Campo não

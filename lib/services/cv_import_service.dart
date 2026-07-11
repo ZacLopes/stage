@@ -32,6 +32,10 @@ class CvImportResult {
   final int extractedTextLength;
   final bool textWasUsable;
 
+  /// Bytes do PDF escolhido — preenchido só quando `triggerExtraction:false`
+  /// (fluxo de conflito, que roda a extração à parte via [extractProfile]).
+  final Uint8List? pdfBytes;
+
   const CvImportResult({
     required this.success,
     this.errorMessage,
@@ -40,6 +44,7 @@ class CvImportResult {
     this.savedResumeId,
     this.extractedTextLength = 0,
     this.textWasUsable = false,
+    this.pdfBytes,
   });
 
   const CvImportResult.cancelled() : this(success: false);
@@ -68,7 +73,13 @@ const String kImportedResumeBaseTitle = 'Meu Currículo';
 class CvImportService {
   /// Abre o picker e processa o PDF selecionado. Retorna [CvImportResult].
   /// Não navega nem mostra UI — caller decide o que fazer.
-  static Future<CvImportResult> pickAndImport(BuildContext context) async {
+  /// [triggerExtraction] false ⇒ NÃO dispara a extração em background (o
+  /// chamador roda [extractProfile] à parte — usado no fluxo de conflito, que
+  /// precisa do profile_data em mãos pra diffar) e devolve os `pdfBytes`.
+  static Future<CvImportResult> pickAndImport(
+    BuildContext context, {
+    bool triggerExtraction = true,
+  }) async {
     Analytics.shared.cvImportStarted();
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -187,11 +198,13 @@ class CvImportService {
         // últimos 30 dias) e o fallback só inflava telemetria de
         // `cvParserFailed` sem agregar valor. Reverter via git se algum
         // user reportar regressão em CVs com layouts atípicos.
-        // ignore: unawaited_futures
-        CvImportService._triggerParseCvPdfInBackground(
-          byteList,
-          rawTextFallback: usableText,
-        );
+        if (triggerExtraction) {
+          // ignore: unawaited_futures
+          CvImportService._triggerParseCvPdfInBackground(
+            byteList,
+            rawTextFallback: usableText,
+          );
+        }
       } else {
         Analytics.shared.cvImportFailed(
           reason: extractionError ?? 'unusable_text:$rawTextLen',
@@ -204,6 +217,7 @@ class CvImportService {
         savedResumeId: savedId,
         extractedTextLength: rawTextLen,
         textWasUsable: usable,
+        pdfBytes: triggerExtraction ? null : byteList,
       );
     } catch (e) {
       Analytics.shared.cvImportFailed(reason: e.toString().split('\n').first);
@@ -296,6 +310,38 @@ class CvImportService {
         reason: e.toString().split('\n').first,
       );
       debugPrint('extract-profile background call failed (non-blocking): $e');
+    }
+  }
+
+  /// Extração FOREGROUND (fluxo de conflito): manda o PDF pra edge e devolve o
+  /// `profile_data` (JSON estruturado do CV). [save] false ⇒ dry-run (a edge só
+  /// parseia e devolve, sem gravar). `force:true` SEMPRE (senão cache-hit volta
+  /// só o `parsed` legacy, sem `profile_data`). null ⇒ falhou/sem dados.
+  static Future<Map<String, dynamic>?> extractProfile(
+    Uint8List pdfBytes, {
+    required bool save,
+    String? rawTextFallback,
+  }) async {
+    try {
+      final pdfBase64 = base64Encode(pdfBytes);
+      final response = await Supabase.instance.client.functions
+          .invoke(
+            'extract-profile',
+            body: {
+              'pdf_base64': pdfBase64,
+              'force': true,
+              'save': save,
+              if (rawTextFallback != null) 'raw_text_fallback': rawTextFallback,
+            },
+          )
+          .timeout(const Duration(seconds: 75));
+      final data = response.data;
+      if (data is! Map || data['error'] != null) return null;
+      final pd = data['profile_data'];
+      return pd is Map ? pd.cast<String, dynamic>() : null;
+    } catch (e) {
+      debugPrint('extractProfile (foreground) failed: $e');
+      return null;
     }
   }
 
