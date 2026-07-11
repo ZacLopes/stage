@@ -207,6 +207,45 @@ class LanguagesEditorItem extends ChatItem {
   });
 }
 
+/// Uma vaga real pro card do assistente (consulta ao feed). `score` 0-100;
+/// `hasScore` false ⇒ não deu pra calcular (sem CV) → o card mostra "—".
+class AssistJobRow {
+  final String id;
+  final String title;
+  final String company;
+  final String area;
+  final int score;
+  final bool hasScore;
+  const AssistJobRow({
+    required this.id,
+    required this.title,
+    required this.company,
+    this.area = '',
+    this.score = 0,
+    this.hasScore = false,
+  });
+}
+
+/// Resultado da consulta de vagas: as melhores N + se o user tem CV (pra o card
+/// avisar que sem CV o match não sai).
+class AssistJobsResult {
+  final bool hasResume;
+  final List<AssistJobRow> jobs;
+  const AssistJobsResult({required this.hasResume, required this.jobs});
+}
+
+/// Desfecho do export_pdf: nada pra exportar (perfil vazio), falha na geração,
+/// ou sucesso. Pro assistente falar a verdade (não "Pronto!" em cima de um erro).
+enum AssistExportOutcome { empty, failed, ok }
+
+/// Card "Vagas pra você" (Grande: consulta ao feed real). Display-only: lista as
+/// vagas + botão "Ver na aba Vagas". `hasResume` false ⇒ header avisa do CV.
+class JobsCardItem extends ChatItem {
+  final List<AssistJobRow> jobs;
+  final bool hasResume;
+  const JobsCardItem({required this.jobs, this.hasResume = true});
+}
+
 /// Valor atual de um campo (pro diff/undo do assistente).
 class AssistFieldValue {
   final String raw; // valor cru (id/texto) — '' se vazio
@@ -221,6 +260,11 @@ typedef AssistFieldReader = Future<AssistFieldValue?> Function(String field);
 
 /// Aplica um valor cru a um campo (value '' limpa). Reusa o write-back.
 typedef AssistFieldWriter = Future<void> Function(String field, String value);
+
+/// Grande: consulta o feed real de vagas (já filtrado pelo perfil do user).
+/// Filtro opcional por área/texto (client-side). Retorna as melhores N + se tem CV.
+typedef AssistJobsLoader = Future<AssistJobsResult> Function(
+    {String? area, String? query, int limit});
 
 /// Turno do assistente (injetável p/ teste). Mesma forma de [AIService.assistantTurn].
 typedef AssistantTurnFn = Future<AssistantTurn?> Function({
@@ -262,6 +306,9 @@ class TrilhaChatController extends ChangeNotifier {
     this.assistLanguageUpserter,
     this.assistItemFieldReader,
     this.assistItemFieldWriter,
+    this.assistJobsLoader,
+    this.assistOpenTab,
+    this.assistExportPdf,
     this.onProfileEdited,
     this.pollInterval = const Duration(milliseconds: 1500),
     this.maxPolls = 40,
@@ -374,6 +421,18 @@ class TrilhaChatController extends ChangeNotifier {
   /// Editar CAMPO de item multi-campo: grava o campo do item (por id, estável).
   final Future<void> Function(
       String kind, String id, String field, String value)? assistItemFieldWriter;
+
+  /// Grande: consulta o feed real de vagas (cliente lê o JobsViewModel). null ⇒
+  /// o assistente não lista vagas (cai numa resposta de texto).
+  final AssistJobsLoader? assistJobsLoader;
+
+  /// Grande: troca de aba do app (tabKey pt-BR/en → índice). null ⇒ no-op.
+  final Future<void> Function(String tabKey)? assistOpenTab;
+
+  /// Grande: exporta o currículo em PDF (reusa o _export da aba). Devolve o
+  /// desfecho real (vazio/falha/ok) pro assistente não mentir sucesso. null ⇒
+  /// não exporta.
+  final Future<AssistExportOutcome> Function()? assistExportPdf;
 
   /// Chamado após uma edição in-place de card respondido (✏️) gravar — pra o
   /// preview da aba Currículo recarregar. As edições do assistente já recarregam
@@ -930,6 +989,15 @@ class TrilhaChatController extends ChangeNotifier {
             props: {'reason': 'ambiguous'});
         _replyAndKeepStep(reply, step);
         return;
+      case 'show_jobs':
+        await _handleShowJobs(turn, step);
+        return;
+      case 'open_tab':
+        await _handleOpenTab(turn, step);
+        return;
+      case 'export_pdf':
+        await _handleExportPdf(turn, step);
+        return;
       case 'show_gaps':
       case 'show_profile_summary':
         // ignore: unawaited_futures
@@ -953,6 +1021,129 @@ class TrilhaChatController extends ChangeNotifier {
     if (reply.isNotEmpty) _pushAi(reply);
     if (step != null) inputVisible = true;
     _notify();
+  }
+
+  // ── Grandes: ações de app (vagas reais, navegar, exportar) ────────────────
+
+  /// `show_jobs`: consulta o feed REAL (cliente lê o JobsViewModel via loader) e
+  /// mostra as melhores vagas num card. Escopo = "vagas pra mim" (já filtradas
+  /// pelo perfil). Sem loader/erro/vazio → responde por texto, sem card.
+  Future<void> _handleShowJobs(AssistantTurn turn, ConversationStep? step) async {
+    final loader = assistJobsLoader;
+    final reply = turn.reply.trim();
+    if (loader == null) {
+      _replyAndKeepStep(reply, step);
+      return;
+    }
+    final area = turn.args['area']?.toString().trim();
+    final query = turn.args['query']?.toString().trim();
+    final hasFilter = (area != null && area.isNotEmpty) ||
+        (query != null && query.isNotEmpty);
+    final filterTerm = (area != null && area.isNotEmpty) ? area : query;
+    final rawLimit = int.tryParse(turn.args['limit']?.toString() ?? '') ?? 5;
+    final limit = rawLimit.clamp(1, 8);
+    // Resolver o match pode levar alguns segundos (feed frio) — mantém a bolha
+    // de "digitando" enquanto busca, senão a tela parece travada.
+    typing = true;
+    _notify();
+    AssistJobsResult res;
+    try {
+      res = await loader(
+        area: (area == null || area.isEmpty) ? null : area,
+        query: (query == null || query.isEmpty) ? null : query,
+        limit: limit,
+      );
+    } catch (_) {
+      if (_disposed) return;
+      typing = false;
+      _replyAndKeepStep(
+          'Não consegui puxar as vagas agora 🤔 Tenta de novo daqui a pouco.',
+          step);
+      return;
+    }
+    if (_disposed) return;
+    typing = false;
+    if (res.jobs.isEmpty) {
+      // Ignora a fala da IA (ela assumia que haveria vagas) e é honesto. Se ele
+      // filtrou por termo/área, diz que foi ESSE filtro que não bateu (não que
+      // o perfil está ruim — o feed já vem filtrado pelo perfil dele).
+      _pushAi(hasFilter
+          ? 'Não achei vagas de "$filterTerm" no seu feed agora 🤔 Dá pra ampliar suas preferências na aba Vagas.'
+          : 'Não achei vagas que batam com seu perfil agora 🤔 Dá pra ampliar suas preferências na aba Vagas.');
+      if (step != null) inputVisible = true;
+      _notify();
+      return;
+    }
+    if (reply.isNotEmpty) _pushAi(reply);
+    thread.add(JobsCardItem(jobs: res.jobs, hasResume: res.hasResume));
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistActionUsed,
+        props: {'action': 'show_jobs', 'count': res.jobs.length});
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
+  /// `open_tab`: troca a aba do app (o app cumpre via callback). Confirma por
+  /// bolha (a troca tira o user da tela do chat).
+  Future<void> _handleOpenTab(AssistantTurn turn, ConversationStep? step) async {
+    final tab = turn.args['tab']?.toString().trim() ?? '';
+    final reply = turn.reply.trim();
+    if (tab.isEmpty || assistOpenTab == null) {
+      _replyAndKeepStep(reply, step);
+      return;
+    }
+    if (reply.isNotEmpty) _pushAi(reply);
+    try {
+      await assistOpenTab!.call(tab);
+    } catch (_) {/* best-effort */}
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistActionUsed,
+        props: {'action': 'open_tab', 'tab': tab});
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
+  /// `export_pdf`: exporta o currículo (o app abre a folha de compartilhar). A
+  /// `reply` é a CONFIRMAÇÃO pós-ação (o share sheet é o feedback principal);
+  /// retorno false ⇒ perfil vazio, orienta preencher antes.
+  Future<void> _handleExportPdf(AssistantTurn turn, ConversationStep? step) async {
+    final reply = turn.reply.trim();
+    final cb = assistExportPdf;
+    if (cb == null) {
+      _replyAndKeepStep(reply, step);
+      return;
+    }
+    AssistExportOutcome outcome;
+    try {
+      outcome = await cb();
+    } catch (_) {
+      outcome = AssistExportOutcome.failed;
+    }
+    if (_disposed) return;
+    switch (outcome) {
+      case AssistExportOutcome.ok:
+        _pushAi(reply.isEmpty ? 'Pronto! É só salvar ou compartilhar 👍' : reply);
+        // ignore: unawaited_futures
+        Analytics.shared
+            .track(evTrilhaAssistActionUsed, props: {'action': 'export_pdf'});
+      case AssistExportOutcome.empty:
+        _pushAi(
+            'Seu currículo ainda tá bem vazio pra exportar — bora preencher um pouco primeiro? 🙂');
+      case AssistExportOutcome.failed:
+        _pushAi('Deu um erro ao gerar o PDF 😕 Tenta de novo daqui a pouco.');
+    }
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
+  /// Toque no "Ver na aba Vagas" do card de vagas → troca de aba.
+  Future<void> openTabFromCard(String tabKey) async {
+    try {
+      await assistOpenTab?.call(tabKey);
+    } catch (_) {/* best-effort */}
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistActionUsed,
+        props: {'action': 'open_tab', 'tab': tabKey, 'via': 'jobs_card'});
   }
 
   /// `answer_current_step`: aplica a resposta da IA ao passo aberto (texto ou
@@ -2042,8 +2233,12 @@ class TrilhaChatController extends ChangeNotifier {
   static final RegExp _cmdVerbs = RegExp(
       r'^(adiciona|adicionar|add|tira|tirar|remove|remover|apaga|apagar|muda|mudar|troca|trocar|corrige|corrigir|edita|editar|reescreve|reescrever|melhora|melhorar|refor[çc]a|refor[çc]ar|pula|pular|mostra|mostrar|explica|explicar|ajuda|quero|como|o que|qual|quais|por que|porque|pq)\b',
       caseSensitive: false);
+  // As palavras de seção mais antigas casam por PREFIXO de propósito
+  // ('certifica'→certificado). As novas de AÇÃO (vaga/exportar/pdf) são ancoradas
+  // com \b final pra não pegar 'vagando'/'importante'/'exportação'. 'importar'
+  // (import de CV) fica pro Incremento B.
   static final RegExp _sectionWords = RegExp(
-      r'\b(skill|habilidade|experi[eê]ncia|resumo|bullet|cidade|cargo|[aá]rea|idioma|projeto|forma[cç][aã]o|linkedin|certifica|pr[eê]mio|disponibilidade|interesse|perfil|curr[ií]culo)',
+      r'\b(skill|habilidade|experi[eê]ncia|resumo|bullet|cidade|cargo|[aá]rea|idioma|projeto|forma[cç][aã]o|linkedin|certifica|pr[eê]mio|disponibilidade|interesse|perfil|curr[ií]culo|vagas?\b|exportar?\b|pdf\b)',
       caseSensitive: false);
   bool _looksLikeCommand(String t) {
     final s = t.trim();

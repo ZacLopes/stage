@@ -222,6 +222,12 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
             onUndo: () => _c.undoLanguagesEditor(item.id),
           ),
         ));
+      } else if (item is JobsCardItem) {
+        children.add(Padding(
+          key: ValueKey('jobs-$i'),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: _jobsCard(item),
+        ));
       } else if (item is AnsweredItem) {
         if (c.editingIndex == i && c.activeStep != null) {
           children.add(Padding(
@@ -381,6 +387,94 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
   }
 
   // ── Card-resumo da extração ─────────────────────────────────────────────────
+
+  // ── Card de vagas reais (Grande: consulta ao feed) ────────────────────────
+
+  Widget _jobsCard(JobsCardItem item) {
+    return Container(
+      // Alinha com o texto das bolhas da IA: avatar (34) + gap (AppSpacing.sm).
+      margin: const EdgeInsets.only(left: 34 + AppSpacing.sm),
+      padding: AppSpacing.allBase,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.brLg,
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Vagas pra você', style: AppTextStyles.overline),
+          const SizedBox(height: 2),
+          Text(
+            item.hasResume
+                ? 'As que mais combinam com seu perfil 👇'
+                : 'Preenche seu currículo pra eu calcular o match 👇',
+            style:
+                AppTextStyles.bodySm.copyWith(color: AppColors.textTertiary),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          for (final j in item.jobs) _jobRow(j),
+          const SizedBox(height: AppSpacing.sm),
+          SecondaryButton(
+            label: 'Ver na aba Vagas',
+            icon: Icons.work_outline_rounded,
+            onPressed: () {
+              // ignore: unawaited_futures
+              _c.openTabFromCard('vagas');
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _jobRow(AssistJobRow j) {
+    final sub = [j.company, if (j.area.isNotEmpty) j.area].join(' · ');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(j.title,
+                    style: AppTextStyles.bodyMd
+                        .copyWith(fontWeight: FontWeight.w600)),
+                if (sub.isNotEmpty)
+                  Text(sub,
+                      style: AppTextStyles.bodySm
+                          .copyWith(color: AppColors.textTertiary)),
+              ],
+            ),
+          ),
+          if (j.hasScore) ...[
+            const SizedBox(width: AppSpacing.sm),
+            _matchBadge(j.score),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _matchBadge(int score) {
+    // Baldes iguais aos do detalhe da vaga: ≥70 forte, ≥40 médio, senão fraco.
+    final strong = score >= 70;
+    final mid = score >= 40;
+    final color = strong
+        ? AppColors.success
+        : (mid ? AppColors.primary : AppColors.textTertiary);
+    final bg = strong
+        ? AppColors.successSoft
+        : (mid ? AppColors.primarySoft : AppColors.surfaceVariant);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: bg, borderRadius: AppRadius.brSm),
+      child: Text('$score%',
+          style: AppTextStyles.labelSm.copyWith(color: color)),
+    );
+  }
 
   Widget _importSummary(ImportSummary s) {
     final cells = <(int, String, TrilhaSection)>[

@@ -24,6 +24,10 @@ import '../../services/analytics_service.dart';
 import '../../services/profile_snapshot_service.dart';
 import '../auth/user_viewmodel.dart';
 import '../../services/feature_flags_service.dart';
+import '../home/home_viewmodel.dart';
+import '../jobs/jobs_viewmodel.dart';
+import '../jobs/models/job.dart';
+import '../jobs/utils/filter_helpers.dart';
 import '../profile/application/profile_editor_view_model.dart';
 import '../trilha/application/trilha_hub_status.dart';
 import '../trilha/application/trilha_section.dart';
@@ -216,6 +220,19 @@ class _ResumeTabState extends State<ResumeTab>
         await assistWriteItemField(uid, kind, id, field, value);
         _scheduleProfileReload();
       },
+      // Grandes: ações de app. Vagas reais (lê o feed já filtrado pelo perfil),
+      // navegar entre abas, exportar o PDF. Nenhuma muta o perfil → sem reload.
+      assistJobsLoader: ({String? area, String? query, int limit = 5}) =>
+          _loadJobsForAssistant(area: area, query: query, limit: limit),
+      assistOpenTab: (tabKey) async {
+        if (!mounted) return;
+        final idx = _tabIndexForKey(tabKey);
+        if (idx == null || idx == HomeTabs.resume) return;
+        try {
+          context.read<HomeViewModel>().requestTabChange(idx);
+        } catch (_) {/* sem HomeViewModel (teste) */}
+      },
+      assistExportPdf: _exportForAssistant,
       // Edição in-place de card (✏️) grava fora dos writers → recarrega o preview.
       onProfileEdited: _scheduleProfileReload,
       // Abertura adaptativa: se o perfil já tem seções, a trilha reconhece e vai
@@ -831,8 +848,11 @@ class _ResumeTabState extends State<ResumeTab>
     );
   }
 
-  Future<void> _export(ResumeViewModel resumeVM) async {
-    if (_isExporting) return;
+  /// Retorna true SÓ se o PDF foi gerado e a folha de compartilhar abriu; false
+  /// se já havia um export em andamento ou se a geração falhou (o assistente usa
+  /// isso pra não confirmar sucesso em cima de um erro).
+  Future<bool> _export(ResumeViewModel resumeVM) async {
+    if (_isExporting) return false;
     setState(() => _isExporting = true);
     try {
       final userVM = context.read<UserViewModel>();
@@ -865,6 +885,7 @@ class _ResumeTabState extends State<ResumeTab>
       );
       // ignore: unawaited_futures
       Analytics.shared.cvExported(templateId: resumeVM.selectedTemplateId);
+      return true;
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -874,9 +895,117 @@ class _ResumeTabState extends State<ResumeTab>
           ),
         );
       }
+      return false;
     } finally {
       if (mounted) setState(() => _isExporting = false);
     }
+  }
+
+  // ── Grandes: callbacks de ação do assistente ──────────────────────────────
+
+  /// `export_pdf`: desfecho REAL (vazio/falha/ok) pro assistente não confirmar
+  /// sucesso em cima de um erro. Reusa o [_export] (mesma folha de share) e a
+  /// MESMA regra de `canExport` do [_exportBar].
+  Future<AssistExportOutcome> _exportForAssistant() async {
+    if (!mounted) return AssistExportOutcome.failed;
+    final p = context.read<ProfileEditorViewModel>();
+    final resumeVM = context.read<ResumeViewModel>();
+    final canExport = resumeVM.resumeData != null ||
+        p.experiences.isNotEmpty ||
+        p.skills.isNotEmpty ||
+        p.education.isNotEmpty ||
+        p.languages.isNotEmpty ||
+        p.interests.isNotEmpty;
+    if (!canExport) return AssistExportOutcome.empty;
+    final ok = await _export(resumeVM);
+    return ok ? AssistExportOutcome.ok : AssistExportOutcome.failed;
+  }
+
+  /// `open_tab`: mapeia o tabKey (pt-BR/en) pro índice da aba. null ⇒ não
+  /// reconhecido. Índice 1 aceita "salvas" e "candidaturas" (rótulo alterna
+  /// pela flag, mas a aba é a mesma).
+  int? _tabIndexForKey(String tabKey) {
+    switch (tabKey.trim().toLowerCase()) {
+      case 'vagas':
+      case 'jobs':
+      case 'feed':
+        return HomeTabs.jobs;
+      case 'salvas':
+      case 'candidaturas':
+      case 'saved':
+      case 'applications':
+        return HomeTabs.saved;
+      case 'curriculo':
+      case 'currículo':
+      case 'resume':
+        return HomeTabs.resume;
+      case 'perfil':
+      case 'profile':
+        return HomeTabs.profile;
+      default:
+        return null;
+    }
+  }
+
+  /// `show_jobs`: lê o feed REAL (já filtrado pelo perfil), aplica filtro
+  /// opcional por área/texto (client-side), resolve o match de um pool pequeno
+  /// do topo (o feed já vem rankeado) e devolve o top N reordenado por score.
+  Future<AssistJobsResult> _loadJobsForAssistant({
+    String? area,
+    String? query,
+    required int limit,
+  }) async {
+    if (!mounted) return const AssistJobsResult(hasResume: false, jobs: []);
+    final jobsVM = context.read<JobsViewModel>();
+    final hasResume = context.read<UserViewModel>().hasResume;
+    // Garante o feed carregado mesmo se o user nunca abriu a aba Vagas (idempotente).
+    if (jobsVM.jobs.isEmpty) {
+      try {
+        await jobsVM.init();
+      } catch (_) {/* best-effort */}
+    }
+    if (!mounted) return AssistJobsResult(hasResume: hasResume, jobs: const []);
+    // listJobs exclui as vagas que o user já swipou (curtiu/descartou) — não
+    // faz sentido "recomendar" uma vaga que ele acabou de rejeitar.
+    var candidates = jobsVM.listJobs;
+    if (area != null && area.isNotEmpty) {
+      candidates = candidates
+          .where((j) => FilterHelpers.isAreaMatch(j.area, [area]))
+          .toList();
+    }
+    if (query != null && query.isNotEmpty) {
+      final q = FilterHelpers.normalize(query);
+      candidates = candidates
+          .where((j) =>
+              FilterHelpers.normalize('${j.title} ${j.companyName}').contains(q))
+          .toList();
+    }
+    // Resolve o match só de um pool pequeno do topo (feed já vem rankeado), em
+    // PARALELO (Future.wait) pra não somar N latências de rede em série.
+    final pool = candidates.take(12).toList();
+    final results = await Future.wait(pool.map((job) async {
+      try {
+        final m = await jobsVM.resolveMatchForJob(job, hasResume: hasResume);
+        return (job: job, score: m.score, hasScore: !m.isNoResume && !m.isUnknown);
+      } catch (_) {
+        return null; // sem score — cai fora do topo
+      }
+    }));
+    if (!mounted) return AssistJobsResult(hasResume: hasResume, jobs: const []);
+    final scored = results.whereType<({Job job, int score, bool hasScore})>().toList();
+    scored.sort((a, b) => b.score.compareTo(a.score));
+    final rows = scored
+        .take(limit)
+        .map((e) => AssistJobRow(
+              id: e.job.id,
+              title: e.job.title,
+              company: e.job.companyName,
+              area: e.job.area ?? '',
+              score: e.score,
+              hasScore: e.hasScore,
+            ))
+        .toList();
+    return AssistJobsResult(hasResume: hasResume, jobs: rows);
   }
 
   String _initials(String name) {

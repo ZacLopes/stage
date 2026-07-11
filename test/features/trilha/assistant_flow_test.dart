@@ -80,6 +80,9 @@ void main() {
     Future<Map<String, String>?> Function(String, String, String)?
         itemFieldReader,
     Future<void> Function(String, String, String, String)? itemFieldWriter,
+    AssistJobsLoader? jobsLoader,
+    Future<void> Function(String tabKey)? openTab,
+    Future<AssistExportOutcome> Function()? exportPdf,
     List<ConversationStep>? plan,
   }) {
     Future<void> save(StepAnswer a) async {}
@@ -115,6 +118,9 @@ void main() {
       assistLanguageUpserter: languageUpserter,
       assistItemFieldReader: itemFieldReader,
       assistItemFieldWriter: itemFieldWriter,
+      assistJobsLoader: jobsLoader,
+      assistOpenTab: openTab,
+      assistExportPdf: exportPdf,
       pollInterval: const Duration(milliseconds: 1),
       maxPolls: 2,
     );
@@ -1370,5 +1376,140 @@ void main() {
     expect(
         c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('modalidade')),
         isTrue);
+  });
+
+  // ── Grandes: show_jobs / open_tab / export_pdf ────────────────────────────
+
+  test('show_jobs: loader com vagas → card de vagas no fio', () async {
+    ({String? area, String? query, int limit})? captured;
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'show_jobs',
+        args: {'area': 'Marketing', 'limit': 3},
+        reply: 'Achei estas 👇',
+        promptVersion: 'assistant_v10',
+      )),
+      jobsLoader: ({String? area, String? query, int limit = 5}) async {
+        captured = (area: area, query: query, limit: limit);
+        return const AssistJobsResult(hasResume: true, jobs: [
+          AssistJobRow(
+              id: 'j1',
+              title: 'Analista de Marketing',
+              company: 'Acme',
+              area: 'Marketing',
+              score: 82,
+              hasScore: true),
+        ]);
+      },
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('tem vaga de marketing pra mim?');
+    expect(captured?.area, 'Marketing');
+    expect(captured?.limit, 3);
+    final card = c.thread.whereType<JobsCardItem>().single;
+    expect(card.jobs.single.title, 'Analista de Marketing');
+    expect(card.hasResume, isTrue);
+    expect(c.thread.whereType<AiMsgItem>().any((m) => m.text == 'Achei estas 👇'),
+        isTrue);
+  });
+
+  test('show_jobs: feed vazio → "não achei", sem card', () async {
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'show_jobs',
+        args: {},
+        reply: 'Olha as vagas!',
+        promptVersion: 'assistant_v10',
+      )),
+      jobsLoader: ({String? area, String? query, int limit = 5}) async =>
+          const AssistJobsResult(hasResume: true, jobs: []),
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('quais vagas você achou?');
+    expect(c.thread.whereType<JobsCardItem>(), isEmpty);
+    // Ignora a fala otimista da IA; é honesto sobre não ter achado.
+    expect(c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Não achei')),
+        isTrue);
+  });
+
+  test('open_tab: chama o callback com a aba + confirma por bolha', () async {
+    String? opened;
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'open_tab',
+        args: {'tab': 'vagas'},
+        reply: 'Te levo pras Vagas 👉',
+        promptVersion: 'assistant_v10',
+      )),
+      openTab: (tabKey) async => opened = tabKey,
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('me leva pras vagas');
+    expect(opened, 'vagas');
+    expect(
+        c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Vagas')),
+        isTrue);
+  });
+
+  test('export_pdf: ok → confirma; vazio → orienta; falha → avisa erro',
+      () async {
+    // Sucesso.
+    final ok = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'export_pdf',
+        args: {},
+        reply: 'Pronto! É só salvar 👍',
+        promptVersion: 'assistant_v10',
+      )),
+      exportPdf: () async => AssistExportOutcome.ok,
+    );
+    addTearDown(ok.dispose);
+    await ok.start();
+    await ok.submitFreeText('exporta meu currículo');
+    expect(ok.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Pronto')),
+        isTrue);
+
+    // Perfil vazio → mensagem de orientação (não a reply da IA).
+    final empty = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'export_pdf',
+        args: {},
+        reply: 'Pronto! É só salvar 👍',
+        promptVersion: 'assistant_v10',
+      )),
+      exportPdf: () async => AssistExportOutcome.empty,
+    );
+    addTearDown(empty.dispose);
+    await empty.start();
+    await empty.submitFreeText('exporta meu currículo');
+    expect(
+        empty.thread.whereType<AiMsgItem>().any((m) => m.text.contains('vazio')),
+        isTrue);
+    expect(
+        empty.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Pronto')),
+        isFalse);
+
+    // Falha na geração → NÃO diz "Pronto" (não mente sucesso); avisa erro.
+    final failed = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'export_pdf',
+        args: {},
+        reply: 'Pronto! É só salvar 👍',
+        promptVersion: 'assistant_v10',
+      )),
+      exportPdf: () async => AssistExportOutcome.failed,
+    );
+    addTearDown(failed.dispose);
+    await failed.start();
+    await failed.submitFreeText('exporta meu currículo');
+    expect(
+        failed.thread.whereType<AiMsgItem>().any((m) => m.text.contains('erro')),
+        isTrue);
+    expect(
+        failed.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Pronto')),
+        isFalse);
   });
 }
