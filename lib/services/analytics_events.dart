@@ -640,6 +640,10 @@ const String evTrilhaAssistEditCancelled = 'trilha_assist_edit_cancelled';
 /// Alteração DESFEITA depois de aplicada. Props: lacuna_key, op.
 const String evTrilhaAssistEditUndone = 'trilha_assist_edit_undone';
 
+/// Assistente executou uma AÇÃO de app (não-mutação de perfil). Props:
+/// action ∈ {show_jobs, open_tab, export_pdf}, + tab/count quando aplicável.
+const String evTrilhaAssistActionUsed = 'trilha_assist_action_used';
+
 // ════════════════════════════════════════════════════════════════════
 // Allowlist agregada — usada pelo wrapper pra rejeitar nomes não-catalogados.
 // ════════════════════════════════════════════════════════════════════
@@ -813,4 +817,5 @@ const Set<String> kAllowedEventNames = {
   // PLANO-ASSISTENTE (Fase B) — mutações
   evTrilhaAssistEditProposed, evTrilhaAssistEditApplied,
   evTrilhaAssistEditCancelled, evTrilhaAssistEditUndone,
+  evTrilhaAssistActionUsed,
 };

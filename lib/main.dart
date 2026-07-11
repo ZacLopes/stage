@@ -323,13 +323,27 @@ class CareerGamificationApp extends StatelessWidget {
           // o teclado independente do estado do foco no Flutter.
           child: Listener(
             behavior: HitTestBehavior.translucent,
-            onPointerDown: (_) {
-              // Só dispensa se nenhum campo de texto está com foco
-              // legítimo. Sem essa guard, tap dentro de um TextField
-              // ativo fechava o teclado imediatamente (UX ruim ao editar).
+            onPointerDown: (event) {
+              // Fecha o teclado quando o toque cai FORA do campo focado.
+              //
+              // NÃO dá pra checar `focus.context.widget is EditableText`: o
+              // node do TextField é registrado num `Focus` INTERNO do
+              // EditableText, então esse widget é SEMPRE `Focus` — o check de
+              // tipo era sempre falso e fechava o teclado até ao tocar DENTRO
+              // da própria barra já focada (teclado piscava: hide no
+              // pointer-down + re-foco no pointer-up). Checamos por POSIÇÃO:
+              // toque dentro do campo focado ⇒ mantém; fora ⇒ dispensa (e o
+              // caso de teclado órfão em troca de rota tem foco/render null ⇒
+              // cai no dispensar, como antes).
               final focus = FocusManager.instance.primaryFocus;
-              final hasEditableFocus = focus?.context?.widget is EditableText;
-              if (!hasEditableFocus) {
+              final ro = focus?.context?.findRenderObject();
+              var tappedInsideFocused = false;
+              if (ro is RenderBox && ro.attached) {
+                final rect = (ro.localToGlobal(Offset.zero) & ro.size)
+                    .inflate(12); // folga p/ o padding da pílula/tap slop
+                tappedInsideFocused = rect.contains(event.position);
+              }
+              if (!tappedInsideFocused) {
                 focus?.unfocus();
                 SystemChannels.textInput.invokeMethod('TextInput.hide');
               }

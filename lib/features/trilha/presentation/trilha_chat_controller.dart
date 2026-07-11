@@ -18,6 +18,7 @@ import '../../../services/analytics_events.dart';
 import '../../../services/analytics_service.dart';
 import '../../../services/profile_snapshot_service.dart';
 import '../application/conversation_controller.dart';
+import '../application/cv_conflict.dart';
 import '../application/trilha_session.dart';
 import '../domain/conversation_step.dart';
 
@@ -108,7 +109,10 @@ class AssistEditItem extends ChatItem {
   final String beforeText; // "—" ou o texto anterior (update)
   final String afterText; // exibição do novo valor / do item
   final String value; // valor cru a aplicar / item a add/remove
-  final String refId; // id da linha (op=bullet: o bullet_id)
+  final String refId; // id da linha (op=bullet: bullet_id; item-field: id do item)
+  /// Editar um CAMPO de item multi-campo (experiência/formação/cert): o kind da
+  /// seção. Vazio ⇒ é um campo global (update normal). Usa op=update + refId=id.
+  final String itemKind;
   /// Undo CAPTURADO na aplicação (ex.: remover experiência guarda o restore que
   /// re-insere o registro). Quando presente, tem prioridade sobre o undo por op.
   Future<void> Function()? capturedUndo;
@@ -123,6 +127,7 @@ class AssistEditItem extends ChatItem {
     required this.afterText,
     required this.value,
     this.refId = '',
+    this.itemKind = '',
     this.status = AssistEditStatus.pending,
   });
 }
@@ -151,6 +156,162 @@ class AssistExtractItem extends ChatItem {
   });
 }
 
+/// Editor VISUAL de lista simples (Fase C): mostra os itens atuais em chips (✕
+/// pra tirar) + campo/sugestões pra adicionar. "Salvar" aplica o líquido (adds +
+/// removes) e deixa um Desfazer que reverte o lote. Serve SKILLS e INTERESSES
+/// (`kind`). O estado de edição vive no widget; aqui ficam o baseline (itens no
+/// momento de abrir), as sugestões, e o resultado aplicado (pro undo).
+class ListEditorItem extends ChatItem {
+  final String id;
+  final String kind; // 'skill' | 'interest'
+  final String title; // "Suas habilidades" / "Seus interesses"
+  final List<String> initial;
+  final List<String> suggestions;
+  AssistEditStatus status;
+  List<String> addedApplied = const [];
+  List<String> removedApplied = const [];
+  final List<Future<void> Function()> undos = [];
+  ListEditorItem({
+    required this.id,
+    required this.kind,
+    required this.title,
+    required this.initial,
+    this.suggestions = const [],
+    this.status = AssistEditStatus.pending,
+  });
+}
+
+/// Um idioma no editor visual: nome + nível canônico ('basic'..'native' ou null).
+class LangEntry {
+  final String name;
+  final String? level;
+  const LangEntry(this.name, this.level);
+}
+
+/// Editor VISUAL de idiomas (Fase C): como o [ListEditorItem], mas cada item tem
+/// NÍVEL. O líquido tem 3 ops (adicionado c/ nível, removido, nível alterado);
+/// o baseline guarda os níveis antigos pro undo.
+class LanguagesEditorItem extends ChatItem {
+  final String id;
+  final List<LangEntry> initial;
+  final List<String> options; // idiomas canônicos que dá pra adicionar
+  AssistEditStatus status;
+  List<LangEntry> addedApplied = const [];
+  List<String> removedApplied = const [];
+  List<LangEntry> changedApplied = const [];
+  final List<Future<void> Function()> undos = [];
+  LanguagesEditorItem({
+    required this.id,
+    required this.initial,
+    this.options = const [],
+    this.status = AssistEditStatus.pending,
+  });
+}
+
+/// Uma vaga real pro card do assistente (consulta ao feed). `score` 0-100;
+/// `hasScore` false ⇒ não deu pra calcular (sem CV) → o card mostra "—".
+class AssistJobRow {
+  final String id;
+  final String title;
+  final String company;
+  final String area;
+  final int score;
+  final bool hasScore;
+  const AssistJobRow({
+    required this.id,
+    required this.title,
+    required this.company,
+    this.area = '',
+    this.score = 0,
+    this.hasScore = false,
+  });
+}
+
+/// Resultado da consulta de vagas: as melhores N + se o user tem CV (pra o card
+/// avisar que sem CV o match não sai).
+class AssistJobsResult {
+  final bool hasResume;
+  final List<AssistJobRow> jobs;
+  const AssistJobsResult({required this.hasResume, required this.jobs});
+}
+
+/// Desfecho do export_pdf: nada pra exportar (perfil vazio), falha na geração,
+/// ou sucesso. Pro assistente falar a verdade (não "Pronto!" em cima de um erro).
+enum AssistExportOutcome { empty, failed, ok }
+
+/// Desfecho do import_cv: usuário cancelou o seletor, falhou (arquivo inválido/
+/// não-CV), ou importou. `message` carrega o motivo do erro (ex.: "parece um
+/// extrato bancário") pra falar a verdade.
+enum AssistImportOutcome { cancelled, failed, ok }
+
+class AssistImportResult {
+  final AssistImportOutcome outcome;
+  final String? message;
+
+  /// Linhas de conflito (import mid-trilha com perfil não-vazio) → card.
+  final List<ConflictRow> conflicts;
+  const AssistImportResult(this.outcome,
+      {this.message, this.conflicts = const []});
+}
+
+/// Escolha do usuário por linha no card de conflito de import.
+class ConflictChoice {
+  final ConflictRow row;
+  bool accepted;
+  String editedValue; // vazio ⇒ usa row.value
+  ConflictChoice(this.row, {required this.accepted, this.editedValue = ''});
+  String get effectiveValue =>
+      editedValue.trim().isEmpty ? row.value : editedValue.trim();
+}
+
+/// Card "o CV diz X × você tem Y": lista as linhas (adição/conflito), cada uma
+/// com aceitar/rejeitar/editar; "Aplicar seleção" grava as aceitas + Desfazer.
+class ImportConflictItem extends ChatItem {
+  final String id;
+  final List<ConflictChoice> choices;
+  AssistEditStatus status;
+  bool applying = false; // guarda de reentrância (evita duplo-apply)
+  int appliedCount = 0;
+  final List<Future<void> Function()> undos = [];
+  ImportConflictItem({
+    required this.id,
+    required this.choices,
+    this.status = AssistEditStatus.pending,
+  });
+}
+
+/// Uma lacuna do perfil pro card estruturado (show_gaps/show_profile_summary).
+/// `key` = LacunaKey.name (pro ícone); `tier` = 'tier1'|'tier2'|'tier3' (cor).
+class GapRow {
+  final String key;
+  final String tier;
+  final String label;
+  const GapRow({required this.key, required this.tier, required this.label});
+}
+
+/// Snapshot das lacunas: % de completude + o que ainda falta.
+class AssistGaps {
+  final int completionPercent;
+  final List<GapRow> missing;
+  const AssistGaps({required this.completionPercent, required this.missing});
+}
+
+/// Card "Seu perfil" (Grande: render estruturado): barra de completude + lista
+/// do que falta. Display-only. Serve show_gaps E show_profile_summary.
+class GapsCardItem extends ChatItem {
+  final int completionPercent;
+  final List<GapRow> rows;
+  const GapsCardItem({required this.completionPercent, required this.rows});
+}
+
+/// Card "Vagas pra você" (Grande: consulta ao feed real). Display-only: lista as
+/// vagas + botão "Ver na aba Vagas". `hasResume` false ⇒ header avisa do CV.
+class JobsCardItem extends ChatItem {
+  final List<AssistJobRow> jobs;
+  final bool hasResume;
+  const JobsCardItem({required this.jobs, this.hasResume = true});
+}
+
 /// Valor atual de um campo (pro diff/undo do assistente).
 class AssistFieldValue {
   final String raw; // valor cru (id/texto) — '' se vazio
@@ -165,6 +326,11 @@ typedef AssistFieldReader = Future<AssistFieldValue?> Function(String field);
 
 /// Aplica um valor cru a um campo (value '' limpa). Reusa o write-back.
 typedef AssistFieldWriter = Future<void> Function(String field, String value);
+
+/// Grande: consulta o feed real de vagas (já filtrado pelo perfil do user).
+/// Filtro opcional por área/texto (client-side). Retorna as melhores N + se tem CV.
+typedef AssistJobsLoader = Future<AssistJobsResult> Function(
+    {String? area, String? query, int limit});
 
 /// Turno do assistente (injetável p/ teste). Mesma forma de [AIService.assistantTurn].
 typedef AssistantTurnFn = Future<AssistantTurn?> Function({
@@ -196,6 +362,23 @@ class TrilhaChatController extends ChangeNotifier {
     this.assistBulletWriter,
     this.assistReversibleRemover,
     this.assistProactiveLoader,
+    this.assistSkillsLoader,
+    this.assistSkillSuggester,
+    this.assistInterestsLoader,
+    this.assistInterestsReplacer,
+    this.assistAreasLoader,
+    this.assistAreasReplacer,
+    this.assistLanguagesLoader,
+    this.assistLanguageUpserter,
+    this.assistItemFieldReader,
+    this.assistItemFieldWriter,
+    this.assistJobsLoader,
+    this.assistOpenTab,
+    this.assistExportPdf,
+    this.assistImportCv,
+    this.assistGapsLoader,
+    this.assistConflictApplier,
+    this.onProfileEdited,
     this.pollInterval = const Duration(milliseconds: 1500),
     this.maxPolls = 40,
   });
@@ -272,6 +455,72 @@ class TrilhaChatController extends ChangeNotifier {
   /// Fase C (proativo): a maior lacuna que resta — `{section, label}` — pra o
   /// assistente SUGERIR o próximo ganho ao concluir. null ⇒ sem sugestão.
   final Future<Map<String, String>?> Function()? assistProactiveLoader;
+
+  /// Editor visual de skills: nomes das skills atuais (pra mostrar em chips).
+  /// null/vazio ⇒ sem skills → cai na coleta (start_section).
+  final Future<List<String>> Function()? assistSkillsLoader;
+
+  /// Editor visual de skills: sugestões pra adicionar (pela área), best-effort.
+  final Future<List<String>> Function()? assistSkillSuggester;
+
+  /// Editor visual de interesses: nomes atuais. null/vazio ⇒ cai na coleta.
+  final Future<List<String>> Function()? assistInterestsLoader;
+
+  /// Editor visual de interesses: grava a lista FINAL (replace-all).
+  final Future<void> Function(List<String>)? assistInterestsReplacer;
+
+  /// Editor visual de ÁREAS: áreas visíveis atuais (user_added).
+  final Future<List<String>> Function()? assistAreasLoader;
+
+  /// Editor visual de ÁREAS: grava a lista FINAL (replace-all + canônica oculta).
+  final Future<void> Function(List<String>)? assistAreasReplacer;
+
+  /// Editor visual de idiomas: pares (nome, nível-canônico) atuais.
+  final Future<List<(String, String?)>> Function()? assistLanguagesLoader;
+
+  /// Editor visual de idiomas: upsert de um idioma (nome, nível-canônico|null).
+  final Future<void> Function(String name, String? level)? assistLanguageUpserter;
+
+  /// Editar CAMPO de item multi-campo: lê o valor atual de um campo (resolve o
+  /// item pela query). Retorna {id, raw, text, label}; null ⇒ não achou/campo
+  /// inválido pro kind.
+  final Future<Map<String, String>?> Function(
+      String kind, String query, String field)? assistItemFieldReader;
+
+  /// Editar CAMPO de item multi-campo: grava o campo do item (por id, estável).
+  final Future<void> Function(
+      String kind, String id, String field, String value)? assistItemFieldWriter;
+
+  /// Grande: consulta o feed real de vagas (cliente lê o JobsViewModel). null ⇒
+  /// o assistente não lista vagas (cai numa resposta de texto).
+  final AssistJobsLoader? assistJobsLoader;
+
+  /// Grande: troca de aba do app (tabKey pt-BR/en → índice). null ⇒ no-op.
+  final Future<void> Function(String tabKey)? assistOpenTab;
+
+  /// Grande: exporta o currículo em PDF (reusa o _export da aba). Devolve o
+  /// desfecho real (vazio/falha/ok) pro assistente não mentir sucesso. null ⇒
+  /// não exporta.
+  final Future<AssistExportOutcome> Function()? assistExportPdf;
+
+  /// Grande: importa um CV (abre o seletor de arquivo, salva, dispara extração
+  /// async). Em background — a conversa NÃO reinicia; o preview atualiza sozinho
+  /// quando a extração cai. null ⇒ não importa.
+  final Future<AssistImportResult> Function()? assistImportCv;
+
+  /// Grande: lacunas do perfil (% + o que falta) pro card estruturado de
+  /// show_gaps/show_profile_summary. null ⇒ cai na resposta de texto.
+  final Future<AssistGaps> Function()? assistGapsLoader;
+
+  /// Widget de conflito: aplica UMA linha escolhida (o app grava via os writers
+  /// + repo) e devolve o undo (reverte só ela). null ⇒ não aplica.
+  final Future<Future<void> Function()?> Function(ConflictRow row, String value)?
+      assistConflictApplier;
+
+  /// Chamado após uma edição in-place de card respondido (✏️) gravar — pra o
+  /// preview da aba Currículo recarregar. As edições do assistente já recarregam
+  /// pelos próprios writers; isto cobre o lápis (que grava via saveAnswer).
+  final VoidCallback? onProfileEdited;
 
   /// Cadência do poll da extração (injetável p/ teste encurtar). ~60s = 40×1.5s.
   final Duration pollInterval;
@@ -550,6 +799,9 @@ class TrilhaChatController extends ChangeNotifier {
   Future<void> _doSubmit(StepAnswer answer) async {
     if (_editingStep != null) {
       await _applyEdit(answer);
+      // O lápis grava via saveAnswer (fora dos writers do assistente) → avisa o
+      // host pra recarregar o preview da aba Currículo.
+      onProfileEdited?.call();
       return;
     }
     final conv = _conv;
@@ -600,9 +852,38 @@ class TrilhaChatController extends ChangeNotifier {
     if (t.isEmpty) return;
     final step = activeStep;
 
-    // Assistente OFF → exatamente o comportamento de hoje (precisa de passo).
+    // "não sei"/"sla"/"passa" num passo de TEXTO NUNCA é resposta — não grava
+    // literal (poluiria cargo/empresa/curso). Opcional ⇒ pula; senão ⇒
+    // repergunta com jeito. Vale com o assistente ON ou OFF, sem gastar IA.
+    if (step != null && step.input is GuidedTextInput && _looksLikeNonAnswer(t)) {
+      _busy = true;
+      try {
+        if (_stepIsOptional(step)) {
+          _pushAi('Sem problema, vou pular essa 🙂');
+          await _doSubmit(
+              StepAnswer(stepId: step.id, value: '', displayText: 'Pular'));
+        } else {
+          _pushAi('Tranquilo não saber! Me dá qualquer coisa que vier à cabeça '
+              '— dá pra ajustar depois.');
+        }
+      } finally {
+        _busy = false;
+      }
+      return;
+    }
+
+    // Assistente OFF → comportamento de hoje (responder o passo aberto).
     if (!assistEnabled) {
-      if (step == null) return;
+      if (step == null) {
+        // Sem passo aberto e sem assistente não há o que responder — mas NÃO
+        // engolir a mensagem em silêncio (o botão parecia morto: sumia o texto
+        // e baixava o teclado). Mostra o que a pessoa disse e ensina a editar o
+        // que já está preenchido.
+        thread.add(UserMsgItem(t));
+        _pushAi('Pra mudar algo que você já preencheu, é só tocar na seção lá '
+            'em cima 👆 (ou no ✏️ de uma resposta).');
+        return;
+      }
       _busy = true;
       try {
         await _routeToStep(step, t);
@@ -738,6 +1019,9 @@ class TrilhaChatController extends ChangeNotifier {
       case 'update_field':
         await _proposeUpdateField(turn, step);
         return;
+      case 'update_item':
+        await _proposeUpdateItem(turn, step);
+        return;
       case 'add_item':
         await _proposeAddItem(turn, step);
         return;
@@ -752,6 +1036,18 @@ class TrilhaChatController extends ChangeNotifier {
         return;
       case 'extract_profile':
         await _proposeExtract(turn, step);
+        return;
+      case 'edit_skills':
+        await _proposeListEditor('skill', turn);
+        return;
+      case 'edit_interests':
+        await _proposeListEditor('interest', turn);
+        return;
+      case 'edit_areas':
+        await _proposeListEditor('area', turn);
+        return;
+      case 'edit_languages':
+        await _proposeLanguagesEditor(turn);
         return;
       case 'skip_step':
         if (step != null && _stepIsOptional(step)) {
@@ -776,12 +1072,21 @@ class TrilhaChatController extends ChangeNotifier {
             props: {'reason': 'ambiguous'});
         _replyAndKeepStep(reply, step);
         return;
+      case 'show_jobs':
+        await _handleShowJobs(turn, step);
+        return;
+      case 'open_tab':
+        await _handleOpenTab(turn, step);
+        return;
+      case 'export_pdf':
+        await _handleExportPdf(turn, step);
+        return;
+      case 'import_cv':
+        await _handleImportCv(turn, step);
+        return;
       case 'show_gaps':
       case 'show_profile_summary':
-        // ignore: unawaited_futures
-        Analytics.shared.track(evTrilhaAssistAnswerReturned,
-            props: {'grounded_in': 'profile_gaps', 'used_llm': true});
-        _replyAndKeepStep(reply, step);
+        await _handleShowGaps(turn, step);
         return;
       case 'answer_question':
       case 'explain_step':
@@ -797,6 +1102,213 @@ class TrilhaChatController extends ChangeNotifier {
   /// Empurra a fala e, se há passo aberto, re-exibe o widget (a conversa segue).
   void _replyAndKeepStep(String reply, ConversationStep? step) {
     if (reply.isNotEmpty) _pushAi(reply);
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
+  // ── Grandes: ações de app (vagas reais, navegar, exportar) ────────────────
+
+  /// `show_jobs`: consulta o feed REAL (cliente lê o JobsViewModel via loader) e
+  /// mostra as melhores vagas num card. Escopo = "vagas pra mim" (já filtradas
+  /// pelo perfil). Sem loader/erro/vazio → responde por texto, sem card.
+  Future<void> _handleShowJobs(AssistantTurn turn, ConversationStep? step) async {
+    final loader = assistJobsLoader;
+    final reply = turn.reply.trim();
+    if (loader == null) {
+      _replyAndKeepStep(reply, step);
+      return;
+    }
+    final area = turn.args['area']?.toString().trim();
+    final query = turn.args['query']?.toString().trim();
+    final hasFilter = (area != null && area.isNotEmpty) ||
+        (query != null && query.isNotEmpty);
+    final filterTerm = (area != null && area.isNotEmpty) ? area : query;
+    final rawLimit = int.tryParse(turn.args['limit']?.toString() ?? '') ?? 5;
+    final limit = rawLimit.clamp(1, 8);
+    // Resolver o match pode levar alguns segundos (feed frio) — mantém a bolha
+    // de "digitando" enquanto busca, senão a tela parece travada.
+    typing = true;
+    _notify();
+    AssistJobsResult res;
+    try {
+      res = await loader(
+        area: (area == null || area.isEmpty) ? null : area,
+        query: (query == null || query.isEmpty) ? null : query,
+        limit: limit,
+      );
+    } catch (_) {
+      if (_disposed) return;
+      typing = false;
+      _replyAndKeepStep(
+          'Não consegui puxar as vagas agora 🤔 Tenta de novo daqui a pouco.',
+          step);
+      return;
+    }
+    if (_disposed) return;
+    typing = false;
+    if (res.jobs.isEmpty) {
+      // Ignora a fala da IA (ela assumia que haveria vagas) e é honesto. Se ele
+      // filtrou por termo/área, diz que foi ESSE filtro que não bateu (não que
+      // o perfil está ruim — o feed já vem filtrado pelo perfil dele).
+      _pushAi(hasFilter
+          ? 'Não achei vagas de "$filterTerm" no seu feed agora 🤔 Dá pra ampliar suas preferências na aba Vagas.'
+          : 'Não achei vagas que batam com seu perfil agora 🤔 Dá pra ampliar suas preferências na aba Vagas.');
+      if (step != null) inputVisible = true;
+      _notify();
+      return;
+    }
+    if (reply.isNotEmpty) _pushAi(reply);
+    thread.add(JobsCardItem(jobs: res.jobs, hasResume: res.hasResume));
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistActionUsed,
+        props: {'action': 'show_jobs', 'count': res.jobs.length});
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
+  /// `open_tab`: troca a aba do app (o app cumpre via callback). Confirma por
+  /// bolha (a troca tira o user da tela do chat).
+  Future<void> _handleOpenTab(AssistantTurn turn, ConversationStep? step) async {
+    final tab = turn.args['tab']?.toString().trim() ?? '';
+    final reply = turn.reply.trim();
+    if (tab.isEmpty || assistOpenTab == null) {
+      _replyAndKeepStep(reply, step);
+      return;
+    }
+    if (reply.isNotEmpty) _pushAi(reply);
+    try {
+      await assistOpenTab!.call(tab);
+    } catch (_) {/* best-effort */}
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistActionUsed,
+        props: {'action': 'open_tab', 'tab': tab});
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
+  /// `export_pdf`: exporta o currículo (o app abre a folha de compartilhar). A
+  /// `reply` é a CONFIRMAÇÃO pós-ação (o share sheet é o feedback principal);
+  /// retorno false ⇒ perfil vazio, orienta preencher antes.
+  Future<void> _handleExportPdf(AssistantTurn turn, ConversationStep? step) async {
+    final reply = turn.reply.trim();
+    final cb = assistExportPdf;
+    if (cb == null) {
+      _replyAndKeepStep(reply, step);
+      return;
+    }
+    AssistExportOutcome outcome;
+    try {
+      outcome = await cb();
+    } catch (_) {
+      outcome = AssistExportOutcome.failed;
+    }
+    if (_disposed) return;
+    switch (outcome) {
+      case AssistExportOutcome.ok:
+        _pushAi(reply.isEmpty ? 'Pronto! É só salvar ou compartilhar 👍' : reply);
+        // ignore: unawaited_futures
+        Analytics.shared
+            .track(evTrilhaAssistActionUsed, props: {'action': 'export_pdf'});
+      case AssistExportOutcome.empty:
+        _pushAi(
+            'Seu currículo ainda tá bem vazio pra exportar — bora preencher um pouco primeiro? 🙂');
+      case AssistExportOutcome.failed:
+        _pushAi('Deu um erro ao gerar o PDF 😕 Tenta de novo daqui a pouco.');
+    }
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
+  /// Toque no "Ver na aba Vagas" do card de vagas → troca de aba.
+  Future<void> openTabFromCard(String tabKey) async {
+    try {
+      await assistOpenTab?.call(tabKey);
+    } catch (_) {/* best-effort */}
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistActionUsed,
+        props: {'action': 'open_tab', 'tab': tabKey, 'via': 'jobs_card'});
+  }
+
+  /// `import_cv`: abre o seletor (o app cumpre), importa em BACKGROUND (a
+  /// conversa segue; o preview atualiza sozinho quando a extração cai). Fala a
+  /// verdade: cancelou / erro (com o motivo) / importou.
+  Future<void> _handleImportCv(AssistantTurn turn, ConversationStep? step) async {
+    final reply = turn.reply.trim();
+    final cb = assistImportCv;
+    if (cb == null) {
+      // Sem caminho de import por aqui → orienta (o import vive no onboarding).
+      _replyAndKeepStep(
+          reply.isEmpty
+              ? 'Pra importar um CV, é lá no comecinho do app 🙂 Aqui dá pra preencher na conversa.'
+              : reply,
+          step);
+      return;
+    }
+    if (reply.isNotEmpty) _pushAi(reply);
+    AssistImportResult res;
+    try {
+      res = await cb();
+    } catch (_) {
+      res = const AssistImportResult(AssistImportOutcome.failed);
+    }
+    if (_disposed) return;
+    switch (res.outcome) {
+      case AssistImportOutcome.ok:
+        if (res.message != null && res.message!.isNotEmpty) {
+          _pushAi(res.message!);
+        }
+        if (res.conflicts.isNotEmpty) {
+          // Perfil não-vazio → card de conflito (aceitar/rejeitar/editar).
+          final id = 'conflict_${_editSeq++}';
+          final item = ImportConflictItem(
+            id: id,
+            choices: [
+              for (final r in res.conflicts)
+                ConflictChoice(r, accepted: r.kind == ConflictKind.addition)
+            ],
+          );
+          _pendingConflicts[id] = item;
+          thread.add(item);
+        }
+        // ignore: unawaited_futures
+        Analytics.shared.track(evTrilhaAssistActionUsed, props: {
+          'action': 'import_cv',
+          'conflicts': res.conflicts.length,
+        });
+      case AssistImportOutcome.cancelled:
+        _pushAi('Beleza! Quando quiser importar é só falar 🙂');
+      case AssistImportOutcome.failed:
+        _pushAi(res.message ??
+            'Não consegui ler esse arquivo 😕 Tenta um PDF do seu currículo.');
+    }
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
+  /// `show_gaps` / `show_profile_summary`: card estruturado (barra de completude
+  /// + o que falta). Sem loader/erro ⇒ cai na resposta de texto.
+  Future<void> _handleShowGaps(AssistantTurn turn, ConversationStep? step) async {
+    final reply = turn.reply.trim();
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistAnswerReturned,
+        props: {'grounded_in': 'profile_gaps', 'used_llm': true});
+    final loader = assistGapsLoader;
+    if (loader == null) {
+      _replyAndKeepStep(reply, step);
+      return;
+    }
+    AssistGaps g;
+    try {
+      g = await loader();
+    } catch (_) {
+      if (_disposed) return;
+      _replyAndKeepStep(reply, step);
+      return;
+    }
+    if (_disposed) return;
+    if (reply.isNotEmpty) _pushAi(reply);
+    thread.add(
+        GapsCardItem(completionPercent: g.completionPercent, rows: g.missing));
     if (step != null) inputVisible = true;
     _notify();
   }
@@ -876,7 +1388,84 @@ class TrilhaChatController extends ChangeNotifier {
   // ── Mutações (Fase B): propõe → confirma → aplica → desfaz ──────────────────
 
   final Map<String, AssistEditItem> _pendingEdits = {};
+  final Map<String, ImportConflictItem> _pendingConflicts = {};
   int _editSeq = 0;
+
+  // ── Widget de conflito de import: toggle/editar por linha + aplicar/desfazer ─
+
+  void toggleConflictRow(String cardId, String rowId, bool accepted) {
+    final item = _pendingConflicts[cardId];
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    for (final c in item.choices) {
+      if (c.row.id == rowId) c.accepted = accepted;
+    }
+    _notify();
+  }
+
+  void editConflictRow(String cardId, String rowId, String value) {
+    final item = _pendingConflicts[cardId];
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    for (final c in item.choices) {
+      if (c.row.id == rowId) {
+        c.editedValue = value;
+        c.accepted = true; // editar implica aceitar
+      }
+    }
+    _notify();
+  }
+
+  Future<void> applyConflicts(String cardId) async {
+    final item = _pendingConflicts[cardId];
+    final applier = assistConflictApplier;
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    if (item.applying) return; // guarda de reentrância (duplo-toque)
+    if (applier == null) {
+      item.status = AssistEditStatus.cancelled;
+      _notify();
+      return;
+    }
+    item.applying = true;
+    _notify();
+    final undos = <Future<void> Function()>[];
+    for (final c in item.choices.where((c) => c.accepted)) {
+      try {
+        final undo = await applier(c.row, c.effectiveValue);
+        if (undo != null) undos.add(undo);
+      } catch (_) {/* best-effort por linha */}
+    }
+    if (_disposed) return;
+    item.applying = false;
+    item.undos.addAll(undos);
+    item.appliedCount = undos.length;
+    item.status = AssistEditStatus.applied;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditApplied,
+        props: {'lacuna_key': 'import_conflict', 'op': 'apply'});
+    _notify();
+  }
+
+  void cancelConflicts(String cardId) {
+    final item = _pendingConflicts[cardId];
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    item.status = AssistEditStatus.cancelled;
+    _notify();
+  }
+
+  Future<void> undoConflicts(String cardId) async {
+    final item = _pendingConflicts[cardId];
+    if (item == null || item.status != AssistEditStatus.applied) return;
+    for (final undo in item.undos.reversed) {
+      try {
+        await undo();
+      } catch (_) {/* best-effort */}
+    }
+    if (_disposed) return;
+    item.status = AssistEditStatus.undone;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditUndone,
+        props: {'lacuna_key': 'import_conflict', 'op': 'apply'});
+    _notify();
+  }
 
   /// `update_field`: NÃO grava direto — lê o valor atual, mostra um card de
   /// confirmação (Aplicar/Cancelar) e só grava no [confirmEdit]. Campo não
@@ -910,6 +1499,13 @@ class TrilhaChatController extends ChangeNotifier {
       _replyAndKeepStep('Essa eu ainda não consigo mudar por aqui 🙂', step);
       return;
     }
+    // Modalidade precisa casar ≥1 id válido — senão o card diria "mudei" e
+    // zeraria o campo (a gravação é replace). Pede a modalidade certa.
+    if (field == 'work_mode' && !assistWorkModeValueValid(value)) {
+      _replyAndKeepStep(
+          'Qual modalidade você quer: remoto, híbrido ou presencial? 🙂', step);
+      return;
+    }
     if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
     final id = 'edit_${_editSeq++}';
     final item = AssistEditItem(
@@ -930,17 +1526,145 @@ class TrilhaChatController extends ChangeNotifier {
     _notify();
   }
 
+  /// `update_item`: muda UM campo de um item multi-campo (experiência/formação/
+  /// cert). Resolve QUAL item (desambigua 2+), lê o campo (id estável) e propõe
+  /// o card update; confirmar/desfazer gravam por id via assistItemFieldWriter.
+  Future<void> _proposeUpdateItem(
+      AssistantTurn turn, ConversationStep? step) async {
+    final kind = turn.args['kind']?.toString() ?? '';
+    final query = turn.args['item']?.toString().trim() ?? '';
+    final field = turn.args['field']?.toString() ?? '';
+    final value = turn.args['value']?.toString().trim() ?? '';
+    final reader = assistItemFieldReader;
+    final resolver = assistItemResolver;
+    if (kind.isEmpty ||
+        query.isEmpty ||
+        field.isEmpty ||
+        value.isEmpty ||
+        reader == null ||
+        assistItemFieldWriter == null ||
+        resolver == null) {
+      _replyAndKeepStep(
+          turn.reply.trim().isEmpty ? 'Não peguei o que mudar 🤔' : turn.reply.trim(),
+          step);
+      return;
+    }
+    // Semestre precisa ser NÚMERO — senão o card diria "feito" sem gravar nada.
+    if (kind == 'education' && field == 'semester') {
+      final n = int.tryParse(value.replaceAll(RegExp(r'[^0-9]'), ''));
+      if (n == null || n < 1 || n > 14) {
+        _replyAndKeepStep('Me diz o número do semestre (ex.: 5) 🙂', step);
+        return;
+      }
+    }
+    // Resolve QUAL item (0 ⇒ não achou; 2+ ⇒ desambigua; 1 ⇒ segue).
+    List<String> matches;
+    try {
+      matches = await resolver(kind, query);
+    } catch (_) {
+      matches = const [];
+    }
+    if (_disposed) return;
+    if (matches.isEmpty) {
+      _replyAndKeepStep('Não achei "$query" em ${_kindLabel(kind)} 🤔', step);
+      return;
+    }
+    if (matches.length > 1) {
+      _replyAndKeepStep(
+          'Qual você quer mudar: ${matches.join(", ")}?', step);
+      if (step != null) inputVisible = true;
+      _notify();
+      return;
+    }
+    // Lê o campo atual (id estável pro write/undo).
+    Map<String, String>? cur;
+    try {
+      cur = await reader(kind, matches.first, field);
+    } catch (_) {
+      cur = null;
+    }
+    if (_disposed) return;
+    if (cur == null || (cur['id'] ?? '').isEmpty) {
+      _replyAndKeepStep('Esse campo eu ainda não consigo mudar aí 🙂', step);
+      return;
+    }
+    if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
+    final id = 'edit_${_editSeq++}';
+    final item = AssistEditItem(
+      id: id,
+      field: field,
+      itemKind: kind,
+      refId: cur['id']!,
+      fieldLabel: cur['label'] ?? field,
+      beforeRaw: cur['raw'] ?? '',
+      beforeText: cur['text'] ?? '—',
+      afterText: value,
+      value: value,
+    );
+    _pendingEdits[id] = item;
+    thread.add(item);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditProposed,
+        props: {'lacuna_key': kind, 'op': 'update'});
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
   /// `add_item`: propõe ADICIONAR um item de lista (skill/idioma). Confirma
   /// antes de gravar (postura da Fase B).
   Future<void> _proposeAddItem(AssistantTurn turn, ConversationStep? step) async {
     final kind = turn.args['kind']?.toString() ?? '';
-    final value = turn.args['value']?.toString().trim() ?? '';
-    if (kind.isEmpty || value.isEmpty || assistItemAdder == null) {
+    final rawValue = turn.args['value']?.toString().trim() ?? '';
+    // add_item só sabe skill/idioma/interesse (lista simples). Qualquer outro
+    // kind (experiência/cert/…) tem vários campos → conduz pela conversa, sem
+    // card falso.
+    const addable = {'skill', 'language', 'interest'};
+    if (kind.isEmpty || rawValue.isEmpty || assistItemAdder == null ||
+        !addable.contains(kind)) {
       _replyAndKeepStep(
           turn.reply.trim().isEmpty ? 'O que você quer adicionar? 🙂' : turn.reply.trim(),
           step);
       return;
     }
+
+    // "adiciona SQL, Power BI e Excel" → vários itens. Sem isso viraria UMA
+    // skill-lixo com vírgulas. Card em LOTE (reusa o AssistExtractItem: aplica
+    // todos + Desfazer do lote). Só skill/idioma (interesse é replace-all).
+    final names = _splitAddList(rawValue);
+    if (names.length > 1 && (kind == 'skill' || kind == 'language')) {
+      final entries = [
+        for (final n in names)
+          AssistExtractEntry(kind: kind, value: n, label: _extractLabel(kind, n))
+      ];
+      if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
+      final item = AssistExtractItem(id: 'edit_${_editSeq++}', entries: entries);
+      _pendingExtracts[item.id] = item;
+      thread.add(item);
+      // ignore: unawaited_futures
+      Analytics.shared.track(evTrilhaAssistEditProposed,
+          props: {'lacuna_key': kind, 'op': 'add'});
+      if (step != null) inputVisible = true;
+      _notify();
+      return;
+    }
+
+    final value = names.isNotEmpty ? names.first : rawValue;
+
+    // Já tem esse item? NÃO propõe card — senão ele mente "Adicionei" (o
+    // write-back dedupa, não grava) E o Desfazer apagaria o item que já
+    // existia. Só avisa. (resolver = match exato/contains no que já tem.)
+    final resolver = assistItemResolver;
+    if (resolver != null) {
+      try {
+        final existing = await resolver(kind, value);
+        if (existing.any((m) => m.trim().toLowerCase() == value.toLowerCase())) {
+          if (_disposed) return;
+          _replyAndKeepStep('"$value" já tá em ${_kindLabel(kind)} 🙂', step);
+          return;
+        }
+      } catch (_) {/* best-effort: sem check, segue pro card */}
+    }
+    if (_disposed) return;
     if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
     _pushEdit(
         AssistEditItem(
@@ -953,6 +1677,22 @@ class TrilhaChatController extends ChangeNotifier {
         ),
         step,
         opName: 'add');
+  }
+
+  /// Quebra "SQL, Power BI e Excel" em ["SQL","Power BI","Excel"]. Só divide se
+  /// tem vírgula (pra não picar "React e Redux" quando é um item só). Dedup.
+  List<String> _splitAddList(String raw) {
+    final s = raw.trim();
+    if (!s.contains(',')) return [s];
+    final out = <String>[];
+    final seen = <String>{};
+    for (final chunk in s.split(',')) {
+      for (final p in chunk.split(RegExp(r'\s+e\s+', caseSensitive: false))) {
+        final t = p.trim();
+        if (t.isNotEmpty && seen.add(t.toLowerCase())) out.add(t);
+      }
+    }
+    return out.isEmpty ? [s] : out;
   }
 
   /// `remove_item`: resolve QUAL item (desambigua se preciso) e propõe REMOVER
@@ -1023,10 +1763,20 @@ class TrilhaChatController extends ChangeNotifier {
         return 'suas skills';
       case 'language':
         return 'seus idiomas';
+      case 'interest':
+        return 'seus interesses';
+      case 'area':
+        return 'suas áreas';
       case 'experience':
         return 'suas experiências';
       case 'project':
         return 'seus projetos';
+      case 'certification':
+        return 'suas certificações';
+      case 'award':
+        return 'seus prêmios';
+      case 'education':
+        return 'sua formação';
     }
     return kind;
   }
@@ -1192,6 +1942,15 @@ class TrilhaChatController extends ChangeNotifier {
     try {
       switch (op) {
         case AssistEditOp.update:
+          // Campo de item multi-campo (itemKind setado) → grava por id; senão,
+          // campo global (cargo/resumo/nome…).
+          if (item.itemKind.isNotEmpty) {
+            final iw = assistItemFieldWriter;
+            if (iw == null) return false;
+            await iw(item.itemKind, item.refId, item.field,
+                undo ? item.beforeRaw : item.value);
+            break;
+          }
           final w = assistWriteField;
           if (w == null) return false;
           await w(item.field, undo ? item.beforeRaw : item.value);
@@ -1351,6 +2110,313 @@ class TrilhaChatController extends ChangeNotifier {
     _notify();
   }
 
+  // ── Editor visual de lista simples: skills / interesses (Fase C) ───────────
+
+  final Map<String, ListEditorItem> _pendingListEditors = {};
+
+  /// `edit_skills`/`edit_interests`: abre o editor visual com os itens atuais.
+  /// Sem itens ainda ⇒ editar não faz sentido → cai na COLETA (start_section).
+  Future<void> _proposeListEditor(String kind, AssistantTurn turn) async {
+    final isSkill = kind == 'skill';
+    final loader = kind == 'skill'
+        ? assistSkillsLoader
+        : kind == 'interest'
+            ? assistInterestsLoader
+            : assistAreasLoader;
+    final section = kind == 'skill'
+        ? 'skills'
+        : kind == 'interest'
+            ? 'interests'
+            : 'area';
+    final noun = kind == 'skill'
+        ? 'skills'
+        : kind == 'interest'
+            ? 'interesses'
+            : 'áreas';
+    final title = kind == 'skill'
+        ? 'Suas habilidades'
+        : kind == 'interest'
+            ? 'Seus interesses'
+            : 'Suas áreas de interesse';
+    List<String> current = const [];
+    if (loader != null) {
+      try {
+        current = await loader();
+      } catch (_) {/* best-effort */}
+    }
+    if (_disposed) return;
+    if (current.isEmpty) {
+      final reply = turn.reply.trim();
+      final ok = await _injectSection(section,
+          reply.isEmpty ? 'Você ainda não tem $noun — bora adicionar? 👇' : reply);
+      if (!ok) _pushAi('Bora adicionar seus $noun? Me conta um.');
+      return;
+    }
+    // Sugestões (só skills, pela área) — best-effort, tira as que já tem.
+    var suggestions = const <String>[];
+    final suggester = isSkill ? assistSkillSuggester : null;
+    if (suggester != null) {
+      try {
+        final lower = current.map((s) => s.toLowerCase()).toSet();
+        suggestions = (await suggester())
+            .where((s) => !lower.contains(s.toLowerCase()))
+            .take(8)
+            .toList();
+      } catch (_) {/* best-effort */}
+    }
+    if (_disposed) return;
+    if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
+    final item = ListEditorItem(
+        id: 'edit_${_editSeq++}',
+        kind: kind,
+        title: title,
+        initial: current,
+        suggestions: suggestions);
+    _pendingListEditors[item.id] = item;
+    thread.add(item);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditProposed,
+        props: {'lacuna_key': kind, 'op': 'edit'});
+    _notify();
+  }
+
+  /// "Salvar" no editor de lista: aplica o líquido (adds + removes) e guarda o
+  /// undo do LOTE. Skills = adder/remover por item; interesses = replace-all da
+  /// lista final (com undo pra lista original). Sem mudança ⇒ cancela.
+  Future<void> applyListEditor(String id,
+      {required List<String> added, required List<String> removed}) async {
+    final item = _pendingListEditors[id];
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    if (added.isEmpty && removed.isEmpty) {
+      cancelListEditor(id);
+      return;
+    }
+    // interesses E áreas gravam REPLACE-ALL da lista final (idem write-back).
+    if (item.kind == 'interest' || item.kind == 'area') {
+      final replacer =
+          item.kind == 'area' ? assistAreasReplacer : assistInterestsReplacer;
+      if (replacer != null) {
+        final before = List<String>.of(item.initial);
+        // `removed` são strings EXATAS do baseline (item.initial) — comparar por
+        // igualdade exata (não case-insensitive, senão apagaria variantes de
+        // caixa que o usuário não tocou, ex.: 'Music' e 'music').
+        final rm = removed.toSet();
+        final after = [
+          ...item.initial.where((s) => !rm.contains(s)),
+          ...added,
+        ];
+        try {
+          await replacer(after);
+          item.undos.add(() => replacer(before));
+        } catch (_) {
+          // Falha na gravação (all-or-nothing): NÃO marca aplicado — mantém o
+          // card pendente pra reaplicar, sem alegar sucesso falso.
+          if (_disposed) return;
+          _pushAi('Não consegui salvar agora 🤔 Tenta de novo.');
+          _notify();
+          return;
+        }
+      }
+    } else {
+      final adder = assistItemAdder;
+      final remover = assistItemRemover;
+      for (final s in added) {
+        if (adder == null) continue;
+        try {
+          await adder(item.kind, s);
+          if (remover != null) item.undos.add(() => remover(item.kind, s));
+        } catch (_) {/* best-effort por item */}
+      }
+      for (final s in removed) {
+        if (remover == null) continue;
+        try {
+          await remover(item.kind, s);
+          if (adder != null) item.undos.add(() => adder(item.kind, s));
+        } catch (_) {/* best-effort por item */}
+      }
+    }
+    if (_disposed) return;
+    item.addedApplied = added;
+    item.removedApplied = removed;
+    item.status = AssistEditStatus.applied;
+    _pendingListEditors.remove(id);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditApplied,
+        props: {'lacuna_key': item.kind, 'op': 'edit'});
+    _notify();
+  }
+
+  void cancelListEditor(String id) {
+    final item = _pendingListEditors.remove(id);
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    item.status = AssistEditStatus.cancelled;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditCancelled,
+        props: {'lacuna_key': item.kind, 'op': 'edit'});
+    _notify();
+  }
+
+  Future<void> undoListEditor(String id) async {
+    ListEditorItem? item;
+    for (final it in thread) {
+      if (it is ListEditorItem && it.id == id) {
+        item = it;
+        break;
+      }
+    }
+    if (item == null || item.status != AssistEditStatus.applied) return;
+    for (final u in item.undos.reversed) {
+      try {
+        await u();
+      } catch (_) {/* best-effort */}
+    }
+    if (_disposed) return;
+    item.status = AssistEditStatus.undone;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditUndone,
+        props: {'lacuna_key': item.kind, 'op': 'edit'});
+    _notify();
+  }
+
+  // ── Editor visual de idiomas (Fase C) — cada item tem nível ────────────────
+
+  final Map<String, LanguagesEditorItem> _pendingLangEditors = {};
+
+  /// Os 7 idiomas que a trilha oferece (mesma lista canônica da coleta).
+  static const List<String> _kCanonicalLanguages = [
+    'Português',
+    'Inglês',
+    'Espanhol',
+    'Francês',
+    'Alemão',
+    'Italiano',
+    'Mandarim',
+  ];
+
+  /// `edit_languages`: abre o editor visual de idiomas (nome + nível). Sem
+  /// idiomas ainda ⇒ cai na COLETA (start_section 'languages').
+  Future<void> _proposeLanguagesEditor(AssistantTurn turn) async {
+    final loader = assistLanguagesLoader;
+    List<(String, String?)> current = const [];
+    if (loader != null) {
+      try {
+        current = await loader();
+      } catch (_) {/* best-effort */}
+    }
+    if (_disposed) return;
+    if (current.isEmpty) {
+      final reply = turn.reply.trim();
+      final ok = await _injectSection('languages',
+          reply.isEmpty ? 'Você ainda não tem idiomas — bora adicionar? 👇' : reply);
+      if (!ok) _pushAi('Bora adicionar seus idiomas?');
+      return;
+    }
+    final have = current.map((e) => e.$1.toLowerCase()).toSet();
+    final options = _kCanonicalLanguages
+        .where((l) => !have.contains(l.toLowerCase()))
+        .toList();
+    if (turn.reply.trim().isNotEmpty) _pushAi(turn.reply.trim());
+    final item = LanguagesEditorItem(
+      id: 'edit_${_editSeq++}',
+      initial: [for (final e in current) LangEntry(e.$1, e.$2)],
+      options: options,
+    );
+    _pendingLangEditors[item.id] = item;
+    thread.add(item);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditProposed,
+        props: {'lacuna_key': 'languages', 'op': 'edit'});
+    _notify();
+  }
+
+  /// "Salvar" no editor de idiomas: upsert dos adicionados/alterados, remove dos
+  /// tirados; undo inverso do lote (níveis antigos capturados do baseline).
+  Future<void> applyLanguagesEditor(String id,
+      {required List<LangEntry> added,
+      required List<String> removed,
+      required List<LangEntry> changed}) async {
+    final item = _pendingLangEditors[id];
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    if (added.isEmpty && removed.isEmpty && changed.isEmpty) {
+      cancelLanguagesEditor(id);
+      return;
+    }
+    final upsert = assistLanguageUpserter;
+    final remover = assistItemRemover;
+    String? oldLevelOf(String name) {
+      for (final e in item.initial) {
+        if (e.name.toLowerCase() == name.toLowerCase()) return e.level;
+      }
+      return null;
+    }
+
+    for (final e in added) {
+      if (upsert == null) continue;
+      try {
+        await upsert(e.name, e.level);
+        if (remover != null) item.undos.add(() => remover('language', e.name));
+      } catch (_) {/* best-effort */}
+    }
+    for (final e in changed) {
+      if (upsert == null) continue;
+      final old = oldLevelOf(e.name);
+      try {
+        await upsert(e.name, e.level);
+        item.undos.add(() => upsert(e.name, old));
+      } catch (_) {/* best-effort */}
+    }
+    for (final name in removed) {
+      if (remover == null) continue;
+      final old = oldLevelOf(name);
+      try {
+        await remover('language', name);
+        if (upsert != null) item.undos.add(() => upsert(name, old));
+      } catch (_) {/* best-effort */}
+    }
+    if (_disposed) return;
+    item.addedApplied = added;
+    item.removedApplied = removed;
+    item.changedApplied = changed;
+    item.status = AssistEditStatus.applied;
+    _pendingLangEditors.remove(id);
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditApplied,
+        props: {'lacuna_key': 'languages', 'op': 'edit'});
+    _notify();
+  }
+
+  void cancelLanguagesEditor(String id) {
+    final item = _pendingLangEditors.remove(id);
+    if (item == null || item.status != AssistEditStatus.pending) return;
+    item.status = AssistEditStatus.cancelled;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditCancelled,
+        props: {'lacuna_key': 'languages', 'op': 'edit'});
+    _notify();
+  }
+
+  Future<void> undoLanguagesEditor(String id) async {
+    LanguagesEditorItem? item;
+    for (final it in thread) {
+      if (it is LanguagesEditorItem && it.id == id) {
+        item = it;
+        break;
+      }
+    }
+    if (item == null || item.status != AssistEditStatus.applied) return;
+    for (final u in item.undos.reversed) {
+      try {
+        await u();
+      } catch (_) {/* best-effort */}
+    }
+    if (_disposed) return;
+    item.status = AssistEditStatus.undone;
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistEditUndone,
+        props: {'lacuna_key': 'languages', 'op': 'edit'});
+    _notify();
+  }
+
   /// Serializa o passo aberto pro grounding do assistente (sem PII sensível).
   Map<String, dynamic> _serializeStep(ConversationStep step) {
     final input = step.input;
@@ -1411,8 +2477,13 @@ class TrilhaChatController extends ChangeNotifier {
   static final RegExp _cmdVerbs = RegExp(
       r'^(adiciona|adicionar|add|tira|tirar|remove|remover|apaga|apagar|muda|mudar|troca|trocar|corrige|corrigir|edita|editar|reescreve|reescrever|melhora|melhorar|refor[çc]a|refor[çc]ar|pula|pular|mostra|mostrar|explica|explicar|ajuda|quero|como|o que|qual|quais|por que|porque|pq)\b',
       caseSensitive: false);
+  // As palavras de seção mais antigas casam por PREFIXO de propósito
+  // ('certifica'→certificado). As novas de AÇÃO (vaga/exportar/importar/pdf) usam
+  // um lookahead `(?![a-zà-ú])` (não \b, que o Dart trata como ASCII e dispararia
+  // no 'ç' de "importação"/"exportação"): casa "importa"/"vagas"/"exporta" mas
+  // NÃO "importante"/"vagando"/"importação".
   static final RegExp _sectionWords = RegExp(
-      r'\b(skill|habilidade|experi[eê]ncia|resumo|bullet|cidade|cargo|[aá]rea|idioma|projeto|forma[cç][aã]o|linkedin|certifica|pr[eê]mio|disponibilidade|interesse|perfil|curr[ií]culo)',
+      r'\b(skill|habilidade|experi[eê]ncia|resumo|bullet|cidade|cargo|[aá]rea|idioma|projeto|forma[cç][aã]o|linkedin|certifica|pr[eê]mio|disponibilidade|interesse|perfil|curr[ií]culo|vagas?(?![a-zà-ú])|exportar?(?![a-zà-ú])|importar?(?![a-zà-ú])|pdf(?![a-zà-ú]))',
       caseSensitive: false);
   bool _looksLikeCommand(String t) {
     final s = t.trim();
@@ -1421,6 +2492,12 @@ class TrilhaChatController extends ChangeNotifier {
     if (_sectionWords.hasMatch(s)) return true;
     return false;
   }
+
+  /// "não sei"/"sla"/"passa" e afins — não-resposta a um passo de texto.
+  static final RegExp _nonAnswerRe = RegExp(
+      r'^(n[aã]o sei|nao sei|sei l[aá]|sla|sei n[aã]o|nem sei|n[aã]o fa[çc]o ideia|nao faco ideia|sem ideia|passa|pula|prefiro n[aã]o|deixa (pra|pro) depois|talvez)[\s!.?]*$',
+      caseSensitive: false);
+  bool _looksLikeNonAnswer(String t) => _nonAnswerRe.hasMatch(t.trim());
 
   /// Um textão colado (várias infos de uma vez) não é resposta de um passo —
   /// deve ir pra IA extrair. Heurística: quebra de linha, ou longo com ≥2
@@ -1437,8 +2514,12 @@ class TrilhaChatController extends ChangeNotifier {
   /// Seção sugerida no último nudge (pra o atalho "quero" cair direto nela).
   String? _suggestedSection;
 
+  // A mensagem TODA precisa ser uma confirmação curta (ancorado no fim) —
+  // opcionalmente + 1 palavrinha de reforço + pontuação. Senão "quero editar
+  // minhas habilidades" (que começa com "quero") sequestraria o atalho da seção
+  // sugerida em vez de ir pro assistente.
   static final RegExp _affirmative = RegExp(
-      r'^(sim|claro|quero|quer[ ]?sim|bora|pode|podemos|vamos|vam[uo]s|partiu|com certeza|isso|manda|ok|beleza|blz|t[aá]|uhum|s)\b',
+      r'^(sim|claro|quero|bora|pode|podemos|vamos|vam[uo]s|partiu|com certeza|isso|manda|ok|beleza|blz|t[aá]|uhum|s)( sim| l[áa]| ent[ãa]o| a[íi])?[\s!.]*$',
       caseSensitive: false);
   bool _isAffirmative(String t) {
     final s = t.trim();

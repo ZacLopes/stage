@@ -6,7 +6,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../core/theme/theme.dart';
@@ -14,6 +13,7 @@ import '../../../../core/widgets/widgets.dart';
 import '../../domain/conversation_step.dart';
 import 'chat_bubbles.dart';
 import 'experience_type_picker.dart';
+import 'trilha_option_tile.dart';
 
 class StepInputView extends StatefulWidget {
   const StepInputView({
@@ -233,7 +233,7 @@ class _StepInputViewState extends State<StepInputView> {
         children: [
           for (var i = 0; i < input.options.length; i++) ...[
             if (i > 0) const SizedBox(height: AppSpacing.sm),
-            _OptionTile(
+            TrilhaOptionTile(
               label: input.options[i].label,
               subtitle: input.options[i].subtitle,
               onTap: widget.enabled
@@ -533,7 +533,7 @@ class _StepInputViewState extends State<StepInputView> {
           const SizedBox(height: AppSpacing.sm),
           for (var i = 0; i < _pickResults.length && i < 8; i++) ...[
             if (i > 0) const SizedBox(height: AppSpacing.sm),
-            _OptionTile(
+            TrilhaOptionTile(
               label: _pickResults[i].label,
               onTap: widget.enabled
                   ? () => widget.onSubmit(StepAnswer.pick(widget.step.id,
@@ -696,90 +696,6 @@ class _AnimatedChipState extends State<_AnimatedChip> {
         opacity: visible ? 1.0 : 0.0,
         duration: const Duration(milliseconds: 180),
         child: widget.child,
-      ),
-    );
-  }
-}
-
-/// Opção de escolha única como tile de largura cheia (rótulo + subtítulo
-/// opcional), com mola no toque + haptic. Mais "intencional" que um chip solto
-/// quando há 2+ opções.
-class _OptionTile extends StatefulWidget {
-  const _OptionTile({required this.label, this.subtitle, this.onTap});
-
-  final String label;
-  final String? subtitle;
-  final VoidCallback? onTap;
-
-  @override
-  State<_OptionTile> createState() => _OptionTileState();
-}
-
-class _OptionTileState extends State<_OptionTile> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = widget.onTap != null;
-    return AnimatedScale(
-      scale: _pressed ? 0.98 : 1.0,
-      duration: const Duration(milliseconds: 110),
-      curve: Curves.easeOut,
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: AppRadius.brLg,
-        child: InkWell(
-          onTap: enabled
-              ? () {
-                  HapticFeedback.selectionClick();
-                  widget.onTap!();
-                }
-              : null,
-          onHighlightChanged:
-              enabled ? (v) => setState(() => _pressed = v) : null,
-          borderRadius: AppRadius.brLg,
-          splashFactory: NoSplash.splashFactory,
-          highlightColor: Colors.transparent,
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.base,
-              vertical: AppSpacing.base,
-            ),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: AppRadius.brLg,
-              border: Border.all(color: AppColors.borderStrong),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.label,
-                        style: AppTextStyles.titleSm
-                            .copyWith(color: AppColors.textPrimary),
-                      ),
-                      if (widget.subtitle != null &&
-                          widget.subtitle!.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          widget.subtitle!,
-                          style: AppTextStyles.bodySm
-                              .copyWith(color: AppColors.textTertiary),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const Icon(Icons.arrow_forward_rounded,
-                    size: 18, color: AppColors.textTertiary),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

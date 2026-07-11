@@ -167,6 +167,7 @@ class PersonalInfo {
     int? completenessScore,
     DateTime? profileCompletedAt,
     DateTime? lastExtractedAt,
+    bool clearLocationState = false,
   }) {
     return PersonalInfo(
       userId: userId ?? this.userId,
@@ -181,7 +182,8 @@ class PersonalInfo {
       ageRange: ageRange ?? this.ageRange,
       dateOfBirth: dateOfBirth ?? this.dateOfBirth,
       locationCountry: locationCountry ?? this.locationCountry,
-      locationState: locationState ?? this.locationState,
+      locationState:
+          clearLocationState ? locationState : (locationState ?? this.locationState),
       locationCity: locationCity ?? this.locationCity,
       locationPostalCode: locationPostalCode ?? this.locationPostalCode,
       locationStreetAddress: locationStreetAddress ?? this.locationStreetAddress,

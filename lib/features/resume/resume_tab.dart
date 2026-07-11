@@ -9,6 +9,8 @@
 // O "Importar CV" saiu desta aba (segue vivo no onboarding e no adapt-de-vaga).
 // A trilha gamificada antiga (TracksTab) também saiu — arquivo congelado (R6).
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
@@ -19,9 +21,14 @@ import '../../core/widgets/widgets.dart';
 import '../../services/ai_service.dart';
 import '../../services/analytics_events.dart';
 import '../../services/analytics_service.dart';
+import '../../services/cv_import_service.dart';
 import '../../services/profile_snapshot_service.dart';
 import '../auth/user_viewmodel.dart';
 import '../../services/feature_flags_service.dart';
+import '../home/home_viewmodel.dart';
+import '../jobs/jobs_viewmodel.dart';
+import '../jobs/models/job.dart';
+import '../jobs/utils/filter_helpers.dart';
 import '../profile/application/profile_editor_view_model.dart';
 import '../trilha/application/trilha_hub_status.dart';
 import '../trilha/application/trilha_section.dart';
@@ -92,11 +99,37 @@ class _ResumeTabState extends State<ResumeTab>
     _future = _load();
   }
 
+  /// Debounce do reload do preview após edições do assistente (o "Salvar" de um
+  /// editor chama os writers N vezes → coalescem num único reload).
+  Timer? _reloadDebounce;
+  final List<Timer> _importRefreshTimers = [];
+
   @override
   void dispose() {
+    _reloadDebounce?.cancel();
+    for (final t in _importRefreshTimers) {
+      t.cancel();
+    }
     _orch?.removeListener(_onOrch);
     _orch?.dispose();
     super.dispose();
+  }
+
+  /// Após uma escrita do assistente que MUTA o perfil (add/remove/edita skill,
+  /// idioma, campo, bullet, experiência…), recarrega o preview (a aba Currículo
+  /// e o stepper leem do ProfileEditorViewModel in-memory) + a força honesta.
+  /// Sem isso o preview mostra dados velhos mesmo com o banco já atualizado.
+  void _scheduleProfileReload() {
+    _reloadDebounce?.cancel();
+    _reloadDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      try {
+        // ignore: unawaited_futures
+        context.read<ProfileEditorViewModel>().load();
+      } catch (_) {/* sem provider (teste): ignora */}
+      // ignore: unawaited_futures
+      _refreshHubStatus();
+    });
   }
 
   Future<TrilhaChatController> _load() async {
@@ -123,9 +156,23 @@ class _ResumeTabState extends State<ResumeTab>
                 text: m['text'] ?? '—',
                 label: m['label'] ?? field);
       },
-      assistWriteField: (field, value) => assistWriteFieldValue(uid, field, value),
-      assistItemAdder: (kind, value) => assistAddItem(uid, kind, value),
-      assistItemRemover: (kind, value) => assistRemoveItem(uid, kind, value),
+      // Os writers do assistente gravam DIRETO no banco (fora do
+      // ProfileEditorViewModel). Envolvo cada um pra, no sucesso, reagendar um
+      // reload do preview — assim a aba Currículo/stepper refletem a edição na
+      // hora (adds aparecem, removes somem). Cobre também os undos, que reusam
+      // estes mesmos callbacks.
+      assistWriteField: (field, value) async {
+        await assistWriteFieldValue(uid, field, value);
+        _scheduleProfileReload();
+      },
+      assistItemAdder: (kind, value) async {
+        await assistAddItem(uid, kind, value);
+        _scheduleProfileReload();
+      },
+      assistItemRemover: (kind, value) async {
+        await assistRemoveItem(uid, kind, value);
+        _scheduleProfileReload();
+      },
       assistItemResolver: (kind, query) => assistResolveItems(uid, kind, query),
       assistBulletReader: (bulletId) async {
         final m = await assistBulletReadMap(uid, bulletId);
@@ -136,13 +183,85 @@ class _ResumeTabState extends State<ResumeTab>
                 text: m['text'] ?? '',
                 label: m['label'] ?? 'Experiência');
       },
-      assistBulletWriter: (bulletId, text) =>
-          assistBulletWrite(uid, bulletId, text),
+      assistBulletWriter: (bulletId, text) async {
+        await assistBulletWrite(uid, bulletId, text);
+        _scheduleProfileReload();
+      },
       // Remoção reversível de experiência (captura + delete + restore pro undo).
-      assistReversibleRemover: (kind, value) =>
-          assistReversibleRemove(uid, kind, value),
+      assistReversibleRemover: (kind, value) async {
+        final restore = await assistReversibleRemove(uid, kind, value);
+        _scheduleProfileReload();
+        if (restore == null) return null;
+        return () async {
+          await restore();
+          _scheduleProfileReload();
+        };
+      },
       // Fase C (proativo): sugere a maior lacuna que resta ao concluir.
       assistProactiveLoader: () => assistTopGap(uid),
+      // Editor visual de skills: skills atuais (chips) + sugestões pela área.
+      assistSkillsLoader: () => loadAssistSkills(uid),
+      assistSkillSuggester: () => assistSkillSuggestionsFor(uid),
+      // Editor visual de interesses (replace-all) e idiomas (nome + nível).
+      assistInterestsLoader: () => loadAssistInterests(uid),
+      assistInterestsReplacer: (names) async {
+        await assistReplaceInterests(uid, names);
+        _scheduleProfileReload();
+      },
+      assistAreasLoader: () => loadAssistAreas(uid),
+      assistAreasReplacer: (names) async {
+        await assistReplaceAreas(uid, names);
+        _scheduleProfileReload();
+      },
+      assistLanguagesLoader: () => loadAssistLanguages(uid),
+      assistLanguageUpserter: (name, level) async {
+        await assistUpsertLanguage(uid, name, level);
+        _scheduleProfileReload();
+      },
+      // Editar UM campo de item multi-campo (experiência/formação/cert).
+      assistItemFieldReader: (kind, query, field) =>
+          assistReadItemField(uid, kind, query, field),
+      assistItemFieldWriter: (kind, id, field, value) async {
+        await assistWriteItemField(uid, kind, id, field, value);
+        _scheduleProfileReload();
+      },
+      // Grandes: ações de app. Vagas reais (lê o feed já filtrado pelo perfil),
+      // navegar entre abas, exportar o PDF. Nenhuma muta o perfil → sem reload.
+      assistJobsLoader: ({String? area, String? query, int limit = 5}) =>
+          _loadJobsForAssistant(area: area, query: query, limit: limit),
+      assistOpenTab: (tabKey) async {
+        if (!mounted) return;
+        final idx = _tabIndexForKey(tabKey);
+        if (idx == null || idx == HomeTabs.resume) return;
+        try {
+          context.read<HomeViewModel>().requestTabChange(idx);
+        } catch (_) {/* sem HomeViewModel (teste) */}
+      },
+      assistExportPdf: _exportForAssistant,
+      assistImportCv: _startAssistImport,
+      // Widget de conflito: aplica UMA linha escolhida + recarrega o preview.
+      assistConflictApplier: (row, value) async {
+        final undo = await assistApplyConflictRow(uid, row, value);
+        _scheduleProfileReload();
+        if (undo == null) return null;
+        return () async {
+          await undo();
+          _scheduleProfileReload();
+        };
+      },
+      // Render estruturado: lacunas do perfil (% + o que falta) pro card.
+      assistGapsLoader: () async {
+        final g = await loadAssistGaps(uid);
+        return AssistGaps(
+          completionPercent: g.completionPercent,
+          missing: [
+            for (final m in g.missing)
+              GapRow(key: m.key, tier: m.tier, label: m.label)
+          ],
+        );
+      },
+      // Edição in-place de card (✏️) grava fora dos writers → recarrega o preview.
+      onProfileEdited: _scheduleProfileReload,
       // Abertura adaptativa: se o perfil já tem seções, a trilha reconhece e vai
       // direto completar o que falta (pula o gate "começar do zero"). Vazio ⇒ gate.
       preFilledLoader: () async {
@@ -756,8 +875,11 @@ class _ResumeTabState extends State<ResumeTab>
     );
   }
 
-  Future<void> _export(ResumeViewModel resumeVM) async {
-    if (_isExporting) return;
+  /// Retorna true SÓ se o PDF foi gerado e a folha de compartilhar abriu; false
+  /// se já havia um export em andamento ou se a geração falhou (o assistente usa
+  /// isso pra não confirmar sucesso em cima de um erro).
+  Future<bool> _export(ResumeViewModel resumeVM) async {
+    if (_isExporting) return false;
     setState(() => _isExporting = true);
     try {
       final userVM = context.read<UserViewModel>();
@@ -790,6 +912,7 @@ class _ResumeTabState extends State<ResumeTab>
       );
       // ignore: unawaited_futures
       Analytics.shared.cvExported(templateId: resumeVM.selectedTemplateId);
+      return true;
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -799,9 +922,219 @@ class _ResumeTabState extends State<ResumeTab>
           ),
         );
       }
+      return false;
     } finally {
       if (mounted) setState(() => _isExporting = false);
     }
+  }
+
+  // ── Grandes: callbacks de ação do assistente ──────────────────────────────
+
+  /// `export_pdf`: desfecho REAL (vazio/falha/ok) pro assistente não confirmar
+  /// sucesso em cima de um erro. Reusa o [_export] (mesma folha de share) e a
+  /// MESMA regra de `canExport` do [_exportBar].
+  Future<AssistExportOutcome> _exportForAssistant() async {
+    if (!mounted) return AssistExportOutcome.failed;
+    final p = context.read<ProfileEditorViewModel>();
+    final resumeVM = context.read<ResumeViewModel>();
+    final canExport = resumeVM.resumeData != null ||
+        p.experiences.isNotEmpty ||
+        p.skills.isNotEmpty ||
+        p.education.isNotEmpty ||
+        p.languages.isNotEmpty ||
+        p.interests.isNotEmpty;
+    if (!canExport) return AssistExportOutcome.empty;
+    final ok = await _export(resumeVM);
+    return ok ? AssistExportOutcome.ok : AssistExportOutcome.failed;
+  }
+
+  /// `import_cv`: abre o seletor, importa em BACKGROUND (a extração roda async).
+  /// A conversa NÃO reinicia — só recarrega o preview quando a extração cai.
+  /// Distingue cancelado (sem arquivo) / falha (arquivo inválido/não-CV) / ok.
+  Future<AssistImportResult> _startAssistImport() async {
+    if (!mounted) return const AssistImportResult(AssistImportOutcome.failed);
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    CvImportResult r;
+    try {
+      // triggerExtraction:false → pega os bytes e roda a extração à parte
+      // (dry-run pro diff, ou save:true se o perfil está vazio).
+      r = await CvImportService.pickAndImport(context, triggerExtraction: false);
+    } catch (_) {
+      return const AssistImportResult(AssistImportOutcome.failed);
+    }
+    if (!mounted) return const AssistImportResult(AssistImportOutcome.ok);
+    if (!r.success) {
+      // .cancelled() não tem errorMessage; .error(msg) tem.
+      return r.errorMessage == null
+          ? const AssistImportResult(AssistImportOutcome.cancelled)
+          : AssistImportResult(AssistImportOutcome.failed, message: r.errorMessage);
+    }
+    // PDF salvo mas texto ILEGÍVEL (escaneado/imagem): o extract-profile NÃO
+    // extrai nada. Não prometer extração que não vai rolar.
+    if (!r.textWasUsable || r.pdfBytes == null || uid == null) {
+      return const AssistImportResult(AssistImportOutcome.failed,
+          message:
+              'Salvei seu PDF, mas não consegui ler o texto dele (parece digitalizado/imagem) — me conta os dados aqui na conversa que eu anoto 🙂');
+    }
+    final bytes = r.pdfBytes!;
+
+    // Falha ao carregar o perfil NÃO pode virar "perfil vazio" (isso levaria ao
+    // save:true destrutivo, sobrescrevendo/descartando sem card). Aborta com aviso.
+    ProfileSnapshot snap;
+    try {
+      snap = await ProfileSnapshotService().loadSnapshot(uid);
+    } catch (_) {
+      return const AssistImportResult(AssistImportOutcome.failed,
+          message:
+              'Não consegui comparar com seu perfil agora 😕 Tenta de novo daqui a pouco.');
+    }
+    if (!mounted) return const AssistImportResult(AssistImportOutcome.ok);
+
+    // "Vazio" pro import = SEM nenhum dado que o diff protege. snap.isEmpty
+    // ignora os escalares pessoais (nome/telefone/cidade/linkedin/site), então
+    // checo também eles — senão um perfil só-com-identidade pularia o card e
+    // teria esses campos sobrescritos em silêncio pela extração.
+    final pp = snap.personal;
+    final hasPersonal = pp != null &&
+        [
+          '${pp.firstName ?? ''}${pp.lastName ?? ''}',
+          pp.phoneNumber,
+          pp.locationCity,
+          pp.linkedinUrl,
+          pp.website,
+        ].any((s) => (s ?? '').trim().isNotEmpty);
+    final profileIsEmpty = snap.isEmpty && !hasPersonal;
+
+    // Perfil VAZIO → nada com que conflitar: grava direto (save:true) + re-poll.
+    if (profileIsEmpty) {
+      // ignore: unawaited_futures
+      CvImportService.extractProfile(bytes, save: true);
+      _scheduleProfileReload();
+      _scheduleImportRefresh();
+      return const AssistImportResult(AssistImportOutcome.ok,
+          message:
+              'Importei seu CV! 📄 Tô lendo pra preencher o que ainda falta (uns 15s) — vai aparecendo no seu currículo 👇');
+    }
+
+    // Perfil COM dados → dry-run + diff → card de conflito.
+    final conflicts = await loadCvConflicts(uid, bytes);
+    if (!mounted) return const AssistImportResult(AssistImportOutcome.ok);
+    if (conflicts.isEmpty) {
+      return const AssistImportResult(AssistImportOutcome.ok,
+          message:
+              'Li seu CV, mas ele bate com o que você já tem — nada novo pra mexer 🙂');
+    }
+    return AssistImportResult(AssistImportOutcome.ok,
+        message:
+            'Li seu CV e comparei com o que você já tem 👇 Escolhe o que quer trazer:',
+        conflicts: conflicts);
+  }
+
+  /// Re-poll do preview após um import: a extração (extract-profile) é async
+  /// (~15s), então recarrega algumas vezes até ela cair no banco.
+  void _scheduleImportRefresh() {
+    for (final t in _importRefreshTimers) {
+      t.cancel();
+    }
+    _importRefreshTimers.clear();
+    for (final sec in const [5, 12, 20]) {
+      _importRefreshTimers.add(Timer(Duration(seconds: sec), () {
+        if (!mounted) return;
+        try {
+          // ignore: unawaited_futures
+          context.read<ProfileEditorViewModel>().load();
+        } catch (_) {/* sem provider (teste) */}
+        // ignore: unawaited_futures
+        _refreshHubStatus();
+      }));
+    }
+  }
+
+  /// `open_tab`: mapeia o tabKey (pt-BR/en) pro índice da aba. null ⇒ não
+  /// reconhecido. Índice 1 aceita "salvas" e "candidaturas" (rótulo alterna
+  /// pela flag, mas a aba é a mesma).
+  int? _tabIndexForKey(String tabKey) {
+    switch (tabKey.trim().toLowerCase()) {
+      case 'vagas':
+      case 'jobs':
+      case 'feed':
+        return HomeTabs.jobs;
+      case 'salvas':
+      case 'candidaturas':
+      case 'saved':
+      case 'applications':
+        return HomeTabs.saved;
+      case 'curriculo':
+      case 'currículo':
+      case 'resume':
+        return HomeTabs.resume;
+      case 'perfil':
+      case 'profile':
+        return HomeTabs.profile;
+      default:
+        return null;
+    }
+  }
+
+  /// `show_jobs`: lê o feed REAL (já filtrado pelo perfil), aplica filtro
+  /// opcional por área/texto (client-side), resolve o match de um pool pequeno
+  /// do topo (o feed já vem rankeado) e devolve o top N reordenado por score.
+  Future<AssistJobsResult> _loadJobsForAssistant({
+    String? area,
+    String? query,
+    required int limit,
+  }) async {
+    if (!mounted) return const AssistJobsResult(hasResume: false, jobs: []);
+    final jobsVM = context.read<JobsViewModel>();
+    final hasResume = context.read<UserViewModel>().hasResume;
+    // Garante o feed carregado mesmo se o user nunca abriu a aba Vagas (idempotente).
+    if (jobsVM.jobs.isEmpty) {
+      try {
+        await jobsVM.init();
+      } catch (_) {/* best-effort */}
+    }
+    if (!mounted) return AssistJobsResult(hasResume: hasResume, jobs: const []);
+    // listJobs exclui as vagas que o user já swipou (curtiu/descartou) — não
+    // faz sentido "recomendar" uma vaga que ele acabou de rejeitar.
+    var candidates = jobsVM.listJobs;
+    if (area != null && area.isNotEmpty) {
+      candidates = candidates
+          .where((j) => FilterHelpers.isAreaMatch(j.area, [area]))
+          .toList();
+    }
+    if (query != null && query.isNotEmpty) {
+      final q = FilterHelpers.normalize(query);
+      candidates = candidates
+          .where((j) =>
+              FilterHelpers.normalize('${j.title} ${j.companyName}').contains(q))
+          .toList();
+    }
+    // Resolve o match só de um pool pequeno do topo (feed já vem rankeado), em
+    // PARALELO (Future.wait) pra não somar N latências de rede em série.
+    final pool = candidates.take(12).toList();
+    final results = await Future.wait(pool.map((job) async {
+      try {
+        final m = await jobsVM.resolveMatchForJob(job, hasResume: hasResume);
+        return (job: job, score: m.score, hasScore: !m.isNoResume && !m.isUnknown);
+      } catch (_) {
+        return null; // sem score — cai fora do topo
+      }
+    }));
+    if (!mounted) return AssistJobsResult(hasResume: hasResume, jobs: const []);
+    final scored = results.whereType<({Job job, int score, bool hasScore})>().toList();
+    scored.sort((a, b) => b.score.compareTo(a.score));
+    final rows = scored
+        .take(limit)
+        .map((e) => AssistJobRow(
+              id: e.job.id,
+              title: e.job.title,
+              company: e.job.companyName,
+              area: e.job.area ?? '',
+              score: e.score,
+              hasScore: e.hasScore,
+            ))
+        .toList();
+    return AssistJobsResult(hasResume: hasResume, jobs: rows);
   }
 
   String _initials(String name) {

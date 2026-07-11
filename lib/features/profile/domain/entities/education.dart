@@ -213,6 +213,7 @@ class Education {
     String? location,
     String? degree,
     int? currentSemester,
+    bool clearCurrentSemester = false,
     int? currentSchoolYear,
     DateTime? startDate,
     DateTime? endDate,
@@ -233,7 +234,8 @@ class Education {
     educationStatus: educationStatus ?? this.educationStatus,
     location: location ?? this.location,
     degree: degree ?? this.degree,
-    currentSemester: currentSemester ?? this.currentSemester,
+    currentSemester:
+        clearCurrentSemester ? null : (currentSemester ?? this.currentSemester),
     currentSchoolYear: currentSchoolYear ?? this.currentSchoolYear,
     startDate: startDate ?? this.startDate,
     endDate: endDate ?? this.endDate,

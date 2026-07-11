@@ -124,9 +124,12 @@ List<DesiredTitle> withInferredAreas(
     }
   }
 
-  // 1. Áreas do usuário (visíveis) primeiro — preservadas como vieram.
+  // 1. Áreas do usuário (visíveis) primeiro. Uma canônica mis-cased ("recursos
+  //    humanos") é gravada na grafia canônica ("Recursos Humanos") pra cair no
+  //    bucket EXATO dos readers (busca do admin); área custom preserva o texto.
   for (final t in userAreas) {
-    put(t.title, t.source ?? DesiredTitleSource.userAdded);
+    final title = isCanonicalArea(t.title) ? canonicalArea(t.title) : t.title;
+    put(title, t.source ?? DesiredTitleSource.userAdded);
   }
   // 2. Canônica oculta pra cada área custom.
   for (final t in userAreas) {

@@ -14,6 +14,9 @@ import '../application/trilha_hub_status.dart';
 import '../application/trilha_section.dart';
 import 'trilha_chat_controller.dart';
 import 'widgets/chat_bubbles.dart';
+import 'widgets/import_conflict_card.dart';
+import 'widgets/languages_editor_card.dart';
+import 'widgets/list_editor_card.dart';
 import 'widgets/inline/inline_step_input.dart';
 import 'widgets/inline/trilha_answer_card.dart';
 
@@ -44,6 +47,14 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
   final ScrollController _scroll = ScrollController();
   final TextEditingController _text = TextEditingController();
 
+  /// FocusNode ESTÁVEL da barra de digitar. Sem ele, o TextField usa um node
+  /// interno que, nesta subárvore muito re-buildada (watch do VM + 2
+  /// AnimatedBuilder + reflow do teclado), pode ficar destacado no frame do
+  /// toque — aí o guard global de "tocar fora fecha o teclado" (main.dart) lê
+  /// "nenhum campo focado" e FECHA o teclado ao tocar na própria barra (ex.:
+  /// pra colar). Um node próprio do State persiste e mantém o foco estável.
+  final FocusNode _inputFocus = FocusNode();
+
   /// Âncora do card em edição — pra rolar ATÉ ele (e não pro fim do fio) quando
   /// o usuário toca no lápis de uma resposta lá em cima.
   final GlobalKey _editAnchorKey = GlobalKey();
@@ -63,6 +74,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
     _c.removeListener(_onTick);
     _scroll.dispose();
     _text.dispose();
+    _inputFocus.dispose();
     super.dispose();
   }
 
@@ -186,6 +198,62 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
           key: ValueKey('extract-${item.id}'),
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: _assistExtractCard(item),
+        ));
+      } else if (item is ListEditorItem) {
+        children.add(Padding(
+          key: ValueKey('list-editor-${item.id}'),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: ListEditorCard(
+            item: item,
+            onApply: (added, removed) =>
+                _c.applyListEditor(item.id, added: added, removed: removed),
+            onCancel: () => _c.cancelListEditor(item.id),
+            onUndo: () => _c.undoListEditor(item.id),
+          ),
+        ));
+      } else if (item is LanguagesEditorItem) {
+        children.add(Padding(
+          key: ValueKey('lang-editor-${item.id}'),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: LanguagesEditorCard(
+            item: item,
+            onApply: (added, removed, changed) => _c.applyLanguagesEditor(
+                item.id, added: added, removed: removed, changed: changed),
+            onCancel: () => _c.cancelLanguagesEditor(item.id),
+            onUndo: () => _c.undoLanguagesEditor(item.id),
+          ),
+        ));
+      } else if (item is JobsCardItem) {
+        children.add(Padding(
+          key: ValueKey('jobs-$i'),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: _jobsCard(item),
+        ));
+      } else if (item is GapsCardItem) {
+        children.add(Padding(
+          key: ValueKey('gaps-$i'),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: _gapsCard(item),
+        ));
+      } else if (item is ImportConflictItem) {
+        children.add(Padding(
+          key: ValueKey('conflict-${item.id}'),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: ImportConflictCard(
+            item: item,
+            onToggle: (rowId, accepted) =>
+                _c.toggleConflictRow(item.id, rowId, accepted),
+            onEdit: (rowId, value) => _c.editConflictRow(item.id, rowId, value),
+            onApply: () {
+              // ignore: unawaited_futures
+              _c.applyConflicts(item.id);
+            },
+            onCancel: () => _c.cancelConflicts(item.id),
+            onUndo: () {
+              // ignore: unawaited_futures
+              _c.undoConflicts(item.id);
+            },
+          ),
         ));
       } else if (item is AnsweredItem) {
         if (c.editingIndex == i && c.activeStep != null) {
@@ -346,6 +414,194 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
   }
 
   // ── Card-resumo da extração ─────────────────────────────────────────────────
+
+  // ── Card de vagas reais (Grande: consulta ao feed) ────────────────────────
+
+  Widget _jobsCard(JobsCardItem item) {
+    return Container(
+      // Alinha com o texto das bolhas da IA: avatar (34) + gap (AppSpacing.sm).
+      margin: const EdgeInsets.only(left: 34 + AppSpacing.sm),
+      padding: AppSpacing.allBase,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.brLg,
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Vagas pra você', style: AppTextStyles.overline),
+          const SizedBox(height: 2),
+          Text(
+            item.hasResume
+                ? 'As que mais combinam com seu perfil 👇'
+                : 'Preenche seu currículo pra eu calcular o match 👇',
+            style:
+                AppTextStyles.bodySm.copyWith(color: AppColors.textTertiary),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          for (final j in item.jobs) _jobRow(j),
+          const SizedBox(height: AppSpacing.sm),
+          SecondaryButton(
+            label: 'Ver na aba Vagas',
+            icon: Icons.work_outline_rounded,
+            onPressed: () {
+              // ignore: unawaited_futures
+              _c.openTabFromCard('vagas');
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _jobRow(AssistJobRow j) {
+    final sub = [j.company, if (j.area.isNotEmpty) j.area].join(' · ');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(j.title,
+                    style: AppTextStyles.bodyMd
+                        .copyWith(fontWeight: FontWeight.w600)),
+                if (sub.isNotEmpty)
+                  Text(sub,
+                      style: AppTextStyles.bodySm
+                          .copyWith(color: AppColors.textTertiary)),
+              ],
+            ),
+          ),
+          if (j.hasScore) ...[
+            const SizedBox(width: AppSpacing.sm),
+            _matchBadge(j.score),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _matchBadge(int score) {
+    // Baldes iguais aos do detalhe da vaga: ≥70 forte, ≥40 médio, senão fraco.
+    final strong = score >= 70;
+    final mid = score >= 40;
+    final color = strong
+        ? AppColors.success
+        : (mid ? AppColors.primary : AppColors.textTertiary);
+    final bg = strong
+        ? AppColors.successSoft
+        : (mid ? AppColors.primarySoft : AppColors.surfaceVariant);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: bg, borderRadius: AppRadius.brSm),
+      child: Text('$score%',
+          style: AppTextStyles.labelSm.copyWith(color: color)),
+    );
+  }
+
+  // ── Card de lacunas/resumo (Grande: render estruturado) ───────────────────
+
+  Widget _gapsCard(GapsCardItem item) {
+    final pct = item.completionPercent.clamp(0, 100);
+    return Container(
+      margin: const EdgeInsets.only(left: 34 + AppSpacing.sm),
+      padding: AppSpacing.allBase,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.brLg,
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Seu perfil', style: AppTextStyles.overline),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: AppRadius.brSm,
+                  child: LinearProgressIndicator(
+                    value: pct / 100,
+                    minHeight: 8,
+                    backgroundColor: AppColors.surfaceVariant,
+                    valueColor:
+                        const AlwaysStoppedAnimation<Color>(AppColors.primary),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text('$pct%',
+                  style:
+                      AppTextStyles.labelSm.copyWith(color: AppColors.primary)),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          if (item.rows.isEmpty)
+            Text('Tá completo! 🎉 Seu perfil já cobre o essencial.',
+                style: AppTextStyles.bodySm
+                    .copyWith(color: AppColors.textTertiary))
+          else ...[
+            Text('Ainda dá pra reforçar 👇',
+                style: AppTextStyles.bodySm
+                    .copyWith(color: AppColors.textTertiary)),
+            const SizedBox(height: AppSpacing.sm),
+            // Cap pra não virar um card gigante quando o perfil está bem vazio.
+            for (final r in item.rows.take(6)) _gapRow(r),
+            if (item.rows.length > 6)
+              Text('+ ${item.rows.length - 6} pra reforçar',
+                  style: AppTextStyles.bodySm
+                      .copyWith(color: AppColors.textTertiary)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _gapRow(GapRow r) {
+    final color = switch (r.tier) {
+      'tier1' => AppColors.primary,
+      'tier2' => AppColors.textSecondary,
+      _ => AppColors.textTertiary,
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Row(
+        children: [
+          Icon(_gapIcon(r.key), size: 16, color: color),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(child: Text(r.label, style: AppTextStyles.bodyMd)),
+        ],
+      ),
+    );
+  }
+
+  IconData _gapIcon(String key) => switch (key) {
+        'area' => Icons.category_outlined,
+        'desiredPosition' => Icons.badge_outlined,
+        'workMode' => Icons.laptop_outlined,
+        'jobType' => Icons.schedule_outlined,
+        'city' => Icons.place_outlined,
+        'educationStatus' => Icons.school_outlined,
+        'skills' => Icons.bolt_outlined,
+        'experience' => Icons.work_outline,
+        'languages' => Icons.translate_outlined,
+        'summary' => Icons.notes_outlined,
+        'linkedin' => Icons.link_outlined,
+        'certifications' => Icons.verified_outlined,
+        'awards' => Icons.emoji_events_outlined,
+        'projects' => Icons.folder_outlined,
+        'availability' => Icons.event_available_outlined,
+        'interests' => Icons.favorite_outline,
+        'companyStage' => Icons.business_outlined,
+        'workEnvironment' => Icons.groups_outlined,
+        'workStyle' => Icons.tune_outlined,
+        _ => Icons.circle_outlined,
+      };
 
   Widget _importSummary(ImportSummary s) {
     final cells = <(int, String, TrilhaSection)>[
@@ -895,6 +1151,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
                   Expanded(
                     child: TextField(
                       controller: _text,
+                      focusNode: _inputFocus,
                       minLines: 1,
                       maxLines: 4,
                       textInputAction: TextInputAction.send,
