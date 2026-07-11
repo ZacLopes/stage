@@ -228,6 +228,12 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: _jobsCard(item),
         ));
+      } else if (item is GapsCardItem) {
+        children.add(Padding(
+          key: ValueKey('gaps-$i'),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: _gapsCard(item),
+        ));
       } else if (item is AnsweredItem) {
         if (c.editingIndex == i && c.activeStep != null) {
           children.add(Padding(
@@ -475,6 +481,106 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
           style: AppTextStyles.labelSm.copyWith(color: color)),
     );
   }
+
+  // ── Card de lacunas/resumo (Grande: render estruturado) ───────────────────
+
+  Widget _gapsCard(GapsCardItem item) {
+    final pct = item.completionPercent.clamp(0, 100);
+    return Container(
+      margin: const EdgeInsets.only(left: 34 + AppSpacing.sm),
+      padding: AppSpacing.allBase,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.brLg,
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Seu perfil', style: AppTextStyles.overline),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: AppRadius.brSm,
+                  child: LinearProgressIndicator(
+                    value: pct / 100,
+                    minHeight: 8,
+                    backgroundColor: AppColors.surfaceVariant,
+                    valueColor:
+                        const AlwaysStoppedAnimation<Color>(AppColors.primary),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text('$pct%',
+                  style:
+                      AppTextStyles.labelSm.copyWith(color: AppColors.primary)),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          if (item.rows.isEmpty)
+            Text('Tá completo! 🎉 Seu perfil já cobre o essencial.',
+                style: AppTextStyles.bodySm
+                    .copyWith(color: AppColors.textTertiary))
+          else ...[
+            Text('Ainda dá pra reforçar 👇',
+                style: AppTextStyles.bodySm
+                    .copyWith(color: AppColors.textTertiary)),
+            const SizedBox(height: AppSpacing.sm),
+            // Cap pra não virar um card gigante quando o perfil está bem vazio.
+            for (final r in item.rows.take(6)) _gapRow(r),
+            if (item.rows.length > 6)
+              Text('+ ${item.rows.length - 6} pra reforçar',
+                  style: AppTextStyles.bodySm
+                      .copyWith(color: AppColors.textTertiary)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _gapRow(GapRow r) {
+    final color = switch (r.tier) {
+      'tier1' => AppColors.primary,
+      'tier2' => AppColors.textSecondary,
+      _ => AppColors.textTertiary,
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Row(
+        children: [
+          Icon(_gapIcon(r.key), size: 16, color: color),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(child: Text(r.label, style: AppTextStyles.bodyMd)),
+        ],
+      ),
+    );
+  }
+
+  IconData _gapIcon(String key) => switch (key) {
+        'area' => Icons.category_outlined,
+        'desiredPosition' => Icons.badge_outlined,
+        'workMode' => Icons.laptop_outlined,
+        'jobType' => Icons.schedule_outlined,
+        'city' => Icons.place_outlined,
+        'educationStatus' => Icons.school_outlined,
+        'skills' => Icons.bolt_outlined,
+        'experience' => Icons.work_outline,
+        'languages' => Icons.translate_outlined,
+        'summary' => Icons.notes_outlined,
+        'linkedin' => Icons.link_outlined,
+        'certifications' => Icons.verified_outlined,
+        'awards' => Icons.emoji_events_outlined,
+        'projects' => Icons.folder_outlined,
+        'availability' => Icons.event_available_outlined,
+        'interests' => Icons.favorite_outline,
+        'companyStage' => Icons.business_outlined,
+        'workEnvironment' => Icons.groups_outlined,
+        'workStyle' => Icons.tune_outlined,
+        _ => Icons.circle_outlined,
+      };
 
   Widget _importSummary(ImportSummary s) {
     final cells = <(int, String, TrilhaSection)>[

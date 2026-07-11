@@ -238,6 +238,41 @@ class AssistJobsResult {
 /// ou sucesso. Pro assistente falar a verdade (não "Pronto!" em cima de um erro).
 enum AssistExportOutcome { empty, failed, ok }
 
+/// Desfecho do import_cv: usuário cancelou o seletor, falhou (arquivo inválido/
+/// não-CV), ou importou. `message` carrega o motivo do erro (ex.: "parece um
+/// extrato bancário") pra falar a verdade.
+enum AssistImportOutcome { cancelled, failed, ok }
+
+class AssistImportResult {
+  final AssistImportOutcome outcome;
+  final String? message;
+  const AssistImportResult(this.outcome, {this.message});
+}
+
+/// Uma lacuna do perfil pro card estruturado (show_gaps/show_profile_summary).
+/// `key` = LacunaKey.name (pro ícone); `tier` = 'tier1'|'tier2'|'tier3' (cor).
+class GapRow {
+  final String key;
+  final String tier;
+  final String label;
+  const GapRow({required this.key, required this.tier, required this.label});
+}
+
+/// Snapshot das lacunas: % de completude + o que ainda falta.
+class AssistGaps {
+  final int completionPercent;
+  final List<GapRow> missing;
+  const AssistGaps({required this.completionPercent, required this.missing});
+}
+
+/// Card "Seu perfil" (Grande: render estruturado): barra de completude + lista
+/// do que falta. Display-only. Serve show_gaps E show_profile_summary.
+class GapsCardItem extends ChatItem {
+  final int completionPercent;
+  final List<GapRow> rows;
+  const GapsCardItem({required this.completionPercent, required this.rows});
+}
+
 /// Card "Vagas pra você" (Grande: consulta ao feed real). Display-only: lista as
 /// vagas + botão "Ver na aba Vagas". `hasResume` false ⇒ header avisa do CV.
 class JobsCardItem extends ChatItem {
@@ -309,6 +344,8 @@ class TrilhaChatController extends ChangeNotifier {
     this.assistJobsLoader,
     this.assistOpenTab,
     this.assistExportPdf,
+    this.assistImportCv,
+    this.assistGapsLoader,
     this.onProfileEdited,
     this.pollInterval = const Duration(milliseconds: 1500),
     this.maxPolls = 40,
@@ -433,6 +470,15 @@ class TrilhaChatController extends ChangeNotifier {
   /// desfecho real (vazio/falha/ok) pro assistente não mentir sucesso. null ⇒
   /// não exporta.
   final Future<AssistExportOutcome> Function()? assistExportPdf;
+
+  /// Grande: importa um CV (abre o seletor de arquivo, salva, dispara extração
+  /// async). Em background — a conversa NÃO reinicia; o preview atualiza sozinho
+  /// quando a extração cai. null ⇒ não importa.
+  final Future<AssistImportResult> Function()? assistImportCv;
+
+  /// Grande: lacunas do perfil (% + o que falta) pro card estruturado de
+  /// show_gaps/show_profile_summary. null ⇒ cai na resposta de texto.
+  final Future<AssistGaps> Function()? assistGapsLoader;
 
   /// Chamado após uma edição in-place de card respondido (✏️) gravar — pra o
   /// preview da aba Currículo recarregar. As edições do assistente já recarregam
@@ -998,12 +1044,12 @@ class TrilhaChatController extends ChangeNotifier {
       case 'export_pdf':
         await _handleExportPdf(turn, step);
         return;
+      case 'import_cv':
+        await _handleImportCv(turn, step);
+        return;
       case 'show_gaps':
       case 'show_profile_summary':
-        // ignore: unawaited_futures
-        Analytics.shared.track(evTrilhaAssistAnswerReturned,
-            props: {'grounded_in': 'profile_gaps', 'used_llm': true});
-        _replyAndKeepStep(reply, step);
+        await _handleShowGaps(turn, step);
         return;
       case 'answer_question':
       case 'explain_step':
@@ -1144,6 +1190,76 @@ class TrilhaChatController extends ChangeNotifier {
     // ignore: unawaited_futures
     Analytics.shared.track(evTrilhaAssistActionUsed,
         props: {'action': 'open_tab', 'tab': tabKey, 'via': 'jobs_card'});
+  }
+
+  /// `import_cv`: abre o seletor (o app cumpre), importa em BACKGROUND (a
+  /// conversa segue; o preview atualiza sozinho quando a extração cai). Fala a
+  /// verdade: cancelou / erro (com o motivo) / importou.
+  Future<void> _handleImportCv(AssistantTurn turn, ConversationStep? step) async {
+    final reply = turn.reply.trim();
+    final cb = assistImportCv;
+    if (cb == null) {
+      // Sem caminho de import por aqui → orienta (o import vive no onboarding).
+      _replyAndKeepStep(
+          reply.isEmpty
+              ? 'Pra importar um CV, é lá no comecinho do app 🙂 Aqui dá pra preencher na conversa.'
+              : reply,
+          step);
+      return;
+    }
+    if (reply.isNotEmpty) _pushAi(reply);
+    AssistImportResult res;
+    try {
+      res = await cb();
+    } catch (_) {
+      res = const AssistImportResult(AssistImportOutcome.failed);
+    }
+    if (_disposed) return;
+    switch (res.outcome) {
+      case AssistImportOutcome.ok:
+        // Copy honesta: a extração preenche o que ainda FALTA (não sobrescreve
+        // o que a trilha já coletou) e leva uns 15s — o preview atualiza sozinho.
+        _pushAi(
+            'Importei seu CV! 📄 Tô lendo pra preencher o que ainda falta (uns 15s) — pode seguir aqui que vai aparecendo no seu currículo 👇');
+        // ignore: unawaited_futures
+        Analytics.shared
+            .track(evTrilhaAssistActionUsed, props: {'action': 'import_cv'});
+      case AssistImportOutcome.cancelled:
+        _pushAi('Beleza! Quando quiser importar é só falar 🙂');
+      case AssistImportOutcome.failed:
+        _pushAi(res.message ??
+            'Não consegui ler esse arquivo 😕 Tenta um PDF do seu currículo.');
+    }
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
+  /// `show_gaps` / `show_profile_summary`: card estruturado (barra de completude
+  /// + o que falta). Sem loader/erro ⇒ cai na resposta de texto.
+  Future<void> _handleShowGaps(AssistantTurn turn, ConversationStep? step) async {
+    final reply = turn.reply.trim();
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistAnswerReturned,
+        props: {'grounded_in': 'profile_gaps', 'used_llm': true});
+    final loader = assistGapsLoader;
+    if (loader == null) {
+      _replyAndKeepStep(reply, step);
+      return;
+    }
+    AssistGaps g;
+    try {
+      g = await loader();
+    } catch (_) {
+      if (_disposed) return;
+      _replyAndKeepStep(reply, step);
+      return;
+    }
+    if (_disposed) return;
+    if (reply.isNotEmpty) _pushAi(reply);
+    thread.add(
+        GapsCardItem(completionPercent: g.completionPercent, rows: g.missing));
+    if (step != null) inputVisible = true;
+    _notify();
   }
 
   /// `answer_current_step`: aplica a resposta da IA ao passo aberto (texto ou
@@ -2234,11 +2350,12 @@ class TrilhaChatController extends ChangeNotifier {
       r'^(adiciona|adicionar|add|tira|tirar|remove|remover|apaga|apagar|muda|mudar|troca|trocar|corrige|corrigir|edita|editar|reescreve|reescrever|melhora|melhorar|refor[çc]a|refor[çc]ar|pula|pular|mostra|mostrar|explica|explicar|ajuda|quero|como|o que|qual|quais|por que|porque|pq)\b',
       caseSensitive: false);
   // As palavras de seção mais antigas casam por PREFIXO de propósito
-  // ('certifica'→certificado). As novas de AÇÃO (vaga/exportar/pdf) são ancoradas
-  // com \b final pra não pegar 'vagando'/'importante'/'exportação'. 'importar'
-  // (import de CV) fica pro Incremento B.
+  // ('certifica'→certificado). As novas de AÇÃO (vaga/exportar/importar/pdf) usam
+  // um lookahead `(?![a-zà-ú])` (não \b, que o Dart trata como ASCII e dispararia
+  // no 'ç' de "importação"/"exportação"): casa "importa"/"vagas"/"exporta" mas
+  // NÃO "importante"/"vagando"/"importação".
   static final RegExp _sectionWords = RegExp(
-      r'\b(skill|habilidade|experi[eê]ncia|resumo|bullet|cidade|cargo|[aá]rea|idioma|projeto|forma[cç][aã]o|linkedin|certifica|pr[eê]mio|disponibilidade|interesse|perfil|curr[ií]culo|vagas?\b|exportar?\b|pdf\b)',
+      r'\b(skill|habilidade|experi[eê]ncia|resumo|bullet|cidade|cargo|[aá]rea|idioma|projeto|forma[cç][aã]o|linkedin|certifica|pr[eê]mio|disponibilidade|interesse|perfil|curr[ií]culo|vagas?(?![a-zà-ú])|exportar?(?![a-zà-ú])|importar?(?![a-zà-ú])|pdf(?![a-zà-ú]))',
       caseSensitive: false);
   bool _looksLikeCommand(String t) {
     final s = t.trim();

@@ -233,6 +233,34 @@ Future<Map<String, String>?> assistTopGap(
   return null;
 }
 
+/// Grande (render estruturado) — lacunas do perfil pro card de show_gaps/
+/// show_profile_summary: % de completude + o que falta ({key,tier,label}),
+/// ordenado por tier (tier1 primeiro). Pula `summary` (é GERADO, não pedido).
+/// NÃO é failure-safe DE PROPÓSITO: em erro RELANÇA, pro controller cair no
+/// texto (senão um erro viraria um card "0% + tá completo", contraditório).
+Future<({int completionPercent, List<({String key, String tier, String label})> missing})>
+    loadAssistGaps(
+  String userId, {
+  ProfileRepository? repository,
+  ProfileSnapshotService? snapshotService,
+}) async {
+  final repo = repository ?? ProfileRepositorySupabase();
+  final snapSvc = snapshotService ?? ProfileSnapshotService();
+  final snapshot = await snapSvc.loadSnapshot(userId);
+  final prefs = await repo.getJobPreferences(userId);
+  final desired = await repo.getDesiredTitles(userId);
+  final gaps =
+      profileGapsFromData(snapshot: snapshot, prefs: prefs, desiredTitles: desired);
+  const tierOrder = {'tier1': 0, 'tier2': 1, 'tier3': 2};
+  final missing = [
+    for (final l in gaps.missing)
+      if (l.key != LacunaKey.summary)
+        (key: l.key.name, tier: l.tier.name, label: l.label)
+  ]..sort((a, b) =>
+      (tierOrder[a.tier] ?? 9).compareTo(tierOrder[b.tier] ?? 9));
+  return (completionPercent: gaps.completionPercent, missing: missing);
+}
+
 /// Passos reais de uma seção pra o assistente INJETAR ("quero preencher X"),
 /// com os searchers canônicos (cidade IBGE + instituição + skills pela IA).
 /// Seção desconhecida ⇒ lista vazia (o controller cai em conversa).

@@ -21,6 +21,7 @@ import '../../core/widgets/widgets.dart';
 import '../../services/ai_service.dart';
 import '../../services/analytics_events.dart';
 import '../../services/analytics_service.dart';
+import '../../services/cv_import_service.dart';
 import '../../services/profile_snapshot_service.dart';
 import '../auth/user_viewmodel.dart';
 import '../../services/feature_flags_service.dart';
@@ -101,10 +102,14 @@ class _ResumeTabState extends State<ResumeTab>
   /// Debounce do reload do preview após edições do assistente (o "Salvar" de um
   /// editor chama os writers N vezes → coalescem num único reload).
   Timer? _reloadDebounce;
+  final List<Timer> _importRefreshTimers = [];
 
   @override
   void dispose() {
     _reloadDebounce?.cancel();
+    for (final t in _importRefreshTimers) {
+      t.cancel();
+    }
     _orch?.removeListener(_onOrch);
     _orch?.dispose();
     super.dispose();
@@ -233,6 +238,18 @@ class _ResumeTabState extends State<ResumeTab>
         } catch (_) {/* sem HomeViewModel (teste) */}
       },
       assistExportPdf: _exportForAssistant,
+      assistImportCv: _startAssistImport,
+      // Render estruturado: lacunas do perfil (% + o que falta) pro card.
+      assistGapsLoader: () async {
+        final g = await loadAssistGaps(uid);
+        return AssistGaps(
+          completionPercent: g.completionPercent,
+          missing: [
+            for (final m in g.missing)
+              GapRow(key: m.key, tier: m.tier, label: m.label)
+          ],
+        );
+      },
       // Edição in-place de card (✏️) grava fora dos writers → recarrega o preview.
       onProfileEdited: _scheduleProfileReload,
       // Abertura adaptativa: se o perfil já tem seções, a trilha reconhece e vai
@@ -919,6 +936,61 @@ class _ResumeTabState extends State<ResumeTab>
     if (!canExport) return AssistExportOutcome.empty;
     final ok = await _export(resumeVM);
     return ok ? AssistExportOutcome.ok : AssistExportOutcome.failed;
+  }
+
+  /// `import_cv`: abre o seletor, importa em BACKGROUND (a extração roda async).
+  /// A conversa NÃO reinicia — só recarrega o preview quando a extração cai.
+  /// Distingue cancelado (sem arquivo) / falha (arquivo inválido/não-CV) / ok.
+  Future<AssistImportResult> _startAssistImport() async {
+    if (!mounted) return const AssistImportResult(AssistImportOutcome.failed);
+    CvImportResult r;
+    try {
+      r = await CvImportService.pickAndImport(context);
+    } catch (_) {
+      return const AssistImportResult(AssistImportOutcome.failed);
+    }
+    if (!mounted) return const AssistImportResult(AssistImportOutcome.ok);
+    if (!r.success) {
+      // .cancelled() não tem errorMessage; .error(msg) tem.
+      return r.errorMessage == null
+          ? const AssistImportResult(AssistImportOutcome.cancelled)
+          : AssistImportResult(AssistImportOutcome.failed, message: r.errorMessage);
+    }
+    // PDF salvo mas texto ILEGÍVEL (escaneado/imagem): o extract-profile NÃO
+    // dispara → nada seria extraído. Não prometer extração que não vai rolar.
+    if (!r.textWasUsable) {
+      return const AssistImportResult(AssistImportOutcome.failed,
+          message:
+              'Salvei seu PDF, mas não consegui ler o texto dele (parece digitalizado/imagem) — me conta os dados aqui na conversa que eu anoto 🙂');
+    }
+    // Sucesso legível: recarrega já + re-poll até a extração async cair (~15s),
+    // pra o que foi importado aparecer no preview sem o user fazer mais nada.
+    try {
+      await context.read<ProfileEditorViewModel>().load();
+    } catch (_) {/* best-effort */}
+    _scheduleProfileReload();
+    _scheduleImportRefresh();
+    return const AssistImportResult(AssistImportOutcome.ok);
+  }
+
+  /// Re-poll do preview após um import: a extração (extract-profile) é async
+  /// (~15s), então recarrega algumas vezes até ela cair no banco.
+  void _scheduleImportRefresh() {
+    for (final t in _importRefreshTimers) {
+      t.cancel();
+    }
+    _importRefreshTimers.clear();
+    for (final sec in const [5, 12, 20]) {
+      _importRefreshTimers.add(Timer(Duration(seconds: sec), () {
+        if (!mounted) return;
+        try {
+          // ignore: unawaited_futures
+          context.read<ProfileEditorViewModel>().load();
+        } catch (_) {/* sem provider (teste) */}
+        // ignore: unawaited_futures
+        _refreshHubStatus();
+      }));
+    }
   }
 
   /// `open_tab`: mapeia o tabKey (pt-BR/en) pro índice da aba. null ⇒ não

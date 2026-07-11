@@ -83,6 +83,8 @@ void main() {
     AssistJobsLoader? jobsLoader,
     Future<void> Function(String tabKey)? openTab,
     Future<AssistExportOutcome> Function()? exportPdf,
+    Future<AssistImportResult> Function()? importCv,
+    Future<AssistGaps> Function()? gapsLoader,
     List<ConversationStep>? plan,
   }) {
     Future<void> save(StepAnswer a) async {}
@@ -121,6 +123,8 @@ void main() {
       assistJobsLoader: jobsLoader,
       assistOpenTab: openTab,
       assistExportPdf: exportPdf,
+      assistImportCv: importCv,
+      assistGapsLoader: gapsLoader,
       pollInterval: const Duration(milliseconds: 1),
       maxPolls: 2,
     );
@@ -1511,5 +1515,131 @@ void main() {
     expect(
         failed.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Pronto')),
         isFalse);
+  });
+
+  test('import_cv: ok → "importei, processando"; cancelado → sem erro; falha → motivo',
+      () async {
+    // OK.
+    final ok = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'import_cv',
+        args: {},
+        reply: 'Boa! Escolhe o PDF 👇',
+        promptVersion: 'assistant_v11',
+      )),
+      importCv: () async => const AssistImportResult(AssistImportOutcome.ok),
+    );
+    addTearDown(ok.dispose);
+    await ok.start();
+    await ok.submitFreeText('importa meu cv');
+    expect(
+        ok.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Importei')),
+        isTrue);
+
+    // Cancelado → mensagem leve, sem erro.
+    final cancel = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'import_cv',
+        args: {},
+        reply: '',
+        promptVersion: 'assistant_v11',
+      )),
+      importCv: () async =>
+          const AssistImportResult(AssistImportOutcome.cancelled),
+    );
+    addTearDown(cancel.dispose);
+    await cancel.start();
+    await cancel.submitFreeText('importa meu cv');
+    expect(
+        cancel.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Quando quiser')),
+        isTrue);
+
+    // Falha → mostra o MOTIVO específico (ex.: não-CV), não "Importei".
+    final fail = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'import_cv',
+        args: {},
+        reply: '',
+        promptVersion: 'assistant_v11',
+      )),
+      importCv: () async => const AssistImportResult(AssistImportOutcome.failed,
+          message: 'Isso parece um extrato bancário.'),
+    );
+    addTearDown(fail.dispose);
+    await fail.start();
+    await fail.submitFreeText('importa meu cv');
+    expect(
+        fail.thread
+            .whereType<AiMsgItem>()
+            .any((m) => m.text.contains('extrato bancário')),
+        isTrue);
+    expect(
+        fail.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Importei')),
+        isFalse);
+  });
+
+  test('show_gaps: renderiza card estruturado (completude + lacunas)', () async {
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'show_gaps',
+        args: {},
+        reply: 'Olha só o que falta 👇',
+        promptVersion: 'assistant_v11',
+      )),
+      gapsLoader: () async => const AssistGaps(
+        completionPercent: 60,
+        missing: [
+          GapRow(key: 'experience', tier: 'tier1', label: 'Experiência'),
+          GapRow(key: 'summary', tier: 'tier2', label: 'Resumo profissional'),
+        ],
+      ),
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('o que falta no meu perfil?');
+    final card = c.thread.whereType<GapsCardItem>().single;
+    expect(card.completionPercent, 60);
+    expect(card.rows.length, 2);
+    expect(card.rows.first.label, 'Experiência');
+    expect(c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('o que falta')),
+        isTrue);
+  });
+
+  test('show_gaps: sem loader → cai na resposta de texto (sem card)', () async {
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'show_gaps',
+        args: {},
+        reply: 'Seu perfil tá em 60%.',
+        promptVersion: 'assistant_v11',
+      )),
+      // gapsLoader ausente
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('o que falta?');
+    expect(c.thread.whereType<GapsCardItem>(), isEmpty);
+    expect(c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('60%')),
+        isTrue);
+  });
+
+  test('show_gaps: loader lança → cai no texto, sem card 0%/"completo" falso',
+      () async {
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+        tool: 'show_gaps',
+        args: {},
+        reply: 'Seu perfil tá em 60%.',
+        promptVersion: 'assistant_v11',
+      )),
+      gapsLoader: () async => throw Exception('rede caiu'),
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('o que falta?');
+    // Erro NÃO vira card (senão mostraria 0% + "tá completo"); cai no texto.
+    expect(c.thread.whereType<GapsCardItem>(), isEmpty);
+    expect(c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('60%')),
+        isTrue);
   });
 }
