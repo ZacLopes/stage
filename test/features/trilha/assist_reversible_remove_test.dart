@@ -46,12 +46,15 @@ class _CertRepo implements ProfileRepository {
 
 class _PersonalRepo implements ProfileRepository {
   PersonalInfo? personal;
+  Set<String> lastNullColumns = const {};
   _PersonalRepo(this.personal);
 
   @override
   Future<PersonalInfo?> getPersonal(String userId) async => personal;
   @override
-  Future<PersonalInfo> upsertPersonal(PersonalInfo p) async {
+  Future<PersonalInfo> upsertPersonal(PersonalInfo p,
+      {Set<String> nullColumns = const {}}) async {
+    lastNullColumns = nullColumns;
     personal = p;
     return p;
   }
@@ -129,6 +132,19 @@ void main() {
     await assistWriteFieldValue('u', 'city', 'Recife, PE', repository: repo);
     expect(repo.personal?.locationCity, 'Recife');
     expect(repo.personal?.locationState, 'PE');
+  });
+
+  test('assistWriteFieldValue city: troca de cidade LIMPA o CEP antigo', () async {
+    final repo = _PersonalRepo(const PersonalInfo(
+        userId: 'u',
+        locationCity: 'Londrina',
+        locationState: 'PR',
+        locationPostalCode: '86015-620'));
+    await assistWriteFieldValue('u', 'city', 'Recife, PE', repository: repo);
+    expect(repo.personal?.locationCity, 'Recife');
+    // CEP de Londrina não pode ficar com a cidade Recife (par impossível). O
+    // clear tem que ir como nullColumn (o upsert parcial descarta nulls soltos).
+    expect(repo.lastNullColumns, contains('location_postal_code'));
   });
 
   // Regressão do review: um value não-vazio que não casa nenhum id NÃO pode

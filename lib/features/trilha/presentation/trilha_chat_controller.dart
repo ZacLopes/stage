@@ -228,11 +228,16 @@ class AssistJobRow {
 }
 
 /// Resultado da consulta de vagas: as melhores N + se o user tem CV (pra o card
-/// avisar que sem CV o match não sai).
+/// avisar que sem CV o match não sai). `outOfProfileArea` != '' ⇒ as vagas vêm
+/// do CATÁLOGO (área pedida fora do perfil) → o card avisa e sugere adicionar.
 class AssistJobsResult {
   final bool hasResume;
   final List<AssistJobRow> jobs;
-  const AssistJobsResult({required this.hasResume, required this.jobs});
+  final String outOfProfileArea;
+  const AssistJobsResult(
+      {required this.hasResume,
+      required this.jobs,
+      this.outOfProfileArea = ''});
 }
 
 /// Desfecho do export_pdf: nada pra exportar (perfil vazio), falha na geração,
@@ -286,7 +291,15 @@ class GapRow {
   final String key;
   final String tier;
   final String label;
-  const GapRow({required this.key, required this.tier, required this.label});
+
+  /// Seção (start_section) que preenche esta lacuna; '' ⇒ não dá pra preencher
+  /// por aqui (ex.: summary, que é gerado) → linha não vira botão.
+  final String section;
+  const GapRow(
+      {required this.key,
+      required this.tier,
+      required this.label,
+      this.section = ''});
 }
 
 /// Snapshot das lacunas: % de completude + o que ainda falta.
@@ -304,12 +317,37 @@ class GapsCardItem extends ChatItem {
   const GapsCardItem({required this.completionPercent, required this.rows});
 }
 
-/// Card "Vagas pra você" (Grande: consulta ao feed real). Display-only: lista as
-/// vagas + botão "Ver na aba Vagas". `hasResume` false ⇒ header avisa do CV.
+/// Card "Vagas pra você" (Grande: consulta ao feed real). Lista as vagas
+/// (tocáveis → abrem o detalhe) + salvar por vaga. `hasResume` false ⇒ header
+/// avisa do CV. `outOfProfileArea` = área pedida que não está no perfil (busca
+/// no catálogo) → o header sugere adicionar aos interesses.
 class JobsCardItem extends ChatItem {
+  final String id;
   final List<AssistJobRow> jobs;
   final bool hasResume;
-  const JobsCardItem({required this.jobs, this.hasResume = true});
+  final String outOfProfileArea;
+  final Set<String> savedIds = {};
+  JobsCardItem(
+      {required this.id,
+      required this.jobs,
+      this.hasResume = true,
+      this.outOfProfileArea = ''});
+}
+
+/// Card de AÇÃO com botão (exportar/importar): o usuário toca no botão e SÓ
+/// então a ação nativa dispara (folha de compartilhar / seletor de arquivo).
+class AssistActionCardItem extends ChatItem {
+  final String id;
+  final String kind; // 'export' | 'import'
+  AssistEditStatus status; // pending (botão) → applied (feito) / cancelled
+  bool running = false;
+  String resultMessage;
+  AssistActionCardItem({
+    required this.id,
+    required this.kind,
+    this.status = AssistEditStatus.pending,
+    this.resultMessage = '',
+  });
 }
 
 /// Valor atual de um campo (pro diff/undo do assistente).
@@ -378,6 +416,8 @@ class TrilhaChatController extends ChangeNotifier {
     this.assistImportCv,
     this.assistGapsLoader,
     this.assistConflictApplier,
+    this.assistOpenJobDetail,
+    this.assistSaveJob,
     this.onProfileEdited,
     this.pollInterval = const Duration(milliseconds: 1500),
     this.maxPolls = 40,
@@ -516,6 +556,14 @@ class TrilhaChatController extends ChangeNotifier {
   /// + repo) e devolve o undo (reverte só ela). null ⇒ não aplica.
   final Future<Future<void> Function()?> Function(ConflictRow row, String value)?
       assistConflictApplier;
+
+  /// Card de vagas: abre o DETALHE de uma vaga (por id). null ⇒ não abre.
+  final Future<void> Function(String jobId)? assistOpenJobDetail;
+
+  /// Card de vagas: SALVA uma vaga (vai pra Vagas Salvas). Devolve true SÓ se
+  /// persistiu de verdade (a vaga sumiu / já swipada / rede caiu ⇒ false, pra o
+  /// card não mentir "salva"). null ⇒ não salva.
+  final Future<bool> Function(String jobId)? assistSaveJob;
 
   /// Chamado após uma edição in-place de card respondido (✏️) gravar — pra o
   /// preview da aba Currículo recarregar. As edições do assistente já recarregam
@@ -1158,7 +1206,11 @@ class TrilhaChatController extends ChangeNotifier {
       return;
     }
     if (reply.isNotEmpty) _pushAi(reply);
-    thread.add(JobsCardItem(jobs: res.jobs, hasResume: res.hasResume));
+    thread.add(JobsCardItem(
+        id: 'jobs_${_editSeq++}',
+        jobs: res.jobs,
+        hasResume: res.hasResume,
+        outOfProfileArea: res.outOfProfileArea));
     // ignore: unawaited_futures
     Analytics.shared.track(evTrilhaAssistActionUsed,
         props: {'action': 'show_jobs', 'count': res.jobs.length});
@@ -1186,57 +1238,27 @@ class TrilhaChatController extends ChangeNotifier {
     _notify();
   }
 
-  /// `export_pdf`: exporta o currículo (o app abre a folha de compartilhar). A
-  /// `reply` é a CONFIRMAÇÃO pós-ação (o share sheet é o feedback principal);
-  /// retorno false ⇒ perfil vazio, orienta preencher antes.
+  /// `export_pdf`: mostra um CARD com botão "Exportar PDF" — a folha de
+  /// compartilhar só abre quando o usuário toca no botão ([runActionCard]).
   Future<void> _handleExportPdf(AssistantTurn turn, ConversationStep? step) async {
     final reply = turn.reply.trim();
-    final cb = assistExportPdf;
-    if (cb == null) {
+    if (assistExportPdf == null) {
       _replyAndKeepStep(reply, step);
       return;
     }
-    AssistExportOutcome outcome;
-    try {
-      outcome = await cb();
-    } catch (_) {
-      outcome = AssistExportOutcome.failed;
-    }
-    if (_disposed) return;
-    switch (outcome) {
-      case AssistExportOutcome.ok:
-        _pushAi(reply.isEmpty ? 'Pronto! É só salvar ou compartilhar 👍' : reply);
-        // ignore: unawaited_futures
-        Analytics.shared
-            .track(evTrilhaAssistActionUsed, props: {'action': 'export_pdf'});
-      case AssistExportOutcome.empty:
-        _pushAi(
-            'Seu currículo ainda tá bem vazio pra exportar — bora preencher um pouco primeiro? 🙂');
-      case AssistExportOutcome.failed:
-        _pushAi('Deu um erro ao gerar o PDF 😕 Tenta de novo daqui a pouco.');
-    }
+    // NÃO empurra a reply da IA: ela às vezes vem como confirmação PÓS-ação
+    // ("Pronto!"), que contradiz o card (que ainda vai gerar no toque). O card
+    // fala por si; o resultado pós-toque tem texto próprio.
+    _pushActionCard('export');
     if (step != null) inputVisible = true;
     _notify();
   }
 
-  /// Toque no "Ver na aba Vagas" do card de vagas → troca de aba.
-  Future<void> openTabFromCard(String tabKey) async {
-    try {
-      await assistOpenTab?.call(tabKey);
-    } catch (_) {/* best-effort */}
-    // ignore: unawaited_futures
-    Analytics.shared.track(evTrilhaAssistActionUsed,
-        props: {'action': 'open_tab', 'tab': tabKey, 'via': 'jobs_card'});
-  }
-
-  /// `import_cv`: abre o seletor (o app cumpre), importa em BACKGROUND (a
-  /// conversa segue; o preview atualiza sozinho quando a extração cai). Fala a
-  /// verdade: cancelou / erro (com o motivo) / importou.
+  /// `import_cv`: mostra um CARD com botão "Importar CV" — o seletor de arquivo
+  /// só abre quando o usuário toca no botão ([runActionCard]).
   Future<void> _handleImportCv(AssistantTurn turn, ConversationStep? step) async {
     final reply = turn.reply.trim();
-    final cb = assistImportCv;
-    if (cb == null) {
-      // Sem caminho de import por aqui → orienta (o import vive no onboarding).
+    if (assistImportCv == null) {
       _replyAndKeepStep(
           reply.isEmpty
               ? 'Pra importar um CV, é lá no comecinho do app 🙂 Aqui dá pra preencher na conversa.'
@@ -1244,45 +1266,168 @@ class TrilhaChatController extends ChangeNotifier {
           step);
       return;
     }
-    if (reply.isNotEmpty) _pushAi(reply);
+    // Sem empurrar a reply — o card ("toca pra escolher o PDF") já se explica.
+    _pushActionCard('import');
+    if (step != null) inputVisible = true;
+    _notify();
+  }
+
+  void _pushActionCard(String kind) {
+    final id = 'act_${_editSeq++}';
+    final item = AssistActionCardItem(id: id, kind: kind);
+    _pendingActions[id] = item;
+    thread.add(item);
+  }
+
+  /// Toque no botão do card de ação (export/import) → dispara a ação nativa.
+  Future<void> runActionCard(String id) async {
+    final item = _pendingActions[id];
+    if (item == null || item.status != AssistEditStatus.pending || item.running) {
+      return;
+    }
+    item.running = true;
+    _notify();
+    if (item.kind == 'export') {
+      AssistExportOutcome outcome;
+      try {
+        outcome = await assistExportPdf?.call() ?? AssistExportOutcome.failed;
+      } catch (_) {
+        outcome = AssistExportOutcome.failed;
+      }
+      if (_disposed) return;
+      item.running = false;
+      switch (outcome) {
+        case AssistExportOutcome.ok:
+          item.resultMessage = 'Pronto! É só salvar ou compartilhar 👍';
+          item.status = AssistEditStatus.applied;
+          // ignore: unawaited_futures
+          Analytics.shared
+              .track(evTrilhaAssistActionUsed, props: {'action': 'export_pdf'});
+        case AssistExportOutcome.empty:
+          item.resultMessage =
+              'Seu currículo ainda tá bem vazio pra exportar — bora preencher um pouco primeiro? 🙂';
+          item.status = AssistEditStatus.applied;
+        case AssistExportOutcome.failed:
+          // Mantém o botão pra tentar de novo.
+          item.resultMessage = 'Deu um erro ao gerar o PDF 😕 Tenta de novo.';
+      }
+      _notify();
+      return;
+    }
+    // import
     AssistImportResult res;
     try {
-      res = await cb();
+      res = await assistImportCv?.call() ??
+          const AssistImportResult(AssistImportOutcome.failed);
     } catch (_) {
       res = const AssistImportResult(AssistImportOutcome.failed);
     }
     if (_disposed) return;
+    item.running = false;
     switch (res.outcome) {
       case AssistImportOutcome.ok:
-        if (res.message != null && res.message!.isNotEmpty) {
-          _pushAi(res.message!);
-        }
+        item.status = AssistEditStatus.applied;
+        item.resultMessage = res.message ?? 'Importei seu CV! 📄';
         if (res.conflicts.isNotEmpty) {
-          // Perfil não-vazio → card de conflito (aceitar/rejeitar/editar).
-          final id = 'conflict_${_editSeq++}';
-          final item = ImportConflictItem(
-            id: id,
+          final cid = 'conflict_${_editSeq++}';
+          final citem = ImportConflictItem(
+            id: cid,
             choices: [
               for (final r in res.conflicts)
                 ConflictChoice(r, accepted: r.kind == ConflictKind.addition)
             ],
           );
-          _pendingConflicts[id] = item;
-          thread.add(item);
+          _pendingConflicts[cid] = citem;
+          thread.add(citem);
         }
         // ignore: unawaited_futures
-        Analytics.shared.track(evTrilhaAssistActionUsed, props: {
-          'action': 'import_cv',
-          'conflicts': res.conflicts.length,
-        });
+        Analytics.shared.track(evTrilhaAssistActionUsed,
+            props: {'action': 'import_cv', 'conflicts': res.conflicts.length});
       case AssistImportOutcome.cancelled:
-        _pushAi('Beleza! Quando quiser importar é só falar 🙂');
+        // Cancelou o seletor → volta o botão (pode escolher outro arquivo).
+        item.resultMessage = 'Beleza! Toca de novo quando quiser escolher o PDF.';
       case AssistImportOutcome.failed:
-        _pushAi(res.message ??
-            'Não consegui ler esse arquivo 😕 Tenta um PDF do seu currículo.');
+        item.resultMessage = res.message ??
+            'Não consegui ler esse arquivo 😕 Tenta um PDF do seu currículo.';
     }
-    if (step != null) inputVisible = true;
     _notify();
+  }
+
+  void cancelActionCard(String id) {
+    final item = _pendingActions[id];
+    if (item == null ||
+        item.status != AssistEditStatus.pending ||
+        item.running) {
+      return; // não cancela no meio da ação (evita corrida com o resultado)
+    }
+    item.status = AssistEditStatus.cancelled;
+    _notify();
+  }
+
+  /// Toque numa vaga do card → abre o detalhe.
+  Future<void> openJobFromCard(String jobId) async {
+    try {
+      await assistOpenJobDetail?.call(jobId);
+    } catch (_) {/* best-effort */}
+  }
+
+  /// Toque no "salvar" de uma vaga do card → manda pra Vagas Salvas. Só marca
+  /// "salva" se PERSISTIU (senão avisa, sem mentir).
+  Future<void> saveJobFromCard(String cardId, String jobId) async {
+    bool ok;
+    try {
+      ok = await assistSaveJob?.call(jobId) ?? false;
+    } catch (_) {
+      ok = false;
+    }
+    if (_disposed) return;
+    if (ok) {
+      for (final it in thread) {
+        if (it is JobsCardItem && it.id == cardId) it.savedIds.add(jobId);
+      }
+      // ignore: unawaited_futures
+      Analytics.shared.track(evTrilhaAssistActionUsed,
+          props: {'action': 'save_job', 'via': 'jobs_card'});
+    } else {
+      _pushAi('Não consegui salvar essa vaga agora 🤔 Tenta de novo.');
+    }
+    _notify();
+  }
+
+  /// Toque em "Adicionar {área}" no card de vagas fora do perfil → adiciona a
+  /// área aos interesses do user (assim essas vagas passam a entrar no feed).
+  Future<void> addAreaFromCard(String area) async {
+    final loader = assistAreasLoader;
+    final replacer = assistAreasReplacer;
+    if (loader == null || replacer == null || area.trim().isEmpty) return;
+    List<String> current;
+    try {
+      current = await loader();
+    } catch (_) {
+      current = const [];
+    }
+    if (_disposed) return;
+    if (current.any((a) => a.toLowerCase() == area.toLowerCase())) {
+      _pushAi('$area já tá nas suas áreas 🙂');
+      _notify();
+      return;
+    }
+    try {
+      await replacer([...current, area]);
+    } catch (_) {/* best-effort */}
+    if (_disposed) return;
+    _pushAi('Adicionei $area às suas áreas! Agora essas vagas entram no seu feed 👍');
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistActionUsed,
+        props: {'action': 'add_area', 'via': 'jobs_card'});
+    _notify();
+  }
+
+  /// Toque numa lacuna do card "Seu perfil" → começa a preencher a seção.
+  Future<void> fillGapFromCard(String section) async {
+    if (section.isEmpty) return;
+    final ok = await _injectSection(section, 'Boa, bora preencher! 👇');
+    if (!ok) _pushAi('Toca na seção lá em cima 👆 pra preencher.');
   }
 
   /// `show_gaps` / `show_profile_summary`: card estruturado (barra de completude
@@ -1389,7 +1534,18 @@ class TrilhaChatController extends ChangeNotifier {
 
   final Map<String, AssistEditItem> _pendingEdits = {};
   final Map<String, ImportConflictItem> _pendingConflicts = {};
+  final Map<String, AssistActionCardItem> _pendingActions = {};
   int _editSeq = 0;
+
+  /// Toque no "Ver na aba Vagas" do card de vagas → troca de aba.
+  Future<void> openTabFromCard(String tabKey) async {
+    try {
+      await assistOpenTab?.call(tabKey);
+    } catch (_) {/* best-effort */}
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistActionUsed,
+        props: {'action': 'open_tab', 'tab': tabKey, 'via': 'jobs_card'});
+  }
 
   // ── Widget de conflito de import: toggle/editar por linha + aplicar/desfazer ─
 
@@ -1470,12 +1626,28 @@ class TrilhaChatController extends ChangeNotifier {
   /// `update_field`: NÃO grava direto — lê o valor atual, mostra um card de
   /// confirmação (Aplicar/Cancelar) e só grava no [confirmEdit]. Campo não
   /// editável / sem leitor-gravador ⇒ cai em conversa.
+  /// "Cidade|UF" / "Cidade, UF" / "Cidade" → "Cidade, UF" (ou só "Cidade").
+  String _cityDisplay(String value) {
+    final raw = value.trim();
+    if (raw.isEmpty) return raw;
+    final sep = raw.contains('|') ? '|' : (raw.contains(',') ? ',' : '');
+    if (sep.isEmpty) return raw;
+    final parts = raw.split(sep);
+    final city = parts[0].trim();
+    final uf = parts.length >= 2 ? parts[1].trim() : '';
+    return uf.isEmpty ? city : '$city, $uf';
+  }
+
   Future<void> _proposeUpdateField(
       AssistantTurn turn, ConversationStep? step) async {
     final field = turn.args['field']?.toString() ?? '';
     final value = turn.args['value']?.toString().trim() ?? '';
-    final valueLabel =
-        turn.args['value_label']?.toString().trim() ?? (value.isEmpty ? '' : value);
+    // Pra CIDADE, o card SEMPRE mostra "Cidade, UF" (não o value_label curto do
+    // modelo, que às vezes vem sem o estado). Pros demais, usa o value_label.
+    final valueLabel = field == 'city'
+        ? _cityDisplay(value)
+        : (turn.args['value_label']?.toString().trim() ??
+            (value.isEmpty ? '' : value));
     final reader = assistReadField;
     if (field.isEmpty ||
         value.isEmpty ||

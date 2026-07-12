@@ -255,6 +255,12 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
             },
           ),
         ));
+      } else if (item is AssistActionCardItem) {
+        children.add(Padding(
+          key: ValueKey('action-${item.id}'),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: _actionCard(item),
+        ));
       } else if (item is AnsweredItem) {
         if (c.editingIndex == i && c.activeStep != null) {
           children.add(Padding(
@@ -418,6 +424,12 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
   // ── Card de vagas reais (Grande: consulta ao feed) ────────────────────────
 
   Widget _jobsCard(JobsCardItem item) {
+    final outOfProfile = item.outOfProfileArea.isNotEmpty;
+    final sub = outOfProfile
+        ? 'Fora das suas áreas — toca numa pra ver, ou salva 👇'
+        : (item.hasResume
+            ? 'Toca numa vaga pra ver ou salvar 👇'
+            : 'Preenche seu currículo pra eu calcular o match 👇');
     return Container(
       // Alinha com o texto das bolhas da IA: avatar (34) + gap (AppSpacing.sm).
       margin: const EdgeInsets.only(left: 34 + AppSpacing.sm),
@@ -430,56 +442,160 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Vagas pra você', style: AppTextStyles.overline),
+          Text(outOfProfile ? 'Vagas de ${item.outOfProfileArea}' : 'Vagas pra você',
+              style: AppTextStyles.overline),
           const SizedBox(height: 2),
-          Text(
-            item.hasResume
-                ? 'As que mais combinam com seu perfil 👇'
-                : 'Preenche seu currículo pra eu calcular o match 👇',
-            style:
-                AppTextStyles.bodySm.copyWith(color: AppColors.textTertiary),
-          ),
+          Text(sub,
+              style:
+                  AppTextStyles.bodySm.copyWith(color: AppColors.textTertiary)),
           const SizedBox(height: AppSpacing.sm),
-          for (final j in item.jobs) _jobRow(j),
-          const SizedBox(height: AppSpacing.sm),
-          SecondaryButton(
-            label: 'Ver na aba Vagas',
-            icon: Icons.work_outline_rounded,
-            onPressed: () {
-              // ignore: unawaited_futures
-              _c.openTabFromCard('vagas');
-            },
-          ),
+          for (final j in item.jobs) _jobRow(item, j),
+          if (outOfProfile) ...[
+            const SizedBox(height: AppSpacing.xs),
+            SecondaryButton(
+              label: 'Adicionar ${item.outOfProfileArea} às minhas áreas',
+              icon: Icons.add_rounded,
+              onPressed: () {
+                // ignore: unawaited_futures
+                _c.addAreaFromCard(item.outOfProfileArea);
+              },
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _jobRow(AssistJobRow j) {
+  Widget _jobRow(JobsCardItem item, AssistJobRow j) {
     final sub = [j.company, if (j.area.isNotEmpty) j.area].join(' · ');
+    final saved = item.savedIds.contains(j.id);
     return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: Row(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: InkWell(
+        onTap: () {
+          // ignore: unawaited_futures
+          _c.openJobFromCard(j.id);
+        },
+        borderRadius: AppRadius.brMd,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(j.title,
+                        style: AppTextStyles.bodyMd
+                            .copyWith(fontWeight: FontWeight.w600)),
+                    if (sub.isNotEmpty)
+                      Text(sub,
+                          style: AppTextStyles.bodySm
+                              .copyWith(color: AppColors.textTertiary)),
+                  ],
+                ),
+              ),
+              if (j.hasScore) ...[
+                const SizedBox(width: AppSpacing.sm),
+                _matchBadge(j.score),
+              ],
+              const SizedBox(width: 4),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: Icon(
+                  saved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+                  size: 20,
+                  color: saved ? AppColors.primary : AppColors.textTertiary,
+                ),
+                tooltip: saved ? 'Salva' : 'Salvar',
+                onPressed: saved
+                    ? null
+                    : () {
+                        // ignore: unawaited_futures
+                        _c.saveJobFromCard(item.id, j.id);
+                      },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Card de ação (exportar/importar): botão que dispara a ação nativa ──────
+
+  Widget _actionCard(AssistActionCardItem item) {
+    const margin = EdgeInsets.only(left: 34 + AppSpacing.sm);
+    final isExport = item.kind == 'export';
+    if (item.status == AssistEditStatus.cancelled) {
+      return Container(
+        margin: margin,
+        child: Text('Beleza, deixa pra depois.',
+            style:
+                AppTextStyles.bodySm.copyWith(color: AppColors.textTertiary)),
+      );
+    }
+    if (item.status == AssistEditStatus.applied) {
+      return Container(
+        margin: margin,
+        child: Row(children: [
+          const Icon(Icons.check_circle_rounded,
+              size: 16, color: AppColors.success),
+          const SizedBox(width: 6),
+          Flexible(child: Text(item.resultMessage, style: AppTextStyles.bodyMd)),
+        ]),
+      );
+    }
+    // pending (com botão)
+    return Container(
+      margin: margin,
+      padding: AppSpacing.allBase,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.brLg,
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(j.title,
-                    style: AppTextStyles.bodyMd
-                        .copyWith(fontWeight: FontWeight.w600)),
-                if (sub.isNotEmpty)
-                  Text(sub,
-                      style: AppTextStyles.bodySm
-                          .copyWith(color: AppColors.textTertiary)),
-              ],
+          Text(
+            isExport
+                ? 'É só tocar pra gerar o PDF do seu currículo:'
+                : 'É só tocar pra escolher o PDF do seu CV:',
+            style: AppTextStyles.bodyMd,
+          ),
+          if (item.resultMessage.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(item.resultMessage,
+                style: AppTextStyles.bodySm.copyWith(color: AppColors.error)),
+          ],
+          const SizedBox(height: AppSpacing.sm),
+          PrimaryButton(
+            label: isExport ? 'Exportar PDF' : 'Importar CV',
+            icon: isExport
+                ? Icons.upload_rounded
+                : Icons.file_upload_outlined,
+            isLoading: item.running,
+            onPressed: item.running
+                ? null
+                : () {
+                    // ignore: unawaited_futures
+                    _c.runActionCard(item.id);
+                  },
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Center(
+            child: TextButton(
+              // Trava o cancelar enquanto a ação roda (senão o cancel corria com
+              // o resultado em voo e um sobrescrevia o outro).
+              onPressed:
+                  item.running ? null : () => _c.cancelActionCard(item.id),
+              child: Text('Agora não',
+                  style: AppTextStyles.bodySm
+                      .copyWith(color: AppColors.textTertiary)),
             ),
           ),
-          if (j.hasScore) ...[
-            const SizedBox(width: AppSpacing.sm),
-            _matchBadge(j.score),
-          ],
         ],
       ),
     );
@@ -546,7 +662,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
                 style: AppTextStyles.bodySm
                     .copyWith(color: AppColors.textTertiary))
           else ...[
-            Text('Ainda dá pra reforçar 👇',
+            Text('Toca no que você quer preencher agora 👇',
                 style: AppTextStyles.bodySm
                     .copyWith(color: AppColors.textTertiary)),
             const SizedBox(height: AppSpacing.sm),
@@ -568,15 +684,29 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
       'tier2' => AppColors.textSecondary,
       _ => AppColors.textTertiary,
     };
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+    // Conduzível (tem section) ⇒ vira botão que começa a preencher a seção.
+    final tappable = r.section.isNotEmpty;
+    final row = Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
       child: Row(
         children: [
           Icon(_gapIcon(r.key), size: 16, color: color),
           const SizedBox(width: AppSpacing.sm),
           Expanded(child: Text(r.label, style: AppTextStyles.bodyMd)),
+          if (tappable)
+            const Icon(Icons.chevron_right_rounded,
+                size: 18, color: AppColors.primary),
         ],
       ),
+    );
+    if (!tappable) return row;
+    return InkWell(
+      onTap: () {
+        // ignore: unawaited_futures
+        _c.fillGapFromCard(r.section);
+      },
+      borderRadius: AppRadius.brMd,
+      child: row,
     );
   }
 

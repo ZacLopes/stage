@@ -31,9 +31,16 @@ class ProfileRepositorySupabase implements ProfileRepository {
   }
 
   @override
-  Future<PersonalInfo> upsertPersonal(PersonalInfo info) async {
+  Future<PersonalInfo> upsertPersonal(PersonalInfo info,
+      {Set<String> nullColumns = const {}}) async {
     final map = info.toMap()
       ..removeWhere((k, v) => v == null && k != 'user_id');
+    // Colunas a LIMPAR de propósito (ex.: trocar de cidade zera o CEP antigo):
+    // re-injeta o null DEPOIS do strip, senão o upsert parcial preservaria o
+    // valor velho no banco.
+    for (final c in nullColumns) {
+      map[c] = null;
+    }
     final row = await _client
         .from('profile_personal')
         .upsert(map, onConflict: 'user_id')

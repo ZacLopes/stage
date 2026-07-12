@@ -15,7 +15,10 @@ abstract class ProfileRepository {
   // PersonalInfo (1:1)
   // ──────────────────────────────────────────────────────────────────────
   Future<PersonalInfo?> getPersonal(String userId);
-  Future<PersonalInfo> upsertPersonal(PersonalInfo info);
+  /// [nullColumns] força NULL nessas colunas (o upsert parcial normal ignora
+  /// nulls) — ex.: trocar de cidade limpa o CEP/UF antigos.
+  Future<PersonalInfo> upsertPersonal(PersonalInfo info,
+      {Set<String> nullColumns});
 
   // ──────────────────────────────────────────────────────────────────────
   // Experiences + Bullets

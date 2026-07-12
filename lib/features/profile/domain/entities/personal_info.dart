@@ -168,6 +168,7 @@ class PersonalInfo {
     DateTime? profileCompletedAt,
     DateTime? lastExtractedAt,
     bool clearLocationState = false,
+    bool clearLocationPostalCode = false,
   }) {
     return PersonalInfo(
       userId: userId ?? this.userId,
@@ -185,7 +186,9 @@ class PersonalInfo {
       locationState:
           clearLocationState ? locationState : (locationState ?? this.locationState),
       locationCity: locationCity ?? this.locationCity,
-      locationPostalCode: locationPostalCode ?? this.locationPostalCode,
+      locationPostalCode: clearLocationPostalCode
+          ? locationPostalCode
+          : (locationPostalCode ?? this.locationPostalCode),
       locationStreetAddress: locationStreetAddress ?? this.locationStreetAddress,
       linkedinUrl: linkedinUrl ?? this.linkedinUrl,
       website: website ?? this.website,

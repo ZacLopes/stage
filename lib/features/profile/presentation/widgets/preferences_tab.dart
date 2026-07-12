@@ -17,6 +17,8 @@ import 'package:provider/provider.dart';
 import '../../../auth/auth_session.dart';
 
 import '../../../../core/constants/job_areas.dart';
+import '../../../trilha/application/area_canonical.dart'
+    show isCanonicalArea, canonicalArea;
 import '../../../../services/analytics_service.dart';
 import '../../application/preferences_view_model.dart';
 import '../../application/profile_editor_view_model.dart';
@@ -421,7 +423,11 @@ class _AreasSheetState extends State<_AreasSheet> {
   void initState() {
     super.initState();
     final current = context.read<PreferencesViewModel>().desiredTitles;
-    _initial = current.map((t) => t.title).toSet();
+    // Canoniza a CAIXA das canônicas ("finanças" → "Finanças") pra elas casarem
+    // o chip; área custom ("direito") fica como está e vira um chip EXTRA.
+    _initial = current
+        .map((t) => isCanonicalArea(t.title) ? canonicalArea(t.title) : t.title)
+        .toSet();
     _selected = Set.of(_initial);
   }
 
@@ -476,24 +482,38 @@ class _AreasSheetState extends State<_AreasSheet> {
         child: Wrap(
           spacing: 10,
           runSpacing: 10,
-          children: kJobAreas.map((area) {
-            final selected = _selected.contains(area.label);
-            return _ChipToggle(
-              label: area.label,
-              icon: area.icon,
-              selected: selected,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                setState(() {
-                  if (selected) {
-                    _selected.remove(area.label);
-                  } else {
-                    _selected.add(area.label);
-                  }
-                });
-              },
-            );
-          }).toList(),
+          children: [
+            for (final area in kJobAreas)
+              _ChipToggle(
+                label: area.label,
+                icon: area.icon,
+                selected: _selected.contains(area.label),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() {
+                    if (_selected.contains(area.label)) {
+                      _selected.remove(area.label);
+                    } else {
+                      _selected.add(area.label);
+                    }
+                  });
+                },
+              ),
+            // Áreas CUSTOM que o user adicionou pela trilha (ex.: "direito") —
+            // sempre selecionadas; tocar remove (senão ficavam invisíveis + sem
+            // como tirar).
+            for (final custom
+                in _selected.where((t) => !isCanonicalArea(t)).toList())
+              _ChipToggle(
+                label: custom,
+                icon: Icons.label_outline,
+                selected: true,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _selected.remove(custom));
+                },
+              ),
+          ],
         ),
       ),
     );

@@ -26,8 +26,11 @@ import '../../services/profile_snapshot_service.dart';
 import '../auth/user_viewmodel.dart';
 import '../../services/feature_flags_service.dart';
 import '../home/home_viewmodel.dart';
+import '../jobs/data/job_repository.dart';
 import '../jobs/jobs_viewmodel.dart';
 import '../jobs/models/job.dart';
+import '../jobs/models/user_preferences.dart';
+import '../jobs/screens/job_details_sheet.dart';
 import '../jobs/utils/filter_helpers.dart';
 import '../profile/application/profile_editor_view_model.dart';
 import '../trilha/application/trilha_hub_status.dart';
@@ -256,10 +259,17 @@ class _ResumeTabState extends State<ResumeTab>
           completionPercent: g.completionPercent,
           missing: [
             for (final m in g.missing)
-              GapRow(key: m.key, tier: m.tier, label: m.label)
+              GapRow(
+                  key: m.key,
+                  tier: m.tier,
+                  label: m.label,
+                  section: m.section)
           ],
         );
       },
+      // Card de vagas: abrir detalhe + salvar (like) por vaga.
+      assistOpenJobDetail: _openJobFromAssistant,
+      assistSaveJob: _saveJobFromAssistant,
       // Edição in-place de card (✏️) grava fora dos writers → recarrega o preview.
       onProfileEdited: _scheduleProfileReload,
       // Abertura adaptativa: se o perfil já tem seções, a trilha reconhece e vai
@@ -1109,6 +1119,29 @@ class _ResumeTabState extends State<ResumeTab>
               FilterHelpers.normalize('${j.title} ${j.companyName}').contains(q))
           .toList();
     }
+    // Área FORA do perfil (ex.: "tem vaga de marketing?" mas o perfil é Finanças):
+    // o feed filtrado não tem essas vagas → busca no CATÁLOGO inteiro por área.
+    var outOfProfile = '';
+    if (candidates.isEmpty && area != null && area.isNotEmpty) {
+      try {
+        final uid = jobsVM.userId;
+        if (uid != null) {
+          final cat = await JobRepository().fetchJobs(
+              preferences: UserJobPreferences(userId: uid, areas: [area]));
+          if (!mounted) {
+            return AssistJobsResult(hasResume: hasResume, jobs: const []);
+          }
+          if (cat.isNotEmpty) {
+            outOfProfile = area;
+            candidates = (query != null && query.isNotEmpty)
+                ? cat.where((j) => FilterHelpers.normalize(
+                        '${j.title} ${j.companyName}')
+                    .contains(FilterHelpers.normalize(query))).toList()
+                : cat;
+          }
+        }
+      } catch (_) {/* best-effort */}
+    }
     // Resolve o match só de um pool pequeno do topo (feed já vem rankeado), em
     // PARALELO (Future.wait) pra não somar N latências de rede em série.
     final pool = candidates.take(12).toList();
@@ -1134,7 +1167,43 @@ class _ResumeTabState extends State<ResumeTab>
               hasScore: e.hasScore,
             ))
         .toList();
-    return AssistJobsResult(hasResume: hasResume, jobs: rows);
+    return AssistJobsResult(
+        hasResume: hasResume, jobs: rows, outOfProfileArea: outOfProfile);
+  }
+
+  /// Card de vagas: abre o DETALHE de uma vaga (por id) num bottom sheet.
+  Future<void> _openJobFromAssistant(String jobId) async {
+    if (!mounted) return;
+    final jobsVM = context.read<JobsViewModel>();
+    Job? job;
+    try {
+      job = await jobsVM.fetchJobById(jobId);
+    } catch (_) {/* vaga sumiu */}
+    if (!mounted || job == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => JobDetailsSheet(job: job!),
+    );
+  }
+
+  /// Card de vagas: SALVA uma vaga (like) → vai pra Vagas Salvas. Retorna true
+  /// SÓ se persistiu (vaga sumiu / já swipada / rede caiu ⇒ false).
+  Future<bool> _saveJobFromAssistant(String jobId) async {
+    if (!mounted) return false;
+    final jobsVM = context.read<JobsViewModel>();
+    try {
+      final job = await jobsVM.fetchJobById(jobId);
+      if (job == null) return false; // vaga desativada/sumiu
+      await jobsVM.swipeJobFromList(job, 'liked');
+      // Só é "salva" se caiu de fato em Salvas (cobre dedup + falha de rede
+      // que o swipeJobFromList reverte internamente sem relançar).
+      return jobsVM.likedJobs.any((l) => l.job.id == jobId);
+    } catch (_) {
+      return false;
+    }
   }
 
   String _initials(String name) {

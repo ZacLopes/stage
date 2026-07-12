@@ -1462,126 +1462,82 @@ void main() {
         isTrue);
   });
 
-  test('export_pdf: ok → confirma; vazio → orienta; falha → avisa erro',
+  test('export_pdf: mostra card com botão; só roda a ação no toque (ok/vazio/falha)',
       () async {
-    // Sucesso.
+    // OK: submitFreeText só cria o card (não exporta ainda); runActionCard exporta.
     final ok = build(
       assistantTurn: _fixed(const AssistantTurn(
-        tool: 'export_pdf',
-        args: {},
-        reply: 'Pronto! É só salvar 👍',
-        promptVersion: 'assistant_v10',
-      )),
+        tool: 'export_pdf', args: {}, reply: '', promptVersion: 'assistant_v11')),
       exportPdf: () async => AssistExportOutcome.ok,
     );
     addTearDown(ok.dispose);
     await ok.start();
     await ok.submitFreeText('exporta meu currículo');
-    expect(ok.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Pronto')),
-        isTrue);
+    final card = ok.thread.whereType<AssistActionCardItem>().single;
+    expect(card.kind, 'export');
+    expect(card.status, AssistEditStatus.pending); // botão, ainda não exportou
+    await ok.runActionCard(card.id);
+    expect(card.status, AssistEditStatus.applied);
+    expect(card.resultMessage.contains('Pronto'), isTrue);
 
-    // Perfil vazio → mensagem de orientação (não a reply da IA).
+    // Vazio → orienta preencher.
     final empty = build(
       assistantTurn: _fixed(const AssistantTurn(
-        tool: 'export_pdf',
-        args: {},
-        reply: 'Pronto! É só salvar 👍',
-        promptVersion: 'assistant_v10',
-      )),
+        tool: 'export_pdf', args: {}, reply: '', promptVersion: 'assistant_v11')),
       exportPdf: () async => AssistExportOutcome.empty,
     );
     addTearDown(empty.dispose);
     await empty.start();
     await empty.submitFreeText('exporta meu currículo');
-    expect(
-        empty.thread.whereType<AiMsgItem>().any((m) => m.text.contains('vazio')),
-        isTrue);
-    expect(
-        empty.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Pronto')),
-        isFalse);
+    final ecard = empty.thread.whereType<AssistActionCardItem>().single;
+    await empty.runActionCard(ecard.id);
+    expect(ecard.resultMessage.contains('vazio'), isTrue);
 
-    // Falha na geração → NÃO diz "Pronto" (não mente sucesso); avisa erro.
+    // Falha → botão VOLTA (pending) pra tentar de novo, com aviso de erro.
     final failed = build(
       assistantTurn: _fixed(const AssistantTurn(
-        tool: 'export_pdf',
-        args: {},
-        reply: 'Pronto! É só salvar 👍',
-        promptVersion: 'assistant_v10',
-      )),
+        tool: 'export_pdf', args: {}, reply: '', promptVersion: 'assistant_v11')),
       exportPdf: () async => AssistExportOutcome.failed,
     );
     addTearDown(failed.dispose);
     await failed.start();
     await failed.submitFreeText('exporta meu currículo');
-    expect(
-        failed.thread.whereType<AiMsgItem>().any((m) => m.text.contains('erro')),
-        isTrue);
-    expect(
-        failed.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Pronto')),
-        isFalse);
+    final fcard = failed.thread.whereType<AssistActionCardItem>().single;
+    await failed.runActionCard(fcard.id);
+    expect(fcard.status, AssistEditStatus.pending); // pode tentar de novo
+    expect(fcard.resultMessage.contains('erro'), isTrue);
   });
 
-  test('import_cv: ok → "importei, processando"; cancelado → sem erro; falha → motivo',
-      () async {
-    // OK.
+  test('import_cv: card com botão; roda no toque (ok/cancel/falha)', () async {
+    // OK sem conflitos.
     final ok = build(
       assistantTurn: _fixed(const AssistantTurn(
-        tool: 'import_cv',
-        args: {},
-        reply: 'Boa! Escolhe o PDF 👇',
-        promptVersion: 'assistant_v11',
-      )),
-      // A mensagem agora vem do _startAssistImport (o controller só relaia).
+        tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
       importCv: () async => const AssistImportResult(AssistImportOutcome.ok,
           message: 'Importei seu CV! 📄'),
     );
     addTearDown(ok.dispose);
     await ok.start();
     await ok.submitFreeText('importa meu cv');
-    expect(
-        ok.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Importei')),
-        isTrue);
+    final card = ok.thread.whereType<AssistActionCardItem>().single;
+    expect(card.kind, 'import');
+    await ok.runActionCard(card.id);
+    expect(card.resultMessage.contains('Importei'), isTrue);
 
-    // Cancelado → mensagem leve, sem erro.
-    final cancel = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'import_cv',
-        args: {},
-        reply: '',
-        promptVersion: 'assistant_v11',
-      )),
-      importCv: () async =>
-          const AssistImportResult(AssistImportOutcome.cancelled),
-    );
-    addTearDown(cancel.dispose);
-    await cancel.start();
-    await cancel.submitFreeText('importa meu cv');
-    expect(
-        cancel.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Quando quiser')),
-        isTrue);
-
-    // Falha → mostra o MOTIVO específico (ex.: não-CV), não "Importei".
+    // Falha → motivo específico, botão volta pra tentar de novo.
     final fail = build(
       assistantTurn: _fixed(const AssistantTurn(
-        tool: 'import_cv',
-        args: {},
-        reply: '',
-        promptVersion: 'assistant_v11',
-      )),
+        tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
       importCv: () async => const AssistImportResult(AssistImportOutcome.failed,
           message: 'Isso parece um extrato bancário.'),
     );
     addTearDown(fail.dispose);
     await fail.start();
     await fail.submitFreeText('importa meu cv');
-    expect(
-        fail.thread
-            .whereType<AiMsgItem>()
-            .any((m) => m.text.contains('extrato bancário')),
-        isTrue);
-    expect(
-        fail.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Importei')),
-        isFalse);
+    final fcard = fail.thread.whereType<AssistActionCardItem>().single;
+    await fail.runActionCard(fcard.id);
+    expect(fcard.resultMessage.contains('extrato bancário'), isTrue);
+    expect(fcard.status, AssistEditStatus.pending);
   });
 
   test('show_gaps: renderiza card estruturado (completude + lacunas)', () async {
@@ -1688,6 +1644,8 @@ void main() {
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('importa meu cv');
+    // O import agora é gatilhado pelo botão do card de ação.
+    await c.runActionCard(c.thread.whereType<AssistActionCardItem>().single.id);
     final card = c.thread.whereType<ImportConflictItem>().single;
     expect(card.choices.length, 2);
     // Adição default aceita; conflito default NÃO (seguro: mantém o seu).
@@ -1716,10 +1674,11 @@ void main() {
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('importa meu cv');
+    final act = c.thread.whereType<AssistActionCardItem>().single;
+    await c.runActionCard(act.id);
     expect(c.thread.whereType<ImportConflictItem>(), isEmpty);
-    expect(
-        c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('nada novo')),
-        isTrue);
+    // A mensagem "nada novo" vai pro resultMessage do card de ação.
+    expect(act.resultMessage.contains('nada novo'), isTrue);
   });
 
   test('conflito: rejeitar tudo → aplica nada', () async {
@@ -1747,6 +1706,7 @@ void main() {
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('importa meu cv');
+    await c.runActionCard(c.thread.whereType<AssistActionCardItem>().single.id);
     final card = c.thread.whereType<ImportConflictItem>().single;
     c.toggleConflictRow(card.id, 'r1', false); // rejeita a adição
     await c.applyConflicts(card.id);
