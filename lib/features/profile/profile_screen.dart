@@ -115,6 +115,18 @@ class _ProfileScreenState extends State<ProfileScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    // Sinal do assistente: pular pra uma sub-aba específica (ex.: Currículos
+    // após importar um CV pela trilha). Post-frame + clear pra não repetir a
+    // cada rebuild. clamp(0,2) espelha o initialIndex.
+    final pendingSubTab = context.watch<HomeViewModel>().pendingProfileSubTabIndex;
+    if (pendingSubTab != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final target = pendingSubTab.clamp(0, 2);
+        if (_tabController.index != target) _tabController.animateTo(target);
+        context.read<HomeViewModel>().clearProfileSubTab();
+      });
+    }
     return PiiMask(
       child: Scaffold(
         backgroundColor: AppColors.background,

@@ -166,6 +166,22 @@ class HomeViewModel extends ChangeNotifier {
     // No notifyListeners() to avoid rebuild loops
   }
 
+  // ── Pending Profile sub-tab (Info/Preferências/Currículos) ────────────────
+  /// Quando setado, a ProfileScreen troca pra essa sub-aba (ex.: o assistente
+  /// leva pra biblioteca de currículos = índice 2) num post-frame e limpa.
+  int? _pendingProfileSubTabIndex;
+  int? get pendingProfileSubTabIndex => _pendingProfileSubTabIndex;
+
+  void requestProfileSubTab(int index) {
+    _pendingProfileSubTabIndex = index;
+    notifyListeners();
+  }
+
+  void clearProfileSubTab() {
+    _pendingProfileSubTabIndex = null;
+    // No notifyListeners() to avoid rebuild loops
+  }
+
   // ── Bottom-nav Profile icon key (target for the landing animation) ────────
   /// HomeScreen sets this key on the Profile bottom-nav item so other
   /// screens can compute its position on-screen and animate towards it.

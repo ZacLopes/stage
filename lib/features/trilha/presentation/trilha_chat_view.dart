@@ -453,7 +453,9 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
           if (outOfProfile) ...[
             const SizedBox(height: AppSpacing.xs),
             SecondaryButton(
-              label: 'Adicionar ${item.outOfProfileArea} às minhas áreas',
+              // Curto de propósito: a área já está no header ("Vagas de X") —
+              // o label completo estourava a borda do botão no device-test.
+              label: 'Adicionar às minhas áreas',
               icon: Icons.add_rounded,
               onPressed: () {
                 // ignore: unawaited_futures
@@ -539,12 +541,32 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
     if (item.status == AssistEditStatus.applied) {
       return Container(
         margin: margin,
-        child: Row(children: [
-          const Icon(Icons.check_circle_rounded,
-              size: 16, color: AppColors.success),
-          const SizedBox(width: 6),
-          Flexible(child: Text(item.resultMessage, style: AppTextStyles.bodyMd)),
-        ]),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.check_circle_rounded,
+                  size: 16, color: AppColors.success),
+              const SizedBox(width: 6),
+              Flexible(
+                  child:
+                      Text(item.resultMessage, style: AppTextStyles.bodyMd)),
+            ]),
+            // Import salvou o PDF na biblioteca (aba Perfil) → atalho pra ver.
+            if (item.showCvLibraryLink) ...[
+              const SizedBox(height: AppSpacing.sm),
+              SecondaryButton(
+                label: 'Ver meus currículos',
+                icon: Icons.folder_open_rounded,
+                expand: false,
+                onPressed: () {
+                  // ignore: unawaited_futures
+                  _c.openCvLibraryFromCard();
+                },
+              ),
+            ],
+          ],
+        ),
       );
     }
     // pending (com botão)
@@ -1203,41 +1225,15 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
                   const SizedBox(height: AppSpacing.xs),
                   Text(
                     // Honesto: o próximo ganho (força real) — não "está tudo forte".
+                    // O resumo que a IA gera sobre o usuário NÃO aparece mais aqui
+                    // no chat (decisão do fundador): ele vive no preview do
+                    // Currículo/Perfil, não numa bolha da conversa.
                     widget.hubStatus?.message ??
-                        (c.generatedSummary != null
-                            ? 'A IA criou um resumo pro seu perfil:'
-                            : 'Quanto mais completo, mais empresas conseguem te achar.'),
+                        'Quanto mais completo, mais empresas conseguem te achar.',
                     textAlign: TextAlign.center,
                     style: AppTextStyles.bodyMd
                         .copyWith(color: AppColors.onPrimary),
                   ),
-                  if (c.generatedSummary != null) ...[
-                    const SizedBox(height: AppSpacing.sm),
-                    // Com o hub honesto, o subtítulo virou o "próximo ganho" —
-                    // então rotula o bloco do resumo pra não ficar solto.
-                    if (widget.hubStatus != null) ...[
-                      SizedBox(
-                        width: double.infinity,
-                        child: Text('Resumo que a IA montou:',
-                            textAlign: TextAlign.center,
-                            style: AppTextStyles.bodySm.copyWith(
-                                color: AppColors.onPrimary
-                                    .withValues(alpha: 0.9))),
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                    ],
-                    Container(
-                      width: double.infinity,
-                      padding: AppSpacing.allMd,
-                      decoration: BoxDecoration(
-                        color: AppColors.onPrimary.withValues(alpha: 0.15),
-                        borderRadius: AppRadius.brMd,
-                      ),
-                      child: Text(c.generatedSummary!,
-                          style: AppTextStyles.bodySm
-                              .copyWith(color: AppColors.onPrimary)),
-                    ),
-                  ],
                 ],
               ),
       ),

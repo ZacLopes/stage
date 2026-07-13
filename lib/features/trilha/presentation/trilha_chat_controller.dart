@@ -342,11 +342,15 @@ class AssistActionCardItem extends ChatItem {
   AssistEditStatus status; // pending (botão) → applied (feito) / cancelled
   bool running = false;
   String resultMessage;
+  // Import OK → oferece atalho "Ver meus currículos" (o CV importado foi salvo
+  // na biblioteca, que vive na aba Perfil — não na aba Currículo).
+  bool showCvLibraryLink;
   AssistActionCardItem({
     required this.id,
     required this.kind,
     this.status = AssistEditStatus.pending,
     this.resultMessage = '',
+    this.showCvLibraryLink = false,
   });
 }
 
@@ -412,6 +416,7 @@ class TrilhaChatController extends ChangeNotifier {
     this.assistItemFieldWriter,
     this.assistJobsLoader,
     this.assistOpenTab,
+    this.assistOpenCvLibrary,
     this.assistExportPdf,
     this.assistImportCv,
     this.assistGapsLoader,
@@ -537,6 +542,11 @@ class TrilhaChatController extends ChangeNotifier {
 
   /// Grande: troca de aba do app (tabKey pt-BR/en → índice). null ⇒ no-op.
   final Future<void> Function(String tabKey)? assistOpenTab;
+
+  /// Grande: leva pra biblioteca de currículos (aba Perfil → sub-aba
+  /// Currículos), onde o CV importado fica salvo. Distinto do assistOpenTab
+  /// genérico pra não forçar a sub-aba em toda navegação pro Perfil.
+  final Future<void> Function()? assistOpenCvLibrary;
 
   /// Grande: exporta o currículo em PDF (reusa o _export da aba). Devolve o
   /// desfecho real (vazio/falha/ok) pro assistente não mentir sucesso. null ⇒
@@ -1328,6 +1338,9 @@ class TrilhaChatController extends ChangeNotifier {
       case AssistImportOutcome.ok:
         item.status = AssistEditStatus.applied;
         item.resultMessage = res.message ?? 'Importei seu CV! 📄';
+        // O PDF foi salvo na biblioteca (aba Perfil) em qualquer import ok —
+        // oferece o atalho pra ver lá.
+        item.showCvLibraryLink = true;
         if (res.conflicts.isNotEmpty) {
           final cid = 'conflict_${_editSeq++}';
           final citem = ImportConflictItem(
@@ -1545,6 +1558,19 @@ class TrilhaChatController extends ChangeNotifier {
     // ignore: unawaited_futures
     Analytics.shared.track(evTrilhaAssistActionUsed,
         props: {'action': 'open_tab', 'tab': tabKey, 'via': 'jobs_card'});
+  }
+
+  /// Atalho do card de import: leva o usuário pra biblioteca de currículos
+  /// (aba Perfil), onde o CV importado ficou salvo.
+  Future<void> openCvLibraryFromCard() async {
+    try {
+      // Vai pra aba Perfil E seleciona a sub-aba Currículos (senão cai em
+      // "Informações" e o CV importado fica escondido numa sub-aba não-ativa).
+      await assistOpenCvLibrary?.call();
+    } catch (_) {/* best-effort */}
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistActionUsed,
+        props: {'action': 'open_cv_library', 'via': 'import_card'});
   }
 
   // ── Widget de conflito de import: toggle/editar por linha + aplicar/desfazer ─

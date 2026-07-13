@@ -240,6 +240,15 @@ class _ResumeTabState extends State<ResumeTab>
           context.read<HomeViewModel>().requestTabChange(idx);
         } catch (_) {/* sem HomeViewModel (teste) */}
       },
+      assistOpenCvLibrary: () async {
+        if (!mounted) return;
+        try {
+          final home = context.read<HomeViewModel>();
+          home.requestTabChange(HomeTabs.profile);
+          // Sub-aba Currículos da ProfileScreen (ordem: Info=0, Prefs=1, CVs=2).
+          home.requestProfileSubTab(2);
+        } catch (_) {/* sem HomeViewModel (teste) */}
+      },
       assistExportPdf: _exportForAssistant,
       assistImportCv: _startAssistImport,
       // Widget de conflito: aplica UMA linha escolhida + recarrega o preview.
@@ -1023,7 +1032,7 @@ class _ResumeTabState extends State<ResumeTab>
       _scheduleImportRefresh();
       return const AssistImportResult(AssistImportOutcome.ok,
           message:
-              'Importei seu CV! 📄 Tô lendo pra preencher o que ainda falta (uns 15s) — vai aparecendo no seu currículo 👇');
+              'Salvei seu CV na sua biblioteca de currículos 📄 Como seu perfil tá começando, vou preencher ele com os dados do CV (uns 15s) 👇');
     }
 
     // Perfil COM dados → dry-run + diff → card de conflito.
@@ -1032,11 +1041,11 @@ class _ResumeTabState extends State<ResumeTab>
     if (conflicts.isEmpty) {
       return const AssistImportResult(AssistImportOutcome.ok,
           message:
-              'Li seu CV, mas ele bate com o que você já tem — nada novo pra mexer 🙂');
+              'Salvei seu CV na biblioteca 📄 Comparei com o seu perfil e não achei nada novo pra adicionar — você já tem tudo o que tá no CV 🙂');
     }
     return AssistImportResult(AssistImportOutcome.ok,
         message:
-            'Li seu CV e comparei com o que você já tem 👇 Escolhe o que quer trazer:',
+            'Salvei seu CV na biblioteca 📄 Comparei com o seu perfil: aqui está o que o CV tem de novo ou diferente — escolhe o que quer trazer 👇',
         conflicts: conflicts);
   }
 
@@ -1197,10 +1206,10 @@ class _ResumeTabState extends State<ResumeTab>
     try {
       final job = await jobsVM.fetchJobById(jobId);
       if (job == null) return false; // vaga desativada/sumiu
-      await jobsVM.swipeJobFromList(job, 'liked');
-      // Só é "salva" se caiu de fato em Salvas (cobre dedup + falha de rede
-      // que o swipeJobFromList reverte internamente sem relançar).
-      return jobsVM.likedJobs.any((l) => l.job.id == jobId);
+      // swipeJobFromList devolve true só se o recordSwipe PERSISTIU (reverte o
+      // estado otimista e devolve false em falha de rede). NÃO checar likedJobs
+      // aqui: o loadLikedJobs roda sem await → a lista ainda não atualizou.
+      return await jobsVM.swipeJobFromList(job, 'liked');
     } catch (_) {
       return false;
     }

@@ -1679,6 +1679,9 @@ void main() {
     expect(c.thread.whereType<ImportConflictItem>(), isEmpty);
     // A mensagem "nada novo" vai pro resultMessage do card de ação.
     expect(act.resultMessage.contains('nada novo'), isTrue);
+    // Import ok SEMPRE salva o PDF na biblioteca → oferece o atalho "Ver meus
+    // currículos" (aba Perfil), mesmo sem conflito.
+    expect(act.showCvLibraryLink, isTrue);
   });
 
   test('conflito: rejeitar tudo → aplica nada', () async {
