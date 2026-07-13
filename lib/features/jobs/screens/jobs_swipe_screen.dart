@@ -989,28 +989,22 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
           // FASE 2 (T2.2): toggle swipe↔lista — só com feed_list_v1 ON.
           if (context.watch<JobsViewModel>().feedRpcEnabled)
             Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: Builder(builder: (context) {
-                final vm = context.read<JobsViewModel>();
-                final isList =
-                    vm.feedMode == JobsViewModel.feedModeList;
-                return IconButton(
-                  tooltip: isList ? 'Ver como cards' : 'Ver como lista',
-                  icon: Icon(
-                    isList
-                        ? Icons.style_rounded
-                        : Icons.view_agenda_rounded,
-                    color: AppColors.primary,
-                  ),
-                  onPressed: () {
-                    HapticFeedback.lightImpact();
-                    // ignore: unawaited_futures
-                    vm.setFeedMode(isList
-                        ? JobsViewModel.feedModeSwipe
-                        : JobsViewModel.feedModeList);
-                  },
-                );
-              }),
+              padding: const EdgeInsets.only(right: 6),
+              child: Center(
+                child: Builder(builder: (context) {
+                  final vm = context.watch<JobsViewModel>();
+                  return _FeedModeToggle(
+                    isList: vm.feedMode == JobsViewModel.feedModeList,
+                    onChanged: (list) {
+                      HapticFeedback.lightImpact();
+                      // ignore: unawaited_futures
+                      vm.setFeedMode(list
+                          ? JobsViewModel.feedModeList
+                          : JobsViewModel.feedModeSwipe);
+                    },
+                  );
+                }),
+              ),
             ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -1851,6 +1845,116 @@ class _SwipeStamp extends StatelessWidget {
 
 /// Botão de filtros do AppBar com badge âmbar mostrando quantos filtros estão
 /// ativos. `activeCount = 0` → só o ícone roxo padrão (sem badge).
+/// Toggle de visualização do feed: Cards (swipe) ↔ Lista. Segmented control no
+/// estilo Stage (segmento ativo azul + sombra da marca, desliza suave). Mostra
+/// os DOIS modos com o ativo rotulado — pra o usuário entender de cara que
+/// aquilo troca a visualização (antes era um ícone único, ambíguo).
+class _FeedModeToggle extends StatelessWidget {
+  const _FeedModeToggle({required this.isList, required this.onChanged});
+
+  /// true = lista, false = cards (swipe).
+  final bool isList;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _segment(
+            icon: Icons.style_rounded,
+            label: 'Cards',
+            selected: !isList,
+            onTap: () => onChanged(false),
+          ),
+          const SizedBox(width: 2),
+          _segment(
+            icon: Icons.view_agenda_rounded,
+            label: 'Lista',
+            selected: isList,
+            onTap: () => onChanged(true),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _segment({
+    required IconData icon,
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: selected ? null : onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.symmetric(
+          horizontal: selected ? 10 : 7,
+          vertical: 6,
+        ),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.30),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: selected ? AppColors.onPrimary : AppColors.textTertiary,
+            ),
+            // A label só aparece no segmento ATIVO (expande suave) — compacto no
+            // header e destaca o modo atual.
+            AnimatedSize(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              child: selected
+                  ? Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: Text(
+                        label,
+                        style: AppTextStyles.labelSm.copyWith(
+                          color: AppColors.onPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _FilterButtonWithBadge extends StatelessWidget {
   final int activeCount;
 
