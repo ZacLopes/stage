@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:math' as math;
 import '../../core/analytics/screen_tracking.dart';
 
 import '../../services/analytics_service.dart';
@@ -160,15 +161,15 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     );
   }
 
-  // --- Slide 2: Gamified Resume ---
+  // --- Slide 2: AI Agent ---
   Widget _buildSlide2() {
     return _BaseSlide(
       index: 1,
       currentIndex: _currentPage,
-      headline: 'Crie seu currículo\njogando',
+      headline: 'Um agente de IA\nmonta seu currículo',
       subtitle:
-          'Responda perguntas simples e a nossa IA\nmonta um CV profissional pra você.',
-      illustration: const _ResumeMockup(),
+          'É só conversar. Ele pergunta o essencial\ne preenche seu perfil pra você.',
+      illustration: const _AgentMockup(),
     );
   }
 
@@ -518,156 +519,480 @@ class _SwipeMockupState extends State<_SwipeMockup>
   }
 }
 
-class _ResumeMockup extends StatelessWidget {
-  const _ResumeMockup();
+// ==========================================
+// Slide 2 — Agente de IA (animação)
+// ==========================================
+// Ecoa o assistente REAL da trilha: avatar sparkle no gradiente da marca
+// (Icons.auto_awesome_rounded), bolha branca da IA + bolha azul do usuário,
+// pontinhos ondulando. Um orb "vivo" (aura em anéis + sparkles) conduz uma
+// micro-conversa orquestrada onde o agente PREENCHE o perfil — em loop suave.
+class _AgentMockup extends StatefulWidget {
+  const _AgentMockup();
+
+  @override
+  State<_AgentMockup> createState() => _AgentMockupState();
+}
+
+class _AgentMockupState extends State<_AgentMockup>
+    with TickerProviderStateMixin {
+  // Aura/respiração do orb + onda dos pontinhos + brilho dos sparkles: contínuo.
+  late final AnimationController _aura;
+  // Linha do tempo da conversa: bolha do user -> digitando -> resposta -> chip.
+  late final AnimationController _loop;
+
+  @override
+  void initState() {
+    super.initState();
+    _aura = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2600),
+    )..repeat();
+    _loop = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 6400),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _aura.dispose();
+    _loop.dispose();
+    super.dispose();
+  }
+
+  // Envelope trapezoidal: 0 antes de [a], sobe até 1 em [b], segura, cai a 0 em
+  // [d] (a partir de [c]). Deixa o loop "respirar" sem snap no reinício.
+  double _env(double t, double a, double b, double c, double d) {
+    if (t <= a || t >= d) return 0;
+    if (t < b) return Curves.easeOut.transform((t - a) / (b - a));
+    if (t > c) return 1 - Curves.easeIn.transform((t - c) / (d - c));
+    return 1;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 260,
-      height: 340,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(32),
-        border: Border.all(color: Colors.grey.withOpacity(0.05), width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.brandBlue.withOpacity(0.08),
-            blurRadius: 30,
-            offset: const Offset(0, 10),
-          )
-        ],
-      ),
-      padding: const EdgeInsets.all(24),
+    return SizedBox(
+      width: 300,
+      height: 372,
       child: Column(
         children: [
-          // Profile header
-          Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: AppColors.brandCyan.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.person_rounded, color: AppColors.brandCyan, size: 24),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(height: 10, width: 90, decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(5))),
-                    const SizedBox(height: 6),
-                    Container(height: 6, width: 50, decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(3))),
-                  ],
-                ),
-              )
-            ],
-          ),
-          const SizedBox(height: 32),
-          // S-Curved Trail
-          Expanded(
-            child: Stack(
-              alignment: Alignment.topCenter,
-              children: [
-                // Custom Painter for the S-Curve
-                SizedBox(
-                  width: double.infinity,
-                  height: double.infinity,
-                  child: CustomPaint(
-                    painter: _STrailPainter(),
-                  ),
-                ),
-                
-                // Nodes positioned to follow the S-Curve
-                // Top Node
-                _buildPositionedNode(true, top: 0, left: 60),
-                // Mid-Top Node
-                _buildPositionedNode(true, top: 45, left: 110),
-                // Mid-Bottom Node
-                _buildPositionedNode(true, top: 90, left: 55),
-                // Final Curriculum Icon
-                _buildPositionedNode(false, top: 135, left: 95, isLast: true),
-              ],
+          // -- Orb de IA vivo -------------------------------------------------
+          SizedBox(
+            width: 300,
+            height: 150,
+            child: AnimatedBuilder(
+              animation: _aura,
+              builder: (context, _) => _orb(_aura.value),
             ),
-          )
+          ),
+          const SizedBox(height: 14),
+          // -- Micro-conversa -------------------------------------------------
+          Expanded(
+            child: AnimatedBuilder(
+              animation: Listenable.merge([_loop, _aura]),
+              builder: (context, _) => _conversation(_loop.value, _aura.value),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildPositionedNode(bool completed, {required double top, required double left, bool isLast = false}) {
-    return Positioned(
-      top: top,
-      left: left,
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: completed ? AppColors.primary : (isLast ? Colors.white : AppColors.divider),
-          shape: BoxShape.circle,
-          border: isLast ? Border.all(color: AppColors.border!, width: 2) : null,
-          boxShadow: [
-            BoxShadow(
-              color: (completed ? AppColors.primary : Colors.black).withOpacity(0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            )
-          ],
+  // ---- Orb ----
+  Widget _orb(double a) {
+    final breathe = 1.0 + 0.05 * math.sin(a * 2 * math.pi);
+    final glow = 0.28 + 0.18 * ((math.sin(a * 2 * math.pi) + 1) / 2);
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // Anéis de aura expandindo (radar suave).
+        Positioned.fill(child: CustomPaint(painter: _AuraRingsPainter(a))),
+        // Sparkles flutuando ao redor.
+        ..._sparkles(a),
+        // Disco do agente (avatar real: gradiente brand + auto_awesome).
+        Transform.scale(
+          scale: breathe,
+          child: Container(
+            width: 74,
+            height: 74,
+            decoration: BoxDecoration(
+              gradient: AppGradients.brand,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.brandCyan.withValues(alpha: glow),
+                  blurRadius: 26,
+                  spreadRadius: 2,
+                ),
+                BoxShadow(
+                  color: AppColors.brandBlue.withValues(alpha: 0.22),
+                  blurRadius: 10,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            alignment: Alignment.center,
+            child: const Icon(
+              Icons.auto_awesome_rounded,
+              color: AppColors.onPrimary,
+              size: 38,
+            ),
+          ),
         ),
-        child: Icon(
-          isLast ? Icons.article_rounded : (completed ? Icons.check_rounded : Icons.lock_rounded),
-          color: completed ? Colors.white : (isLast ? AppColors.gold : AppColors.textDisabled),
-          size: isLast ? 28 : 22,
+      ],
+    );
+  }
+
+  List<Widget> _sparkles(double a) {
+    final specs = <List<Object>>[
+      [const Offset(-90, -34), 13.0, 0.0],
+      [const Offset(92, -20), 11.0, 0.35],
+      [const Offset(72, 40), 15.0, 0.6],
+      [const Offset(-78, 42), 10.0, 0.85],
+    ];
+    return [
+      for (final s in specs)
+        _oneSparkle(a, s[0] as Offset, s[1] as double, s[2] as double),
+    ];
+  }
+
+  Widget _oneSparkle(double a, Offset off, double size, double phase) {
+    final tw = (math.sin((a + phase) * 2 * math.pi) + 1) / 2;
+    return Transform.translate(
+      offset: off,
+      child: Opacity(
+        opacity: (0.22 + 0.6 * tw).clamp(0.0, 1.0),
+        child: Transform.scale(
+          scale: 0.7 + 0.4 * tw,
+          child: Icon(
+            Icons.auto_awesome,
+            size: size,
+            color: phase > 0.5 ? AppColors.brandCyan : AppColors.gold,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---- Conversa ----
+  Widget _conversation(double t, double a) {
+    final userIn = _env(t, 0.04, 0.16, 0.90, 0.99);
+    final typingIn = _env(t, 0.22, 0.30, 0.40, 0.46);
+    final replyIn = _env(t, 0.44, 0.54, 0.90, 0.99);
+    final chipIn = _env(t, 0.58, 0.70, 0.90, 0.99);
+    final burst = _env(t, 0.58, 0.66, 0.72, 0.82);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisAlignment: MainAxisAlignment.start,
+      children: [
+        // Bolha do usuário (direita).
+        _fadeSlide(
+          userIn,
+          const Offset(22, 0),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [_userBubble('Fiz um estágio em Finanças')],
+          ),
+        ),
+        const SizedBox(height: 10),
+        // Digitando OU resposta (esquerda, com avatar mini).
+        SizedBox(
+          height: 62,
+          child: Stack(
+            children: [
+              _fadeSlide(
+                typingIn,
+                const Offset(-18, 0),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _agentBubble(child: _dots(a)),
+                ),
+              ),
+              _fadeSlide(
+                replyIn,
+                const Offset(-18, 0),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _agentBubble(
+                    child: _replyText('Boa! Já adicionei ao seu perfil ✨'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Chip preenchendo o perfil (payoff).
+        _profileStrip(chipIn, burst),
+      ],
+    );
+  }
+
+  Widget _fadeSlide(double v, Offset from, Widget child) {
+    return Opacity(
+      opacity: v.clamp(0.0, 1.0),
+      child: Transform.translate(
+        offset: Offset(from.dx * (1 - v), from.dy * (1 - v)),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _miniAvatar() {
+    return Container(
+      width: 30,
+      height: 30,
+      decoration: const BoxDecoration(
+        gradient: AppGradients.brand,
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: const Icon(Icons.auto_awesome_rounded,
+          color: AppColors.onPrimary, size: 16),
+    );
+  }
+
+  Widget _agentBubble({required Widget child}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        _miniAvatar(),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 208),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(6),
+                topRight: Radius.circular(18),
+                bottomLeft: Radius.circular(18),
+                bottomRight: Radius.circular(18),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.brandBlue.withValues(alpha: 0.12),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: child,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _userBubble(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color: AppColors.primary,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(18),
+          topRight: Radius.circular(18),
+          bottomLeft: Radius.circular(18),
+          bottomRight: Radius.circular(6),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.22),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 14,
+          color: AppColors.onPrimary,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  Widget _replyText(String text) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontFamily: 'Inter',
+        fontSize: 14,
+        color: AppColors.textPrimary,
+        fontWeight: FontWeight.w500,
+        height: 1.3,
+      ),
+    );
+  }
+
+  Widget _dots(double a) {
+    return SizedBox(
+      height: 8,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: List.generate(3, (i) {
+          final phase = (a + i * 0.18) % 1.0;
+          final wave = (math.sin(phase * 2 * math.pi) + 1) / 2;
+          return Padding(
+            padding: EdgeInsets.only(right: i < 2 ? 5 : 0),
+            child: Opacity(
+              opacity: (0.4 + 0.6 * wave).clamp(0.0, 1.0),
+              child: Transform.scale(
+                scale: 0.7 + 0.3 * wave,
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: AppColors.textTertiary,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _profileStrip(double chipIn, double burst) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: const BoxDecoration(
+              color: AppColors.successSoft,
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: const Icon(Icons.check_rounded,
+                color: AppColors.success, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'SEU PERFIL',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.1,
+                    color: AppColors.textTertiary,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Row(
+                  children: [
+                    _chip('Finanças', filled: true),
+                    const SizedBox(width: 6),
+                    // Chip que "entra" (payoff) com um estouro de sparkle.
+                    Stack(
+                      clipBehavior: Clip.none,
+                      alignment: Alignment.center,
+                      children: [
+                        if (burst > 0)
+                          Opacity(
+                            opacity: ((1 - burst) * 0.9).clamp(0.0, 1.0),
+                            child: Transform.scale(
+                              scale: 0.6 + burst * 1.4,
+                              child: const Icon(Icons.auto_awesome,
+                                  color: AppColors.brandCyan, size: 26),
+                            ),
+                          ),
+                        Opacity(
+                          opacity: chipIn.clamp(0.0, 1.0),
+                          child: Transform.scale(
+                            scale: 0.6 + 0.4 * chipIn,
+                            child: _chip('Estágio', filled: false),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(String label, {required bool filled}) {
+    final bg = filled
+        ? AppColors.primary.withValues(alpha: 0.10)
+        : AppColors.brandCyan.withValues(alpha: 0.14);
+    final fg = filled ? AppColors.primary : AppColors.brandBlue;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(100),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: fg,
         ),
       ),
     );
   }
 }
 
-class _STrailPainter extends CustomPainter {
+class _AuraRingsPainter extends CustomPainter {
+  final double t;
+  _AuraRingsPainter(this.t);
+
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppColors.primary.withOpacity(0.3)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 6
-      ..strokeCap = StrokeCap.round;
-
-    final path = Path();
-    
-    // Start slightly left
-    path.moveTo(size.width * 0.38, 10);
-    
-    // Draw S-Curve using Bezier (Shortened tops)
-    // From Point 1 to 2 (Mid-Top)
-    path.cubicTo(
-      size.width * 0.40, 20, 
-      size.width * 0.65, 30, 
-      size.width * 0.60, 65, 
-    );
-    
-    // From Point 2 to 3 (Mid-Bottom)
-    path.cubicTo(
-      size.width * 0.55, 80, 
-      size.width * 0.25, 90, 
-      size.width * 0.35, 110, 
-    );
-
-    // From Point 3 to End (Curriculum)
-    path.cubicTo(
-      size.width * 0.40, 130, 
-      size.width * 0.55, 140, 
-      size.width * 0.53, 160, 
-    );
-
-    canvas.drawPath(path, paint);
+    final center = size.center(Offset.zero);
+    const baseR = 37.0;
+    final maxExpand = size.shortestSide / 2 - baseR + 8;
+    const rings = 3;
+    for (var i = 0; i < rings; i++) {
+      final p = (t + i / rings) % 1.0;
+      final r = baseR + p * maxExpand;
+      final opacity = (1 - p) * 0.30;
+      if (opacity <= 0.01) continue;
+      final paint = Paint()
+        ..color = AppColors.brandCyan.withValues(alpha: opacity)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5 * (1 - p) + 0.5;
+      canvas.drawCircle(center, r, paint);
+    }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _AuraRingsPainter oldDelegate) =>
+      oldDelegate.t != t;
 }
 
 class _CompaniesMockup extends StatefulWidget {
@@ -914,4 +1239,3 @@ class _CompaniesMockupState extends State<_CompaniesMockup>
     );
   }
 }
-
