@@ -6,6 +6,7 @@
 // Sem doca que sobe: os widgets vivem no fio; o teclado só na barra (texto livre).
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // HapticFeedback
 
 import '../../../core/theme/theme.dart';
 import '../../../core/widgets/widgets.dart';
@@ -301,6 +302,14 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
           key: ValueKey('action-${item.id}'),
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: _actionCard(item),
+        ));
+      } else if (item is StarterChipsItem) {
+        children.add(Padding(
+          key: ValueKey('starter-$i'),
+          // Alinha com o texto das bolhas da IA (avatar 34 + gap).
+          padding: const EdgeInsets.only(
+              left: 34 + AppSpacing.sm, bottom: AppSpacing.md),
+          child: _starterChips(item),
         ));
       } else if (item is AnsweredItem) {
         if (c.editingIndex == i && c.activeStep != null) {
@@ -664,6 +673,89 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // ── Chips de partida (descoberta de capacidades) ──────────────────────────
+
+  IconData _starterChipIcon(String id) {
+    switch (id) {
+      case 'import':
+        return Icons.file_upload_outlined;
+      case 'zero':
+        return Icons.add_rounded;
+      case 'jobs':
+        return Icons.search_rounded;
+      case 'gaps':
+        return Icons.checklist_rounded;
+      case 'summary':
+        return Icons.auto_awesome_rounded;
+      case 'exp':
+        return Icons.work_outline_rounded;
+      case 'capabilities':
+        return Icons.auto_awesome_rounded;
+      default:
+        return Icons.chevron_right_rounded;
+    }
+  }
+
+  Widget _starterChips(StarterChipsItem item) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [for (final chip in item.chips) _starterChip(chip)],
+    );
+  }
+
+  Widget _starterChip(StarterChip chip) {
+    final icon = _starterChipIcon(chip.id);
+    if (!chip.hero) {
+      return AppChip(
+        label: chip.label,
+        icon: icon,
+        onTap: () {
+          // ignore: unawaited_futures
+          _c.onStarterChip(chip);
+        },
+      );
+    }
+    // Herói (melhor próxima ação): pílula no gradiente da marca.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        // ignore: unawaited_futures
+        _c.onStarterChip(chip);
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: AppGradients.brand,
+          borderRadius: AppRadius.brPill,
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withValues(alpha: 0.28),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: AppColors.onPrimary),
+            const SizedBox(width: AppSpacing.xs),
+            Text(
+              chip.label,
+              style: AppTextStyles.labelMd.copyWith(
+                color: AppColors.onPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

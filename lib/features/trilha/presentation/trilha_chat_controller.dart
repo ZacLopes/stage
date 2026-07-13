@@ -338,6 +338,46 @@ class JobsCardItem extends ChatItem {
       this.areaAdded = false});
 }
 
+/// O que o toque num chip de partida faz.
+enum StarterChipAction {
+  /// Manda um texto pro assistente (reusa todo o roteamento: import_cv,
+  /// show_jobs, show_gaps, rewrite_summary, capacidades…).
+  message,
+
+  /// "Montar do zero" → entra na coleta guiada.
+  startZero,
+}
+
+/// Um chip de partida (empty-state do assistente): id + rótulo curto + ação. O
+/// ícone é escolhido no view por [id] (o controller não conhece IconData).
+class StarterChip {
+  final String id;
+  final String label;
+
+  /// Herói = a melhor próxima ação (pílula no gradiente da marca).
+  final bool hero;
+  final StarterChipAction action;
+
+  /// Texto mandado ao assistente quando [action] == message.
+  final String message;
+
+  const StarterChip({
+    required this.id,
+    required this.label,
+    this.hero = false,
+    this.action = StarterChipAction.message,
+    this.message = '',
+  });
+}
+
+/// Vitrine de chips na abertura do chat (só com o assistente ligado): mostra ao
+/// usuário — que chega sem saber nada — o que o copiloto faz, com pontos de
+/// entrada tocáveis (uso único; some ao primeiro toque).
+class StarterChipsItem extends ChatItem {
+  final List<StarterChip> chips;
+  StarterChipsItem(this.chips);
+}
+
 /// Card de AÇÃO com botão (exportar/importar): o usuário toca no botão e SÓ
 /// então a ação nativa dispara (folha de compartilhar / seletor de arquivo).
 class AssistActionCardItem extends ChatItem {
@@ -652,10 +692,110 @@ class TrilhaChatController extends ChangeNotifier {
       filled = const []; // failure-safe: cai no gate padrão
     }
     if (_disposed) return;
-    if (filled.isEmpty) {
+    if (assistEnabled) {
+      // Copiloto ligado: abre com saudação + chips de partida (descoberta de
+      // capacidades) em vez do gate/coleta automática. Os chips SÃO as portas
+      // (importar CV / montar do zero / achar vaga / o que falta).
+      await _startAssistChips(hasData: filled.isNotEmpty);
+    } else if (filled.isEmpty) {
       await _startGate();
     } else {
       await _startAdaptive(filled);
+    }
+  }
+
+  /// Abertura do copiloto (assistente ON): saudação que nomeia os 3 mundos
+  /// (currículo · vagas · carreira) + chips tocáveis. Dissolve o gate — quem
+  /// escolhe o caminho é o usuário, e de quebra descobre a amplitude do agente.
+  Future<void> _startAssistChips({required bool hasData}) async {
+    phase = ChatPhase.converse;
+    inputVisible = true;
+    // Se depois tocar "Montar do zero", o _enterConverse não repete a saudação.
+    _suppressIntroGreeting = true;
+    typing = true;
+    _notify();
+    const msg1 = 'Oi! 👋 Sou seu copiloto de carreira aqui no Stage ✦';
+    await Future.delayed(_typingFor(msg1));
+    if (_disposed) return;
+    typing = false;
+    thread.add(const AiMsgItem(msg1));
+    _notify();
+    await Future.delayed(_pauseFor(msg1));
+    if (_disposed) return;
+    typing = true;
+    _notify();
+    const msg2 =
+        'Eu monto seu currículo, acho vaga com a sua cara e te digo o que falta '
+        'pra você ser chamado. Toca numa 👇';
+    await Future.delayed(_typingFor(msg2));
+    if (_disposed) return;
+    typing = false;
+    thread.add(const AiMsgItem(msg2));
+    final chips = hasData ? _starterChipsHasData : _starterChipsEmpty;
+    thread.add(StarterChipsItem(chips));
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistStarterShown,
+        props: {'has_data': hasData, 'count': chips.length});
+    _notify();
+  }
+
+  static const List<StarterChip> _starterChipsEmpty = [
+    StarterChip(
+        id: 'import',
+        label: 'Importar meu CV',
+        hero: true,
+        message: 'importa meu cv'),
+    StarterChip(
+        id: 'zero',
+        label: 'Montar do zero',
+        action: StarterChipAction.startZero),
+    StarterChip(
+        id: 'jobs', label: 'Tem vaga de marketing?', message: 'tem vaga de marketing?'),
+    StarterChip(
+        id: 'gaps',
+        label: 'O que falta no meu perfil?',
+        message: 'o que falta no meu perfil?'),
+    StarterChip(
+        id: 'capabilities',
+        label: 'Tudo que eu faço',
+        message: 'o que você consegue fazer?'),
+  ];
+
+  static const List<StarterChip> _starterChipsHasData = [
+    StarterChip(
+        id: 'summary',
+        label: 'Deixar meu resumo mais forte',
+        hero: true,
+        message: 'melhora meu resumo'),
+    StarterChip(
+        id: 'jobs',
+        label: 'Quais vagas combinam comigo?',
+        message: 'quais vagas combinam comigo?'),
+    StarterChip(
+        id: 'gaps',
+        label: 'O que falta no meu perfil?',
+        message: 'o que falta no meu perfil?'),
+    StarterChip(
+        id: 'exp',
+        label: 'Adicionar experiência',
+        message: 'quero adicionar uma experiência'),
+    StarterChip(
+        id: 'capabilities',
+        label: 'Tudo que eu faço',
+        message: 'o que você consegue fazer?'),
+  ];
+
+  /// Toque num chip de partida: some a vitrine + roda a ação (reusa o assistente
+  /// via submitFreeText, ou entra na coleta pra "Montar do zero").
+  Future<void> onStarterChip(StarterChip chip) async {
+    // ignore: unawaited_futures
+    Analytics.shared.track(evTrilhaAssistStarterTapped, props: {'chip_id': chip.id});
+    thread.removeWhere((it) => it is StarterChipsItem); // uso único
+    _notify();
+    if (chip.action == StarterChipAction.startZero) {
+      await _enterConverse();
+    } else {
+      await submitFreeText(chip.message);
     }
   }
 

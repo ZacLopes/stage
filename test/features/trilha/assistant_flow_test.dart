@@ -55,6 +55,16 @@ AssistantTurnFn _nullTurn({void Function()? onCall}) => ({
       return null;
     };
 
+
+/// Copiloto ON abre com CHIPS (não entra na coleta sozinho). Os testes de
+/// comportamento do assistente precisam de um passo aberto — equivale a tocar
+/// "Montar do zero" na abertura.
+Future<void> _openStep(TrilhaChatController c) async {
+  await c.start();
+  await c.onStarterChip(const StarterChip(
+      id: 'zero', label: 'Montar do zero', action: StarterChipAction.startZero));
+}
+
 void main() {
   TrilhaChatController build({
     required AssistantTurnFn assistantTurn,
@@ -189,7 +199,7 @@ void main() {
     var called = false;
     final c = build(assistantTurn: _nullTurn(onCall: () => called = true));
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     await c.submitFreeText('Magazine Luiza'); // sem '?', sem verbo de comando
     expect(called, isFalse); // atalho local
     expect(c.currentStep?.id, 'q.choice');
@@ -204,7 +214,7 @@ void main() {
       promptVersion: 'assistant_v1',
     )));
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     await c.submitFreeText('Magalu'); // fast-lane no passo de texto
     expect(c.currentStep?.id, 'q.choice');
     await c.submitFreeText('trabalho de casa'); // passo de escolha → IA
@@ -220,7 +230,7 @@ void main() {
       promptVersion: 'assistant_v1',
     )));
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     await c.submitFreeText('qual a diferença de estágio e trainee?'); // '?' → IA
     expect(
         c.thread
@@ -247,7 +257,7 @@ void main() {
       sectionSteps: (s) => s == 'skills' ? injected : const [],
     );
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     expect(c.currentStep?.id, 'q.text');
     await c.submitFreeText('quero preencher minhas skills'); // 'quero' → IA
     expect(c.currentStep?.id, 'gap.skills'); // seção injetada virou o atual
@@ -259,7 +269,7 @@ void main() {
       () async {
     final c = build(assistantTurn: _nullTurn());
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     await c.submitFreeText('o que falta no meu perfil?'); // '?' → IA → null
     expect(c.currentStep?.id, 'q.text'); // não avançou
     expect(
@@ -559,7 +569,7 @@ void main() {
           {'section': 'skills', 'label': '3 skills'},
     );
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     // Responde o único passo (fast-lane) → conclui → sugestão proativa aparece.
     await c.submitFreeText('Empresa X');
     expect(c.finished, isTrue);
@@ -604,7 +614,7 @@ void main() {
       skillsLoader: () async => ['Excel', 'Python'],
     );
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     await c.submitFreeText('Empresa X'); // conclui → sugere experiência
     expect(c.finished, isTrue);
 
@@ -873,7 +883,7 @@ void main() {
       skillsLoader: () async => const [], // ainda sem skills
     );
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     await c.submitFreeText('quero editar minhas habilidades');
     expect(c.thread.whereType<ListEditorItem>(), isEmpty);
     expect(c.currentStep?.id, 'gap.skills'); // caiu na coleta
@@ -1092,7 +1102,7 @@ void main() {
   test('"não sei" num passo de texto: não grava literal, repergunta', () async {
     final c = build(assistantTurn: _nullTurn());
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     expect(c.currentStep?.id, 'q.text');
     await c.submitFreeText('não sei');
     expect(c.currentStep?.id, 'q.text'); // NÃO avançou (não gravou 'não sei')

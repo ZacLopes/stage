@@ -634,6 +634,13 @@ const String evTrilhaAssistEditUndone = 'trilha_assist_edit_undone';
 /// action ∈ {show_jobs, open_tab, export_pdf}, + tab/count quando aplicável.
 const String evTrilhaAssistActionUsed = 'trilha_assist_action_used';
 
+/// Chips de partida (descoberta de capacidades) exibidos na abertura do chat.
+/// Props: has_data, count.
+const String evTrilhaAssistStarterShown = 'trilha_assist_starter_shown';
+
+/// Um chip de partida foi tocado. Props: chip_id.
+const String evTrilhaAssistStarterTapped = 'trilha_assist_starter_tapped';
+
 // ════════════════════════════════════════════════════════════════════
 // Allowlist agregada — usada pelo wrapper pra rejeitar nomes não-catalogados.
 // ════════════════════════════════════════════════════════════════════
@@ -806,4 +813,5 @@ const Set<String> kAllowedEventNames = {
   evTrilhaAssistEditProposed, evTrilhaAssistEditApplied,
   evTrilhaAssistEditCancelled, evTrilhaAssistEditUndone,
   evTrilhaAssistActionUsed,
+  evTrilhaAssistStarterShown, evTrilhaAssistStarterTapped,
 };
