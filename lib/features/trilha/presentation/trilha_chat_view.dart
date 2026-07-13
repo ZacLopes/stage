@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // HapticFeedback
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/theme/theme.dart';
 import '../../../core/widgets/widgets.dart';
@@ -69,6 +70,11 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
   /// "interação num card existente" (NÃO arranca o user pro fim).
   int _lastThreadLen = 0;
 
+  /// Coach-mark de 1ª vez apontando o ✦ ("toca aqui pra ver tudo que eu faço").
+  /// O usuário pode não notar o botão — este balão ensina, uma vez só.
+  static const String _coachSeenKey = 'trilha_assist_coach_v1';
+  bool _showCoach = false;
+
   TrilhaChatController get _c => widget.controller;
 
   @override
@@ -76,6 +82,28 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _c.addListener(_onTick);
+    // ignore: unawaited_futures
+    _loadCoach();
+  }
+
+  Future<void> _loadCoach() async {
+    if (!_c.assistEnabled) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_coachSeenKey) ?? false) return;
+    } catch (_) {
+      return; // sem prefs → não arrisca mostrar sempre
+    }
+    if (mounted) setState(() => _showCoach = true);
+  }
+
+  void _dismissCoach() {
+    if (!_showCoach) return;
+    setState(() => _showCoach = false);
+    // ignore: unawaited_futures
+    SharedPreferences.getInstance()
+        .then((p) => p.setBool(_coachSeenKey, true))
+        .catchError((_) => false);
   }
 
   @override
@@ -188,6 +216,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
         return Column(
           children: [
             Expanded(child: _thread()),
+            if (_showCoach && _c.assistEnabled) _coachMark(),
             _bottomBar(),
           ],
         );
@@ -1408,7 +1437,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
           // de partida são uso único; este ✦ deixa o usuário reabrir e ver tudo
           // que o copiloto faz a qualquer momento.
           if (_c.assistEnabled) ...[
-            _sparkleButton(_openCapabilitiesSheet),
+            _SparkleButton(onTap: _openCapabilitiesSheet),
             const SizedBox(width: AppSpacing.sm),
           ],
           Expanded(
@@ -1485,30 +1514,53 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
     );
   }
 
-  Widget _sparkleButton(VoidCallback onTap) {
+  Widget _coachMark() {
     return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          gradient: AppGradients.brand,
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.28),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
+      behavior: HitTestBehavior.opaque,
+      onTap: _dismissCoach,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md, 0, AppSpacing.md, AppSpacing.xs),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: AppRadius.brMd,
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.30),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-          ],
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.auto_awesome_rounded,
+                    color: AppColors.onPrimary, size: 15),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text('Toca no ✦ pra ver tudo que eu faço',
+                      style: AppTextStyles.labelMd.copyWith(
+                          color: AppColors.onPrimary,
+                          fontWeight: FontWeight.w600)),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.close_rounded,
+                    color: AppColors.onPrimary, size: 15),
+              ],
+            ),
+          ),
         ),
-        child: const Icon(Icons.auto_awesome_rounded,
-            size: 20, color: AppColors.onPrimary),
       ),
     );
   }
 
   void _openCapabilitiesSheet() {
+    _dismissCoach(); // já descobriu → não precisa mais do coach
     _c.trackCapabilitiesOpened();
     HapticFeedback.selectionClick();
     // ignore: unawaited_futures
@@ -1532,125 +1584,291 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
 /// (os chips de partida são uso único). 3 categorias: Currículo · Vagas ·
 /// Carreira — a de Carreira (conselho, não captura de dado) é a prova de que é
 /// copiloto, não preenchedor. Tocar num exemplo fecha a folha e manda pro chat.
-class _CapabilitiesSheet extends StatelessWidget {
+
+/// Vitrine "No que eu te ajudo" — acesso PERMANENTE à descoberta do copiloto
+/// (os chips de partida são uso único). Header no gradiente da marca + 3
+/// categorias (Currículo · Vagas · Carreira, cada uma com cor própria) que
+/// entram escalonadas. A de Carreira (conselho, não captura de dado) é a prova
+/// de que é copiloto, não preenchedor. Tocar num exemplo fecha e manda pro chat.
+class _CapabilitiesSheet extends StatefulWidget {
   const _CapabilitiesSheet({required this.onPick});
 
   final ValueChanged<String> onPick;
 
-  static const List<(String, List<String>)> _categories = [
-    ('Seu currículo', [
-      'Importa meu CV (PDF)',
-      'Melhora meu resumo',
-      'Adiciona Python nas skills',
-      'Exporta em PDF',
-    ]),
-    ('Suas vagas', [
-      'Tem vaga de marketing?',
-      'Quais vagas combinam comigo?',
-      'Estágios remotos',
-    ]),
-    ('Sua carreira', [
-      'O que falta no meu perfil?',
-      'Currículo sem experiência, e agora?',
-      'Como funciona a candidatura aqui?',
-    ]),
+  @override
+  State<_CapabilitiesSheet> createState() => _CapabilitiesSheetState();
+}
+
+class _CapabilitiesSheetState extends State<_CapabilitiesSheet>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _in;
+
+  static const List<_CapCategory> _categories = [
+    _CapCategory(
+      icon: Icons.description_rounded,
+      accent: AppColors.primary,
+      title: 'Seu currículo',
+      desc: 'Monto, edito, importo e adapto',
+      examples: [
+        'Importa meu CV (PDF)',
+        'Melhora meu resumo',
+        'Adiciona Python nas skills',
+        'Exporta em PDF',
+      ],
+    ),
+    _CapCategory(
+      icon: Icons.work_outline_rounded,
+      accent: AppColors.brandCyan,
+      title: 'Suas vagas',
+      desc: 'Acho e comparo vagas com a sua cara',
+      examples: [
+        'Tem vaga de marketing?',
+        'Quais combinam comigo?',
+        'Estágios remotos',
+      ],
+    ),
+    _CapCategory(
+      icon: Icons.trending_up_rounded,
+      accent: AppColors.warning,
+      title: 'Sua carreira',
+      desc: 'Tiro suas dúvidas e te oriento',
+      examples: [
+        'O que falta no meu perfil?',
+        'Currículo sem experiência, e agora?',
+        'Como funciona a candidatura?',
+      ],
+    ),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _in = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 950))
+      ..forward();
+  }
+
+  @override
+  void dispose() {
+    _in.dispose();
+    super.dispose();
+  }
+
+  double _seg(double a, double b) =>
+      Curves.easeOut.transform(((_in.value - a) / (b - a)).clamp(0.0, 1.0));
 
   @override
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
-      initialChildSize: 0.66,
-      minChildSize: 0.4,
-      maxChildSize: 0.92,
+      initialChildSize: 0.74,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
       expand: false,
       builder: (context, scroll) => Container(
         decoration: const BoxDecoration(
           color: AppColors.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
+        clipBehavior: Clip.antiAlias,
         child: ListView(
           controller: scroll,
-          padding: AppSpacing.allBase,
+          padding: EdgeInsets.zero,
           children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.border,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.base),
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: const BoxDecoration(
-                    gradient: AppGradients.brand,
-                    shape: BoxShape.circle,
-                  ),
-                  alignment: Alignment.center,
-                  child: const Icon(Icons.auto_awesome_rounded,
-                      color: AppColors.onPrimary, size: 20),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('No que eu te ajudo', style: AppTextStyles.titleMd),
-                      Text('Toca num exemplo — eu faço na hora',
-                          style: AppTextStyles.bodySm
-                              .copyWith(color: AppColors.textTertiary)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            for (final cat in _categories) ...[
-              Text(cat.$1.toUpperCase(),
-                  style: AppTextStyles.overline
-                      .copyWith(color: AppColors.textTertiary)),
-              const SizedBox(height: AppSpacing.sm),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+            _header(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 22, 20, 10),
+              child: Column(
                 children: [
-                  for (final ex in cat.$2)
-                    AppChip(label: ex, onTap: () => onPick(ex)),
+                  for (var i = 0; i < _categories.length; i++) ...[
+                    AnimatedBuilder(
+                      animation: _in,
+                      builder: (context, child) {
+                        final v = _seg(0.12 + i * 0.16, 0.55 + i * 0.16);
+                        return Opacity(
+                          opacity: v,
+                          child: Transform.translate(
+                            offset: Offset(0, 18 * (1 - v)),
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: _category(_categories[i]),
+                    ),
+                    const SizedBox(height: 22),
+                  ],
+                  _footer(),
+                  const SizedBox(height: 18),
                 ],
               ),
-              const SizedBox(height: AppSpacing.lg),
-            ],
-            Container(
-              padding: AppSpacing.allBase,
-              decoration: BoxDecoration(
-                color: AppColors.background,
-                borderRadius: AppRadius.brMd,
-              ),
-              child: Text(
-                'É só me pedir em português mesmo — tudo que eu mudar, você '
-                'confirma antes e dá pra desfazer.',
-                style: AppTextStyles.bodySm
-                    .copyWith(color: AppColors.textSecondary),
-              ),
             ),
-            const SizedBox(height: AppSpacing.base),
           ],
         ),
       ),
     );
   }
+
+  Widget _header() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+      decoration: const BoxDecoration(gradient: AppGradients.brand),
+      child: Column(
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              shape: BoxShape.circle,
+              border:
+                  Border.all(color: Colors.white.withValues(alpha: 0.45), width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.white.withValues(alpha: 0.25),
+                  blurRadius: 18,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+            alignment: Alignment.center,
+            child: const Icon(Icons.auto_awesome_rounded,
+                color: Colors.white, size: 28),
+          ),
+          const SizedBox(height: 14),
+          Text('No que eu te ajudo',
+              style: AppTextStyles.titleMd.copyWith(
+                color: Colors.white,
+                fontSize: 21,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+              )),
+          const SizedBox(height: 4),
+          Text('Sou seu copiloto de carreira — toca no que precisar',
+              textAlign: TextAlign.center,
+              style: AppTextStyles.bodyMd
+                  .copyWith(color: Colors.white.withValues(alpha: 0.92))),
+        ],
+      ),
+    );
+  }
+
+  Widget _category(_CapCategory cat) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: cat.accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              alignment: Alignment.center,
+              child: Icon(cat.icon, color: cat.accent, size: 21),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(cat.title,
+                      style: AppTextStyles.bodyLg.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary)),
+                  const SizedBox(height: 1),
+                  Text(cat.desc,
+                      style: AppTextStyles.bodySm
+                          .copyWith(color: AppColors.textTertiary)),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [for (final ex in cat.examples) _pill(ex, cat.accent)],
+        ),
+      ],
+    );
+  }
+
+  Widget _pill(String label, Color accent) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        widget.onPick(label);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+        decoration: BoxDecoration(
+          color: accent.withValues(alpha: 0.10),
+          borderRadius: AppRadius.brPill,
+          border: Border.all(color: accent.withValues(alpha: 0.20)),
+        ),
+        child: Text(label,
+            style: AppTextStyles.labelMd
+                .copyWith(color: accent, fontWeight: FontWeight.w600)),
+      ),
+    );
+  }
+
+  Widget _footer() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: AppRadius.brMd,
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.lock_outline_rounded,
+              size: 18, color: AppColors.textTertiary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'É só me pedir em português. Tudo que eu mudar, você confirma '
+              'antes e dá pra desfazer.',
+              style: AppTextStyles.bodySm
+                  .copyWith(color: AppColors.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-/// Moldura do modo EDIÇÃO: um realce azul-claro em volta do card sendo
-/// reeditado + um "Cancelar" que sai da edição SEM mexer no que já estava
-/// gravado. Uniforme pra qualquer widget (texto, chips, roda, slider…), então
-/// todo passo editável ganha a saída "não quero mais editar" de graça.
+class _CapCategory {
+  final IconData icon;
+  final Color accent;
+  final String title;
+  final String desc;
+  final List<String> examples;
+  const _CapCategory({
+    required this.icon,
+    required this.accent,
+    required this.title,
+    required this.desc,
+    required this.examples,
+  });
+}
+
 class _EditFrame extends StatelessWidget {
   const _EditFrame({super.key, required this.child, required this.onCancel});
 
@@ -1707,6 +1925,67 @@ class _EditFrame extends StatelessWidget {
           ),
           child,
         ],
+      ),
+    );
+  }
+}
+
+/// ✦ da barra "Escreva uma mensagem…": pulsa (brilho respirando) pra o usuário
+/// notar que existe — é o acesso permanente à vitrine de capacidades.
+class _SparkleButton extends StatefulWidget {
+  const _SparkleButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  State<_SparkleButton> createState() => _SparkleButtonState();
+}
+
+class _SparkleButtonState extends State<_SparkleButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1700))
+      ..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: AnimatedBuilder(
+        animation: _pulse,
+        builder: (context, child) {
+          final t = Curves.easeInOut.transform(_pulse.value);
+          return Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              gradient: AppGradients.brand,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.brandCyan.withValues(alpha: 0.22 + 0.34 * t),
+                  blurRadius: 8 + 9 * t,
+                  spreadRadius: 0.5 + 1.2 * t,
+                ),
+              ],
+            ),
+            child: child,
+          );
+        },
+        child: const Icon(Icons.auto_awesome_rounded,
+            size: 20, color: AppColors.onPrimary),
       ),
     );
   }
