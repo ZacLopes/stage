@@ -59,6 +59,15 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
   /// o usuário toca no lápis de uma resposta lá em cima.
   final GlobalKey _editAnchorKey = GlobalKey();
 
+  /// Âncora do card de conflito de import MAIS RECENTE — pra trazer o TOPO dele
+  /// à vista quando aparece (senão o auto-scroll pro fim deixava o user no
+  /// botão "Aplicar" e ele tinha que rolar pra cima pra ver os pontos).
+  final GlobalKey _newConflictKey = GlobalKey();
+
+  /// Tamanho do fio no último sync — pra distinguir "mensagem nova" (rola) de
+  /// "interação num card existente" (NÃO arranca o user pro fim).
+  int _lastThreadLen = 0;
+
   TrilhaChatController get _c => widget.controller;
 
   @override
@@ -103,10 +112,39 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
             curve: Curves.easeOutCubic,
           );
         }
+        _lastThreadLen = _c.thread.length;
+        return;
+      }
+      final grew = _c.thread.length > _lastThreadLen;
+      _lastThreadLen = _c.thread.length;
+
+      // Card de conflito recém-adicionado (é o último do fio) → traz o TOPO dele
+      // à vista, não o fim (senão o user cai no "Aplicar" e não vê os pontos).
+      if (grew && _c.thread.isNotEmpty && _c.thread.last is ImportConflictItem) {
+        final ctx = _newConflictKey.currentContext;
+        if (ctx != null) {
+          Scrollable.ensureVisible(ctx,
+              alignment: 0.02,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutCubic);
+          return;
+        }
+      }
+
+      // Interação IN-PLACE num card de conflito (marcar/editar linha) NÃO pode
+      // puxar pro fim — nem quando o card está a <160px do fim (o de várias
+      // linhas cabe na tolerância e o guard de distância abaixo não pegaria).
+      if (!grew &&
+          _c.thread.isNotEmpty &&
+          _c.thread.last is ImportConflictItem) {
         return;
       }
       final target = _scroll.position.maxScrollExtent;
-      if ((target - _scroll.offset).abs() < 1) return;
+      final distance = target - _scroll.offset;
+      // Só puxa pro fim quando CHEGOU mensagem nova, OU o user já está colado no
+      // fim. Se ele rolou pra cima (mexendo num card), NÃO arranca ele de lá.
+      if (!grew && distance > 160) return;
+      if (distance.abs() < 1) return;
       _scroll.animateTo(target,
           duration: const Duration(milliseconds: 280),
           curve: Curves.easeOutCubic);
@@ -240,6 +278,9 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
           key: ValueKey('conflict-${item.id}'),
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: ImportConflictCard(
+            // Só o conflito MAIS RECENTE (último do fio) ganha a âncora — o
+            // _syncScroll traz o topo dele à vista. GlobalKey tem que ser único.
+            key: i == c.thread.length - 1 ? _newConflictKey : null,
             item: item,
             onToggle: (rowId, accepted) =>
                 _c.toggleConflictRow(item.id, rowId, accepted),
@@ -453,13 +494,18 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
           if (outOfProfile) ...[
             const SizedBox(height: AppSpacing.xs),
             SecondaryButton(
-              // Curto de propósito: a área já está no header ("Vagas de X") —
-              // o label completo estourava a borda do botão no device-test.
-              label: 'Adicionar às minhas áreas',
-              icon: Icons.add_rounded,
+              // Toggle: adiciona a área OU remove (se adicionou por engano). O
+              // label é curto de propósito — a área já está no header ("Vagas de
+              // X") e o completo estourava a borda no device-test.
+              label: item.areaAdded
+                  ? 'Remover das minhas áreas'
+                  : 'Adicionar às minhas áreas',
+              icon: item.areaAdded
+                  ? Icons.close_rounded
+                  : Icons.add_rounded,
               onPressed: () {
                 // ignore: unawaited_futures
-                _c.addAreaFromCard(item.outOfProfileArea);
+                _c.addAreaFromCard(item.id, item.outOfProfileArea);
               },
             ),
           ],
@@ -510,13 +556,12 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
                   size: 20,
                   color: saved ? AppColors.primary : AppColors.textTertiary,
                 ),
-                tooltip: saved ? 'Salva' : 'Salvar',
-                onPressed: saved
-                    ? null
-                    : () {
-                        // ignore: unawaited_futures
-                        _c.saveJobFromCard(item.id, j.id);
-                      },
+                tooltip: saved ? 'Tirar das salvas' : 'Salvar',
+                onPressed: () {
+                  // Toggle: salva se não estava, des-salva se já estava.
+                  // ignore: unawaited_futures
+                  _c.saveJobFromCard(item.id, j.id);
+                },
               ),
             ],
           ),

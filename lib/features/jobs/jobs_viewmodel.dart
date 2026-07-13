@@ -1454,6 +1454,31 @@ class JobsViewModel extends ChangeNotifier {
     }
   }
 
+  /// Des-salva por ID SEM depender de `_likedJobs` estar carregado (diferente do
+  /// [removeLikedJob], que aborta se a vaga não está na lista em memória). O
+  /// assistente salva a vaga pelo card mas a lista de likes pode não ter sido
+  /// recarregada ainda — então apagamos o swipe direto no banco. Devolve true se
+  /// removeu (idempotente: sem linha ⇒ removeLike não faz nada e retorna ok).
+  Future<bool> unsaveJobFromList(String jobId) async {
+    if (userId == null) return false;
+    final idx = _likedJobs.indexWhere((l) => l.job.id == jobId);
+    final LikedJob? removed = idx == -1 ? null : _likedJobs.removeAt(idx);
+    _swipedIds.remove(jobId);
+    notifyListeners();
+    try {
+      await _swipeRepository.removeLike(userId!, jobId);
+      // ignore: unawaited_futures
+      Analytics.shared.track(evJobUnsaved, props: {'job_id': jobId});
+      return true;
+    } catch (e) {
+      print('Error unsaving job (list): $e');
+      if (removed != null) _likedJobs.insert(idx, removed);
+      _swipedIds.add(jobId);
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Desfaz o [removeLikedJob] — recria o registro com `created_at` original
   /// pra preservar a posição na lista. Chamado pela ação "Desfazer" do
   /// SnackBar mostrado após remoção.

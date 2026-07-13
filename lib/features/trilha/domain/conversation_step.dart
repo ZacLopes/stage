@@ -68,6 +68,12 @@ class GuidedTextInput extends StepInput {
   final int maxLength;
   final int minLines;
 
+  /// Teto de linhas do campo. Se null, DERIVA do [maxLength] — campo que aceita
+  /// mais texto abre mais alto ("personalizado por tópico"), com piso no
+  /// [minLines] e teto em 14 (não vira scroll gigante no fio). Antes era 5
+  /// cravado, o que espremia textões numa caixinha rolável (device-test).
+  final int? maxLines;
+
   /// Pode ser pulado vazio (vira "Pular"). Bom pra campos de enriquecimento
   /// (ex.: link do projeto) — reduz fricção.
   final bool optional;
@@ -77,8 +83,13 @@ class GuidedTextInput extends StepInput {
     this.hint,
     this.maxLength = 280,
     this.minLines = 2,
+    this.maxLines,
     this.optional = false,
   });
+
+  /// Linhas máximas efetivas do campo de edição (nunca menor que [minLines]).
+  int get effectiveMaxLines =>
+      maxLines ?? (maxLength / 36).ceil().clamp(minLines, 14);
 }
 
 /// Seletor inline de mês + ano. Garante uma data real (1º dia do mês escolhido)

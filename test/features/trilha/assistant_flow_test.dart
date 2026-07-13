@@ -82,6 +82,8 @@ void main() {
         itemFieldReader,
     Future<void> Function(String, String, String, String)? itemFieldWriter,
     AssistJobsLoader? jobsLoader,
+    Future<bool> Function(String)? saveJob,
+    Future<bool> Function(String)? unsaveJob,
     Future<void> Function(String tabKey)? openTab,
     Future<AssistExportOutcome> Function()? exportPdf,
     Future<AssistImportResult> Function()? importCv,
@@ -124,6 +126,8 @@ void main() {
       assistItemFieldReader: itemFieldReader,
       assistItemFieldWriter: itemFieldWriter,
       assistJobsLoader: jobsLoader,
+      assistSaveJob: saveJob,
+      assistUnsaveJob: unsaveJob,
       assistOpenTab: openTab,
       assistExportPdf: exportPdf,
       assistImportCv: importCv,
@@ -1715,5 +1719,79 @@ void main() {
     await c.applyConflicts(card.id);
     expect(calls, 0);
     expect(card.appliedCount, 0);
+  });
+
+  test('toggle salvar vaga: salva → des-salva pelo mesmo bookmark', () async {
+    final saved = <String>[];
+    final unsaved = <String>[];
+    final c = build(
+      assistantTurn: _nullTurn(),
+      saveJob: (id) async {
+        saved.add(id);
+        return true;
+      },
+      unsaveJob: (id) async {
+        unsaved.add(id);
+        return true;
+      },
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    final card = JobsCardItem(id: 'jc1', jobs: const [
+      AssistJobRow(id: 'j1', title: 'Estágio', company: 'X'),
+    ]);
+    c.thread.add(card);
+
+    await c.saveJobFromCard('jc1', 'j1');
+    expect(saved, ['j1']);
+    expect(card.savedIds.contains('j1'), isTrue);
+
+    await c.saveJobFromCard('jc1', 'j1'); // 2º toque = des-salva
+    expect(unsaved, ['j1']);
+    expect(card.savedIds.contains('j1'), isFalse);
+  });
+
+  test('toggle salvar: des-salvar que FALHA não tira o selo (sem mentir)',
+      () async {
+    final c = build(
+      assistantTurn: _nullTurn(),
+      saveJob: (id) async => true,
+      unsaveJob: (id) async => false, // rede caiu
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    final card = JobsCardItem(
+        id: 'jc1',
+        jobs: const [AssistJobRow(id: 'j1', title: 'E', company: 'X')]);
+    c.thread.add(card);
+    await c.saveJobFromCard('jc1', 'j1');
+    await c.saveJobFromCard('jc1', 'j1'); // des-salvar falha
+    expect(card.savedIds.contains('j1'), isTrue); // continua salva
+  });
+
+  test('toggle área: adiciona → remove pelo mesmo botão (sem mexer nas outras)',
+      () async {
+    var areas = <String>['Finanças'];
+    final c = build(
+      assistantTurn: _nullTurn(),
+      areasLoader: () async => areas,
+      areasReplacer: (next) async {
+        areas = List.of(next);
+      },
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    final card =
+        JobsCardItem(id: 'jc1', jobs: const [], outOfProfileArea: 'Marketing');
+    c.thread.add(card);
+
+    await c.addAreaFromCard('jc1', 'Marketing');
+    expect(areas.contains('Marketing'), isTrue);
+    expect(card.areaAdded, isTrue);
+
+    await c.addAreaFromCard('jc1', 'Marketing'); // 2º toque = remove
+    expect(areas.any((a) => a.toLowerCase() == 'marketing'), isFalse);
+    expect(card.areaAdded, isFalse);
+    expect(areas.contains('Finanças'), isTrue); // não mexe nas outras áreas
   });
 }

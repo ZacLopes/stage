@@ -279,6 +279,7 @@ class _ResumeTabState extends State<ResumeTab>
       // Card de vagas: abrir detalhe + salvar (like) por vaga.
       assistOpenJobDetail: _openJobFromAssistant,
       assistSaveJob: _saveJobFromAssistant,
+      assistUnsaveJob: _unsaveJobFromAssistant,
       // Edição in-place de card (✏️) grava fora dos writers → recarrega o preview.
       onProfileEdited: _scheduleProfileReload,
       // Abertura adaptativa: se o perfil já tem seções, a trilha reconhece e vai
@@ -1210,6 +1211,18 @@ class _ResumeTabState extends State<ResumeTab>
       // estado otimista e devolve false em falha de rede). NÃO checar likedJobs
       // aqui: o loadLikedJobs roda sem await → a lista ainda não atualizou.
       return await jobsVM.swipeJobFromList(job, 'liked');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Card de vagas: DES-SALVA uma vaga (tira de Vagas Salvas). Robusto por ID —
+  /// não depende de likedJobs estar carregado (apaga o swipe direto).
+  Future<bool> _unsaveJobFromAssistant(String jobId) async {
+    if (!mounted) return false;
+    final jobsVM = context.read<JobsViewModel>();
+    try {
+      return await jobsVM.unsaveJobFromList(jobId);
     } catch (_) {
       return false;
     }

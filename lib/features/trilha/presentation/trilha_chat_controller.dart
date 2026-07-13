@@ -327,11 +327,15 @@ class JobsCardItem extends ChatItem {
   final bool hasResume;
   final String outOfProfileArea;
   final Set<String> savedIds = {};
+  // Card fora-do-perfil: true depois que o user adicionou a área pelo botão —
+  // o botão vira "Remover das minhas áreas" (toggle, pra desfazer engano).
+  bool areaAdded;
   JobsCardItem(
       {required this.id,
       required this.jobs,
       this.hasResume = true,
-      this.outOfProfileArea = ''});
+      this.outOfProfileArea = '',
+      this.areaAdded = false});
 }
 
 /// Card de AÇÃO com botão (exportar/importar): o usuário toca no botão e SÓ
@@ -423,6 +427,7 @@ class TrilhaChatController extends ChangeNotifier {
     this.assistConflictApplier,
     this.assistOpenJobDetail,
     this.assistSaveJob,
+    this.assistUnsaveJob,
     this.onProfileEdited,
     this.pollInterval = const Duration(milliseconds: 1500),
     this.maxPolls = 40,
@@ -574,6 +579,10 @@ class TrilhaChatController extends ChangeNotifier {
   /// persistiu de verdade (a vaga sumiu / já swipada / rede caiu ⇒ false, pra o
   /// card não mentir "salva"). null ⇒ não salva.
   final Future<bool> Function(String jobId)? assistSaveJob;
+
+  /// Card de vagas: DES-SALVA uma vaga (tira de Vagas Salvas). Devolve true se
+  /// removeu de fato. null ⇒ não des-salva.
+  final Future<bool> Function(String jobId)? assistUnsaveJob;
 
   /// Chamado após uma edição in-place de card respondido (✏️) gravar — pra o
   /// preview da aba Currículo recarregar. As edições do assistente já recarregam
@@ -1384,9 +1393,34 @@ class TrilhaChatController extends ChangeNotifier {
     } catch (_) {/* best-effort */}
   }
 
-  /// Toque no "salvar" de uma vaga do card → manda pra Vagas Salvas. Só marca
-  /// "salva" se PERSISTIU (senão avisa, sem mentir).
+  /// Toque no bookmark de uma vaga do card → TOGGLE: salva se não estava, ou
+  /// des-salva se já estava. Só muda o selo se a operação PERSISTIU (senão
+  /// avisa, sem mentir).
   Future<void> saveJobFromCard(String cardId, String jobId) async {
+    final alreadySaved = thread
+        .whereType<JobsCardItem>()
+        .any((it) => it.id == cardId && it.savedIds.contains(jobId));
+    if (alreadySaved) {
+      bool ok;
+      try {
+        ok = await assistUnsaveJob?.call(jobId) ?? false;
+      } catch (_) {
+        ok = false;
+      }
+      if (_disposed) return;
+      if (ok) {
+        for (final it in thread) {
+          if (it is JobsCardItem && it.id == cardId) it.savedIds.remove(jobId);
+        }
+        // ignore: unawaited_futures
+        Analytics.shared.track(evTrilhaAssistActionUsed,
+            props: {'action': 'unsave_job', 'via': 'jobs_card'});
+      } else {
+        _pushAi('Não consegui tirar essa vaga das salvas agora 🤔 Tenta de novo.');
+      }
+      _notify();
+      return;
+    }
     bool ok;
     try {
       ok = await assistSaveJob?.call(jobId) ?? false;
@@ -1407,12 +1441,21 @@ class TrilhaChatController extends ChangeNotifier {
     _notify();
   }
 
-  /// Toque em "Adicionar {área}" no card de vagas fora do perfil → adiciona a
-  /// área aos interesses do user (assim essas vagas passam a entrar no feed).
-  Future<void> addAreaFromCard(String area) async {
+  /// Toque no botão do card de vagas fora do perfil → TOGGLE: adiciona a área
+  /// aos interesses (as vagas passam a entrar no feed) ou REMOVE (se o user
+  /// adicionou por engano / não quer mais).
+  Future<void> addAreaFromCard(String cardId, String area) async {
     final loader = assistAreasLoader;
     final replacer = assistAreasReplacer;
     if (loader == null || replacer == null || area.trim().isEmpty) return;
+    JobsCardItem? card;
+    for (final it in thread) {
+      if (it is JobsCardItem && it.id == cardId) {
+        card = it;
+        break;
+      }
+    }
+    final removing = card?.areaAdded ?? false;
     List<String> current;
     try {
       current = await loader();
@@ -1420,7 +1463,34 @@ class TrilhaChatController extends ChangeNotifier {
       current = const [];
     }
     if (_disposed) return;
-    if (current.any((a) => a.toLowerCase() == area.toLowerCase())) {
+    final has = current.any((a) => a.toLowerCase() == area.toLowerCase());
+
+    if (removing) {
+      card?.areaAdded = false;
+      if (!has) {
+        // Já não estava (removida por fora nesse meio-tempo) — não mente
+        // "Removi" nem polui a telemetria; só reseta o botão.
+        _pushAi('$area já não estava nas suas áreas 🙂');
+        _notify();
+        return;
+      }
+      try {
+        await replacer(
+            current.where((a) => a.toLowerCase() != area.toLowerCase()).toList());
+      } catch (_) {/* best-effort */}
+      if (_disposed) return;
+      _pushAi('Removi $area das suas áreas 👍');
+      // ignore: unawaited_futures
+      Analytics.shared.track(evTrilhaAssistActionUsed,
+          props: {'action': 'remove_area', 'via': 'jobs_card'});
+      _notify();
+      return;
+    }
+
+    // Adicionar. `areaAdded` só vira true quando ESTE card adicionou de fato —
+    // se a área já estava (adicionada por fora), NÃO vira "Remover" (senão o
+    // toggle apagaria do perfil uma área legítima que este card não pôs).
+    if (has) {
       _pushAi('$area já tá nas suas áreas 🙂');
       _notify();
       return;
@@ -1429,6 +1499,7 @@ class TrilhaChatController extends ChangeNotifier {
       await replacer([...current, area]);
     } catch (_) {/* best-effort */}
     if (_disposed) return;
+    card?.areaAdded = true;
     _pushAi('Adicionei $area às suas áreas! Agora essas vagas entram no seu feed 👍');
     // ignore: unawaited_futures
     Analytics.shared.track(evTrilhaAssistActionUsed,
