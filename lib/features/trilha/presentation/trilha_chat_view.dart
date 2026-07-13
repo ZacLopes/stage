@@ -710,6 +710,10 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
 
   Widget _starterChip(StarterChip chip) {
     final icon = _starterChipIcon(chip.id);
+    // "Tudo que eu faço" abre a vitrine PERMANENTE (não some os chips).
+    if (chip.id == 'capabilities') {
+      return AppChip(label: chip.label, icon: icon, onTap: _openCapabilitiesSheet);
+    }
     if (!chip.hero) {
       return AppChip(
         label: chip.label,
@@ -1400,6 +1404,13 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
             ),
             const SizedBox(width: AppSpacing.sm),
           ],
+          // ✦ acesso PERMANENTE à descoberta ("No que eu te ajudo") — os chips
+          // de partida são uso único; este ✦ deixa o usuário reabrir e ver tudo
+          // que o copiloto faz a qualquer momento.
+          if (_c.assistEnabled) ...[
+            _sparkleButton(_openCapabilitiesSheet),
+            const SizedBox(width: AppSpacing.sm),
+          ],
           Expanded(
             child: Container(
               constraints: const BoxConstraints(minHeight: 44),
@@ -1470,6 +1481,167 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
         child: Icon(icon,
             size: 20,
             color: filled ? AppColors.onPrimary : AppColors.textTertiary),
+      ),
+    );
+  }
+
+  Widget _sparkleButton(VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          gradient: AppGradients.brand,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withValues(alpha: 0.28),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: const Icon(Icons.auto_awesome_rounded,
+            size: 20, color: AppColors.onPrimary),
+      ),
+    );
+  }
+
+  void _openCapabilitiesSheet() {
+    _c.trackCapabilitiesOpened();
+    HapticFeedback.selectionClick();
+    // ignore: unawaited_futures
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _CapabilitiesSheet(
+        onPick: (message) {
+          Navigator.of(context).pop();
+          // ignore: unawaited_futures
+          _c.submitFreeText(message);
+        },
+      ),
+    );
+  }
+}
+
+/// Vitrine "No que eu te ajudo" — acesso PERMANENTE à descoberta do copiloto
+/// (os chips de partida são uso único). 3 categorias: Currículo · Vagas ·
+/// Carreira — a de Carreira (conselho, não captura de dado) é a prova de que é
+/// copiloto, não preenchedor. Tocar num exemplo fecha a folha e manda pro chat.
+class _CapabilitiesSheet extends StatelessWidget {
+  const _CapabilitiesSheet({required this.onPick});
+
+  final ValueChanged<String> onPick;
+
+  static const List<(String, List<String>)> _categories = [
+    ('Seu currículo', [
+      'Importa meu CV (PDF)',
+      'Melhora meu resumo',
+      'Adiciona Python nas skills',
+      'Exporta em PDF',
+    ]),
+    ('Suas vagas', [
+      'Tem vaga de marketing?',
+      'Quais vagas combinam comigo?',
+      'Estágios remotos',
+    ]),
+    ('Sua carreira', [
+      'O que falta no meu perfil?',
+      'Currículo sem experiência, e agora?',
+      'Como funciona a candidatura aqui?',
+    ]),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.66,
+      minChildSize: 0.4,
+      maxChildSize: 0.92,
+      expand: false,
+      builder: (context, scroll) => Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: ListView(
+          controller: scroll,
+          padding: AppSpacing.allBase,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.base),
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: const BoxDecoration(
+                    gradient: AppGradients.brand,
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.auto_awesome_rounded,
+                      color: AppColors.onPrimary, size: 20),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('No que eu te ajudo', style: AppTextStyles.titleMd),
+                      Text('Toca num exemplo — eu faço na hora',
+                          style: AppTextStyles.bodySm
+                              .copyWith(color: AppColors.textTertiary)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            for (final cat in _categories) ...[
+              Text(cat.$1.toUpperCase(),
+                  style: AppTextStyles.overline
+                      .copyWith(color: AppColors.textTertiary)),
+              const SizedBox(height: AppSpacing.sm),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final ex in cat.$2)
+                    AppChip(label: ex, onTap: () => onPick(ex)),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+            ],
+            Container(
+              padding: AppSpacing.allBase,
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: AppRadius.brMd,
+              ),
+              child: Text(
+                'É só me pedir em português mesmo — tudo que eu mudar, você '
+                'confirma antes e dá pra desfazer.',
+                style: AppTextStyles.bodySm
+                    .copyWith(color: AppColors.textSecondary),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.base),
+          ],
+        ),
       ),
     );
   }

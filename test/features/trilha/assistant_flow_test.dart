@@ -1804,4 +1804,36 @@ void main() {
     expect(card.areaAdded, isFalse);
     expect(areas.contains('Finanças'), isTrue); // não mexe nas outras áreas
   });
+
+  test('start() com assistente mostra os chips de partida (sem coleta automática)',
+      () async {
+    final c = build(assistantTurn: _nullTurn());
+    addTearDown(c.dispose);
+    await c.start();
+    expect(c.thread.whereType<StarterChipsItem>().length, 1);
+    expect(c.currentStep, isNull); // NÃO entra na coleta sozinho — quem escolhe é o user
+  });
+
+  test('has-data + start_section monta a sessão SOB DEMANDA (sem dead-end)',
+      () async {
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+          tool: 'start_section',
+          args: {'section': 'skills'},
+          reply: 'Bora!',
+          promptVersion: 'assistant_v11')),
+      sectionSteps: (section) => [
+        ConversationStep.single(
+            id: 'gap.$section',
+            aiMessage: 'msg',
+            input: const GuidedTextInput(example: 'x')),
+      ],
+    );
+    addTearDown(c.dispose);
+    await c.start(); // abre com chips; SEM sessão ainda
+    expect(c.currentStep, isNull);
+    await c.submitFreeText('preencher skills'); // → start_section → _injectSection
+    // A sessão foi montada sob demanda e a seção revelada (antes: dead-end).
+    expect(c.currentStep?.id, 'gap.skills');
+  });
 }

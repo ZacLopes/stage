@@ -764,7 +764,7 @@ class TrilhaChatController extends ChangeNotifier {
   static const List<StarterChip> _starterChipsHasData = [
     StarterChip(
         id: 'summary',
-        label: 'Deixar meu resumo mais forte',
+        label: 'Melhorar meu resumo',
         hero: true,
         message: 'melhora meu resumo'),
     StarterChip(
@@ -784,6 +784,13 @@ class TrilhaChatController extends ChangeNotifier {
         label: 'Tudo que eu faço',
         message: 'o que você consegue fazer?'),
   ];
+
+  /// A vitrine "No que eu te ajudo" (bottom sheet do ✦ da barra) foi aberta —
+  /// o acesso PERMANENTE à descoberta (os chips de partida são uso único).
+  void trackCapabilitiesOpened() {
+    Analytics.shared.track(evTrilhaAssistStarterTapped,
+        props: {'chip_id': 'capabilities_sheet'});
+  }
 
   /// Toque num chip de partida: some a vitrine + roda a ação (reusa o assistente
   /// via submitFreeText, ou entra na coleta pra "Montar do zero").
@@ -947,15 +954,24 @@ class TrilhaChatController extends ChangeNotifier {
   // ── Converse: monta a sessão + revela ───────────────────────────────────────
 
   Future<void> _enterConverse() async {
-    if (_session != null) return; // idempotente: nunca reconstrói a sessão viva
-    phase = ChatPhase.converse;
-    typing = true; // feedback enquanto monta a sessão (sem fio "pelado")
-    _notify();
-    final session = await sessionBuilder(userId);
-    if (_disposed) return;
-    _session = session;
-    onStarted?.call(totalSteps);
-    await _reveal();
+    // Idempotente + anti-duplo-toque: sem o guard _busy, dois toques rápidos em
+    // "Montar do zero" (o removeWhere+notify só some o chip no próximo frame)
+    // veriam ambos _session==null e montariam DUAS sessões (intro/passo
+    // duplicados). Nenhum caller de _enterConverse segura _busy — safe.
+    if (_session != null || _busy) return;
+    _busy = true;
+    try {
+      phase = ChatPhase.converse;
+      typing = true; // feedback enquanto monta a sessão (sem fio "pelado")
+      _notify();
+      final session = await sessionBuilder(userId);
+      if (_disposed) return;
+      _session = session;
+      onStarted?.call(totalSteps);
+      await _reveal();
+    } finally {
+      _busy = false;
+    }
   }
 
   Future<void> _reveal() async {
@@ -1057,6 +1073,12 @@ class TrilhaChatController extends ChangeNotifier {
     if (_busy) return;
     final t = text.trim();
     if (t.isEmpty) return;
+    // Engajou (digitou/enviou) → some a vitrine de chips de partida (uso único).
+    // O toque num chip já remove; aqui cobre quem DIGITA em vez de tocar (senão
+    // os chips ficavam pendurados no fio pra sempre).
+    if (thread.any((it) => it is StarterChipsItem)) {
+      thread.removeWhere((it) => it is StarterChipsItem);
+    }
     final step = activeStep;
 
     // "não sei"/"sla"/"passa" num passo de TEXTO NUNCA é resposta — não grava
@@ -1742,8 +1764,20 @@ class TrilhaChatController extends ChangeNotifier {
   Future<bool> _injectSection(String section, String reply) async {
     final builder = assistSectionSteps;
     final steps = builder == null ? const <ConversationStep>[] : builder(section);
+    if (steps.isEmpty) return false;
+    // Copiloto ON abre com chips (sem sessão). Se o user com-dados pede uma
+    // seção (card "O que falta" / chip "Adicionar experiência" / start_section)
+    // e ainda não há sessão, monta AGORA — senão daria dead-end (a sessão só
+    // nascia pelo gate/coleta-automática, que os chips substituíram). Monta sem
+    // revelar (o injectNext + _reveal abaixo já mostram a seção pedida).
+    if (_session == null) {
+      phase = ChatPhase.converse;
+      _session = await sessionBuilder(userId);
+      if (_disposed) return false;
+      onStarted?.call(totalSteps);
+    }
     final conv = _conv;
-    if (steps.isEmpty || conv == null) return false;
+    if (conv == null) return false;
     if (reply.isNotEmpty) _pushAi(reply);
     // ignore: unawaited_futures
     Analytics.shared.track(evTrilhaAssistSectionHandoff,
