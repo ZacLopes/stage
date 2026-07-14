@@ -10,15 +10,13 @@ import {
   readJson,
   requireAdmin,
 } from '../_shared/admin.ts';
-import { publicContactEmailOrEmpty } from '../_shared/contact_email.ts';
 // Scoring puro do auto-rank (extraído p/ ser testável — index.ts chama serve()
 // no top-level e não pode ser importado por deno test). Fase 7 Onda 1.
 import { type CandidateProfile, scoreCandidate, text } from './scoring.ts';
 import {
+  candidateEmailFields,
   EXPORT_HEADERS,
   exportRowCells,
-  isInternalAccount,
-  isSyntheticEmail,
   LANG_LEVEL_PT,
 } from './export_csv.ts';
 
@@ -80,7 +78,9 @@ async function buildCandidateProfiles(
   // Sem restrição, mantém o pool completo pro 'generate'.
   let poolQuery = supabase
     .from('user_profiles')
-    .select('id, name, phone, created_at');
+    // `email` é apenas um sinal privado para excluir contas internas/sintéticas.
+    // O contato exposto abaixo vem exclusivamente de profile_personal.email.
+    .select('id, name, email, phone, created_at');
   poolQuery = restrictUserIds && restrictUserIds.length > 0
     ? poolQuery.in('id', restrictUserIds)
     : poolQuery.order('created_at', { ascending: false }).limit(5000);
@@ -201,11 +201,11 @@ async function buildCandidateProfiles(
     const pref = prefs.get(user.id);
     const act = activity.get(user.id) ?? { likes: 0, applies: 0 };
     const edu = eduStructured.get(user.id);
-    const email = p?.email || user.email || '';
+    const contact = candidateEmailFields(user.email, p?.email);
     return {
       userId: user.id,
       name: [p?.first_name, p?.last_name].filter(Boolean).join(' ') || user.name || '',
-      email: publicContactEmailOrEmpty(p?.email),
+      email: contact.email,
       phone: p?.phone_number_e164 || p?.phone_number || user.phone || '',
       city: p?.location_city ?? '',
       // Cidade só em JP (176 candidatos legacy): entra no COALESCE de
@@ -237,8 +237,8 @@ async function buildCandidateProfiles(
       availability: p?.availability ?? '',
       desiredPosition: pref?.desired_position ?? '',
       cvPath: cvPaths.get(user.id) ?? '',
-      isSyntheticEmail: isSyntheticEmail(email),
-      isInternal: isInternalAccount(email),
+      isSyntheticEmail: contact.isSyntheticEmail,
+      isInternal: contact.isInternal,
     };
   });
 }

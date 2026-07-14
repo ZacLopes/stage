@@ -1,6 +1,7 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.168.0/testing/asserts.ts';
 import type { CandidateProfile } from './scoring.ts';
 import {
+  candidateEmailFields,
   EXPORT_HEADERS,
   exportRowCells,
   isInternalAccount,
@@ -54,6 +55,25 @@ Deno.test('sintético e interno são detectados', () => {
   assert(!isInternalAccount('maria@gmail.com'));
 });
 
+Deno.test('contato público não altera a classificação privada da conta', () => {
+  assertEquals(
+    candidateEmailFields('internal-fase0-test@stage.app', 'recrutamento@example.com'),
+    {
+      email: 'recrutamento@example.com',
+      isSyntheticEmail: false,
+      isInternal: true,
+    },
+  );
+  assertEquals(
+    candidateEmailFields('phone_5511999998888@stage.app', 'pessoa@example.com'),
+    {
+      email: 'pessoa@example.com',
+      isSyntheticEmail: true,
+      isInternal: false,
+    },
+  );
+});
+
 Deno.test('motivo usa só dimensões com pontos > 0', () => {
   const m = motivoFromBreakdown([
     { label: 'Cargo/área', points: 25, detail: 'x' },
@@ -84,6 +104,15 @@ Deno.test('telefone sai como fórmula ="..." e NÃO é sanitizado', () => {
 Deno.test('e-mail sintético vira vazio na coluna de contato', () => {
   const cells = exportRowCells(
     profile({ email: 'phone_5511999998888@stage.app' }),
+    { score: 50 },
+    '',
+  );
+  assertEquals(cells[EXPORT_HEADERS.indexOf('email')], '');
+});
+
+Deno.test('Apple Private Relay nunca entra na coluna de contato', () => {
+  const cells = exportRowCells(
+    profile({ email: 'alias@privaterelay.appleid.com' }),
     { score: 50 },
     '',
   );

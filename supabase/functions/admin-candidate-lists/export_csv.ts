@@ -4,6 +4,7 @@
 // perfil+item → células, com sanitização anti-fórmula nos campos do candidato.
 
 import { sanitizeCsvValue } from '../_shared/admin.ts';
+import { publicContactEmailOrEmpty } from '../_shared/contact_email.ts';
 import type { CandidateProfile } from './scoring.ts';
 
 export interface ScoreBreakdownEntry {
@@ -105,17 +106,24 @@ export function isInternalAccount(email: string): boolean {
   return INTERNAL_EMAILS.has((email ?? '').trim().toLowerCase());
 }
 
+export function candidateEmailFields(
+  privateAccountEmail: unknown,
+  publicProfileEmail: unknown,
+): Pick<CandidateProfile, 'email' | 'isSyntheticEmail' | 'isInternal'> {
+  const accountEmail = typeof privateAccountEmail === 'string' ? privateAccountEmail : '';
+  return {
+    email: publicContactEmailOrEmpty(publicProfileEmail),
+    isSyntheticEmail: isSyntheticEmail(accountEmail),
+    isInternal: isInternalAccount(accountEmail),
+  };
+}
+
 // "Por que esse candidato": dimensões do breakdown que pontuaram > 0.
 export function motivoFromBreakdown(breakdown: ScoreBreakdownEntry[] | null | undefined): string {
   return (breakdown ?? [])
     .filter((b) => (b?.points ?? 0) > 0 && b?.label)
     .map((b) => `${b.label}: ${b.points}`)
     .join('; ');
-}
-
-// E-mail sintético (phone_*@stage.app) não é contato real → sai vazio no CSV.
-function contactEmail(email: string): string {
-  return isSyntheticEmail(email) ? '' : (email ?? '');
 }
 
 // Uma linha do CSV (pré-escape). Sanitiza os campos de texto controlados pelo
@@ -128,7 +136,7 @@ export function exportRowCells(
   const s = sanitizeCsvValue;
   return [
     s(profile.name),
-    s(contactEmail(profile.email)),
+    s(publicContactEmailOrEmpty(profile.email)),
     profile.phone ? `="${profile.phone}"` : '',
     s(profile.city || profile.primaryLocationCity || ''),
     s(profile.state),
