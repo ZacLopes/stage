@@ -415,7 +415,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         PrimaryButton(
-          label: 'Começar do zero',
+          label: 'Preencher meu perfil',
           icon: Icons.add_rounded,
           onPressed: () {
             // ignore: unawaited_futures
@@ -508,7 +508,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
         ? 'Fora das suas áreas — toca numa pra ver, ou salva 👇'
         : (item.hasResume
             ? 'Toca numa vaga pra ver ou salvar 👇'
-            : 'Preenche seu currículo pra eu calcular o match 👇');
+            : 'Complete seu perfil pra eu calcular o match 👇');
     return Container(
       // Alinha com o texto das bolhas da IA: avatar (34) + gap (AppSpacing.sm).
       margin: const EdgeInsets.only(left: 34 + AppSpacing.sm),
@@ -639,7 +639,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
             if (item.showCvLibraryLink) ...[
               const SizedBox(height: AppSpacing.sm),
               SecondaryButton(
-                label: 'Ver meus currículos',
+                label: 'Ver arquivo importado',
                 icon: Icons.folder_open_rounded,
                 expand: false,
                 onPressed: () {
@@ -1201,7 +1201,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
               Icon(applied ? Icons.check_circle_rounded : Icons.auto_awesome_rounded,
                   size: 15, color: applied ? AppColors.success : accent),
               const SizedBox(width: 6),
-              Text(applied ? 'Adicionei ao seu currículo' : 'Peguei isto 👇',
+              Text(applied ? 'Adicionei ao seu perfil' : 'Peguei isto 👇',
                   style: AppTextStyles.overline
                       .copyWith(color: applied ? AppColors.success : accent)),
             ],
@@ -1607,8 +1607,8 @@ class _CapabilitiesSheetState extends State<_CapabilitiesSheet>
     _CapCategory(
       icon: Icons.description_rounded,
       accent: AppColors.primary,
-      title: 'Seu currículo',
-      desc: 'Monto, edito, importo e adapto',
+      title: 'Perfil e currículo',
+      desc: 'Completo seu perfil e preparo seu currículo',
       examples: [
         'Importa meu CV (PDF)',
         'Melhora meu resumo',

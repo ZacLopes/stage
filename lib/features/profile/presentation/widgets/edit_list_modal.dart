@@ -6,6 +6,7 @@
 
 import 'package:flutter/material.dart';
 import '../../../../core/theme/theme.dart';
+import '../../domain/skill_name_normalizer.dart';
 
 const _kBorderColor = AppColors.border;
 const _kLabelColor = AppColors.textTertiary;
@@ -19,6 +20,9 @@ class EditListModal extends StatefulWidget {
   final String inputLabel;
   final List<String> initialItems;
   final List<String> suggestions;
+  final String? guidanceText;
+  final int? recommendedMinItems;
+  final int? maxItems;
   final void Function(List<String> updatedItems) onSave;
 
   const EditListModal({
@@ -27,6 +31,9 @@ class EditListModal extends StatefulWidget {
     required this.inputLabel,
     required this.initialItems,
     this.suggestions = const [],
+    this.guidanceText,
+    this.recommendedMinItems,
+    this.maxItems,
     required this.onSave,
   });
 
@@ -36,6 +43,9 @@ class EditListModal extends StatefulWidget {
     required String inputLabel,
     required List<String> initialItems,
     List<String> suggestions = const [],
+    String? guidanceText,
+    int? recommendedMinItems,
+    int? maxItems,
     required void Function(List<String>) onSave,
   }) {
     return showModalBottomSheet(
@@ -51,6 +61,9 @@ class EditListModal extends StatefulWidget {
         inputLabel: inputLabel,
         initialItems: initialItems,
         suggestions: suggestions,
+        guidanceText: guidanceText,
+        recommendedMinItems: recommendedMinItems,
+        maxItems: maxItems,
         onSave: onSave,
       ),
     );
@@ -64,11 +77,16 @@ class _EditListModalState extends State<EditListModal> {
   late List<String> _items;
   final _input = TextEditingController();
   final _focus = FocusNode();
+  late int _duplicatesGrouped;
 
   @override
   void initState() {
     super.initState();
-    _items = [...widget.initialItems];
+    _items = normalizeSkillNames(widget.initialItems);
+    _duplicatesGrouped = widget.initialItems
+            .where((item) => cleanSkillName(item).isNotEmpty)
+            .length -
+        _items.length;
     _input.addListener(() => setState(() {}));
   }
 
@@ -96,10 +114,26 @@ class _EditListModalState extends State<EditListModal> {
 
   bool get _hasPending => _input.text.trim().isNotEmpty || _itemsChanged;
 
+  bool get _withinLimit =>
+      widget.maxItems == null || _items.length <= widget.maxItems!;
+
+  bool get _atLimit =>
+      widget.maxItems != null && _items.length >= widget.maxItems!;
+
+  bool get _hasBlockedInput {
+    final value = cleanSkillName(_input.text);
+    return value.isNotEmpty && !_containsEquivalent(value) && _atLimit;
+  }
+
+  bool _containsEquivalent(String value) {
+    final key = foldSkillName(value);
+    return key.isNotEmpty && _items.any((item) => foldSkillName(item) == key);
+  }
+
   void _add() {
-    final v = _input.text.trim();
-    if (v.isEmpty) return;
-    if (_items.contains(v)) {
+    final v = cleanSkillName(_input.text);
+    if (v.isEmpty || _atLimit) return;
+    if (_containsEquivalent(v)) {
       _input.clear();
       return;
     }
@@ -115,37 +149,43 @@ class _EditListModalState extends State<EditListModal> {
   // Typeahead (P5 Fase C): sugere canônicas do catálogo conforme digita.
   // Acento-insensível e case-insensível; exclui já-adicionados; teto de 6.
   // Sem suggestions (flag OFF) → bloco não renderiza, input texto-livre normal.
-  static String _fold(String s) => s.toLowerCase().replaceAll(RegExp('[áàâã]'), 'a').replaceAll(RegExp('[éê]'), 'e').replaceAll('í', 'i').replaceAll(RegExp('[óôõ]'), 'o').replaceAll('ú', 'u').replaceAll('ç', 'c');
-
   List<String> get _filteredSuggestions {
-    final q = _fold(_input.text.trim());
+    final q = foldSkillName(_input.text);
     if (q.isEmpty || widget.suggestions.isEmpty) return const [];
-    final added = _items.map(_fold).toSet();
+    final added = _items.map(foldSkillName).toSet();
     final out = <String>[];
     for (final s in widget.suggestions) {
       if (out.length >= 6) break;
-      final fs = _fold(s);
+      final fs = foldSkillName(s);
       if (fs.contains(q) && !added.contains(fs)) out.add(s);
     }
     return out;
   }
 
   void _addSuggestion(String s) {
-    if (!_items.contains(s)) setState(() => _items.add(s));
+    if (_atLimit) return;
+    final clean = cleanSkillName(s);
+    if (!_containsEquivalent(clean)) setState(() => _items.add(clean));
     _input.clear();
     _focus.requestFocus();
   }
 
   void _save() {
-    final v = _input.text.trim();
-    final finalList = (v.isNotEmpty && !_items.contains(v)) ? [..._items, v] : _items;
+    final v = cleanSkillName(_input.text);
+    if (_hasBlockedInput) return;
+    final canAppend = v.isNotEmpty && !_containsEquivalent(v) && !_atLimit;
+    final finalList = normalizeSkillNames(canAppend ? [..._items, v] : _items);
+    if (widget.maxItems != null && finalList.length > widget.maxItems!) return;
     widget.onSave(finalList);
     Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
-    final canAdd = _input.text.trim().isNotEmpty;
+    final pendingText = cleanSkillName(_input.text);
+    final canAdd = pendingText.isNotEmpty &&
+        !_containsEquivalent(pendingText) &&
+        !_atLimit;
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
       behavior: HitTestBehavior.opaque,
@@ -178,6 +218,24 @@ class _EditListModalState extends State<EditListModal> {
                   const SizedBox(width: 40),
                 ],
               ),
+              if (widget.guidanceText != null || widget.maxItems != null) ...[
+                const SizedBox(height: 16),
+                _ListGuidance(
+                  text: widget.guidanceText,
+                  count: _items.length,
+                  recommendedMin: widget.recommendedMinItems,
+                  max: widget.maxItems,
+                ),
+              ],
+              if (_duplicatesGrouped > 0) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _duplicatesGrouped == 1
+                      ? '1 duplicata equivalente foi agrupada. Revise e salve para confirmar.'
+                      : '$_duplicatesGrouped duplicatas equivalentes foram agrupadas. Revise e salve para confirmar.',
+                  style: const TextStyle(color: _kLabelColor, fontSize: 12, fontWeight: FontWeight.w500),
+                ),
+              ],
               const SizedBox(height: 24),
               const Align(
                 alignment: Alignment.centerLeft,
@@ -289,7 +347,9 @@ class _EditListModalState extends State<EditListModal> {
               SizedBox(
                 height: 56,
                 child: ElevatedButton(
-                  onPressed: _hasPending ? _save : null,
+                  onPressed: _hasPending && _withinLimit && !_hasBlockedInput
+                      ? _save
+                      : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _kAccent,
                     foregroundColor: Colors.white,
@@ -338,6 +398,72 @@ class _EditListModalState extends State<EditListModal> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ListGuidance extends StatelessWidget {
+  final String? text;
+  final int count;
+  final int? recommendedMin;
+  final int? max;
+
+  const _ListGuidance({
+    required this.text,
+    required this.count,
+    required this.recommendedMin,
+    required this.max,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final overLimit = max != null && count > max!;
+    final belowRecommended = recommendedMin != null && count < recommendedMin!;
+    final color = overLimit
+        ? AppColors.error
+        : (belowRecommended ? AppColors.warning : _kAccent);
+    final status = overLimit
+        ? 'Remova ${count - max!} para salvar.'
+        : (belowRecommended
+            ? 'Você pode adicionar mais ${recommendedMin! - count}.'
+            : null);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (text != null)
+                  Text(text!, style: const TextStyle(color: _kTextColor, fontSize: 12, height: 1.35, fontWeight: FontWeight.w500)),
+                if (status != null) ...[
+                  if (text != null) const SizedBox(height: 4),
+                  Text(status, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700)),
+                ],
+              ],
+            ),
+          ),
+          if (max != null) ...[
+            const SizedBox(width: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text('$count/$max', style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w800)),
+            ),
+          ],
+        ],
       ),
     );
   }

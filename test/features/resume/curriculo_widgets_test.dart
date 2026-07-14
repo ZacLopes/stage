@@ -18,9 +18,9 @@ void main() {
       ));
 
       expect(find.text('Conversa'), findsOneWidget);
-      expect(find.text('Currículo'), findsOneWidget);
+      expect(find.text('Prévia do currículo'), findsOneWidget);
 
-      await tester.tap(find.text('Currículo'));
+      await tester.tap(find.text('Prévia do currículo'));
       expect(changed, 1);
     });
 

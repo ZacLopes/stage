@@ -697,7 +697,11 @@ class _ExpCopy {
 }
 
 const _kDidDefault =
-    'Atendia clientes, organizava o estoque e montei uma planilha que agilizou os pedidos';
+    'Atendi 40 clientes por dia e montei uma planilha que reduziu o tempo dos pedidos';
+
+const _kImpactPrompt =
+    'Conte 2-3 contribuições e o que mudou com elas. Se tiver, inclua '
+    'números, prazo ou escala — só o que você consegue defender.';
 
 final Map<String, _ExpCopy> _kExpCopy = {
   'emprego': const _ExpCopy(
@@ -707,8 +711,7 @@ final Map<String, _ExpCopy> _kExpCopy = {
     roleQ: 'Qual era seu cargo?',
     roleEx: 'Assistente Administrativo',
     roleHint: 'Seu cargo',
-    didQ: 'O que você fazia lá? Conta 2-3 coisas concretas — do seu jeito, '
-        'eu organizo. 😉',
+    didQ: 'O que você fez e qual foi o resultado? $_kImpactPrompt',
     didEx: _kDidDefault,
   ),
   'estagio': const _ExpCopy(
@@ -718,8 +721,7 @@ final Map<String, _ExpCopy> _kExpCopy = {
     roleQ: 'Qual era seu cargo de estágio?',
     roleEx: 'Estagiário de Marketing',
     roleHint: 'Seu cargo',
-    didQ: 'O que você fazia no estágio? 2-3 coisas concretas — do seu jeito, '
-        'eu organizo. 😉',
+    didQ: 'O que você fez no estágio e qual foi o resultado? $_kImpactPrompt',
     didEx: _kDidDefault,
   ),
   'monitoria': const _ExpCopy(
@@ -729,8 +731,8 @@ final Map<String, _ExpCopy> _kExpCopy = {
     roleQ: 'Qual matéria/disciplina você monitorava?',
     roleEx: 'Cálculo I',
     roleHint: 'Matéria',
-    didQ: 'Como você ajudava os alunos e o professor? 2-3 coisas concretas.',
-    didEx: 'Tirava dúvidas em plantões, corrigia listas e preparava exercícios',
+    didQ: 'Como você ajudou os alunos e o professor? $_kImpactPrompt',
+    didEx: 'Conduzi 4 plantões por semana para 120 alunos e preparei 24 listas',
   ),
   'voluntariado': const _ExpCopy(
     whereQ: 'Em qual ONG, causa ou projeto?',
@@ -739,8 +741,8 @@ final Map<String, _ExpCopy> _kExpCopy = {
     roleQ: 'Qual era seu papel lá?',
     roleEx: 'Voluntário de eventos',
     roleHint: 'Seu papel',
-    didQ: 'O que você fazia como voluntário? 2-3 coisas concretas.',
-    didEx: 'Organizava doações, coordenava voluntários e cuidava da divulgação',
+    didQ: 'O que você fez como voluntário e qual foi o impacto? $_kImpactPrompt',
+    didEx: 'Coordenei 12 voluntários e organizei uma campanha que arrecadou 300 itens',
   ),
   'atletica': const _ExpCopy(
     whereQ: 'Qual atlética, liga ou entidade?',
@@ -749,8 +751,8 @@ final Map<String, _ExpCopy> _kExpCopy = {
     roleQ: 'Qual era seu cargo ou função?',
     roleEx: 'Diretor de Marketing',
     roleHint: 'Seu cargo',
-    didQ: 'O que você fazia na entidade? 2-3 coisas concretas.',
-    didEx: 'Organizava eventos, geria patrocínios e liderava uma equipe de 8',
+    didQ: 'O que você fez na entidade e qual foi o resultado? $_kImpactPrompt',
+    didEx: 'Liderei uma equipe de 8 e captei R\$ 20 mil para dois eventos com 400 pessoas',
   ),
   'freela': const _ExpCopy(
     whereQ: 'Do que se tratava? (cliente, projeto ou negócio)',
@@ -759,8 +761,8 @@ final Map<String, _ExpCopy> _kExpCopy = {
     roleQ: 'Qual era seu papel?',
     roleEx: 'Social media / Autônomo',
     roleHint: 'Seu papel',
-    didQ: 'O que você entregava ou fazia acontecer? 2-3 coisas concretas.',
-    didEx: 'Criava os posts, respondia clientes e as vendas cresceram 30%',
+    didQ: 'O que você entregou e qual foi o resultado? $_kImpactPrompt',
+    didEx: 'Criei a estratégia de conteúdo e aumentei as vendas em 30% em 3 meses',
   ),
   'familia': const _ExpCopy(
     whereQ: 'Qual o negócio da família?',
@@ -769,8 +771,8 @@ final Map<String, _ExpCopy> _kExpCopy = {
     roleQ: 'O que você fazia lá? (seu papel)',
     roleEx: 'Caixa e controle de estoque',
     roleHint: 'Seu papel',
-    didQ: 'O que você fazia no negócio? 2-3 coisas concretas.',
-    didEx: 'Cuidava do caixa, do estoque e montei o delivery pelo WhatsApp',
+    didQ: 'O que você fez no negócio e qual foi o resultado? $_kImpactPrompt',
+    didEx: 'Montei o delivery pelo WhatsApp e passei a atender 25 pedidos por semana',
   ),
   'outro': const _ExpCopy(
     whereQ: 'Onde foi essa experiência?',
@@ -779,7 +781,7 @@ final Map<String, _ExpCopy> _kExpCopy = {
     roleQ: 'Qual era seu papel?',
     roleEx: 'Pesquisador',
     roleHint: 'Seu papel',
-    didQ: 'O que você fazia? 2-3 coisas concretas.',
+    didQ: 'O que você fez e qual foi o resultado? $_kImpactPrompt',
     didEx: _kDidDefault,
   ),
 };
@@ -924,7 +926,7 @@ String? Function(List<StepAnswer>) _experienceRecap(int n, String kind) =>
       ].join(' · ');
       final tail = [typeLabel, if (period != null) period].join(' · ');
       final body = head.isEmpty ? tail : '$head — $tail';
-      return '✓ Adicionei ao seu currículo: $body. ✨';
+      return '✓ Adicionei ao seu perfil: $body. ✨';
     };
 
 String? _lastDisplay(List<StepAnswer> h, String stepId) {

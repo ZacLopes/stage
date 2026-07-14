@@ -570,7 +570,7 @@ class _NoResumeBadge extends StatelessWidget {
           const Icon(Icons.description_outlined, color: Colors.white, size: 22),
           const SizedBox(height: 2),
           Text(
-            'crie\nseu CV',
+            'complete\no perfil',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Colors.white.withOpacity(0.95),

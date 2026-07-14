@@ -22,7 +22,21 @@ import '../data/profile_pdf_data_loader.dart';
 import '../pdf_service.dart';
 import '../resume_viewmodel.dart' show ResumeData;
 
-enum ResumeRenderSource { v2Relational, v1LegacyFallback, v1FlagOff }
+/// Origem dos dados renderizados no PDF (telemetria `pdf_generated.source`).
+///   - v2Relational            — flag templates_v2 ON + ProfilePdfData carregou.
+///   - v1LegacyFallback        — flag ON mas perfil relacional vazio → JSONB v1.
+///   - v1FlagOff               — flag OFF → ResumeData v1 do caller.
+///   - canonicalProfileSnapshot — `forceFallback:true`: o caller passou um
+///     ResumeData montado a partir do PERFIL CANÔNICO (profile_*, via
+///     ProfileSnapshot). É o caminho do CURRÍCULO GERAL — flag-independente, NÃO
+///     re-lê ProfilePdfData. NUNCA classificar como v1_flag_off (a flag pode até
+///     estar ON; a origem é o snapshot canônico, não a ausência de flag).
+enum ResumeRenderSource {
+  v2Relational,
+  v1LegacyFallback,
+  v1FlagOff,
+  canonicalProfileSnapshot,
+}
 
 class ResumeRenderResult {
   final Uint8List bytes;
@@ -45,33 +59,38 @@ class ResumeRenderer {
   /// `fallbackResume` é o ResumeData v1 (já hidratado pelo caller a partir
   /// do JSONB legacy). Continua sendo necessário pra preservar fallback
   /// quando v2 não tem dados.
+  ///
+  /// `forceFallback` (Fase 2): renderiza SEMPRE o `fallbackResume` fornecido,
+  /// ignorando a flag templates_v2 e o re-load do ProfilePdfData. O currículo
+  /// geral usa isto pra ser FLAG-INDEPENDENTE e ter o snapshot passado como
+  /// ÚNICA autoridade — sem uma segunda leitura (divergente) do perfil.
   static Future<ResumeRenderResult> render({
     required String? userId,
     required UserProfile? user,
     required ResumeData fallbackResume,
     required String templateId,
     String purpose = 'render',
+    bool forceFallback = false,
   }) async {
-    final flagOn = userId != null &&
+    final flagOn = !forceFallback &&
+        userId != null &&
         FeatureFlagsService.instance
             .isEnabledForUser(FeatureFlagKeys.templatesV2Enabled, userId);
 
-    ResumeRenderSource source;
-    ResumeData resumeToRender;
+    // O v2 é o ÚNICO caminho que precisa de I/O (carrega o perfil relacional).
+    final profileData =
+        (!forceFallback && flagOn) ? await ProfilePdfData.load(userId) : null;
 
-    if (!flagOn) {
-      source = ResumeRenderSource.v1FlagOff;
-      resumeToRender = fallbackResume;
-    } else {
-      final profileData = await ProfilePdfData.load(userId);
-      if (profileData != null) {
-        source = ResumeRenderSource.v2Relational;
-        resumeToRender = profileData.toResumeData();
-      } else {
-        source = ResumeRenderSource.v1LegacyFallback;
-        resumeToRender = fallbackResume;
-      }
-    }
+    final source = decideSource(
+      forceFallback: forceFallback,
+      flagOn: flagOn,
+      hasProfileData: profileData != null,
+    );
+    // Só o caminho v2Relational usa os dados re-lidos; todos os demais
+    // (inclusive canonicalProfileSnapshot) usam o ResumeData fornecido.
+    final resumeToRender = source == ResumeRenderSource.v2Relational
+        ? profileData!.toResumeData()
+        : fallbackResume;
 
     final stopwatch = Stopwatch()..start();
     final bytes = await PdfService.generateResumeBytes(user, resumeToRender, templateId);
@@ -84,6 +103,26 @@ class ResumeRenderer {
       source: source,
       templateId: templateId,
     );
+  }
+
+  /// Decisão PURA de origem (sem I/O), extraída pra ser testável sem Printing
+  /// (o [render] real depende de plataforma). Contrato:
+  ///   - `forceFallback` VENCE tudo → canonicalProfileSnapshot (flag ON ou OFF
+  ///     dá o MESMO resultado → o currículo geral é flag-independente).
+  ///   - senão, flag OFF → v1FlagOff.
+  ///   - senão (flag ON), perfil relacional presente → v2Relational; ausente →
+  ///     v1LegacyFallback.
+  @visibleForTesting
+  static ResumeRenderSource decideSource({
+    required bool forceFallback,
+    required bool flagOn,
+    required bool hasProfileData,
+  }) {
+    if (forceFallback) return ResumeRenderSource.canonicalProfileSnapshot;
+    if (!flagOn) return ResumeRenderSource.v1FlagOff;
+    return hasProfileData
+        ? ResumeRenderSource.v2Relational
+        : ResumeRenderSource.v1LegacyFallback;
   }
 
   static void _track({
@@ -108,7 +147,12 @@ class ResumeRenderer {
       Analytics.shared.track(evPdfGenerated, props: <String, Object>{
         'template_id': templateId,
         'source': _sourceLabel(source),
-        'version_used': source == ResumeRenderSource.v2Relational ? 'v2' : 'v1',
+        // Dados relacionais (profile_*) = "v2", seja via ProfilePdfData
+        // (v2Relational) ou via snapshot canônico (currículo geral).
+        'version_used': (source == ResumeRenderSource.v2Relational ||
+                source == ResumeRenderSource.canonicalProfileSnapshot)
+            ? 'v2'
+            : 'v1',
         'duration_ms': durationMs,
         'purpose': purpose,
       });
@@ -125,6 +169,8 @@ class ResumeRenderer {
         return 'v1_legacy_fallback';
       case ResumeRenderSource.v1FlagOff:
         return 'v1_flag_off';
+      case ResumeRenderSource.canonicalProfileSnapshot:
+        return 'canonical_profile_snapshot';
     }
   }
 }

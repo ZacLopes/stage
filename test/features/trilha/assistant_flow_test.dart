@@ -17,6 +17,9 @@ class _FakeSnap implements ProfileSnapshotService {
   Future<ProfileSnapshot> loadSnapshot(String userId) async =>
       const ProfileSnapshot();
   @override
+  Future<ProfileSnapshot> loadGeneralResumeSnapshot(String userId) =>
+      loadSnapshot(userId);
+  @override
   Future<ProfileSnapshot?> loadCurrent() async => null;
 }
 
@@ -1505,7 +1508,7 @@ void main() {
     await empty.submitFreeText('exporta meu currículo');
     final ecard = empty.thread.whereType<AssistActionCardItem>().single;
     await empty.runActionCard(ecard.id);
-    expect(ecard.resultMessage.contains('vazio'), isTrue);
+    expect(ecard.resultMessage.contains('dados suficientes'), isTrue);
 
     // Falha → botão VOLTA (pending) pra tentar de novo, com aviso de erro.
     final failed = build(

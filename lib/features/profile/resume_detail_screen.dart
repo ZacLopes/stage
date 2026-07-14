@@ -257,7 +257,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
-                    'O PDF será regerado com o modelo novo e substituído na biblioteca.',
+                    'O PDF será regerado com o modelo novo e substituído em Currículos.',
                     style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
                   ),
                 ),
@@ -424,7 +424,7 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Excluir currículo?'),
-        content: Text('"${widget.resume.title}" será removido da sua biblioteca.'),
+        content: Text('"${widget.resume.title}" será removido dos seus currículos.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),

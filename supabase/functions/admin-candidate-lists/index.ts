@@ -12,6 +12,7 @@ import {
   requireAdmin,
   tokenize,
 } from '../_shared/admin.ts';
+import { publicContactEmailOrEmpty } from '../_shared/contact_email.ts';
 
 interface CandidateListsRequest {
   action?: 'list' | 'detail' | 'create' | 'generate' | 'update_item' | 'export';
@@ -231,7 +232,7 @@ async function buildCandidateProfiles(
   // Sem restrição, mantém o pool completo pro 'generate'.
   let poolQuery = supabase
     .from('user_profiles')
-    .select('id, name, email, phone, created_at');
+    .select('id, name, phone, created_at');
   poolQuery = restrictUserIds && restrictUserIds.length > 0
     ? poolQuery.in('id', restrictUserIds)
     : poolQuery.order('created_at', { ascending: false }).limit(5000);
@@ -312,7 +313,7 @@ async function buildCandidateProfiles(
     return {
       userId: user.id,
       name: [p?.first_name, p?.last_name].filter(Boolean).join(' ') || user.name || '',
-      email: p?.email || user.email || '',
+      email: publicContactEmailOrEmpty(p?.email),
       phone: p?.phone_number_e164 || p?.phone_number || user.phone || '',
       city: p?.location_city ?? '',
       state: p?.location_state ?? '',

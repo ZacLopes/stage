@@ -142,7 +142,7 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
         onEnter: () => goTo(HomeTabs.jobs),
       ),
       TutorialStep(
-        title: 'Vagas Salvas',
+        title: 'Acompanhe suas vagas',
         description:
             'Suas vagas salvas ficam aqui. Marque "aplicada" quando se '
             'candidatar pra acompanhar o status.',
@@ -150,20 +150,19 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
         onEnter: () => goTo(HomeTabs.saved),
       ),
       TutorialStep(
-        title: 'Aba Currículo',
+        title: 'Aba Assistente',
         description:
-            'Aqui a IA conversa com você pra montar seu currículo — responda as '
-            'perguntas e veja seu CV ficar pronto. Dá pra exportar em PDF quando '
-            'quiser.',
+            'Aqui o assistente conversa com você pra completar seu perfil — '
+            'responda as perguntas e veja seu perfil ficar mais forte. Dá pra '
+            'gerar e exportar seu currículo em PDF quando quiser.',
         targetKey: TutorialKeys.resumeTab,
         onEnter: () => goTo(HomeTabs.resume),
       ),
       TutorialStep(
         title: 'Aba Perfil',
         description:
-            'Aqui estão suas informações, preferências de vaga e a biblioteca '
-            'de CVs. As preferências alimentam o match — ajuste quando seu '
-            'objetivo mudar.',
+            'Aqui estão seus dados, objetivos e currículos. Os objetivos '
+            'alimentam o match — ajuste quando eles mudarem.',
         targetKey: TutorialKeys.profileTab,
         onEnter: () => goTo(HomeTabs.profile),
       ),
@@ -188,8 +187,8 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
             },
           ),
           TutorialFinalChoice(
-            label: 'Cuidar do CV',
-            icon: Icons.description_rounded,
+            label: 'Falar com o assistente',
+            icon: Icons.auto_awesome_rounded,
             onTap: () async {
               await context
                   .read<TutorialController>()
@@ -503,13 +502,13 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
                   : 'Salvas',
             ),
             BottomNavigationBarItem(
-              icon: const Icon(Icons.description_outlined),
+              icon: const Icon(Icons.auto_awesome_outlined),
               activeIcon: Padding(
                 key: TutorialKeys.resumeTab,
                 padding: EdgeInsets.zero,
-                child: const Icon(Icons.description),
+                child: const Icon(Icons.auto_awesome),
               ),
-              label: 'Currículo',
+              label: 'Assistente',
             ),
             BottomNavigationBarItem(
               icon: Padding(

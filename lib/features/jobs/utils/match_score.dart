@@ -69,7 +69,7 @@ class MatchResult {
             matched: false,
             weight: 0,
             detail:
-                'Configure suas preferências ou suba seu CV pra ter um match preciso.',
+                'Configure seus objetivos ou suba seu CV pra ter um match preciso.',
           ),
         ],
         isUnknown = true,

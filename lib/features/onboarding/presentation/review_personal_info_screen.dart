@@ -4,6 +4,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../core/utils/contact_email.dart';
 import '../../auth/auth_session.dart';
 import '../../../services/analytics_service.dart';
 import '../../profile/application/profile_editor_view_model.dart';
@@ -21,6 +22,7 @@ class ReviewPersonalInfoScreen extends StatefulWidget {
 
 class _ReviewPersonalInfoScreenState extends State<ReviewPersonalInfoScreen> {
   PersonalInfo? _draft;
+  bool _emailFieldValid = false;
   // QA Dia 6 — pra calcular `time_on_screen_ms` no review_confirmed.
   DateTime? _shownAt;
 
@@ -43,7 +45,8 @@ class _ReviewPersonalInfoScreenState extends State<ReviewPersonalInfoScreen> {
     return d != null &&
         (d.firstName?.trim().isNotEmpty ?? false) &&
         (d.lastName?.trim().isNotEmpty ?? false) &&
-        (d.email?.trim().isNotEmpty ?? false);
+        ContactEmail.isUsable(d.email) &&
+        _emailFieldValid;
   }
 
   void _continue() async {
@@ -85,6 +88,11 @@ class _ReviewPersonalInfoScreenState extends State<ReviewPersonalInfoScreen> {
         initial: initial,
         requireCriticalFields: true,
         onChanged: (d) => setState(() => _draft = d),
+        onEmailValidityChanged: (valid) {
+          if (_emailFieldValid != valid) {
+            setState(() => _emailFieldValid = valid);
+          }
+        },
       ),
     );
   }

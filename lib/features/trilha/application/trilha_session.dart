@@ -28,6 +28,7 @@ import '../../profile/domain/entities/education.dart' show Education;
 import '../../profile/domain/entities/experiences.dart' show Experience, Bullet;
 import '../../profile/domain/entities/simple_lists.dart'
     show Language, Certification, Award, Project, languageProficiencyFromId;
+import '../../profile/domain/profile_title.dart';
 import '../../profile/domain/repositories/profile_repository.dart';
 import 'cv_conflict.dart';
 import '../domain/conversation_step.dart'
@@ -360,10 +361,12 @@ Future<Future<void> Function()?> assistApplyConflictRow(
           id: '', userId: userId, name: value, issuer: _nn(row.extra)));
       return () => repo.deleteCertification(c.id);
     case ConflictSection.award:
-      final a = await repo.addAward(Award(id: '', userId: userId, name: value));
+      final a = await repo.addAward(Award(
+          id: '', userId: userId, name: normalizeProfileTitle(value)));
       return () => repo.deleteAward(a.id);
     case ConflictSection.project:
-      final p = await repo.addProject(Project(id: '', userId: userId, name: value));
+      final p = await repo.addProject(Project(
+          id: '', userId: userId, name: normalizeProfileTitle(value)));
       return () => repo.deleteProject(p.id);
     case ConflictSection.coursework:
       final cur = (await repo.getCoursework(userId)).map((c) => c.name).toList();

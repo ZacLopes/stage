@@ -16,10 +16,12 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../data/models/models.dart' show ResumeCourse, ResumeLanguage;
+import '../features/resume/data/profile_resume_mapper.dart';
 import '../features/profile/data/repositories/profile_repository_supabase.dart';
+import '../features/profile/domain/repositories/profile_repository.dart';
 import '../features/profile/domain/entities/entities.dart';
 import '../features/resume/resume_viewmodel.dart'
-    show ResumeData, ExperienceItem, EducationItem, ToolWithLevel;
+    show ResumeData, ExperienceItem, ToolWithLevel;
 
 class ProfileSnapshot {
   final PersonalInfo? personal;
@@ -224,49 +226,17 @@ class ProfileSnapshot {
             ))
         .toList();
 
-    final mappedEducation = education.map((edu) {
-      final majors = edu.majors.map((m) => m.name).where((s) => s.isNotEmpty).toList();
-      final minors = edu.minors.map((m) => m.name).where((s) => s.isNotEmpty).toList();
-      final activitiesText = edu.activities
-          .map((a) => a.text)
-          .where((s) => s.isNotEmpty)
-          .toList();
-
-      String details = '';
-      if (majors.isNotEmpty) {
-        details = '${majors.join(', ')} Major';
-        if (minors.isNotEmpty) {
-          details += ' com ${minors.join(', ')} Minor';
-        }
-      } else if (minors.isNotEmpty) {
-        details = 'Minor em ${minors.join(', ')}';
-      }
-
-      final gpaStr = edu.gpa != null
-          ? (edu.maxGpa != null
-              ? '${edu.gpa}/${edu.maxGpa}'
-              : edu.gpa!.toString())
-          : '';
-
-      return EducationItem(
-        degree: edu.degree ?? '',
-        institution: edu.institution,
-        period: edu.formattedPeriod,
-        details: details,
-        location: edu.location ?? '',
-        gpa: gpaStr,
-        activities: activitiesText,
-        honors: activitiesText.join('; '),
-      );
-    }).toList();
+    final mappedEducation = education
+        .map(ProfileResumeMapper.mapEducation)
+        .toList();
 
     final mappedLanguages = languages
-        .where((l) => l.name.isNotEmpty)
+        .where((l) => l.name.trim().isNotEmpty)
         .map((l) => ResumeLanguage(language: l.name, level: l.proficiencyLabel))
         .toList();
 
     final mappedCertifications = certifications
-        .where((c) => c.name.isNotEmpty)
+        .where((c) => c.name.trim().isNotEmpty)
         .map((c) => ResumeCourse(
               title: c.name,
               institution: c.issuer ?? '',
@@ -274,6 +244,22 @@ class ProfileSnapshot {
                   ? '${c.date!.year}'
                   : '',
             ))
+        .toList();
+
+    // Prêmios → ResumeData.awards (campo próprio, renderado pela seção
+    // "Prêmios e Reconhecimentos" do PdfService), NUNCA achievements — que no
+    // PdfService divide a área "Atividades/Projetos" com projetos (mutuamente
+    // exclusivos) e não tem seção semântica própria. achievements fica RESERVADO
+    // pros CVs adaptados/legados. Projetos → academicProjects. As duas seções
+    // são independentes → projetos e prêmios aparecem SIMULTANEAMENTE no PDF.
+    // Reusa o mapper ÚNICO do perfil (uma só conversão em todos os fluxos).
+    final mappedAwards = awards
+        .where((a) => a.name.trim().isNotEmpty)
+        .map(ProfileResumeMapper.mapAward)
+        .toList();
+    final mappedProjects = projects
+        .where(ProfileResumeMapper.projectHasRenderableText)
+        .map(ProfileResumeMapper.mapProject)
         .toList();
 
     return ResumeData(
@@ -284,22 +270,26 @@ class ProfileSnapshot {
       location: location,
       address: p?.locationStreetAddress ?? '',
       summary: summary,
-      skills: skills.map((s) => s.name).where((n) => n.isNotEmpty).toList(),
+      skills: skills.map((s) => s.name).where((n) => n.trim().isNotEmpty).toList(),
       tools: const <ToolWithLevel>[],
       experiences: mappedExperiences,
       education: mappedEducation,
       languages: mappedLanguages,
-      achievements: awards.map((a) => a.name).where((n) => n.isNotEmpty).toList(),
-      interests: interests.map((i) => i.name).where((n) => n.isNotEmpty).toList(),
+      academicProjects: mappedProjects,
+      awards: mappedAwards,
+      // achievements RESERVADO p/ CVs adaptados/legados — não recebe prêmios.
+      achievements: const <String>[],
+      interests:
+          interests.map((i) => i.name).where((n) => n.trim().isNotEmpty).toList(),
       courses: mappedCertifications,
     );
   }
 }
 
 class ProfileSnapshotService {
-  final ProfileRepositorySupabase _repo;
+  final ProfileRepository _repo;
 
-  ProfileSnapshotService({ProfileRepositorySupabase? repository})
+  ProfileSnapshotService({ProfileRepository? repository})
       : _repo = repository ?? ProfileRepositorySupabase();
 
   /// Carrega snapshot completo do user em paralelo. Falhas individuais
@@ -325,6 +315,58 @@ class ProfileSnapshotService {
       safe(_repo.getInterests(userId), const <Interest>[]),
       safe(_repo.getAwards(userId), const <Award>[]),
       safe(_repo.getCoursework(userId), const <Coursework>[]),
+    ]);
+
+    return ProfileSnapshot(
+      personal: results[0] as PersonalInfo?,
+      experiences: (results[1] as List).cast<Experience>(),
+      education: (results[2] as List).cast<Education>(),
+      skills: (results[3] as List).cast<Skill>(),
+      languages: (results[4] as List).cast<Language>(),
+      certifications: (results[5] as List).cast<Certification>(),
+      projects: (results[6] as List).cast<Project>(),
+      interests: (results[7] as List).cast<Interest>(),
+      awards: (results[8] as List).cast<Award>(),
+      coursework: (results[9] as List).cast<Coursework>(),
+    );
+  }
+
+  /// Loader ESPECÍFICO do currículo geral (nome explícito: deixa o contrato
+  /// claro). Regras:
+  ///  • As 9 fontes que ALIMENTAM o currículo (personal, experiences, education,
+  ///    skills, languages, certifications, projects, interests, awards) são
+  ///    ESTRITAS: se QUALQUER uma falhar, a carga inteira falha (o erro propaga)
+  ///    → o caller [GeneralResumeExport.runExport] devolve `failed` e NUNCA gera
+  ///    um PDF a partir de dados parciais.
+  ///  • coursework é BEST-EFFORT: como NÃO entra no currículo geral (ver o
+  ///    contrato em GeneralResumeExport — coursework fica de fora), uma falha na
+  ///    sua consulta NÃO pode indisponibilizar o export → cai pra lista vazia.
+  ///  • Ausência LEGÍTIMA de dados (consultas OK, listas vazias) continua
+  ///    sucesso (snapshot vazio → `empty`, não `failed`).
+  /// O [loadSnapshot] best-effort acima segue intacto pros outros consumidores.
+  Future<ProfileSnapshot> loadGeneralResumeSnapshot(String userId) async {
+    // coursework NÃO alimenta o currículo → tolera falha (nunca propaga).
+    Future<List<Coursework>> courseworkBestEffort() async {
+      try {
+        return await _repo.getCoursework(userId);
+      } catch (_) {
+        return const <Coursework>[];
+      }
+    }
+
+    // As demais SEM wrapper: Future.wait completa com erro se qualquer uma
+    // (fonte que É usada no currículo) falhar.
+    final results = await Future.wait<dynamic>([
+      _repo.getPersonal(userId),
+      _repo.getExperiences(userId),
+      _repo.getEducation(userId),
+      _repo.getSkills(userId),
+      _repo.getLanguages(userId),
+      _repo.getCertifications(userId),
+      _repo.getProjects(userId),
+      _repo.getInterests(userId),
+      _repo.getAwards(userId),
+      courseworkBestEffort(),
     ]);
 
     return ProfileSnapshot(

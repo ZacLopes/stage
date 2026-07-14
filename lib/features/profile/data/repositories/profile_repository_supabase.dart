@@ -8,6 +8,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/entities/entities.dart';
 import '../../domain/repositories/profile_repository.dart';
+import '../../domain/skill_name_normalizer.dart';
 
 class ProfileRepositorySupabase implements ProfileRepository {
   final SupabaseClient _client;
@@ -73,18 +74,124 @@ class ProfileRepositorySupabase implements ProfileRepository {
         .insert(map)
         .select()
         .single();
-    return Experience.fromMap(row);
+    final saved = Experience.fromMap(row);
+    try {
+      await _reconcileExperienceBullets(saved.id, exp.bullets);
+      return await _getExperience(exp.userId, saved.id);
+    } catch (error, stackTrace) {
+      try {
+        await _client
+            .from('profile_experiences')
+            .delete()
+            .eq('id', saved.id)
+            .eq('user_id', exp.userId);
+      } catch (_) {
+        // Mantém o erro original; um load posterior revela o estado efetivo.
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
   }
 
   @override
   Future<Experience> updateExperience(Experience exp) async {
+    final previous = await _getExperience(exp.userId, exp.id);
+    try {
+      await _client
+          .from('profile_experiences')
+          .update(exp.toMap()..remove('id'))
+          .eq('id', exp.id)
+          .eq('user_id', exp.userId);
+      await _reconcileExperienceBullets(exp.id, exp.bullets);
+      return await _getExperience(exp.userId, exp.id);
+    } catch (_) {
+      try {
+        await _client
+            .from('profile_experiences')
+            .update(previous.toMap()..remove('id'))
+            .eq('id', previous.id)
+            .eq('user_id', previous.userId);
+        await _reconcileExperienceBullets(previous.id, previous.bullets);
+      } catch (_) {
+        // Rollback best-effort; o erro original continua sendo reportado.
+      }
+      rethrow;
+    }
+  }
+
+  Future<Experience> _getExperience(String userId, String experienceId) async {
     final row = await _client
         .from('profile_experiences')
-        .update(exp.toMap()..remove('id'))
-        .eq('id', exp.id)
-        .select()
+        .select('*, profile_bullets(*)')
+        .eq('id', experienceId)
+        .eq('user_id', userId)
         .single();
     return Experience.fromMap(row);
+  }
+
+  /// Atualiza/insere primeiro e remove por último, preservando os UUIDs dos
+  /// bullets que continuam na experiência.
+  Future<void> _reconcileExperienceBullets(
+    String experienceId,
+    List<Bullet> desired,
+  ) async {
+    final rows = await _client
+        .from('profile_bullets')
+        .select()
+        .eq('experience_id', experienceId)
+        .order('order_index');
+    final existing = <String, Bullet>{};
+    for (final raw in rows as List) {
+      final bullet = Bullet.fromMap(raw as Map<String, dynamic>);
+      existing[bullet.id] = bullet;
+    }
+    final keptIds = <String>{};
+
+    for (var index = 0; index < desired.length; index++) {
+      final draft = desired[index];
+      final text = draft.text.trim();
+      if (text.isEmpty) continue;
+      final current = existing[draft.id];
+      if (current == null || keptIds.contains(current.id)) {
+        final inserted = await addBullet(Bullet(
+          id: '',
+          experienceId: experienceId,
+          text: text,
+          angle: draft.angle,
+          strengthScore: draft.strengthScore,
+          verb: draft.verb,
+          orderIndex: index,
+        ));
+        keptIds.add(inserted.id);
+        continue;
+      }
+
+      final merged = Bullet(
+        id: current.id,
+        experienceId: experienceId,
+        text: text,
+        angle: draft.angle ?? current.angle,
+        strengthScore: draft.strengthScore ?? current.strengthScore,
+        verb: draft.verb ?? current.verb,
+        orderIndex: index,
+      );
+      await _client
+          .from('profile_bullets')
+          .update(merged.toMap()..remove('id'))
+          .eq('id', current.id)
+          .eq('experience_id', experienceId);
+      keptIds.add(current.id);
+    }
+
+    final removedIds = existing.keys
+        .where((id) => !keptIds.contains(id))
+        .toList(growable: false);
+    if (removedIds.isNotEmpty) {
+      await _client
+          .from('profile_bullets')
+          .delete()
+          .eq('experience_id', experienceId)
+          .inFilter('id', removedIds);
+    }
   }
 
   @override
@@ -428,23 +535,62 @@ class ProfileRepositorySupabase implements ProfileRepository {
 
   @override
   Future<void> replaceSkills(String userId, List<String> names) async {
-    await _client.from('profile_skills').delete().eq('user_id', userId);
-    if (names.isEmpty) return;
-    await _client
-        .from('profile_skills')
-        .insert(
-          names
-              .asMap()
-              .entries
-              .map(
-                (e) => {
-                  'user_id': userId,
-                  'name': e.value,
-                  'order_index': e.key,
-                },
-              )
-              .toList(),
+    final desired = normalizeSkillNames(names);
+    if (desired.length > kMaxProfileSkills) {
+      throw ArgumentError.value(
+        desired.length,
+        'names',
+        'Escolha no máximo $kMaxProfileSkills habilidades.',
+      );
+    }
+
+    final existing = await getSkills(userId);
+    final availableByKey = <String, List<Skill>>{};
+    for (final skill in existing) {
+      availableByKey.putIfAbsent(foldSkillName(skill.name), () => []).add(skill);
+    }
+    final keptIds = <String>{};
+
+    for (var index = 0; index < desired.length; index++) {
+      final name = desired[index];
+      final candidates = availableByKey[foldSkillName(name)];
+      Skill? current;
+      if (candidates != null && candidates.isNotEmpty) {
+        // Prefere a grafia exata para não colidir com um segundo registro que
+        // difira apenas por acento durante o UPDATE.
+        final exactKey = cleanSkillName(name).toLowerCase();
+        final exactIndex = candidates.indexWhere(
+          (skill) => cleanSkillName(skill.name).toLowerCase() == exactKey,
         );
+        current = candidates.removeAt(exactIndex < 0 ? 0 : exactIndex);
+      }
+      if (current == null) {
+        final inserted = await addSkill(Skill(
+          id: '',
+          userId: userId,
+          name: name,
+          orderIndex: index,
+        ));
+        keptIds.add(inserted.id);
+      } else {
+        final saved = await updateSkill(
+          current.copyWith(name: name, orderIndex: index),
+        );
+        keptIds.add(saved.id);
+      }
+    }
+
+    final removedIds = existing
+        .where((skill) => !keptIds.contains(skill.id))
+        .map((skill) => skill.id)
+        .toList(growable: false);
+    if (removedIds.isNotEmpty) {
+      await _client
+          .from('profile_skills')
+          .delete()
+          .eq('user_id', userId)
+          .inFilter('id', removedIds);
+    }
   }
 
   // ──────────────────────────────────────────────────────────────────────

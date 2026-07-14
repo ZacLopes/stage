@@ -766,10 +766,10 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
   Widget _buildNoProfileCard() {
     final isUnknown = _match?.isUnknown ?? false;
     final title = isUnknown
-        ? 'Configure suas preferências'
-        : 'Crie seu currículo pra ver matches';
+        ? 'Configure seus objetivos'
+        : 'Complete seu perfil pra ver matches';
     final description = isUnknown
-        ? 'Sem preferências de área, modelo e cidade, não dá pra calcular o quanto a vaga combina com você.'
+        ? 'Sem seus objetivos de área, modelo e cidade, não dá pra calcular o quanto a vaga combina com você.'
         : 'Importe um PDF ou complete seu perfil pra IA analisar o quanto cada vaga combina com você.';
 
     return AnimatedBuilder(

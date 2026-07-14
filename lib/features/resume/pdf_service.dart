@@ -1,10 +1,11 @@
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart' as sf;
 
+import '../../core/utils/contact_email.dart';
 import '../../data/models/models.dart';
 import 'resume_viewmodel.dart';
 
@@ -178,14 +179,31 @@ class PdfService {
     String templateId,
     RenderTier tier,
   ) {
+    // Defesa central: fluxos legados ainda podem montar ResumeData com o
+    // e-mail de autenticação. Nenhum template deve publicá-lo.
+    final publicResume = resume.copyWith(
+      email: ContactEmail.resumeValueOrEmpty(resume.email),
+    );
     return switch (templateId) {
-      'jakes_resume'     => _buildJakesResumeHtml(user, resume, tier: tier),
-      'forte_foundation' => _buildForteFoundationHtml(user, resume, tier: tier),
-      'one_page_compact' => _buildOnePageHtml(user, resume, tier: tier),
-      'cobalt_modern'    => _buildCobaltModernHtml(user, resume, tier: tier),
-      _                  => _buildHarvardMcsHtml(user, resume, tier: tier),
+      'jakes_resume'     => _buildJakesResumeHtml(user, publicResume, tier: tier),
+      'forte_foundation' => _buildForteFoundationHtml(user, publicResume, tier: tier),
+      'one_page_compact' => _buildOnePageHtml(user, publicResume, tier: tier),
+      'cobalt_modern'    => _buildCobaltModernHtml(user, publicResume, tier: tier),
+      _                  => _buildHarvardMcsHtml(user, publicResume, tier: tier),
     };
   }
+
+  /// Seam mínima de teste (Fase 2): expõe o HTML de um template pra asserção de
+  /// CONTEÚDO em testes, sem passar por `Printing.convertHtml` (plataforma). Os
+  /// `_buildXxxHtml` são construtores de string puros — seguros fora do device.
+  /// NÃO usar em produção: produção vai por [generateResumeBytes].
+  @visibleForTesting
+  static String buildResumeHtmlForTest(
+    UserProfile? user,
+    ResumeData resume,
+    String templateId,
+  ) =>
+      _buildHtmlForTemplate(user, resume, templateId, RenderTier.standard);
 
   /// Estima quantas linhas o CV vai ocupar no template Harvard MCS (font 10pt,
   /// A4, margins 0.35in/0.4in). Heurística — ~95 chars por linha de bullet,
@@ -407,8 +425,9 @@ body { font-size: $fontSize !important; line-height: $lineHeight !important; }
       'languages': 'Idiomas',
       'tools': 'Ferramentas',
       'certifications': 'Certificações &amp; Programas',
+      'awards': 'Prêmios e Reconhecimentos',
       'interests': 'Interesses',
-      'mobile': 'Mobile',
+      'mobile': 'Telefone',
       'edu_coursework': 'Disciplinas relevantes',
       'edu_gpa': 'CR',
       'edu_honors': 'Honras &amp; Distinção Acadêmica',
@@ -434,6 +453,7 @@ body { font-size: $fontSize !important; line-height: $lineHeight !important; }
       'languages': 'Languages',
       'tools': 'Tools',
       'certifications': 'Certifications &amp; Programs',
+      'awards': 'Awards and Recognition',
       'interests': 'Interests',
       'mobile': 'Mobile',
       'edu_coursework': 'Relevant Coursework',
@@ -478,6 +498,39 @@ body { font-size: $fontSize !important; line-height: $lineHeight !important; }
     }
   }
 
+  /// Prêmios com TEXTO renderável (título/instituição/descrição não-vazios após
+  /// trim). Um prêmio só com data NÃO renderiza (sem âncora textual). Usado por
+  /// TODOS os templates pra montar a seção "Prêmios e Reconhecimentos" a partir
+  /// de `ResumeData.awards` (campo próprio; NÃO é `achievements`).
+  static List<ResumeAward> _renderableAwards(ResumeData r) => r.awards
+      .where((a) =>
+          a.title.trim().isNotEmpty ||
+          a.institution.trim().isNotEmpty ||
+          a.description.trim().isNotEmpty)
+      .toList();
+
+  /// Projetos com ÂNCORA PRIMÁRIA renderável (título, papel ou descrição após
+  /// trim). Espelha [ProfilePdfData.projectHasRenderableText] no lado do template
+  /// (defesa análoga a [_renderableAwards]): relevantWork/período/local sozinhos
+  /// NÃO geram uma entrada em branco sob o cabeçalho "Projetos".
+  static List<ResumeProject> _renderableProjects(ResumeData r) =>
+      r.academicProjects
+          .where((p) =>
+              p.title.trim().isNotEmpty ||
+              p.role.trim().isNotEmpty ||
+              p.description.trim().isNotEmpty)
+          .toList();
+
+  /// Metadados do prêmio (instituição + data) já com trim; vazio se ambos
+  /// vazios. `sep` varia por template.
+  static String _awardMeta(ResumeAward a, {String sep = ' · '}) {
+    final parts = <String>[
+      if (a.institution.trim().isNotEmpty) a.institution.trim(),
+      if (a.date.trim().isNotEmpty) a.date.trim(),
+    ];
+    return parts.join(sep);
+  }
+
   /// CSS dinâmico por RenderTier. Varia font-size, line-height, margins
   /// e role weight (semibold em E3 pra emphasis extra). Mantém estrutura
   /// e identidade visual do Harvard MCS — só ajusta density.
@@ -507,7 +560,9 @@ body { font-size: $fontSize !important; line-height: $lineHeight !important; }
     .header { text-align: center; margin-bottom: 3pt; }
     .name { font-weight: bold; font-size: 17pt; letter-spacing: 0.5pt; }
     .address { font-size: 9.5pt; margin-top: 3pt; }
-    .contact { font-size: 9.5pt; margin-top: 1pt; }
+    .contact { font-size: 9.5pt; margin-top: 1pt; display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; column-gap: 8pt; }
+    .contact-group { display: inline-flex; flex: 0 0 auto; white-space: nowrap; }
+    .contact-separator { white-space: pre; }
     hr { border: none; border-top: 1px solid #000; margin: 5pt 0 10pt; }
     .sec { text-align: left; text-transform: uppercase; font-weight: bold; font-size: 10pt; letter-spacing: 0.3pt; margin: $secMt 0 0; padding-bottom: 1pt; border-bottom: 0.5pt solid #000; }
     .sec + * { margin-top: 2pt; }
@@ -554,7 +609,8 @@ body { font-size: $fontSize !important; line-height: $lineHeight !important; }
         ? '<div class="sec">${_l10n('experience', lang)}</div>$expItems'
         : '';
 
-    final projectItems = resume.academicProjects
+    final harvardProjects = _renderableProjects(resume);
+    final projectItems = harvardProjects
         .map((p) => _buildHarvardActivityItemHtml(
               p.title,
               p.location,
@@ -587,9 +643,24 @@ body { font-size: $fontSize !important; line-height: $lineHeight !important; }
         ? ''
         : '<div class="sec">${_l10n('leadership', lang)}</div>$achievementsBullets';
 
-    final activitiesHtml = (resume.academicProjects.isNotEmpty || resume.leadership.isNotEmpty)
+    final activitiesHtml = (harvardProjects.isNotEmpty || resume.leadership.isNotEmpty)
         ? '<div class="sec">${_l10n('leadership', lang)}</div>$projectItems$leadItems'
         : achievementsHtml;
+
+    // Prêmios (ResumeData.awards) — seção PRÓPRIA, independente de
+    // achievements/projetos. Lista simples (título em bold + meta + descrição).
+    final awardItems = _renderableAwards(resume).map((a) {
+      final title = a.title.trim();
+      final meta = _awardMeta(a);
+      final desc = a.description.trim();
+      final titleHtml = title.isEmpty ? '' : '<b>${_escapeHtml(title)}</b>';
+      final metaHtml = meta.isEmpty ? '' : ' (${_escapeHtml(meta)})';
+      final descHtml = desc.isEmpty ? '' : ' — ${_escapeHtml(desc)}';
+      return '<li>$titleHtml$metaHtml$descHtml</li>';
+    }).join('');
+    final awardsHtml = awardItems.isEmpty
+        ? ''
+        : '<div class="sec">${_l10n('awards', lang)}</div><ul>$awardItems</ul>';
 
     final skillParts = <String>[];
     // Harvard MCS order: Technical Skills → Languages → Tools → Certifications
@@ -652,6 +723,7 @@ ${_buildHarvardCssForTier(tier)}
   $experienceHtml
   $educationHtml
   $activitiesHtml
+  $awardsHtml
   $skillsHtml
   $interestsHtml
 </body>
@@ -1061,7 +1133,7 @@ ${_buildHarvardCssForTier(tier)}
                 )).join();
 
     final projItems = <String>[];
-    for (final p in resume.academicProjects) {
+    for (final p in _renderableProjects(resume)) {
       projItems.add(entry(
         tl: p.title,
         tr: p.period,
@@ -1090,6 +1162,19 @@ ${_buildHarvardCssForTier(tier)}
             ? ''
             : section(_l10n('projects', lang)) + achievementsItemsJ)
         : section(_l10n('projects', lang)) + projItems.join();
+
+    // Prêmios (ResumeData.awards) — seção própria via o mesmo helper entry().
+    final awardItemsJ = _renderableAwards(resume)
+        .map((a) => entry(
+              tl: a.title,
+              tr: a.date,
+              bl: a.institution,
+              description: a.description,
+            ))
+        .join('');
+    final awardsHtmlJ = awardItemsJ.isEmpty
+        ? ''
+        : section(_l10n('awards', lang)) + awardItemsJ;
 
     final skillsParts = <String>[];
     if (resume.skills.isNotEmpty) {
@@ -1157,6 +1242,7 @@ ${_buildTierOverrideCss(tier)}
   $eduHtml
   $expHtml
   $projHtml
+  $awardsHtmlJ
   $skillsHtml
 </body>
 </html>''';
@@ -1272,6 +1358,13 @@ ${_buildTierOverrideCss(tier)}
       ''';
     }
 
+    // Resumo/Summary — seção formal após o cabeçalho, antes de Educação. O
+    // contrato do currículo geral trata summary como conteúdo renderável, então
+    // o Forte PRECISA exibi-lo (senão gerava PDF sem o resumo e retornava ok).
+    final summaryHtml = resume.summary.trim().isEmpty
+        ? ''
+        : '${section(_l10n('summary', lang))}<div class="summary">${_escapeHtml(resume.summary.trim())}</div>';
+
     final eduHtml = resume.education.isEmpty
         ? ''
         : section(_l10n('education', lang)) +
@@ -1298,7 +1391,7 @@ ${_buildTierOverrideCss(tier)}
                 )).join();
 
     final actItems = <String>[];
-    for (final p in resume.academicProjects) {
+    for (final p in _renderableProjects(resume)) {
       actItems.add(entryExp(
         company: p.title,
         location: p.location,
@@ -1327,6 +1420,31 @@ ${_buildTierOverrideCss(tier)}
             ? ''
             : section(_l10n('leadership', lang)) + achievementsItemsF)
         : section(_l10n('leadership', lang)) + actItems.join();
+
+    // Prêmios (ResumeData.awards) — seção própria. Título (bold) + data à
+    // direita; instituição em itálico; descrição abaixo. Sem linha vazia.
+    final awardItemsF = _renderableAwards(resume).map((a) {
+      final inst = a.institution.trim();
+      final desc = a.description.trim();
+      final instHtml = inst.isEmpty
+          ? ''
+          : '<div class="det italic">${_escapeHtml(inst)}</div>';
+      final descHtml =
+          desc.isEmpty ? '' : '<div class="det">${_escapeHtml(desc)}</div>';
+      return '''
+        <div class="entry">
+          <table class="entry-row"><tr>
+            <td class="left bold">${_escapeHtml(a.title.trim())}</td>
+            <td class="right bold">${_escapeHtml(a.date.trim())}</td>
+          </tr></table>
+          $instHtml
+          $descHtml
+        </div>
+      ''';
+    }).join('');
+    final awardsHtmlF = awardItemsF.isEmpty
+        ? ''
+        : section(_l10n('awards', lang)) + awardItemsF;
 
     final addParts = <String>[];
     if (resume.skills.isNotEmpty) {
@@ -1364,6 +1482,7 @@ body { font-family: 'Times New Roman', 'Times', serif; font-size: 10.5pt; color:
 .right { text-align: right; white-space: nowrap; }
 .bold { font-weight: bold; }
 .italic { font-style: italic; }
+.summary { font-size: 10.5pt; margin: 2pt 0 4pt; text-align: justify; }
 .extras { font-size: 9.5pt; margin-top: 2pt; }
 .course { font-size: 10pt; margin-top: 2pt; }
 .det { font-size: 10pt; margin-top: 2pt; }
@@ -1384,9 +1503,11 @@ ${_buildTierOverrideCss(tier)}
     <div class="name">${_escapeHtml(name)}</div>
     <div class="contact">$contactLine</div>
   </div>
+  $summaryHtml
   $eduHtml
   $expHtml
   $actHtml
+  $awardsHtmlF
   $addHtml
 </body>
 </html>''';
@@ -1493,7 +1614,7 @@ ${_buildTierOverrideCss(tier)}
                 )).join();
 
     final projItems = <String>[];
-    for (final p in resume.academicProjects) {
+    for (final p in _renderableProjects(resume)) {
       projItems.add(singleLineEntry(
         primary: p.title,
         secondary: p.role,
@@ -1520,6 +1641,19 @@ ${_buildTierOverrideCss(tier)}
             ? ''
             : section(_l10n('projects', lang)) + achievementsItemsO)
         : section(_l10n('projects', lang)) + projItems.join();
+
+    // Prêmios (ResumeData.awards) — seção própria via singleLineEntry.
+    final awardItemsO = _renderableAwards(resume)
+        .map((a) => singleLineEntry(
+              primary: a.title,
+              secondary: a.institution,
+              tertiary: a.date,
+              description: a.description,
+            ))
+        .join('');
+    final awardsHtmlO = awardItemsO.isEmpty
+        ? ''
+        : section(_l10n('awards', lang)) + awardItemsO;
 
     // Skills as pill-grouped chips per category
     final skillBlocks = <String>[];
@@ -1588,6 +1722,7 @@ ${_buildTierOverrideCss(tier)}
   $eduHtml
   $expHtml
   $projHtml
+  $awardsHtmlO
   $skillsHtml
 </body>
 </html>''';
@@ -1770,6 +1905,56 @@ ${sideSec(lang == 'en' ? 'INTERESTS' : 'INTERESSES', interestsHtml)}
   $eduEntries
 </div>''';
 
+    // ──── Main: projetos + liderança ────
+    // O Cobalt não renderizava academicProjects/leadership (eram silenciosamente
+    // descartados). Agora renderiza — currículo geral e CVs com projetos passam
+    // a mostrá-los, iguais aos outros 4 templates.
+    String cobaltEntry(String role, List<String> subParts, String description) {
+      final bullets = description.trim().isEmpty
+          ? ''
+          : '<ul class="main-list">${description.split('\n').where((b) => b.trim().isNotEmpty).map((b) {
+              final clean = b.replaceAll('•', '').trim();
+              return '<li>${_emphasizeMetrics(_escapeHtml(clean))}</li>';
+            }).join('')}</ul>';
+      final sub = subParts.where((s) => s.trim().isNotEmpty).isEmpty
+          ? ''
+          : '<div class="exp-sub">${_escapeHtml(subParts.where((s) => s.trim().isNotEmpty).join(' • '))}</div>';
+      return '<div class="exp"><div class="exp-role">${_escapeHtml(role)}</div>$sub$bullets</div>';
+    }
+
+    final actEntries = <String>[
+      for (final p in _renderableProjects(resume))
+        cobaltEntry(p.title, [p.role, p.period, p.location], p.description),
+      for (final l in resume.leadership)
+        cobaltEntry(
+            l.organization, [l.role, l.period, l.location], l.description),
+    ].join('');
+    final projHtmlC = actEntries.isEmpty
+        ? ''
+        : '''
+<div class="main-sec">
+  <div class="main-title">${_l10n('projects', lang).toUpperCase()}</div>
+  $actEntries
+</div>''';
+
+    // ──── Main: prêmios (ResumeData.awards) ────
+    final awardEntriesC = _renderableAwards(resume).map((a) {
+      final meta = _awardMeta(a);
+      final desc = a.description.trim();
+      final metaHtml =
+          meta.isEmpty ? '' : '<div class="exp-sub">${_escapeHtml(meta)}</div>';
+      final descHtml =
+          desc.isEmpty ? '' : '<div class="edu-det">${_escapeHtml(desc)}</div>';
+      return '<div class="exp"><div class="exp-role">${_escapeHtml(a.title.trim())}</div>$metaHtml$descHtml</div>';
+    }).join('');
+    final awardsHtmlC = awardEntriesC.isEmpty
+        ? ''
+        : '''
+<div class="main-sec">
+  <div class="main-title">${_l10n('awards', lang).toUpperCase()}</div>
+  $awardEntriesC
+</div>''';
+
     return '''<!DOCTYPE html>
 <html lang="${lang == 'en' ? 'en' : 'pt-BR'}">
 <head>
@@ -1836,7 +2021,7 @@ ${_buildCobaltTierExtraCss(tier)}
   </div>
   <table class="layout"><tr>
     <td class="sidebar">$sidebarHtml</td>
-    <td class="main">$summaryHtml$expHtml$eduHtml</td>
+    <td class="main">$summaryHtml$expHtml$eduHtml$projHtmlC$awardsHtmlC</td>
   </tr></table>
 </body>
 </html>''';
@@ -1855,17 +2040,38 @@ ${_buildCobaltTierExtraCss(tier)}
   }
 
   static String _buildHarvardContactString(ResumeData resume) {
-    final parts = <String>[];
+    final primaryParts = <String>[];
+    final digitalParts = <String>[];
     // If address line is present, the city already appears there — skip it
     // here to avoid duplication.
     if (resume.address.trim().isEmpty && resume.location.trim().isNotEmpty) {
-      parts.add(resume.location);
+      primaryParts.add(_escapeHtml(resume.location.trim()));
     }
-    if (resume.phone.isNotEmpty) parts.add('${_l10n('mobile', resume.language)}: ${resume.phone}');
-    if (resume.email.isNotEmpty) parts.add(resume.email);
-    if (resume.linkedin.isNotEmpty) {
-      parts.add(_cleanLinkedinForDisplay(resume.linkedin));
+    if (resume.phone.trim().isNotEmpty) {
+      primaryParts.add(
+        '${_l10n('mobile', resume.language)}: '
+        '${_escapeHtml(resume.phone.trim())}',
+      );
     }
-    return parts.join(' | ');
+    if (resume.email.trim().isNotEmpty) {
+      digitalParts.add(_wrappableEmail(resume.email.trim()));
+    }
+    if (resume.linkedin.trim().isNotEmpty) {
+      digitalParts.add(_cleanLinkedinForDisplay(resume.linkedin.trim()));
+    }
+
+    String group(List<String> parts) {
+      final items = parts
+          .map((part) => '<span class="contact-item">$part</span>')
+          .join('<span class="contact-separator"> | </span>');
+      return '<span class="contact-group">$items</span>';
+    }
+
+    // Mantém e-mail + LinkedIn no mesmo agrupamento. Se a linha precisar
+    // quebrar, os dois descem juntos; o separador nunca fica órfão no fim.
+    return <List<String>>[primaryParts, digitalParts]
+        .where((parts) => parts.isNotEmpty)
+        .map(group)
+        .join(' ');
   }
 }

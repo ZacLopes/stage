@@ -725,8 +725,8 @@ class TrilhaChatController extends ChangeNotifier {
     typing = true;
     _notify();
     const msg2 =
-        'Eu monto seu currículo, acho vaga com a sua cara e te digo o que falta '
-        'pra você ser chamado. Toca numa 👇';
+        'Eu construo seu perfil, acho vagas com a sua cara e mostro o que você '
+        'pode fortalecer. Toca numa 👇';
     await Future.delayed(_typingFor(msg2));
     if (_disposed) return;
     typing = false;
@@ -747,7 +747,7 @@ class TrilhaChatController extends ChangeNotifier {
         message: 'importa meu cv'),
     StarterChip(
         id: 'zero',
-        label: 'Montar do zero',
+        label: 'Preencher meu perfil',
         action: StarterChipAction.startZero),
     StarterChip(
         id: 'jobs', label: 'Tem vaga de marketing?', message: 'tem vaga de marketing?'),
@@ -811,7 +811,7 @@ class TrilhaChatController extends ChangeNotifier {
     phase = ChatPhase.gate;
     typing = true;
     _notify();
-    const msg1 = 'Oi! Vou te ajudar a montar seu currículo.';
+    const msg1 = 'Oi! Vou te ajudar a construir seu perfil profissional.';
     await Future.delayed(_typingFor(msg1));
     if (_disposed) return;
     typing = false;
@@ -820,7 +820,7 @@ class TrilhaChatController extends ChangeNotifier {
     await Future.delayed(_pauseFor(msg1));
     if (_disposed) return;
     thread.add(const AiMsgItem(
-        'Como prefere começar? Você pode subir um currículo que já tem ou começar do zero.'));
+        'Como prefere começar? Você pode subir um currículo que já tem ou preencher seu perfil passo a passo.'));
     _notify();
     // A view mostra o widget de escolha do gate enquanto phase == gate.
   }
@@ -844,7 +844,7 @@ class TrilhaChatController extends ChangeNotifier {
     if (_disposed) return;
     typing = true;
     _notify();
-    const msg2 = 'Bora completar o que falta pra deixar seu currículo redondo?';
+    const msg2 = 'Bora completar o que falta no seu perfil?';
     await Future.delayed(_typingFor(msg2));
     if (_disposed) return;
     typing = false;
@@ -1380,8 +1380,8 @@ class TrilhaChatController extends ChangeNotifier {
       // filtrou por termo/área, diz que foi ESSE filtro que não bateu (não que
       // o perfil está ruim — o feed já vem filtrado pelo perfil dele).
       _pushAi(hasFilter
-          ? 'Não achei vagas de "$filterTerm" no seu feed agora 🤔 Dá pra ampliar suas preferências na aba Vagas.'
-          : 'Não achei vagas que batam com seu perfil agora 🤔 Dá pra ampliar suas preferências na aba Vagas.');
+          ? 'Não achei vagas de "$filterTerm" no seu feed agora 🤔 Ajuste seus objetivos em Perfil → Objetivos ou os filtros desta busca em Vagas.'
+          : 'Não achei vagas que batam com seu perfil agora 🤔 Ajuste seus objetivos em Perfil → Objetivos ou os filtros desta busca em Vagas.');
       if (step != null) inputVisible = true;
       _notify();
       return;
@@ -1486,7 +1486,7 @@ class TrilhaChatController extends ChangeNotifier {
               .track(evTrilhaAssistActionUsed, props: {'action': 'export_pdf'});
         case AssistExportOutcome.empty:
           item.resultMessage =
-              'Seu currículo ainda tá bem vazio pra exportar — bora preencher um pouco primeiro? 🙂';
+              'Seu perfil ainda não tem dados suficientes para gerar um currículo — bora completar um pouco primeiro? 🙂';
           item.status = AssistEditStatus.applied;
         case AssistExportOutcome.failed:
           // Mantém o botão pra tentar de novo.

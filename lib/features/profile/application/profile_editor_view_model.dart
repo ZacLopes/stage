@@ -15,6 +15,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/feature_flags_service.dart';
 import '../../../services/profile_events.dart';
 import '../domain/entities/entities.dart';
+import '../domain/skill_name_normalizer.dart';
 import '../domain/repositories/profile_repository.dart';
 
 enum SaveStatus { idle, saving, saved, error }
@@ -232,15 +233,20 @@ class ProfileEditorViewModel extends ChangeNotifier {
   }
 
   Future<void> updateExperience(Experience exp) async {
+    final original = _experiences;
     // Optimistic
     _experiences = _experiences.map((e) => e.id == exp.id ? exp : e).toList();
     notifyListeners();
 
     _setSaving();
     try {
-      await _repo.updateExperience(exp);
+      final saved = await _repo.updateExperience(exp);
+      _experiences = _experiences
+          .map((e) => e.id == saved.id ? saved : e)
+          .toList();
       _setSaved();
     } catch (e) {
+      _experiences = original;
       _setError('Erro ao atualizar experiência: $e');
     }
   }
@@ -350,8 +356,15 @@ class ProfileEditorViewModel extends ChangeNotifier {
     final userId =
         _personal?.userId ?? Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
+    final normalized = normalizeSkillNames(names);
+    if (normalized.length > kMaxProfileSkills) {
+      _setError(
+        'Escolha no máximo $kMaxProfileSkills habilidades antes de salvar.',
+      );
+      return;
+    }
     final original = _skills;
-    _skills = names
+    _skills = normalized
         .asMap()
         .entries
         .map(
@@ -366,11 +379,15 @@ class ProfileEditorViewModel extends ChangeNotifier {
     notifyListeners();
     _setSaving();
     try {
-      await _repo.replaceSkills(userId, names);
+      await _repo.replaceSkills(userId, normalized);
       _skills = await _repo.getSkills(userId);
       _setSaved();
     } catch (e) {
-      _skills = original;
+      try {
+        _skills = await _repo.getSkills(userId);
+      } catch (_) {
+        _skills = original;
+      }
       _setError('Erro ao salvar skills: $e');
     }
   }
@@ -516,6 +533,50 @@ class ProfileEditorViewModel extends ChangeNotifier {
     } catch (e) {
       _awards = original;
       _setError('Erro: $e');
+    }
+  }
+
+  /// Reconcilia a lista completa de prêmios preservando UUID/data dos itens
+  /// existentes. Adições/updates acontecem antes das remoções para uma falha não
+  /// começar apagando todo o histórico do usuário.
+  Future<void> replaceAwards(List<Award> desired) async {
+    final userId =
+        _personal?.userId ??
+        Supabase.instance.client.auth.currentUser?.id ??
+        (desired.isNotEmpty ? desired.first.userId : null);
+    if (userId == null) return;
+    final original = _awards;
+    _awards = List<Award>.of(desired);
+    notifyListeners();
+    _setSaving();
+    try {
+      final originalIds = {for (final award in original) award.id};
+      final saved = <Award>[];
+      for (final award in desired) {
+        final normalized = award.copyWith(
+          userId: userId,
+          orderIndex: saved.length,
+        );
+        if (normalized.id.isNotEmpty && originalIds.contains(normalized.id)) {
+          saved.add(await _repo.updateAward(normalized));
+        } else {
+          saved.add(await _repo.addAward(normalized.copyWith(id: '')));
+        }
+      }
+
+      final kept = saved.map((award) => award.id).toSet();
+      for (final award in original) {
+        if (!kept.contains(award.id)) await _repo.deleteAward(award.id);
+      }
+      _awards = saved;
+      _setSaved();
+    } catch (e) {
+      try {
+        _awards = await _repo.getAwards(userId);
+      } catch (_) {
+        _awards = original;
+      }
+      _setError('Erro ao salvar prêmios: $e');
     }
   }
 

@@ -475,7 +475,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
 
   Widget _segmentEmpty(ApplicationSegment seg) {
     final msg = switch (seg) {
-      ApplicationSegment.salvas => 'Nenhuma vaga salva ainda.\nCurta vagas no feed para acompanhá-las aqui.',
+      ApplicationSegment.salvas => 'Nenhuma vaga salva ainda.\nSalve vagas no feed para acompanhá-las aqui.',
       ApplicationSegment.enviadas => 'Nenhuma candidatura enviada ainda.',
       ApplicationSegment.emProcesso => 'Nada em processo no momento.',
       ApplicationSegment.finalizadas => 'Nada finalizado ainda.',

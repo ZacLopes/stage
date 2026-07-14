@@ -130,10 +130,33 @@ class Education {
     this.activities = const [],
   });
 
-  String get formattedPeriod {
-    if (startDate == null && endDate == null) return '';
+  /// Período acadêmico com semântica própria — formação não é um
+  /// emprego, portanto ausência de [endDate] nunca deve virar "Atual".
+  ///
+  /// Uma conclusão é marcada como prevista quando a formação está
+  /// explicitamente em andamento ou, para registros importados antigos sem
+  /// status, quando a data de conclusão ainda está no futuro.
+  String get formattedPeriod => formattedPeriodAt(DateTime.now());
+
+  /// Variante determinística para testes e projeções que precisem fixar o
+  /// relógio. A comparação é por mês, pois as datas acadêmicas são salvas
+  /// com granularidade mensal.
+  String formattedPeriodAt(DateTime now) {
     final start = startDate != null ? _formatMonthYear(startDate!) : '';
-    final end = endDate != null ? _formatMonthYear(endDate!) : 'Atual';
+    if (endDate == null) {
+      if (educationStatus == 'studying') {
+        return start.isEmpty ? 'Em andamento' : '$start - Em andamento';
+      }
+      return start;
+    }
+
+    final endMonth = DateTime(endDate!.year, endDate!.month);
+    final nowMonth = DateTime(now.year, now.month);
+    final isExpected =
+        educationStatus == 'studying' ||
+        (educationStatus == null && endMonth.isAfter(nowMonth));
+    final expectedSuffix = isExpected ? ' (previsto)' : '';
+    final end = '${_formatMonthYear(endDate!)}$expectedSuffix';
     if (start.isEmpty) return end;
     return '$start - $end';
   }

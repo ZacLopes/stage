@@ -21,6 +21,7 @@ import {
   readJson,
   requireAdmin,
 } from '../_shared/admin.ts';
+import { publicContactEmailOrEmpty } from '../_shared/contact_email.ts';
 import { captureEvent, withEdgeAnalytics } from '../_shared/posthog.ts';
 
 interface SearchFilters {
@@ -182,9 +183,9 @@ type AdminSupabase = any;
 async function hydrate(supabase: AdminSupabase, ids: string[]) {
   if (ids.length === 0) return [];
   const [profilesR, personalR, skillsR, eduR, areasR, consentsR] = await Promise.all([
-    supabase.from('user_profiles').select('id, name, email, course, semester').in('id', ids),
+    supabase.from('user_profiles').select('id, name, course, semester').in('id', ids),
     supabase.from('profile_personal')
-      .select('user_id, location_city, location_state, completeness_score, onboarding_completed_at')
+      .select('user_id, email, location_city, location_state, completeness_score, onboarding_completed_at')
       .in('user_id', ids),
     supabase.from('profile_skills')
       .select('user_id, name, skills_catalog(canonical_name, category)')
@@ -249,7 +250,7 @@ async function hydrate(supabase: AdminSupabase, ids: string[]) {
     return {
       userId: uid,
       name: p.name ?? '',
-      email: p.email ?? '',
+      email: publicContactEmailOrEmpty(pp?.email),
       course: p.course ?? '',
       semester: p.semester ?? '',
       city: pp?.location_city ?? null,

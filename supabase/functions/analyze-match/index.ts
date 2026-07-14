@@ -416,7 +416,7 @@ CENÁRIO C — candidato SEM preferências E SEM perfil (cadastro incompleto):
   ou só "Skills: ['excel']"), você JÁ TEM dado — use CENÁRIO A.
 
   PARE só quando TUDO está vazio. Retorne EXATAMENTE:
-  {"score": 50, "reasons": [{"label":"Sem perfil","matched":false,"weight":0,"detail":"Configure suas preferências ou suba seu CV para um match preciso."}]}
+  {"score": 50, "reasons": [{"label":"Sem perfil","matched":false,"weight":0,"detail":"Defina seus objetivos ou complete seu perfil para ter um match mais preciso."}]}
   Não tente analisar. Não tente inferir do título da vaga. PARE.
 
 ═══════════════════════════════════════════════════════════════════
@@ -498,7 +498,7 @@ INPUT: areas=[], locations=[], work_models=[], job_types=[], sem whoIAm, sem ski
        vaga: qualquer
 OUTPUT (correto):
 {"score": 50, "reasons": [
-  {"label":"Sem perfil","matched":false,"weight":0,"detail":"Configure suas preferências ou suba seu CV para um match preciso."}
+  {"label":"Sem perfil","matched":false,"weight":0,"detail":"Defina seus objetivos ou complete seu perfil para ter um match mais preciso."}
 ]}
 
 # Exemplo 4 — Cenário A com SÓ 1 dimensão (NÃO é Cenário C!)
@@ -880,7 +880,7 @@ serve(async (req) => {
             label: 'Sem perfil',
             matched: false,
             weight: 0,
-            detail: 'Configure suas preferências ou suba seu CV para um match preciso.',
+            detail: 'Defina seus objetivos ou complete seu perfil para ter um match mais preciso.',
           },
         ],
       }

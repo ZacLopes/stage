@@ -12,7 +12,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -38,10 +37,11 @@ import '../trilha/application/trilha_section.dart';
 import '../trilha/application/trilha_session.dart';
 import '../trilha/presentation/trilha_chat_controller.dart';
 import '../trilha/presentation/trilha_chat_view.dart';
-import 'resume_viewmodel.dart';
-import 'services/resume_renderer.dart';
+import 'services/general_resume_export.dart';
+import 'widgets/assistant_tab_layout.dart';
 import 'widgets/curriculo_section_stepper.dart';
 import 'widgets/curriculo_toggle.dart';
+import 'widgets/general_resume_preview.dart';
 import 'widgets/section_detail_sheet.dart';
 
 /// Fábrica da sessão da trilha — injetável pra teste (evita Supabase).
@@ -81,8 +81,6 @@ class _ResumeTabState extends State<ResumeTab>
   /// revelado, conclusão da trilha). Null enquanto não carrega → header cai no
   /// fallback neutro. Fase 7 · +10 Tarefa 4.
   TrilhaHubStatus? _hubStatus;
-
-  bool _isExporting = false;
 
   /// Recomputa a força honesta a partir do perfil FRESCO. Failure-safe.
   Future<void> _refreshHubStatus() async {
@@ -393,7 +391,7 @@ class _ResumeTabState extends State<ResumeTab>
             children: [
               CircularProgressIndicator(color: AppColors.primary),
               SizedBox(height: AppSpacing.base),
-              Text('Preparando seu currículo…', style: AppTextStyles.bodyMd),
+              Text('Preparando o assistente…', style: AppTextStyles.bodyMd),
             ],
           ),
         ),
@@ -431,38 +429,57 @@ class _ResumeTabState extends State<ResumeTab>
     // Teclado aberto? (lido direto do inset — a HomeScreen não zera o viewInsets,
     // então isto reflete o teclado e re-builda a aba quando ele abre/fecha.)
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
-    return SafeArea(
-      bottom: false,
-      child: Column(
-        children: [
-          // O topo (título + stepper + toggle) COLAPSA suave quando o teclado
-          // abre: libera a altura pra conversa, então o dock de entrada nunca
-          // tampa a pergunta. Volta suave ao fechar o teclado.
-          AnimatedSize(
-            duration: const Duration(milliseconds: 240),
-            curve: Curves.easeOutCubic,
-            alignment: Alignment.topCenter,
-            child: keyboardOpen
-                ? const SizedBox(width: double.infinity)
-                : _topBar(orch, profileVM),
-          ),
-          Expanded(
-            child: IndexedStack(
-              index: _tab,
-              children: [
-                _conversaView(orch, profileVM),
-                _curriculoView(profileVM),
-              ],
-            ),
-          ),
-        ],
-      ),
+
+    // FASE 2 (casa única): a composição/gating vive em [AssistantTabLayout]
+    // (widget puro, testável sem Supabase). ON = conversa única (sem
+    // CurriculoToggle e sem IndexedStack de prévia); o currículo geral (prévia
+    // + export) passa a viver em Perfil → Currículos. OFF = shell legado
+    // (conversa + prévia + toggle) preservado como rollback.
+    return AssistantTabLayout(
+      assistEnabled: orch.assistEnabled,
+      keyboardOpen: keyboardOpen,
+      assistantTopBar: (_) => _assistantTopBar(orch, profileVM),
+      legacyTopBar: (_) => _legacyTopBar(orch, profileVM),
+      conversa: (_) => _conversaView(orch, profileVM),
+      preview: (_) => _curriculoView(),
+      tabIndex: _tab,
     );
   }
 
-  // ── Topo: título + stepper + toggle ─────────────────────────────────────────
+  // ── Topo do Assistente: stepper compartilhado + top bars por flag ──────────
 
-  Widget _topBar(
+  /// Stepper reativo ao orquestrador (notifica a cada passo). Compartilhado
+  /// entre o Assistente conversa-única e o shell legado — é contexto da coleta,
+  /// não uma segunda casa do perfil (§3.4).
+  Widget _stepper(
+      TrilhaChatController orch, ProfileEditorViewModel profileVM) {
+    return AnimatedBuilder(
+      animation: orch,
+      builder: (context, _) {
+        final active = activeFiveSection(orch.currentStep);
+        if (active != null) _stickySection = active;
+        final statuses = sectionStatuses(
+          history: orch.history,
+          current: orch.currentStep,
+          preFilled: _preFilledSections(profileVM),
+          stickyCurrent: _stickySection,
+        );
+        return CurriculoSectionStepper(
+          statuses: statuses,
+          // Toque numa seção → sheet de verificação do que foi coletado.
+          onSectionTap: (section) => showSectionDetailSheet(
+            context,
+            section: section,
+            status: statuses[section] ?? SectionStatus.pending,
+            vm: profileVM,
+          ),
+        );
+      },
+    );
+  }
+
+  // ── Topo (flag ON): título + "Ver meu perfil" + stepper (SEM toggle) ────────
+  Widget _assistantTopBar(
       TrilhaChatController orch, ProfileEditorViewModel profileVM) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -470,32 +487,55 @@ class _ResumeTabState extends State<ResumeTab>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Currículo', style: AppTextStyles.headlineMd),
-          const SizedBox(height: AppSpacing.md),
-          // Stepper reativo ao orquestrador (notifica a cada passo).
-          AnimatedBuilder(
-            animation: orch,
-            builder: (context, _) {
-              final active = activeFiveSection(orch.currentStep);
-              if (active != null) _stickySection = active;
-              final statuses = sectionStatuses(
-                history: orch.history,
-                current: orch.currentStep,
-                preFilled: _preFilledSections(profileVM),
-                stickyCurrent: _stickySection,
-              );
-              return CurriculoSectionStepper(
-                statuses: statuses,
-                // Toque numa seção → sheet de verificação do que foi coletado.
-                onSectionTap: (section) => showSectionDetailSheet(
-                  context,
-                  section: section,
-                  status: statuses[section] ?? SectionStatus.pending,
-                  vm: profileVM,
-                ),
-              );
-            },
+          Row(
+            children: [
+              Expanded(
+                child: Text('Assistente', style: AppTextStyles.headlineMd),
+              ),
+              _verMeuPerfilButton(),
+            ],
           ),
+          const SizedBox(height: AppSpacing.md),
+          _stepper(orch, profileVM),
+        ],
+      ),
+    );
+  }
+
+  /// Ação compacta no header do Assistente → leva a Perfil → Dados (sub-aba 0),
+  /// a única tela completa de edição do perfil. Reusa requestTabChange +
+  /// requestProfileSubTab (sem rota nova).
+  Widget _verMeuPerfilButton() {
+    return TextButton.icon(
+      onPressed: () {
+        try {
+          final home = context.read<HomeViewModel>();
+          home.requestTabChange(HomeTabs.profile);
+          home.requestProfileSubTab(0);
+        } catch (_) {/* sem HomeViewModel (teste) */}
+      },
+      icon: const Icon(Icons.person_outline_rounded, size: 18),
+      label: const Text('Ver meu perfil'),
+      style: TextButton.styleFrom(
+        foregroundColor: AppColors.primary,
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+        visualDensity: VisualDensity.compact,
+      ),
+    );
+  }
+
+  // ── Topo (flag OFF / rollback): título + stepper + CurriculoToggle ──────────
+  Widget _legacyTopBar(
+      TrilhaChatController orch, ProfileEditorViewModel profileVM) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Assistente', style: AppTextStyles.headlineMd),
+          const SizedBox(height: AppSpacing.md),
+          _stepper(orch, profileVM),
           const SizedBox(height: AppSpacing.base),
           CurriculoToggle(
             index: _tab,
@@ -539,433 +579,27 @@ class _ResumeTabState extends State<ResumeTab>
 
   // ── Visão Currículo (preview + exportar) ────────────────────────────────────
 
-  Widget _curriculoView(ProfileEditorViewModel p) {
-    final hasAny = p.experiences.isNotEmpty ||
-        p.skills.isNotEmpty ||
-        p.education.isNotEmpty ||
-        p.languages.isNotEmpty ||
-        p.interests.isNotEmpty;
-    return PiiMask(
-      child: Column(
-        children: [
-          Expanded(
-            child: hasAny
-                ? ListView(
-                    padding: const EdgeInsets.fromLTRB(AppSpacing.lg,
-                        AppSpacing.sm, AppSpacing.lg, AppSpacing.lg),
-                    children: [
-                      _previewHeader(p),
-                      if (p.skills.isNotEmpty) _chipsSection('Habilidades',
-                          p.skills.map((s) => s.name).toList()),
-                      if (p.languages.isNotEmpty) _languagesSection(p),
-                      if (p.experiences.isNotEmpty) _experienceSection(p),
-                      if (p.education.isNotEmpty) _educationSection(p),
-                      if (p.interests.isNotEmpty) _chipsSection(
-                          'Áreas de interesse',
-                          p.interests.map((i) => i.name).toList()),
-                    ],
-                  )
-                : _previewEmpty(),
-          ),
-          _exportBar(p),
-        ],
-      ),
-    );
-  }
-
-  Widget _previewEmpty() => Center(
-        child: Padding(
-          padding: AppSpacing.allXl,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.description_outlined,
-                  color: AppColors.textTertiary, size: 40),
-              const SizedBox(height: AppSpacing.md),
-              Text(
-                'Seu currículo aparece aqui',
-                textAlign: TextAlign.center,
-                style: AppTextStyles.titleSm
-                    .copyWith(color: AppColors.textPrimary),
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                'Responda à conversa ao lado pra montar seu currículo.',
-                textAlign: TextAlign.center,
-                style: AppTextStyles.bodyMd
-                    .copyWith(color: AppColors.textSecondary),
-              ),
-            ],
-          ),
-        ),
-      );
-
-  Widget _previewHeader(ProfileEditorViewModel p) {
-    final name = p.personal?.fullName.trim() ?? '';
-    final location = p.personal?.formattedLocation.trim() ?? '';
-    final hs = _hubStatus;
-    // Força honesta (ponderada por monetização). Enquanto o hub não carrega, cai
-    // no completeness do banco em cor NEUTRA — nunca o verde de "está ótimo".
-    final pct = hs?.strengthPercent ?? p.completenessScore;
-    final initials = _initials(name);
-    return Container(
-      margin: const EdgeInsets.only(bottom: AppSpacing.base),
-      padding: AppSpacing.allBase,
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: AppRadius.brLg,
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.12),
-                  borderRadius: AppRadius.brMd,
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  initials,
-                  style:
-                      AppTextStyles.titleSm.copyWith(color: AppColors.primary),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(name.isEmpty ? 'Seu perfil' : name,
-                        style: AppTextStyles.titleSm,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                    if (location.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(location,
-                          style: AppTextStyles.bodySm
-                              .copyWith(color: AppColors.textTertiary),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
-                    ],
-                  ],
-                ),
-              ),
-              _strengthBadge(pct, hs?.level),
-            ],
-          ),
-          // Painel honesto: nunca "beco sem saída". Mostra o próximo ganho (ou
-          // comemora de verdade quando não falta nada). Fase 7 · +10 Tarefa 4.
-          if (hs != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            _hubNextWin(hs),
-          ],
-        ],
-      ),
-    );
-  }
-
-  /// Pílula de força colorida pelo ESTÁGIO real — verde só quando é verdade.
-  Widget _strengthBadge(int pct, HubLevel? level) {
-    Color bg;
-    Color fg;
-    switch (level) {
-      case HubLevel.complete:
-      case HubLevel.shortlistReady:
-        bg = AppColors.successSoft;
-        fg = AppColors.success;
-      case HubLevel.building:
-        bg = AppColors.warningSoft;
-        fg = AppColors.warning;
-      case null:
-        bg = AppColors.border;
-        fg = AppColors.textTertiary;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 4),
-      decoration: BoxDecoration(color: bg, borderRadius: AppRadius.brPill),
-      child: Text('$pct%',
-          style: AppTextStyles.labelSm.copyWith(color: fg)),
-    );
-  }
-
-  /// O próximo ganho enquadrado por valor — ou a comemoração honesta (completo).
-  Widget _hubNextWin(TrilhaHubStatus hs) {
-    if (hs.level == HubLevel.complete) {
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.verified_rounded,
-              size: 16, color: AppColors.success),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Text(hs.message,
-                style: AppTextStyles.bodySm
-                    .copyWith(color: AppColors.textSecondary)),
-          ),
-        ],
-      );
-    }
+  // A UI da prévia (header + seções + empty state) e a lógica de export foram
+  // extraídas pra [GeneralResumePreview] e [GeneralResumeExport] (Fase 2) — a
+  // MESMA implementação usada por Perfil → Currículos. Aqui, no rollback (flag
+  // OFF), só compomos os dois no shell legado (conversa | prévia via toggle).
+  Widget _curriculoView() {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const Icon(Icons.trending_up_rounded,
-                size: 15, color: AppColors.warning),
-            const SizedBox(width: AppSpacing.xs),
-            Text('PRÓXIMO GANHO',
-                style: AppTextStyles.overline
-                    .copyWith(color: AppColors.warning, letterSpacing: 0.6)),
-            if (hs.nextStepLabel != null)
-              Expanded(
-                child: Text(' · ${hs.nextStepLabel}',
-                    style: AppTextStyles.overline
-                        .copyWith(color: AppColors.textTertiary),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-              ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.xs),
-        Text(hs.message,
-            style:
-                AppTextStyles.bodySm.copyWith(color: AppColors.textSecondary)),
+        Expanded(child: GeneralResumePreview(hubStatus: _hubStatus)),
+        const GeneralResumeExportBar(),
       ],
     );
-  }
-
-  Widget _sectionTitle(String t) => Padding(
-        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-        child: Text(t.toUpperCase(),
-            style: AppTextStyles.overline.copyWith(letterSpacing: 0.6)),
-      );
-
-  Widget _card({required Widget child}) => Container(
-        margin: const EdgeInsets.only(bottom: AppSpacing.base),
-        padding: AppSpacing.allBase,
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: AppRadius.brLg,
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start, children: [child]),
-      );
-
-  Widget _chipsSection(String title, List<String> items) {
-    return _card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _sectionTitle(title),
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
-            children: [
-              for (final it in items)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: AppColors.primarySoft,
-                    borderRadius: AppRadius.brSm,
-                  ),
-                  child: Text(it,
-                      style: AppTextStyles.labelSm
-                          .copyWith(color: AppColors.primary)),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _languagesSection(ProfileEditorViewModel p) {
-    return _card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _sectionTitle('Idiomas'),
-          for (final lang in p.languages)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(lang.name, style: AppTextStyles.bodyMd
-                      .copyWith(color: AppColors.textPrimary)),
-                  Text(lang.proficiencyLabel,
-                      style: AppTextStyles.bodySm
-                          .copyWith(color: AppColors.textTertiary)),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _experienceSection(ProfileEditorViewModel p) {
-    return _card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _sectionTitle('Experiência'),
-          for (final exp in p.experiences)
-            Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(exp.title, style: AppTextStyles.labelMd),
-                  Text(
-                    [exp.company, exp.formattedPeriod]
-                        .where((s) => s.trim().isNotEmpty)
-                        .join(' · '),
-                    style: AppTextStyles.bodySm
-                        .copyWith(color: AppColors.textTertiary),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _educationSection(ProfileEditorViewModel p) {
-    return _card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _sectionTitle('Formação'),
-          for (final ed in p.education)
-            Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    ed.majors.isNotEmpty
-                        ? ed.majors.map((m) => m.name).join(', ')
-                        : (ed.degree ?? 'Curso'),
-                    style: AppTextStyles.labelMd,
-                  ),
-                  Text(ed.institution,
-                      style: AppTextStyles.bodySm
-                          .copyWith(color: AppColors.textTertiary)),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _exportBar(ProfileEditorViewModel p) {
-    final resumeVM = context.watch<ResumeViewModel>();
-    final canExport = resumeVM.resumeData != null ||
-        p.experiences.isNotEmpty ||
-        p.skills.isNotEmpty ||
-        p.education.isNotEmpty ||
-        p.languages.isNotEmpty ||
-        p.interests.isNotEmpty;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.lg),
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        border: Border(top: BorderSide(color: AppColors.border)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: PrimaryButton(
-          label: 'Exportar PDF',
-          icon: Icons.upload_rounded,
-          isLoading: _isExporting,
-          onPressed: canExport ? () => _export(resumeVM) : null,
-        ),
-      ),
-    );
-  }
-
-  /// Retorna true SÓ se o PDF foi gerado e a folha de compartilhar abriu; false
-  /// se já havia um export em andamento ou se a geração falhou (o assistente usa
-  /// isso pra não confirmar sucesso em cima de um erro).
-  Future<bool> _export(ResumeViewModel resumeVM) async {
-    if (_isExporting) return false;
-    setState(() => _isExporting = true);
-    try {
-      final userVM = context.read<UserViewModel>();
-      final user = userVM.user;
-      final uid = user?.id ?? Supabase.instance.client.auth.currentUser?.id;
-      if (uid == null) {
-        throw Exception('Sessão expirada — entre novamente para exportar.');
-      }
-      // O currículo desta aba (trilha de IA) é montado a partir do que a trilha
-      // coletou nas tabelas profile_*, via ProfileSnapshot — NÃO do
-      // resumeVM.resumeData legado (gamificação desligada), que vinha vazio e
-      // gerava um PDF em branco. Assim o export funciona independente da flag
-      // templates_v2. O CV adaptado por vaga é outro fluxo (parte de um CV
-      // importado) e não passa por aqui — segue intacto.
-      final snapshot = await ProfileSnapshotService().loadSnapshot(uid);
-      final resumeFromProfile = snapshot.toResumeData(
-        userFallbackName: user?.name,
-      );
-      final rendered = await ResumeRenderer.render(
-        userId: uid,
-        user: user,
-        fallbackResume: resumeFromProfile,
-        templateId: resumeVM.selectedTemplateId, // padrão: harvard_ats
-        purpose: 'export',
-      );
-      final safeName = (user?.name ?? 'profissional').replaceAll(' ', '_');
-      await Printing.sharePdf(
-        bytes: rendered.bytes,
-        filename: 'curriculo_$safeName.pdf',
-      );
-      // ignore: unawaited_futures
-      Analytics.shared.cvExported(templateId: resumeVM.selectedTemplateId);
-      return true;
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao gerar PDF: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-      return false;
-    } finally {
-      if (mounted) setState(() => _isExporting = false);
-    }
   }
 
   // ── Grandes: callbacks de ação do assistente ──────────────────────────────
 
   /// `export_pdf`: desfecho REAL (vazio/falha/ok) pro assistente não confirmar
-  /// sucesso em cima de um erro. Reusa o [_export] (mesma folha de share) e a
-  /// MESMA regra de `canExport` do [_exportBar].
-  Future<AssistExportOutcome> _exportForAssistant() async {
-    if (!mounted) return AssistExportOutcome.failed;
-    final p = context.read<ProfileEditorViewModel>();
-    final resumeVM = context.read<ResumeViewModel>();
-    final canExport = resumeVM.resumeData != null ||
-        p.experiences.isNotEmpty ||
-        p.skills.isNotEmpty ||
-        p.education.isNotEmpty ||
-        p.languages.isNotEmpty ||
-        p.interests.isNotEmpty;
-    if (!canExport) return AssistExportOutcome.empty;
-    final ok = await _export(resumeVM);
-    return ok ? AssistExportOutcome.ok : AssistExportOutcome.failed;
+  /// sucesso em cima de um erro. Usa a MESMA implementação compartilhada do
+  /// botão "Exportar PDF" de Perfil → Currículos ([GeneralResumeExport.export]).
+  Future<AssistExportOutcome> _exportForAssistant() {
+    if (!mounted) return Future.value(AssistExportOutcome.failed);
+    return GeneralResumeExport.export(context);
   }
 
   /// `import_cv`: abre o seletor, importa em BACKGROUND (a extração roda async).
@@ -1033,7 +667,7 @@ class _ResumeTabState extends State<ResumeTab>
       _scheduleImportRefresh();
       return const AssistImportResult(AssistImportOutcome.ok,
           message:
-              'Salvei seu CV na sua biblioteca de currículos 📄 Como seu perfil tá começando, vou preencher ele com os dados do CV (uns 15s) 👇');
+              'Guardei seu CV como fonte importada 📄 Como seu perfil tá começando, vou usar os dados dele pra preencher seu perfil (uns 15s) 👇');
     }
 
     // Perfil COM dados → dry-run + diff → card de conflito.
@@ -1042,11 +676,11 @@ class _ResumeTabState extends State<ResumeTab>
     if (conflicts.isEmpty) {
       return const AssistImportResult(AssistImportOutcome.ok,
           message:
-              'Salvei seu CV na biblioteca 📄 Comparei com o seu perfil e não achei nada novo pra adicionar — você já tem tudo o que tá no CV 🙂');
+              'Guardei seu CV como fonte importada 📄 Comparei com o seu perfil e não achei nada novo pra adicionar — você já tem tudo o que tá no CV 🙂');
     }
     return AssistImportResult(AssistImportOutcome.ok,
         message:
-            'Salvei seu CV na biblioteca 📄 Comparei com o seu perfil: aqui está o que o CV tem de novo ou diferente — escolhe o que quer trazer 👇',
+            'Guardei seu CV como fonte importada 📄 Comparei com o seu perfil: aqui está o que o CV tem de novo ou diferente — escolhe o que quer trazer 👇',
         conflicts: conflicts);
   }
 
@@ -1228,14 +862,4 @@ class _ResumeTabState extends State<ResumeTab>
     }
   }
 
-  String _initials(String name) {
-    final parts =
-        name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    if (parts.isEmpty) return '·';
-    if (parts.length == 1) {
-      return parts.first.substring(0, 1).toUpperCase();
-    }
-    return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
-        .toUpperCase();
-  }
 }

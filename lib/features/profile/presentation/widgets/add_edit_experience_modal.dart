@@ -62,7 +62,7 @@ class _AddEditExperienceModalState extends State<AddEditExperienceModal> {
   DateTime? _startDate;
   DateTime? _endDate;
   bool _isCurrent = false;
-  late List<String> _bullets;
+  late List<Bullet> _bullets;
 
   @override
   void initState() {
@@ -74,7 +74,7 @@ class _AddEditExperienceModalState extends State<AddEditExperienceModal> {
     _startDate = i?.startDate;
     _endDate = i?.endDate;
     _isCurrent = i?.isCurrent ?? false;
-    _bullets = i?.bullets.map((b) => b.text).toList() ?? <String>[];
+    _bullets = i?.bullets.toList() ?? <Bullet>[];
     _title.addListener(() => setState(() {}));
     _company.addListener(() => setState(() {}));
     _location.addListener(() => setState(() {}));
@@ -134,8 +134,23 @@ class _AddEditExperienceModalState extends State<AddEditExperienceModal> {
       endDate: _isCurrent ? null : _endDate,
       isCurrent: _isCurrent,
     );
-    final bulletTexts = _bullets.where((t) => t.trim().isNotEmpty).toList();
-    widget.onSave(exp, bulletTexts);
+    // Mantém IDs e metadados dos resultados existentes para o repository
+    // reconciliar somente o que mudou, sem apagar a proveniência dos bullets.
+    final bullets = _bullets
+        .where((b) => b.text.trim().isNotEmpty)
+        .toList()
+        .asMap()
+        .entries
+        .map((entry) => entry.value.copyWith(
+              experienceId: exp.id,
+              text: entry.value.text.trim(),
+              orderIndex: entry.key,
+            ))
+        .toList();
+    widget.onSave(
+      exp.copyWith(bullets: bullets),
+      bullets.map((b) => b.text).toList(),
+    );
     Navigator.of(context).pop();
   }
 
@@ -145,14 +160,19 @@ class _AddEditExperienceModalState extends State<AddEditExperienceModal> {
       initial: '',
     );
     if (result != null && result.trim().isNotEmpty) {
-      setState(() => _bullets.add(result.trim()));
+      setState(() => _bullets.add(Bullet(
+            id: '',
+            experienceId: widget.initial?.id ?? '',
+            text: result.trim(),
+            orderIndex: _bullets.length,
+          )));
     }
   }
 
   Future<void> _editBullet(int index) async {
     final result = await _EditResponsibilitySheet.show(
       context: context,
-      initial: _bullets[index],
+      initial: _bullets[index].text,
     );
     if (result != null) {
       final v = result.trim();
@@ -160,7 +180,7 @@ class _AddEditExperienceModalState extends State<AddEditExperienceModal> {
         if (v.isEmpty) {
           _bullets.removeAt(index);
         } else {
-          _bullets[index] = v;
+          _bullets[index] = _bullets[index].copyWith(text: v);
         }
       });
     }
@@ -228,12 +248,18 @@ class _AddEditExperienceModalState extends State<AddEditExperienceModal> {
                       }),
                     ),
                     const SizedBox(height: 24),
-                    const _FieldLabel(text: 'Responsabilidades'),
+                    const _FieldLabel(text: 'Resultados e contribuições'),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Comece com o que você fez e acrescente o efeito. Se tiver, '
+                      'inclua escala, prazo ou um número que consiga defender.',
+                      style: TextStyle(fontSize: 12, color: _kLabelColor, height: 1.35),
+                    ),
                     const SizedBox(height: 12),
                     ...List.generate(_bullets.length, (i) => Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: _ResponsibilityCard(
-                            text: _bullets[i],
+                            text: _bullets[i].text,
                             onRemove: () => _removeBullet(i),
                             onEdit: () => _editBullet(i),
                           ),
@@ -244,7 +270,7 @@ class _AddEditExperienceModalState extends State<AddEditExperienceModal> {
                         onPressed: _addBullet,
                         icon: const Icon(Icons.add_rounded, color: _kAccent, size: 22),
                         label: const Text(
-                          'Adicionar responsabilidade',
+                          'Adicionar resultado',
                           style: TextStyle(color: _kAccent, fontSize: 15, fontWeight: FontWeight.w600),
                         ),
                         style: TextButton.styleFrom(

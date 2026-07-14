@@ -13,7 +13,7 @@ class CurriculoToggle extends StatelessWidget {
     required this.index,
     required this.onChanged,
     this.leftLabel = 'Conversa',
-    this.rightLabel = 'Currículo',
+    this.rightLabel = 'Prévia do currículo',
   });
 
   /// 0 = esquerda (Conversa), 1 = direita (Currículo).

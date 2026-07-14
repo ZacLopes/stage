@@ -8,6 +8,8 @@ import 'profile_viewmodel.dart';
 import 'profile_tab_prefs.dart';
 import 'application/profile_editor_view_model.dart';
 import '../home/home_viewmodel.dart';
+import '../resume/widgets/general_resume_card.dart';
+import '../../services/feature_flags_service.dart';
 import '../settings/settings_screen.dart';
 import 'resume_detail_screen.dart';
 import 'presentation/widgets/personal_info_form.dart';
@@ -53,7 +55,7 @@ const Map<SavedResumeSource, _SourceMeta> _kSourceMeta = {
     Icons.edit_rounded,
   ),
   SavedResumeSource.imported: _SourceMeta(
-    'Importado',
+    'Fonte importada',
     AppColors.info, // sky blue
     Icons.cloud_upload_rounded,
   ),
@@ -174,7 +176,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Gerencie seus currículos e informações',
+                  'Gerencie seus dados, objetivos e currículos',
                   style: TextStyle(
                     fontSize: 14,
                     color: AppColors.textTertiary,
@@ -226,8 +228,8 @@ class _ProfileScreenState extends State<ProfileScreen>
           fontSize: 14,
         ),
         tabs: const [
-          Tab(text: 'Informações'),
-          Tab(text: 'Preferências'),
+          Tab(text: 'Dados'),
+          Tab(text: 'Objetivos'),
           Tab(text: 'Currículos'),
         ],
       ),
@@ -293,6 +295,15 @@ class _ResumesTabState extends State<_ResumesTab> {
       });
     }
 
+    // FASE 2 (casa única): com trilha_assist_v1 ON, o topo ganha o card
+    // "Currículo geral" (projeção virtual do perfil, não persistida) e a lista
+    // persistida passa a se chamar "Arquivos e versões". OFF = comportamento
+    // anterior (só a lista de currículos). Mesma flag/userId do Assistente.
+    final assistEnabled = FeatureFlagsService.instance.isEnabledForUser(
+      FeatureFlagKeys.trilhaAssistV1,
+      Supabase.instance.client.auth.currentUser?.id,
+    );
+
     return Consumer<ProfileViewModel>(
       builder: (context, viewModel, child) {
         if (viewModel.isLoading) {
@@ -306,11 +317,15 @@ class _ResumesTabState extends State<_ResumesTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (assistEnabled) ...[
+                  const GeneralResumeCard(),
+                  const SizedBox(height: 24),
+                ],
                 Row(
                   children: [
                     Expanded(
                       child: Text(
-                        'Sua Biblioteca',
+                        assistEnabled ? 'Arquivos e versões' : 'Seus currículos',
                         style: TextStyle(fontFamily: 'Outfit',
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -361,7 +376,7 @@ class _ResumesTabState extends State<_ResumesTab> {
           ),
           const SizedBox(height: 16),
           Text(
-            'Nenhum currículo salvo',
+            'Nenhum arquivo salvo',
             style: TextStyle(fontFamily: 'Outfit',
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -370,7 +385,7 @@ class _ResumesTabState extends State<_ResumesTab> {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Seus currículos gerados aparecerão aqui para você baixar ou editar.',
+            'Os arquivos que você importar e os currículos adaptados para vagas aparecerão aqui.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,
@@ -610,7 +625,7 @@ class _ResumesTabState extends State<_ResumesTab> {
                       text: '"${resume.title}"',
                       style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                     ),
-                    const TextSpan(text: ' da sua biblioteca? Esta ação não pode ser desfeita.'),
+                    const TextSpan(text: ' dos seus currículos? Esta ação não pode ser desfeita.'),
                   ],
                 ),
               ),

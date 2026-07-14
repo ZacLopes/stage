@@ -201,16 +201,16 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
         children: [
           _doorCard(
             icon: Icons.upload_file_outlined,
-            title: 'Importar currículo',
+            title: 'Usar meu CV para preencher o perfil',
             badge: 'RECOMENDADO',
-            description: 'Jeito mais rápido. Vamos extrair suas informações automaticamente.',
+            description: 'Jeito mais rápido. Extraímos seus dados direto do arquivo.',
             onTap: _chooseUpload,
           ),
           const SizedBox(height: 16),
           _doorCard(
             icon: Icons.flag_outlined,
-            title: 'Construir pela trilha',
-            description: 'Sem currículo? Sem problema. A gente te guia passo a passo, leva uns 10 min.',
+            title: 'Preencher passo a passo',
+            description: 'Sem um CV em mãos? A gente te guia pelas telas, leva uns 10 min.',
             onTap: _chooseTrail,
           ),
         ],
