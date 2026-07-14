@@ -665,12 +665,21 @@ export async function fetchUsersTotalBlock(sb: SupabaseClient): Promise<UsersTot
 // BLOCO 2 — Engajamento (D-1)
 // ============================================================================
 
+/// "Conta como aplicada" — espelha applications.dart::countsAsApplied: qualquer
+/// status vivo do pipeline EXCETO withdrawn/expired. A fonte de verdade de
+/// "apliquei" migrou de swipe_actions.applied (DEPRECATED, só builds ≤2.2.0
+/// escrevem) para a tabela applications; admin-overview e daily-report contam
+/// esta tabela agora. (Fase 7 Onda 1.)
+export function countsAsApplied(status: string | null | undefined): boolean {
+  return status !== 'withdrawn' && status !== 'expired';
+}
+
 export interface EngagementBlock {
   /// DAU = users distintos com pelo menos 1 swipe_action ontem.
   dau: number;
   /// Users que adaptaram pelo menos 1 CV ontem.
   cvAdaptersYesterday: number;
-  /// Users que aplicaram (applied=true) pelo menos 1 vaga ontem.
+  /// Users com >=1 candidatura viva (applications, countsAsApplied) criada ontem.
   appliersYesterday: number;
 }
 
@@ -685,12 +694,14 @@ export async function fetchEngagementBlock(
       .gte('created_at', win.yesterday.startISO)
       .lt('created_at', win.yesterday.endISO)
       .limit(50000),
+    // Fonte: applications (verdade viva), não swipe_actions.applied (DEPRECATED).
+    // created_at = quando a candidatura foi criada (backfill/bridge preservam o
+    // applied_at histórico). countsAsApplied filtra em memória. Fase 7 Onda 1.
     sb
-      .from('swipe_actions')
-      .select('user_id')
-      .gte('applied_at', win.yesterday.startISO)
-      .lt('applied_at', win.yesterday.endISO)
-      .eq('applied', true)
+      .from('applications')
+      .select('user_id, status')
+      .gte('created_at', win.yesterday.startISO)
+      .lt('created_at', win.yesterday.endISO)
       .limit(50000),
   ]);
 
@@ -699,8 +710,8 @@ export async function fetchEngagementBlock(
   for (const s of swipes ?? []) {
     if (s.user_id) dauSet.add(s.user_id);
   }
-  for (const s of applies ?? []) {
-    if (s.user_id) applierSet.add(s.user_id);
+  for (const a of applies ?? []) {
+    if (a.user_id && countsAsApplied(a.status)) applierSet.add(a.user_id);
   }
 
   const { data: adapted } = await sb
@@ -844,12 +855,15 @@ export async function fetchMatchBlock(
       .lt('created_at', win.yesterday.endISO)
       .eq('action', 'liked')
       .limit(50000),
+    // Fonte: applications (countsAsApplied = exceto withdrawn/expired), não a
+    // coluna DEPRECATED swipe_actions.applied. Fase 7 Onda 1.
     sb
-      .from('swipe_actions')
+      .from('applications')
       .select('*', { count: 'exact', head: true })
-      .gte('applied_at', win.yesterday.startISO)
-      .lt('applied_at', win.yesterday.endISO)
-      .eq('applied', true),
+      .gte('created_at', win.yesterday.startISO)
+      .lt('created_at', win.yesterday.endISO)
+      .neq('status', 'withdrawn')
+      .neq('status', 'expired'),
   ]);
 
   const rows = (swipes ?? []) as DbObject[];
@@ -1132,8 +1146,8 @@ export async function fetchWeeklyBlock(
     countInWindow(sb, 'jobs', 'created_at', win.previousWeek),
   ]);
 
-  // Likes / applies: precisa filtrar action e applied, então é mais simples
-  // contar manual via head:false e contagem em memória de só job_id (campo curto).
+  // Likes: swipe_actions.action='liked'. Applies: fonte migrada p/ applications
+  // (countsAsApplied), não a coluna DEPRECATED swipe_actions.applied. Fase 7 Onda 1.
   const countLikes = async (w: DateWindow) => {
     const { count } = await sb
       .from('swipe_actions')
@@ -1145,11 +1159,12 @@ export async function fetchWeeklyBlock(
   };
   const countApplies = async (w: DateWindow) => {
     const { count } = await sb
-      .from('swipe_actions')
+      .from('applications')
       .select('*', { count: 'exact', head: true })
-      .gte('applied_at', w.startISO)
-      .lt('applied_at', w.endISO)
-      .eq('applied', true);
+      .gte('created_at', w.startISO)
+      .lt('created_at', w.endISO)
+      .neq('status', 'withdrawn')
+      .neq('status', 'expired');
     return count ?? 0;
   };
 

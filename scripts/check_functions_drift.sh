@@ -29,8 +29,9 @@ ACTIVE=(
   admin-me admin-overview admin-jobs admin-users admin-clients
   admin-candidate-lists admin-candidates-search admin-audit
   sync-jobs-apify sync-jobs-ats sync-jobs-brazil
-  generate-resume generate-bullets generate-summary suggest-tools
-  extract-profile extract-job-skills interpret-step-answer
+  generate-resume generate-bullets generate-summary generate-profile-summary
+  suggest-tools suggest-profile-skills
+  extract-profile extract-job-skills interpret-step-answer trilha-assistant
   notifications-daily-digest notifications-broadcast
   notify-signup notify-auto-apply-swipe
   ingest-jobs-email daily-report
