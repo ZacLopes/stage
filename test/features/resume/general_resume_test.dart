@@ -187,7 +187,7 @@ void main() {
       final rd = const ProfileSnapshot(
         awards: [Award(id: 'a', userId: 'u', name: '1º lugar hackathon')],
       ).toResumeData();
-      expect(rd.awards.map((a) => a.title), contains('1º lugar hackathon'));
+      expect(rd.awards.map((a) => a.title), contains('1º Lugar hackathon'));
       expect(rd.achievements, isEmpty);
     });
 

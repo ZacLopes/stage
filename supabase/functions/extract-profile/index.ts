@@ -24,6 +24,7 @@ import { trackAIGeneration, captureEvent, withEdgeAnalytics } from '../_shared/p
 import { PROFILE_JSON_SCHEMA, PROFILE_SYSTEM_PROMPT, toLegacyResume } from '../_shared/profile_schema.ts'
 import { flatten } from '../_shared/cv_text.ts'
 import { detectNonCvContent, nonCvMessage } from '../_shared/cv_content_validator.ts'
+import { resolveImportedContactEmail } from '../_shared/contact_email.ts'
 
 const CURRENT_EXTRACTOR_VERSION = 'extract-profile-v1.0'
 const MODEL = 'gpt-4o'
@@ -645,6 +646,29 @@ serve(withEdgeAnalytics('extract-profile', async (req) => {
           extractor_version: CURRENT_EXTRACTOR_VERSION,
         },
       }).catch(() => {})
+    }
+
+    // Preserva contato profissional manual. O e-mail extraído só preenche
+    // perfil vazio/relay e nunca introduz um identificador privado de login.
+    // Em erro de leitura, omite o importado e deixa o COALESCE do RPC preservar.
+    if (save) {
+      profileData.personal = profileData.personal ?? {}
+      const existingContactR = await supabaseAdmin
+        .from('profile_personal')
+        .select('email')
+        .eq('user_id', userId)
+        .maybeSingle()
+      if (existingContactR.error) {
+        console.warn(`[extract-profile] existing contact lookup failed user=${userId}: ${existingContactR.error.message}`)
+        delete profileData.personal.email
+      } else {
+        const resolvedEmail = resolveImportedContactEmail(
+          existingContactR.data?.email,
+          profileData.personal.email,
+        )
+        if (resolvedEmail) profileData.personal.email = resolvedEmail
+        else delete profileData.personal.email
+      }
     }
 
     // Cálculos finais

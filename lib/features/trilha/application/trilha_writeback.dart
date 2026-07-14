@@ -7,6 +7,7 @@
 // o controller já trata erros de forma defensiva, então aqui focamos na gravação.
 
 import '../../profile/domain/entities/entities.dart';
+import '../../profile/domain/profile_title.dart';
 import '../../profile/domain/repositories/profile_repository.dart';
 import '../domain/conversation_step.dart';
 import 'area_canonical.dart';
@@ -325,7 +326,7 @@ class TrilhaWriteback {
   }
 
   Future<void> _saveAward(int n, _AwardBuffer buf) async {
-    final name = buf.name?.trim() ?? '';
+    final name = normalizeProfileTitle(buf.name ?? '');
     if (name.isEmpty) {
       _awardBuffers.remove(n);
       return;
@@ -582,7 +583,7 @@ class TrilhaWriteback {
   }
 
   Future<void> _saveProject(int n, _ProjBuffer buf) async {
-    final name = buf.name?.trim() ?? '';
+    final name = normalizeProfileTitle(buf.name ?? '');
     if (name.isEmpty) {
       _projBuffers.remove(n);
       return;

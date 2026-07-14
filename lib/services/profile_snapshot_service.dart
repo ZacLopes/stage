@@ -16,13 +16,12 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../data/models/models.dart' show ResumeCourse, ResumeLanguage;
-import '../features/resume/data/profile_pdf_data_loader.dart'
-    show ProfilePdfData;
+import '../features/resume/data/profile_resume_mapper.dart';
 import '../features/profile/data/repositories/profile_repository_supabase.dart';
 import '../features/profile/domain/repositories/profile_repository.dart';
 import '../features/profile/domain/entities/entities.dart';
 import '../features/resume/resume_viewmodel.dart'
-    show ResumeData, ExperienceItem, EducationItem, ToolWithLevel;
+    show ResumeData, ExperienceItem, ToolWithLevel;
 
 class ProfileSnapshot {
   final PersonalInfo? personal;
@@ -227,41 +226,9 @@ class ProfileSnapshot {
             ))
         .toList();
 
-    final mappedEducation = education.map((edu) {
-      final majors = edu.majors.map((m) => m.name).where((s) => s.isNotEmpty).toList();
-      final minors = edu.minors.map((m) => m.name).where((s) => s.isNotEmpty).toList();
-      final activitiesText = edu.activities
-          .map((a) => a.text)
-          .where((s) => s.isNotEmpty)
-          .toList();
-
-      String details = '';
-      if (majors.isNotEmpty) {
-        details = '${majors.join(', ')} Major';
-        if (minors.isNotEmpty) {
-          details += ' com ${minors.join(', ')} Minor';
-        }
-      } else if (minors.isNotEmpty) {
-        details = 'Minor em ${minors.join(', ')}';
-      }
-
-      final gpaStr = edu.gpa != null
-          ? (edu.maxGpa != null
-              ? '${edu.gpa}/${edu.maxGpa}'
-              : edu.gpa!.toString())
-          : '';
-
-      return EducationItem(
-        degree: edu.degree ?? '',
-        institution: edu.institution,
-        period: edu.formattedPeriod,
-        details: details,
-        location: edu.location ?? '',
-        gpa: gpaStr,
-        activities: activitiesText,
-        honors: activitiesText.join('; '),
-      );
-    }).toList();
+    final mappedEducation = education
+        .map(ProfileResumeMapper.mapEducation)
+        .toList();
 
     final mappedLanguages = languages
         .where((l) => l.name.trim().isNotEmpty)
@@ -285,14 +252,14 @@ class ProfileSnapshot {
     // exclusivos) e não tem seção semântica própria. achievements fica RESERVADO
     // pros CVs adaptados/legados. Projetos → academicProjects. As duas seções
     // são independentes → projetos e prêmios aparecem SIMULTANEAMENTE no PDF.
-    // Reusa os mapeadores ÚNICOS de ProfilePdfData (uma só conversão).
+    // Reusa o mapper ÚNICO do perfil (uma só conversão em todos os fluxos).
     final mappedAwards = awards
         .where((a) => a.name.trim().isNotEmpty)
-        .map(ProfilePdfData.mapAward)
+        .map(ProfileResumeMapper.mapAward)
         .toList();
     final mappedProjects = projects
-        .where(ProfilePdfData.projectHasRenderableText)
-        .map(ProfilePdfData.mapProject)
+        .where(ProfileResumeMapper.projectHasRenderableText)
+        .map(ProfileResumeMapper.mapProject)
         .toList();
 
     return ResumeData(

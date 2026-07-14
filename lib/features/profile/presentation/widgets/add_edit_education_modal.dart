@@ -196,9 +196,22 @@ class _AddEditEducationModalState extends State<AddEditEducationModal> {
       _isCollege &&
       (_educationStatus == _educationStatusStudying ||
           _educationStatus == _educationStatusPaused);
+  bool get _isInProgress => _educationStatus == _educationStatusStudying;
+  bool get _datesValid =>
+      _startDate == null ||
+      _endDate == null ||
+      !_endDate!.isBefore(_startDate!);
+
+  String get _endDateLabel {
+    if (_isInProgress) return 'Previsão de conclusão';
+    if (_educationStatus == _educationStatusPaused) {
+      return 'Fim (se aplicável)';
+    }
+    return 'Conclusão';
+  }
 
   bool get _canSave {
-    if (_institution.text.trim().isEmpty) return false;
+    if (_institution.text.trim().isEmpty || !_datesValid) return false;
     if (_isSchool) {
       return _educationStatus != _educationStatusStudying ||
           _schoolYear != null;
@@ -464,21 +477,46 @@ class _AddEditEducationModalState extends State<AddEditEducationModal> {
                             Expanded(
                               child: _DateField(
                                 label: 'Início',
-                                required: true,
                                 value: _startDate,
                                 onTap: _pickStart,
+                                onClear: _startDate == null
+                                    ? null
+                                    : () => setState(() => _startDate = null),
                               ),
                             ),
                             const SizedBox(width: 16),
                             Expanded(
                               child: _DateField(
-                                label: 'Fim (ou previsto)',
+                                label: _endDateLabel,
                                 value: _endDate,
                                 onTap: _pickEnd,
+                                clearKey: const ValueKey(
+                                  'education_end_date_clear',
+                                ),
+                                onClear: _endDate == null
+                                    ? null
+                                    : () => setState(() => _endDate = null),
                               ),
                             ),
                           ],
                         ),
+                        if (!_datesValid) ...[
+                          const SizedBox(height: 6),
+                          const Text(
+                            'A conclusão não pode ser anterior ao início.',
+                            style: TextStyle(
+                              color: _kError,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ] else if (_isInProgress && _endDate == null) ...[
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Se souber, informe quando espera concluir. Você pode deixar em branco.',
+                            style: TextStyle(color: _kLabelColor, fontSize: 12),
+                          ),
+                        ],
                         const SizedBox(height: 24),
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -964,15 +1002,17 @@ class _StepSliderField extends StatelessWidget {
 
 class _DateField extends StatelessWidget {
   final String label;
-  final bool required;
   final DateTime? value;
   final VoidCallback onTap;
+  final VoidCallback? onClear;
+  final Key? clearKey;
 
   const _DateField({
     required this.label,
     required this.value,
     required this.onTap,
-    this.required = false,
+    this.onClear,
+    this.clearKey,
   });
 
   @override
@@ -980,7 +1020,7 @@ class _DateField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _FieldLabel(text: label, required: required),
+        _FieldLabel(text: label),
         const SizedBox(height: 4),
         InkWell(
           onTap: onTap,
@@ -1007,10 +1047,23 @@ class _DateField extends StatelessWidget {
                     ),
                   ),
                 ),
-                const Icon(
-                  Icons.keyboard_arrow_down_rounded,
-                  color: _kHintColor,
-                ),
+                if (value != null && onClear != null)
+                  IconButton(
+                    key: clearKey,
+                    onPressed: onClear,
+                    tooltip: 'Limpar $label',
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: _kHintColor,
+                      size: 19,
+                    ),
+                  )
+                else
+                  const Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    color: _kHintColor,
+                  ),
               ],
             ),
           ),

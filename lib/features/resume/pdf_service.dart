@@ -5,6 +5,7 @@ import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart' as sf;
 
+import '../../core/utils/contact_email.dart';
 import '../../data/models/models.dart';
 import 'resume_viewmodel.dart';
 
@@ -178,12 +179,17 @@ class PdfService {
     String templateId,
     RenderTier tier,
   ) {
+    // Defesa central: fluxos legados ainda podem montar ResumeData com o
+    // e-mail de autenticação. Nenhum template deve publicá-lo.
+    final publicResume = resume.copyWith(
+      email: ContactEmail.resumeValueOrEmpty(resume.email),
+    );
     return switch (templateId) {
-      'jakes_resume'     => _buildJakesResumeHtml(user, resume, tier: tier),
-      'forte_foundation' => _buildForteFoundationHtml(user, resume, tier: tier),
-      'one_page_compact' => _buildOnePageHtml(user, resume, tier: tier),
-      'cobalt_modern'    => _buildCobaltModernHtml(user, resume, tier: tier),
-      _                  => _buildHarvardMcsHtml(user, resume, tier: tier),
+      'jakes_resume'     => _buildJakesResumeHtml(user, publicResume, tier: tier),
+      'forte_foundation' => _buildForteFoundationHtml(user, publicResume, tier: tier),
+      'one_page_compact' => _buildOnePageHtml(user, publicResume, tier: tier),
+      'cobalt_modern'    => _buildCobaltModernHtml(user, publicResume, tier: tier),
+      _                  => _buildHarvardMcsHtml(user, publicResume, tier: tier),
     };
   }
 
@@ -421,7 +427,7 @@ body { font-size: $fontSize !important; line-height: $lineHeight !important; }
       'certifications': 'Certificações &amp; Programas',
       'awards': 'Prêmios e Reconhecimentos',
       'interests': 'Interesses',
-      'mobile': 'Mobile',
+      'mobile': 'Telefone',
       'edu_coursework': 'Disciplinas relevantes',
       'edu_gpa': 'CR',
       'edu_honors': 'Honras &amp; Distinção Acadêmica',
@@ -554,7 +560,9 @@ body { font-size: $fontSize !important; line-height: $lineHeight !important; }
     .header { text-align: center; margin-bottom: 3pt; }
     .name { font-weight: bold; font-size: 17pt; letter-spacing: 0.5pt; }
     .address { font-size: 9.5pt; margin-top: 3pt; }
-    .contact { font-size: 9.5pt; margin-top: 1pt; }
+    .contact { font-size: 9.5pt; margin-top: 1pt; display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; column-gap: 8pt; }
+    .contact-group { display: inline-flex; flex: 0 0 auto; white-space: nowrap; }
+    .contact-separator { white-space: pre; }
     hr { border: none; border-top: 1px solid #000; margin: 5pt 0 10pt; }
     .sec { text-align: left; text-transform: uppercase; font-weight: bold; font-size: 10pt; letter-spacing: 0.3pt; margin: $secMt 0 0; padding-bottom: 1pt; border-bottom: 0.5pt solid #000; }
     .sec + * { margin-top: 2pt; }
@@ -2032,17 +2040,38 @@ ${_buildCobaltTierExtraCss(tier)}
   }
 
   static String _buildHarvardContactString(ResumeData resume) {
-    final parts = <String>[];
+    final primaryParts = <String>[];
+    final digitalParts = <String>[];
     // If address line is present, the city already appears there — skip it
     // here to avoid duplication.
     if (resume.address.trim().isEmpty && resume.location.trim().isNotEmpty) {
-      parts.add(resume.location);
+      primaryParts.add(_escapeHtml(resume.location.trim()));
     }
-    if (resume.phone.isNotEmpty) parts.add('${_l10n('mobile', resume.language)}: ${resume.phone}');
-    if (resume.email.isNotEmpty) parts.add(resume.email);
-    if (resume.linkedin.isNotEmpty) {
-      parts.add(_cleanLinkedinForDisplay(resume.linkedin));
+    if (resume.phone.trim().isNotEmpty) {
+      primaryParts.add(
+        '${_l10n('mobile', resume.language)}: '
+        '${_escapeHtml(resume.phone.trim())}',
+      );
     }
-    return parts.join(' | ');
+    if (resume.email.trim().isNotEmpty) {
+      digitalParts.add(_wrappableEmail(resume.email.trim()));
+    }
+    if (resume.linkedin.trim().isNotEmpty) {
+      digitalParts.add(_cleanLinkedinForDisplay(resume.linkedin.trim()));
+    }
+
+    String group(List<String> parts) {
+      final items = parts
+          .map((part) => '<span class="contact-item">$part</span>')
+          .join('<span class="contact-separator"> | </span>');
+      return '<span class="contact-group">$items</span>';
+    }
+
+    // Mantém e-mail + LinkedIn no mesmo agrupamento. Se a linha precisar
+    // quebrar, os dois descem juntos; o separador nunca fica órfão no fim.
+    return <List<String>>[primaryParts, digitalParts]
+        .where((parts) => parts.isNotEmpty)
+        .map(group)
+        .join(' ');
   }
 }

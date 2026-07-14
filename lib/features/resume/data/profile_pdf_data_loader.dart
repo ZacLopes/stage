@@ -20,7 +20,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../data/models/models.dart';
 import '../../profile/domain/entities/entities.dart';
-import '../resume_viewmodel.dart' show ResumeData, ExperienceItem, EducationItem;
+import '../resume_viewmodel.dart' show ResumeData, ExperienceItem;
+import 'profile_resume_mapper.dart';
 
 class ProfilePdfData {
   final PersonalInfo personal;
@@ -151,9 +152,9 @@ class ProfilePdfData {
   ///     ficam vazios (schema não os separa; templates já lidam).
   ///   - `experiences.description` → bullets concatenados por '\n', mesma
   ///     convenção que o pré-parser do adapt-resume-to-job usa.
-  ///   - `education.details` → primeiro major (string) — Harvard MCS mostra
-  ///     major na linha de detalhe. Majors/minors extra não são exibidos
-  ///     pelos templates v1, então paridade é preservada.
+  ///   - `education` → [ProfileResumeMapper.mapEducation], a mesma projeção
+  ///     usada pelo currículo geral. Grau/curso duplicados são consolidados e
+  ///     a previsão de conclusão é preservada.
   ///   - `education.coursework` → vazio (tabela `profile_coursework` está
   ///     dormente desde 2026-05-22, conteúdo migrou pra profile_skills).
   ///   - `education.gpa` → "X.XX/Y.YY" ou "X.XX" se max_gpa null.
@@ -181,30 +182,12 @@ class ProfilePdfData {
       );
     }).toList();
 
-    final educationOut = education.map((edu) {
-      final primaryMajor = edu.majors.isNotEmpty ? edu.majors.first.name : '';
-      final gpaStr = _formatGpa(edu.gpa, edu.maxGpa);
-      // Activities vêm de profile_education_activities — antes ficavam fora
-      // do PDF porque o mapeamento não passava esse campo. Agora ordenamos
-      // por orderIndex pra preservar a sequência salva no banco.
-      final activityTexts = (edu.activities.toList()
-            ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex)))
-          .map((a) => a.text)
-          .where((t) => t.trim().isNotEmpty)
-          .toList();
-      return EducationItem(
-        degree: edu.degree ?? '',
-        institution: edu.institution,
-        period: edu.formattedPeriod,
-        details: primaryMajor,
-        location: edu.location ?? '',
-        gpa: gpaStr,
-        honors: '',
-        repRole: '',
-        coursework: '',
-        activities: activityTexts,
-      );
-    }).toList();
+    // MESMA projeção usada por ProfileSnapshot (currículo geral). Isso
+    // impede drift de degree/major, período previsto, GPA e activities entre
+    // o caminho relacional v2 e o snapshot canônico.
+    final educationOut = education
+        .map(ProfileResumeMapper.mapEducation)
+        .toList();
 
     final interestNames = interests.map((i) => i.name).where((n) => n.trim().isNotEmpty).toList();
 
@@ -291,13 +274,6 @@ class ProfilePdfData {
     return '$c $n';
   }
 
-  String _formatGpa(double? gpa, double? maxGpa) {
-    if (gpa == null) return '';
-    final g = gpa.toStringAsFixed(2);
-    if (maxGpa == null) return g;
-    return '$g/${maxGpa.toStringAsFixed(2)}';
-  }
-
   // ── Mapeadores ÚNICOS (projeto/prêmio) ────────────────────────────────
   // Reutilizados pelo currículo geral (ProfileSnapshot.toResumeData) pra que
   // exista UMA conversão de Project→ResumeProject e Award→ResumeAward, não
@@ -310,54 +286,16 @@ class ProfilePdfData {
   /// templates mostrariam um cabeçalho "Projetos" com uma entrada em branco).
   /// Mesmo critério no predicate, no mapper, na prévia e nos templates.
   static bool projectHasRenderableText(Project p) =>
-      p.name.trim().isNotEmpty ||
-      (p.role ?? '').trim().isNotEmpty ||
-      (p.description ?? '').trim().isNotEmpty ||
-      p.bullets.any((b) => b.text.trim().isNotEmpty);
+      ProfileResumeMapper.projectHasRenderableText(p);
 
   /// Project → ResumeProject (academicProjects). Bullets viram descrição
   /// multi-linha; sem bullets, cai na descrição livre legada.
-  static ResumeProject mapProject(Project p) {
-    final bulletsText = p.bullets
-        .where((b) => b.text.trim().isNotEmpty)
-        .map((b) => b.text)
-        .join('\n');
-    final fallback = (p.description ?? '').trim();
-    return ResumeProject(
-      title: p.name,
-      role: p.role ?? '',
-      period: _formatProjectPeriod(p.startDate, p.endDate, p.isCurrent),
-      description: bulletsText.isNotEmpty ? bulletsText : fallback,
-      location: '',
-      relevantWork: p.context ?? '',
-    );
-  }
+  static ResumeProject mapProject(Project p) =>
+      ProfileResumeMapper.mapProject(p);
 
   /// Award → ResumeAward (campo próprio ResumeData.awards). O schema
   /// relacional só tem name+date; institution/description ficam vazios.
-  static ResumeAward mapAward(Award a) => ResumeAward(
-        title: a.name,
-        institution: '',
-        date: a.date != null ? _formatYear(a.date!) : '',
-        description: '',
-      );
-
-  static String _formatProjectPeriod(
-      DateTime? start, DateTime? end, bool isCurrent) {
-    if (start == null && end == null) return '';
-    final s = start != null ? _formatMonthYear(start) : '';
-    if (isCurrent) return s.isEmpty ? 'Atual' : '$s - Atual';
-    if (end == null) return s;
-    return '$s - ${_formatMonthYear(end)}';
-  }
-
-  static String _formatMonthYear(DateTime d) {
-    const months = [
-      '', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
-      'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
-    ];
-    return '${months[d.month]} ${d.year}';
-  }
+  static ResumeAward mapAward(Award a) => ProfileResumeMapper.mapAward(a);
 
   static String _formatYear(DateTime d) => d.year.toString();
 }

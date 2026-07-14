@@ -8,7 +8,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../auth/auth_session.dart';
 import '../../application/profile_editor_view_model.dart';
+import '../../domain/award_editor_reconciliation.dart';
 import '../../domain/entities/entities.dart';
+import '../../domain/skill_name_normalizer.dart';
+import '../../../resume/data/profile_resume_mapper.dart';
 import 'add_edit_experience_modal.dart';
 import 'add_edit_education_modal.dart';
 import 'add_edit_language_modal.dart';
@@ -129,12 +132,7 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
       final lowConfidence =
           widget.showLowConfidenceBadges &&
           (e.confidence != null && e.confidence! < 0.7);
-      final degree = e.degree ?? '';
-      final firstMajor = e.majors.isNotEmpty ? e.majors.first.name : '';
-      final subtitle = [
-        degree,
-        firstMajor,
-      ].where((s) => s.isNotEmpty).join(', ');
+      final subtitle = ProfileResumeMapper.formatEducationQualification(e);
       final details = <_DetailLine>[
         if (_educationStatusDetail(e) != null)
           _DetailLine(label: 'Situação', value: _educationStatusDetail(e)!),
@@ -149,6 +147,11 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
           _DetailLine(
             label: 'Ano escolar',
             value: '${e.currentSchoolYear}º ano',
+          ),
+        if (e.educationStatus == 'studying' && e.endDate == null)
+          const _DetailLine(
+            label: 'Previsão de conclusão',
+            value: 'Não informada',
           ),
         if (e.majors.length > 1)
           _DetailLine(
@@ -204,14 +207,19 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
     final names = vm.skills.map((s) => s.name).toList();
     return _sectionShell(
       key: 'skills',
-      title: 'Skills',
+      title: 'Habilidades',
       count: names.length,
       onEdit: () => EditListModal.show(
         context: context,
-        title: 'Editar Skills',
-        inputLabel: 'Skill',
+        title: 'Editar habilidades',
+        inputLabel: 'Habilidade',
         initialItems: names,
         suggestions: vm.skillSuggestions,
+        guidanceText:
+            'Priorize de 6 a 12 habilidades que você realmente usa e que são '
+            'relevantes para as vagas que busca.',
+        recommendedMinItems: kRecommendedMinProfileSkills,
+        maxItems: kMaxProfileSkills,
         onSave: vm.replaceSkills,
       ),
       children: names.isEmpty ? const [] : [_ChipList(items: names)],
@@ -334,10 +342,7 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
   }
 
   Widget _sectionAwards(ProfileEditorViewModel vm) {
-    final names = vm.awards.map((a) {
-      if (a.date != null) return '${a.name} (${a.date!.year})';
-      return a.name;
-    }).toList();
+    final names = vm.awards.map(awardEditorLabel).toList();
     return _sectionShell(
       key: 'awards',
       title: 'Prêmios',
@@ -354,14 +359,12 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
             handleSessionLost(context);
             return;
           }
-          for (final a in vm.awards) {
-            await vm.deleteAward(a.id);
-          }
-          for (var i = 0; i < items.length; i++) {
-            await vm.addAward(
-              Award(id: '', userId: userId, name: items[i], orderIndex: i),
-            );
-          }
+          final desired = reconcileAwardLabels(
+            userId: userId,
+            current: vm.awards,
+            labels: items,
+          );
+          await vm.replaceAwards(desired);
         },
       ),
       children: names.isEmpty ? const [] : [_ChipList(items: names)],
@@ -381,10 +384,29 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
       context: ctx,
       initial: initial,
       onSave: (exp, bulletTexts) async {
+        // AddEditExperienceModal já embute os objetos Bullet para preservar IDs
+        // e metadados. O fallback cobre chamadas antigas/testes que ainda
+        // entreguem apenas os textos.
+        final complete = exp.bullets.isNotEmpty || bulletTexts.isEmpty
+            ? exp
+            : exp.copyWith(
+                bullets: bulletTexts
+                    .asMap()
+                    .entries
+                    .map(
+                      (entry) => Bullet(
+                        id: '',
+                        experienceId: exp.id,
+                        text: entry.value.trim(),
+                        orderIndex: entry.key,
+                      ),
+                    )
+                    .toList(),
+              );
         if (initial == null) {
-          await vm.addExperience(exp);
+          await vm.addExperience(complete);
         } else {
-          await vm.updateExperience(exp);
+          await vm.updateExperience(complete);
         }
       },
       onDelete: initial == null ? null : () => vm.deleteExperience(initial.id),

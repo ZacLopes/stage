@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/theme.dart';
+import '../../../core/utils/contact_email.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../home/home_viewmodel.dart';
 import '../../profile/application/profile_editor_view_model.dart';
@@ -69,6 +70,7 @@ class _GeneralResumeCardState extends State<GeneralResumeCard> {
     final loading = p.isLoading && !hasContent;
     return GeneralResumeCardView(
       hasContent: hasContent,
+      hasUsableContactEmail: ContactEmail.isUsable(p.personal?.email),
       isLoading: loading,
       isExporting: _isExporting,
       onPreview: _openPreview,
@@ -83,6 +85,7 @@ class GeneralResumeCardView extends StatelessWidget {
   const GeneralResumeCardView({
     super.key,
     required this.hasContent,
+    this.hasUsableContactEmail = true,
     this.isLoading = false,
     this.isExporting = false,
     this.onPreview,
@@ -91,6 +94,7 @@ class GeneralResumeCardView extends StatelessWidget {
   });
 
   final bool hasContent;
+  final bool hasUsableContactEmail;
   final bool isLoading;
   final bool isExporting;
   final VoidCallback? onPreview;
@@ -164,6 +168,10 @@ class GeneralResumeCardView extends StatelessWidget {
           'Gerado a partir dos dados atuais do seu perfil.',
           style: AppTextStyles.bodySm.copyWith(color: AppColors.textSecondary),
         ),
+        if (!hasUsableContactEmail) ...[
+          const SizedBox(height: AppSpacing.md),
+          _contactEmailWarning(),
+        ],
         const SizedBox(height: AppSpacing.base),
         _responsiveCtas(),
       ];
@@ -184,6 +192,35 @@ class GeneralResumeCardView extends StatelessWidget {
       ),
     ];
   }
+
+  Widget _contactEmailWarning() => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(AppSpacing.md),
+    decoration: BoxDecoration(
+      color: AppColors.warningSoft,
+      borderRadius: AppRadius.brMd,
+      border: Border.all(color: AppColors.warning),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Adicione um e-mail de contato antes de enviar o currículo. Seu e-mail de login não será exibido.',
+          style: AppTextStyles.bodySm.copyWith(color: AppColors.textPrimary),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        TextButton(
+          onPressed: onCompleteProfile,
+          style: TextButton.styleFrom(
+            padding: EdgeInsets.zero,
+            minimumSize: const Size(0, 36),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          child: const Text('Adicionar e-mail'),
+        ),
+      ],
+    ),
+  );
 
   /// CTAs responsivos: EMPILHADOS full-width em largura compacta (padrão em
   /// phones); LADO A LADO só quando há folga real. O "Exportar PDF" é largo

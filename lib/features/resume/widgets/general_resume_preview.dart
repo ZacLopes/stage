@@ -33,9 +33,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/theme.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../profile/application/profile_editor_view_model.dart';
-import '../../profile/domain/entities/entities.dart' show Project;
+import '../../profile/domain/entities/entities.dart'
+    show Award, Education, Project;
 import '../../trilha/application/trilha_hub_status.dart';
-import '../data/profile_pdf_data_loader.dart' show ProfilePdfData;
+import '../data/profile_resume_mapper.dart';
 import '../services/general_resume_export.dart';
 
 /// Um item de seção da prévia (título + subtítulo), já formatado pra exibição.
@@ -44,10 +45,11 @@ typedef PreviewRow = ({String title, String subtitle});
 /// Converte um [Project] canônico na linha da prévia. Ancora o título na MESMA
 /// ordem que o PDF surfaceia conteúdo (nome → papel → 1º bullet/descrição), pra
 /// nunca gerar uma linha em branco quando o projeto não tem nome (o predicate
-/// [ProfilePdfData.projectHasRenderableText] admite projetos só-com-bullets).
+/// [ProfileResumeMapper.projectHasRenderableText] admite projetos
+/// só-com-bullets).
 /// `context` fica só no subtítulo (anotação secundária), nunca como título.
 PreviewRow projectPreviewRow(Project pr) {
-  final name = pr.name.trim();
+  final name = ProfileResumeMapper.mapProject(pr).title;
   final role = (pr.role ?? '').trim();
   final ctx = (pr.context ?? '').trim();
   final body = pr.bullets
@@ -67,6 +69,23 @@ PreviewRow projectPreviewRow(Project pr) {
   ].join(' · ');
   return (title: title, subtitle: subtitle);
 }
+
+/// Linha de formação baseada na MESMA projeção do PDF. Assim o card não
+/// reintroduz degree/major duplicados e mostra a previsão de conclusão antes
+/// de a pessoa exportar o documento.
+PreviewRow educationPreviewRow(Education education) {
+  final mapped = ProfileResumeMapper.mapEducation(education);
+  return (
+    title: mapped.degree.isEmpty ? 'Curso' : mapped.degree,
+    subtitle: [
+      mapped.institution,
+      mapped.period,
+    ].where((part) => part.trim().isNotEmpty).join(' · '),
+  );
+}
+
+String awardPreviewTitle(Award award) =>
+    ProfileResumeMapper.mapAward(award).title;
 
 /// Prévia do currículo geral conectada ao perfil canônico. Reconstrói (e o PDF
 /// exportado reflete) sempre que o [ProfileEditorViewModel] muda.
@@ -116,21 +135,12 @@ class GeneralResumePreview extends StatelessWidget {
             ),
           )
           .toList(),
-      education: p.education
-          .map(
-            (ed) => (
-              title: ed.majors.isNotEmpty
-                  ? ed.majors.map((m) => m.name).join(', ')
-                  : (ed.degree ?? 'Curso'),
-              subtitle: ed.institution,
-            ),
-          )
-          .toList(),
+      education: p.education.map(educationPreviewRow).toList(),
       // Projetos filtrados pelo MESMO critério do predicate/mapper
-      // (ProfilePdfData.projectHasRenderableText) e mapeados por
+      // (ProfileResumeMapper.projectHasRenderableText) e mapeados por
       // [projectPreviewRow] (título nunca vazio) — coerência prévia↔PDF.
       projects: p.projects
-          .where(ProfilePdfData.projectHasRenderableText)
+          .where(ProfileResumeMapper.projectHasRenderableText)
           .map(projectPreviewRow)
           .toList(),
       certifications: p.certifications
@@ -138,7 +148,7 @@ class GeneralResumePreview extends StatelessWidget {
           .where((n) => n.trim().isNotEmpty)
           .toList(),
       awards: p.awards
-          .map((a) => a.name)
+          .map(awardPreviewTitle)
           .where((n) => n.trim().isNotEmpty)
           .toList(),
       interests: p.interests

@@ -37,6 +37,14 @@ void main() {
       expect(_richTextContaining('Semestre atual'), findsOneWidget);
       expect(find.text('6º semestre'), findsOneWidget);
       expect(_richTextContaining('Ano da escola'), findsNothing);
+      expect(_richTextContaining('Previsão de conclusão'), findsOneWidget);
+      expect(
+        find.text(
+          'Se souber, informe quando espera concluir. Você pode deixar em branco.',
+        ),
+        findsOneWidget,
+      );
+      expect(_saveButton(tester).onPressed, isNotNull);
     });
 
     testWidgets('shows paused college with last semester label', (
@@ -66,6 +74,7 @@ void main() {
       expect(_richTextContaining('Nome da faculdade'), findsOneWidget);
       expect(_richTextContaining('Último semestre cursado'), findsOneWidget);
       expect(find.text('4º semestre'), findsOneWidget);
+      expect(_richTextContaining('Fim (se aplicável)'), findsOneWidget);
     });
 
     testWidgets('shows school fields and hides college-only fields', (
@@ -93,8 +102,83 @@ void main() {
       expect(_richTextContaining('Semestre atual'), findsNothing);
       expect(_richTextContaining('Último semestre cursado'), findsNothing);
     });
+
+    testWidgets('disables save when completion precedes start', (tester) async {
+      await tester.pumpWidget(
+        _TestHost(
+          initial: Education(
+            id: 'education-4',
+            userId: 'user-1',
+            institution: 'USP',
+            educationLevel: 'college',
+            educationStatus: 'completed',
+            degree: 'Bacharelado',
+            startDate: DateTime(2030, 1),
+            endDate: DateTime(2029, 12),
+            majors: const [
+              EducationMajor(
+                id: 'major-1',
+                educationId: 'education-4',
+                name: 'Administração',
+              ),
+            ],
+          ),
+        ),
+      );
+
+      expect(
+        find.text('A conclusão não pode ser anterior ao início.'),
+        findsOneWidget,
+      );
+      expect(_saveButton(tester).onPressed, isNull);
+    });
+
+    testWidgets('allows clearing an optional expected completion', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _TestHost(
+          initial: Education(
+            id: 'education-5',
+            userId: 'user-1',
+            institution: 'USP',
+            educationLevel: 'college',
+            educationStatus: 'studying',
+            degree: 'Bacharelado',
+            currentSemester: 3,
+            endDate: DateTime(2029, 12),
+            majors: const [
+              EducationMajor(
+                id: 'major-1',
+                educationId: 'education-5',
+                name: 'Administração',
+              ),
+            ],
+          ),
+        ),
+      );
+
+      final clearButton = find.byKey(
+        const ValueKey('education_end_date_clear'),
+      );
+      await tester.ensureVisible(clearButton);
+      await tester.pumpAndSettle();
+      await tester.tap(clearButton);
+      await tester.pump();
+
+      expect(
+        find.text(
+          'Se souber, informe quando espera concluir. Você pode deixar em branco.',
+        ),
+        findsOneWidget,
+      );
+      expect(_saveButton(tester).onPressed, isNotNull);
+    });
   });
 }
+
+ElevatedButton _saveButton(WidgetTester tester) =>
+    tester.widget(find.widgetWithText(ElevatedButton, 'Salvar'));
 
 Finder _richTextContaining(String text) {
   return find.byWidgetPredicate(

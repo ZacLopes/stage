@@ -9,18 +9,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../../core/utils/brazil_phone_formatter.dart';
+import '../../../../core/utils/contact_email.dart';
 import '../../domain/entities/entities.dart';
 import '../../../../core/theme/theme.dart';
 
 class PersonalInfoForm extends StatefulWidget {
   final PersonalInfo? initial;
   final void Function(PersonalInfo draft) onChanged;
+  final ValueChanged<bool>? onEmailValidityChanged;
   final bool requireCriticalFields; // true no onboarding
 
   const PersonalInfoForm({
     super.key,
     required this.initial,
     required this.onChanged,
+    this.onEmailValidityChanged,
     this.requireCriticalFields = false,
   });
 
@@ -69,8 +72,26 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
       text: _parsedDob != null ? _formatDob(_parsedDob!) : '',
     );
 
-    for (final c in [_firstName, _lastName, _email, _phoneNumber, _summary]) {
+    for (final c in [_firstName, _lastName, _phoneNumber, _summary]) {
       c.addListener(_emitChange);
+    }
+    _email.addListener(_onEmailChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        widget.onEmailValidityChanged?.call(ContactEmail.isUsable(_email.text));
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant PersonalInfoForm oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final previous = ContactEmail.normalize(oldWidget.initial?.email);
+    final next = ContactEmail.normalize(widget.initial?.email);
+    if (_email.text.trim().isEmpty && next.isNotEmpty && next != previous) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _email.text.trim().isEmpty) _email.text = next;
+      });
     }
   }
 
@@ -137,13 +158,38 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
     return age < 0 ? null : age;
   }
 
+  void _onEmailChanged() {
+    setState(() {});
+    final isValid = ContactEmail.isUsable(_email.text);
+    widget.onEmailValidityChanged?.call(isValid);
+    // Não grava valor parcial, relay ou sintético durante o autosave.
+    if (isValid) _emitChange();
+  }
+
+  String? get _emailError {
+    final value = _email.text.trim();
+    if (value.isEmpty) return null;
+    if (ContactEmail.isApplePrivateRelay(value)) {
+      return 'Este e-mail privado da Apple serve para login. Troque por um contato para o currículo.';
+    }
+    if (ContactEmail.isSyntheticAuthEmail(value)) {
+      return 'Este e-mail serve apenas para login por telefone. Adicione um contato para o currículo.';
+    }
+    if (!ContactEmail.isValid(value)) {
+      return 'Digite um e-mail válido para o currículo.';
+    }
+    return null;
+  }
+
   void _emitChange() {
     final base = widget.initial;
     if (base == null) return;
     widget.onChanged(base.copyWith(
       firstName: _firstName.text.trim().isEmpty ? null : _firstName.text.trim(),
       lastName: _lastName.text.trim().isEmpty ? null : _lastName.text.trim(),
-      email: _email.text.trim().isEmpty ? null : _email.text.trim().toLowerCase(),
+      email: ContactEmail.isUsable(_email.text)
+          ? ContactEmail.normalize(_email.text)
+          : base.email,
       phoneCountryCode: _phoneCountryCode,
       phoneNumber: _phoneNumber.text.trim().isEmpty ? null : _phoneNumber.text.trim(),
       dateOfBirth: _parsedDob,
@@ -169,7 +215,9 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
     return InputDecoration(
       labelText: label,
       helperText: helper,
+      helperMaxLines: 2,
       errorText: errorText,
+      errorMaxLines: 2,
       filled: true,
       fillColor: AppColors.surface,
       border: OutlineInputBorder(
@@ -213,8 +261,15 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
         const SizedBox(height: 14),
         TextField(
           controller: _email,
-          decoration: _decoration('Email', critical: true, empty: _email.text.trim().isEmpty),
+          decoration: _decoration(
+            'E-mail no currículo',
+            critical: true,
+            empty: _email.text.trim().isEmpty,
+            helper: 'Aparece no currículo e pode ser usado por recrutadores. Não altera seu login.',
+            errorText: _emailError,
+          ),
           keyboardType: TextInputType.emailAddress,
+          autofillHints: const [AutofillHints.email],
           autocorrect: false,
         ),
         const SizedBox(height: 14),

@@ -397,6 +397,24 @@ void main() {
       expect(picked.map((s) => s.id), contains('exp.0.outro.label'));
     });
 
+    test('experiência: pede resultado verificável, sem incentivar invenção', () {
+      final plan = buildConversationPlan(gaps());
+      final gate = plan.firstWhere((s) => s.id == 'exp.gate');
+      final picked = gate.expand!(StepAnswer(
+          stepId: 'exp.gate', value: const ['estagio'], displayText: 'Estágio'));
+      final current =
+          picked.firstWhere((s) => s.id == 'exp.0.estagio.current');
+      final tail = current.expand!(StepAnswer.choice(
+          'exp.0.estagio.current',
+          const [StepOption(id: 'yes', label: 'Sim, ainda estou')]));
+      final result = tail.firstWhere((s) => s.id == 'exp.0.estagio.ofazia');
+      final prompt = result.aiMessages.join(' ');
+
+      expect(prompt, contains('qual foi o resultado'));
+      expect(prompt, contains('números, prazo ou escala'));
+      expect(prompt, contains('só o que você consegue defender'));
+    });
+
     test('experiência: a IA RESUME o item anotado (recap no passo terminal)', () {
       final plan = buildConversationPlan(gaps());
       final gate = plan.firstWhere((s) => s.id == 'exp.gate');

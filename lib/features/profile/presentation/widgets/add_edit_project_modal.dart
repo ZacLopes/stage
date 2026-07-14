@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import '../../../auth/auth_session.dart';
 import '../../../gamification/widgets/month_year_picker_sheet.dart';
 import '../../domain/entities/entities.dart';
+import '../../domain/profile_title.dart';
 import '../../../../core/theme/theme.dart';
 
 const _kBorderColor = AppColors.border;
@@ -167,7 +168,7 @@ class _AddEditProjectModalState extends State<AddEditProjectModal> {
             ))
         .toList();
     final updated = base.copyWith(
-      name: _name.text.trim(),
+      name: normalizeProfileTitle(_name.text),
       role: _role.text.trim().isEmpty ? null : _role.text.trim(),
       context: _context.text.trim().isEmpty ? null : _context.text.trim(),
       website: _website.text.trim().isEmpty ? null : _website.text.trim(),
