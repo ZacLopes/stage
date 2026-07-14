@@ -6,13 +6,19 @@ import {
   csvEscape,
   errorResponse,
   jsonResponse,
-  normalizeText,
   parsePagination,
   readJson,
   requireAdmin,
-  tokenize,
 } from '../_shared/admin.ts';
-import { publicContactEmailOrEmpty } from '../_shared/contact_email.ts';
+// Scoring puro do auto-rank (extraído p/ ser testável — index.ts chama serve()
+// no top-level e não pode ser importado por deno test). Fase 7 Onda 1.
+import { type CandidateProfile, scoreCandidate, text } from './scoring.ts';
+import {
+  candidateEmailFields,
+  EXPORT_HEADERS,
+  exportRowCells,
+  LANG_LEVEL_PT,
+} from './export_csv.ts';
 
 interface CandidateListsRequest {
   action?: 'list' | 'detail' | 'create' | 'generate' | 'update_item' | 'export';
@@ -36,33 +42,10 @@ interface CandidateListsRequest {
   item?: {
     status?: 'pending' | 'approved' | 'rejected' | 'exported';
     notes?: string | null;
+    // Resultado por candidato entregue (Fase 7 Onda 2 · T-C3).
+    outcome?: 'interviewing' | 'interviewed' | 'hired' | 'not_selected' | 'no_response' | null;
+    outcomeNote?: string | null;
   };
-}
-
-interface CandidateProfile {
-  userId: string;
-  name: string;
-  email: string;
-  phone: string;
-  city: string;
-  state: string;
-  headline: string;
-  summary: string;
-  completenessScore: number;
-  skills: string[];
-  desiredTitles: string[];
-  education: string[];
-  workModes: string[];
-  jobTypes: string[];
-  otherLocations: string[];
-  likes: number;
-  applies: number;
-  consentStatus: string;
-  createdAt: string;
-}
-
-function text(value: unknown): string {
-  return String(value ?? '').trim();
 }
 
 function relationObject(value: unknown): Record<string, unknown> | null {
@@ -84,143 +67,6 @@ function maskName(value: string): string {
     .join(' ');
 }
 
-function normalizeWorkMode(value: string): string {
-  switch (value) {
-    case 'remote':
-      return 'remoto';
-    case 'hybrid':
-      return 'hibrido';
-    case 'in_person':
-      return 'presencial';
-    default:
-      return value;
-  }
-}
-
-function normalizeJobType(value: string): string {
-  switch (value) {
-    case 'internship':
-      return 'estagio';
-    case 'full_time':
-      return 'clt_junior';
-    case 'contract':
-      return 'temporario';
-    case 'part_time':
-      return 'temporario';
-    default:
-      return value;
-  }
-}
-
-function hasTokenOverlap(a: string[], b: string[]): boolean {
-  const set = new Set(a);
-  return b.some((token) => set.has(token));
-}
-
-function scoreCandidate(request: any, candidate: CandidateProfile) {
-  const breakdown: Array<{ label: string; points: number; detail: string }> = [];
-  let score = 0;
-
-  const reqTitleTokens = tokenize(`${request.title ?? ''} ${request.area ?? ''}`);
-  const candidateTitleTokens = tokenize([
-    ...candidate.desiredTitles,
-    candidate.headline,
-    candidate.summary,
-  ].join(' '));
-  const titleMatched = hasTokenOverlap(reqTitleTokens, candidateTitleTokens);
-  if (titleMatched) score += 25;
-  breakdown.push({
-    label: 'Cargo/area',
-    points: titleMatched ? 25 : 0,
-    detail: titleMatched
-      ? 'Cargo desejado ou resumo profissional conversa com a vaga.'
-      : 'Nao ha sinal claro de cargo/area desejada para essa vaga.',
-  });
-
-  const reqSkillTokens = tokenize([
-    request.description,
-    ...(Array.isArray(request.requirements) ? request.requirements : []),
-  ].join(' '));
-  const candidateSkillTokens = tokenize([
-    ...candidate.skills,
-    candidate.summary,
-    candidate.headline,
-    ...candidate.education,
-  ].join(' '));
-  const reqSet = new Set(reqSkillTokens);
-  const overlap = Array.from(new Set(candidateSkillTokens)).filter((token) => reqSet.has(token));
-  const skillRatio = reqSet.size > 0 ? Math.min(1, overlap.length / Math.min(reqSet.size, 8)) : 0;
-  const skillPoints = Math.round(skillRatio * 25);
-  score += skillPoints;
-  breakdown.push({
-    label: 'Skills',
-    points: skillPoints,
-    detail: overlap.length > 0
-      ? `Sobreposicao detectada: ${overlap.slice(0, 5).join(', ')}.`
-      : 'Nao houve sobreposicao relevante de skills/requisitos.',
-  });
-
-  const requestCity = normalizeText(request.location_city);
-  const requestState = normalizeText(request.location_state);
-  const candidateLocations = [
-    candidate.city,
-    candidate.state,
-    ...candidate.otherLocations,
-  ].map(normalizeText).filter(Boolean);
-  const locationMatched = normalizeText(request.work_model) === 'remoto' ||
-    !requestCity && !requestState ||
-    (requestCity && candidateLocations.includes(requestCity)) ||
-    (requestState && candidateLocations.includes(requestState));
-  if (locationMatched) score += 15;
-  breakdown.push({
-    label: 'Localizacao',
-    points: locationMatched ? 15 : 0,
-    detail: locationMatched
-      ? 'Localizacao ou remoto parece compativel.'
-      : 'Localizacao declarada nao bate com a vaga.',
-  });
-
-  const requestWorkModel = normalizeWorkMode(text(request.work_model));
-  const candidateWorkModes = candidate.workModes.map(normalizeWorkMode);
-  const workMatched = !requestWorkModel || candidateWorkModes.length === 0 ||
-    candidateWorkModes.includes(requestWorkModel);
-  if (workMatched) score += 10;
-  breakdown.push({
-    label: 'Modelo',
-    points: workMatched ? 10 : 0,
-    detail: workMatched
-      ? 'Modelo de trabalho compativel.'
-      : 'Modelo de trabalho nao declarado como preferido.',
-  });
-
-  const requestJobType = normalizeJobType(text(request.job_type));
-  const candidateJobTypes = candidate.jobTypes.map(normalizeJobType);
-  const typeMatched = !requestJobType || candidateJobTypes.length === 0 ||
-    candidateJobTypes.includes(requestJobType);
-  if (typeMatched) score += 10;
-  breakdown.push({
-    label: 'Tipo',
-    points: typeMatched ? 10 : 0,
-    detail: typeMatched
-      ? 'Tipo/nivel de vaga compativel.'
-      : 'Tipo de vaga nao bate com a preferencia.',
-  });
-
-  let readiness = 0;
-  if (candidate.completenessScore >= 60) readiness += 8;
-  if (candidate.skills.length >= 3) readiness += 3;
-  if (candidate.education.length > 0) readiness += 2;
-  if (candidate.likes > 0 || candidate.applies > 0) readiness += 2;
-  score += readiness;
-  breakdown.push({
-    label: 'Prontidao',
-    points: readiness,
-    detail: 'Pontua perfil completo, skills, formacao e atividade no app.',
-  });
-
-  return { score: Math.max(0, Math.min(100, score)), breakdown };
-}
-
 async function buildCandidateProfiles(
   supabase: any,
   restrictUserIds?: string[],
@@ -232,7 +78,9 @@ async function buildCandidateProfiles(
   // Sem restrição, mantém o pool completo pro 'generate'.
   let poolQuery = supabase
     .from('user_profiles')
-    .select('id, name, phone, created_at');
+    // `email` é apenas um sinal privado para excluir contas internas/sintéticas.
+    // O contato exposto abaixo vem exclusivamente de profile_personal.email.
+    .select('id, name, email, phone, created_at');
   poolQuery = restrictUserIds && restrictUserIds.length > 0
     ? poolQuery.in('id', restrictUserIds)
     : poolQuery.order('created_at', { ascending: false }).limit(5000);
@@ -242,27 +90,43 @@ async function buildCandidateProfiles(
   const userIds = (users ?? []).map((row: any) => row.id);
   if (userIds.length === 0) return [];
 
-  const [personalR, skillsR, titlesR, eduR, prefsR, otherLocsR, swipesR, consentsR] = await Promise
-    .all([
-      supabase.from('profile_personal').select('*').in('user_id', userIds),
-      supabase.from('profile_skills').select('user_id, name').in('user_id', userIds),
-      supabase.from('profile_desired_titles').select('user_id, title').in('user_id', userIds),
-      supabase
-        .from('profile_education')
-        .select('user_id, institution, degree, profile_education_majors(name)')
-        .in('user_id', userIds),
-      supabase.from('profile_job_preferences').select('*').in('user_id', userIds),
-      supabase.from('profile_other_locations').select('user_id, city, state, country').in(
-        'user_id',
-        userIds,
-      ),
-      supabase.from('swipe_actions').select('user_id, action, applied').in('user_id', userIds)
-        .limit(100000),
-      supabase.from('candidate_data_sharing_consents').select('user_id, status').in(
-        'user_id',
-        userIds,
-      ),
-    ]);
+  const [
+    personalR,
+    skillsR,
+    titlesR,
+    eduR,
+    prefsR,
+    otherLocsR,
+    swipesR,
+    consentsR,
+    langsR,
+    resumesR,
+  ] = await Promise.all([
+    supabase.from('profile_personal').select('*').in('user_id', userIds),
+    supabase.from('profile_skills').select('user_id, name').in('user_id', userIds),
+    supabase.from('profile_desired_titles').select('user_id, title').in('user_id', userIds),
+    supabase
+      .from('profile_education')
+      .select(
+        'user_id, institution, degree, current_semester, education_level, education_status, end_date, profile_education_majors(name)',
+      )
+      .in('user_id', userIds),
+    supabase.from('profile_job_preferences').select('*').in('user_id', userIds),
+    supabase.from('profile_other_locations').select('user_id, city, state, country').in(
+      'user_id',
+      userIds,
+    ),
+    supabase.from('swipe_actions').select('user_id, action, applied').in('user_id', userIds)
+      .limit(100000),
+    supabase.from('candidate_data_sharing_consents').select('user_id, status').in(
+      'user_id',
+      userIds,
+    ),
+    supabase.from('profile_languages').select('user_id, name, proficiency').in('user_id', userIds),
+    // CSV v2 (Fase 7 Onda 2): link do CV. order desc → 1ª por user = mais recente.
+    supabase.from('saved_resumes').select('user_id, file_path, created_at').in('user_id', userIds)
+      .order('created_at', { ascending: false }),
+  ]);
 
   const personal = new Map<string, any>(
     (personalR.data ?? []).map((row: any) => [row.user_id, row]),
@@ -272,6 +136,9 @@ async function buildCandidateProfiles(
   const skills = new Map<string, string[]>();
   const titles = new Map<string, string[]>();
   const education = new Map<string, string[]>();
+  const eduStructured = new Map<string, any>();
+  const languages = new Map<string, string>();
+  const cvPaths = new Map<string, string>();
   const otherLocations = new Map<string, string[]>();
   const activity = new Map<string, { likes: number; applies: number }>();
 
@@ -291,6 +158,29 @@ async function buildCandidateProfiles(
     values.push(text(row.degree));
     for (const major of row.profile_education_majors ?? []) values.push(text(major.name));
     education.set(row.user_id, values.filter(Boolean));
+    // Estruturado p/ o CSV v2: prefere a formação de faculdade; senão a 1ª vista.
+    const existing = eduStructured.get(row.user_id);
+    const isCollege = row.education_level === 'college';
+    if (!existing || (isCollege && existing.level !== 'college')) {
+      const major = (row.profile_education_majors ?? [])[0]?.name;
+      const gradYear = row.end_date ? Number(String(row.end_date).slice(0, 4)) : NaN;
+      eduStructured.set(row.user_id, {
+        institution: text(row.institution),
+        course: text(major) || text(row.degree),
+        semester: row.current_semester ?? null,
+        graduation: Number.isFinite(gradYear) ? gradYear : null,
+        level: text(row.education_level),
+      });
+    }
+  }
+  for (const row of langsR.data ?? []) {
+    const level = row.proficiency ? (LANG_LEVEL_PT[row.proficiency] ?? row.proficiency) : '';
+    const label = level ? `${row.name} (${level})` : row.name;
+    const prev = languages.get(row.user_id) ?? '';
+    languages.set(row.user_id, prev ? `${prev}, ${label}` : label);
+  }
+  for (const row of resumesR.data ?? []) {
+    if (!cvPaths.has(row.user_id) && row.file_path) cvPaths.set(row.user_id, row.file_path);
   }
   for (const row of otherLocsR.data ?? []) {
     const values = otherLocations.get(row.user_id) ?? [];
@@ -310,12 +200,18 @@ async function buildCandidateProfiles(
     const p = personal.get(user.id);
     const pref = prefs.get(user.id);
     const act = activity.get(user.id) ?? { likes: 0, applies: 0 };
+    const edu = eduStructured.get(user.id);
+    const contact = candidateEmailFields(user.email, p?.email);
     return {
       userId: user.id,
       name: [p?.first_name, p?.last_name].filter(Boolean).join(' ') || user.name || '',
-      email: publicContactEmailOrEmpty(p?.email),
+      email: contact.email,
       phone: p?.phone_number_e164 || p?.phone_number || user.phone || '',
       city: p?.location_city ?? '',
+      // Cidade só em JP (176 candidatos legacy): entra no COALESCE de
+      // Localização (score) e no CSV. profile_job_preferences já é carregado
+      // acima (prefsR). Fase 7 Onda 1.
+      primaryLocationCity: pref?.primary_location_city ?? '',
       state: p?.location_state ?? '',
       headline: p?.headline ?? '',
       summary: p?.summary ?? '',
@@ -330,6 +226,19 @@ async function buildCandidateProfiles(
       applies: act.applies,
       consentStatus: consent.get(user.id) ?? 'not_asked',
       createdAt: user.created_at,
+      // ── CSV v2 (Fase 7 Onda 2) — estruturado p/ o entregável, não p/ o rank ──
+      institution: edu?.institution ?? '',
+      course: edu?.course ?? '',
+      semester: edu?.semester ?? null,
+      graduationYear: edu?.graduation ?? null,
+      educationLevel: edu?.level ?? '',
+      languages: languages.get(user.id) ?? '',
+      linkedin: p?.linkedin_url ?? '',
+      availability: p?.availability ?? '',
+      desiredPosition: pref?.desired_position ?? '',
+      cvPath: cvPaths.get(user.id) ?? '',
+      isSyntheticEmail: contact.isSyntheticEmail,
+      isInternal: contact.isInternal,
     };
   });
 }
@@ -356,8 +265,18 @@ async function requestPayloadFromInput(
   const title = text(input.title) || text(job?.title);
   if (!title) throw new AdminHttpError(400, 'missing_title', 'Candidate list title is required');
 
+  // Fase 7 Onda 2 (T-C2): cliente é obrigatório — sem isso não há rastreabilidade
+  // de PARA QUEM a PII foi, nem métrica de recompra por empresa.
+  if (!input.clientId) {
+    throw new AdminHttpError(
+      400,
+      'missing_client',
+      'Selecione (ou cadastre) uma empresa cliente para criar a lista',
+    );
+  }
+
   return {
-    client_id: input.clientId ?? null,
+    client_id: input.clientId,
     source_job_id: input.sourceJobId ?? null,
     title,
     area: input.area ?? job?.area ?? null,
@@ -408,6 +327,10 @@ async function loadItems(supabase: any, requestId: string) {
       scoreBreakdown: item.score_breakdown,
       status: item.status,
       notes: item.notes,
+      outcome: item.outcome ?? null,
+      outcomeNote: item.outcome_note ?? null,
+      // Fase 7 Onda 2: export IGNORA consent; `exportable` só informa o status
+      // (a UI pode exibir), não bloqueia mais o export.
       exportable: profile?.consentStatus === 'granted',
       candidate: profile
         ? {
@@ -498,6 +421,12 @@ serve(async (req: Request) => {
       const payload: Record<string, unknown> = {};
       if (body.item.status) payload.status = body.item.status;
       if (body.item.notes !== undefined) payload.notes = body.item.notes;
+      // Fase 7 Onda 2 (T-C3): resultado do candidato entregue à empresa.
+      if (body.item.outcome !== undefined) {
+        payload.outcome = body.item.outcome;
+        payload.outcome_at = body.item.outcome ? new Date().toISOString() : null;
+      }
+      if (body.item.outcomeNote !== undefined) payload.outcome_note = body.item.outcomeNote;
       const { data, error } = await supabase
         .from('candidate_list_items')
         .update(payload)
@@ -519,43 +448,51 @@ serve(async (req: Request) => {
         throw new AdminHttpError(403, 'owner_required', 'Only owner admins can export');
       }
       if (!body.id) return jsonResponse({ error: 'missing_id' }, 400);
+      const requestRow = await loadRequest(supabase, body.id);
       const items = await loadItems(supabase, body.id);
-      const approved = items.filter((item: any) => item.status === 'approved' && item.exportable);
-      if (approved.length === 0) {
-        return jsonResponse({
-          error: 'no_exportable_candidates',
-          message: 'No approved candidates with granted consent',
-        }, 400);
-      }
+      // Fase 7 Onda 2: o export IGNORA o consent (decisão do fundador — é teste
+      // do modelo, não produção comercial). Exporta os itens APROVADOS; exclui
+      // apenas a(s) conta(s) de teste interna(s).
+      const approved = items.filter((item: any) => item.status === 'approved');
 
       const profiles = new Map(
         (await buildCandidateProfiles(supabase, approved.map((item: any) => item.userId)))
           .map((profile) => [profile.userId, profile]),
       );
-      const rows = approved.map((item: any) => profiles.get(item.userId)).filter(
-        Boolean,
-      ) as CandidateProfile[];
-      const headers = ['nome', 'email', 'telefone', 'cidade', 'estado', 'headline', 'skills'];
-      // Delimitador ';' + skills juntas com ', ': o Excel pt-BR usa ';' como
-      // separador de CSV (a vírgula é separador decimal aqui), então com ','
-      // as colunas não separavam. Todo campo já sai entre aspas (csvEscape),
-      // então ';' dentro de um valor é seguro. CRLF + BOM (no downloadCsv)
-      // completam a compatibilidade com Excel.
+      const exportRows = approved
+        .map((item: any) => ({ item, profile: profiles.get(item.userId) as CandidateProfile }))
+        .filter((r: any) => r.profile && !r.profile.isInternal);
+      if (exportRows.length === 0) {
+        return jsonResponse({
+          error: 'no_exportable_candidates',
+          message: 'Nenhum candidato aprovado para exportar',
+        }, 400);
+      }
+
+      // Link assinado do CV (bucket `resumes`, expira em 14 dias). Best-effort:
+      // sem CV acessível → coluna vazia, não derruba o export.
+      const cvUrls = new Map<string, string>();
+      await Promise.all(exportRows.map(async (r: any) => {
+        if (!r.profile.cvPath) return;
+        try {
+          const { data } = await supabase.storage
+            .from('resumes')
+            .createSignedUrl(r.profile.cvPath, 60 * 60 * 24 * 14);
+          if (data?.signedUrl) cvUrls.set(r.profile.userId, data.signedUrl);
+        } catch (_) { /* ignora — coluna vazia */ }
+      }));
+
+      // Delimitador ';' (Excel pt-BR usa ',' como decimal). Cada célula passa por
+      // csvEscape (aspas) e os campos de texto do candidato por sanitizeCsvValue
+      // (anti-injeção de fórmula) dentro de exportRowCells. CRLF + BOM completam.
       const csv = [
-        headers.map(csvEscape).join(';'),
-        ...rows.map((profile) =>
-          [
-            profile.name,
-            profile.email,
-            // Telefone como fórmula-texto ="...": o Excel avalia como string
-            // literal e mantém o "+", em vez de tratar o E.164 (13 dígitos +
-            // sinal) como número e mostrar notação científica / comer o "+".
-            profile.phone ? `="${profile.phone}"` : '',
-            profile.city,
-            profile.state,
-            profile.headline,
-            profile.skills.join(', '),
-          ].map(csvEscape).join(';')
+        EXPORT_HEADERS.map(csvEscape).join(';'),
+        ...exportRows.map((r: any) =>
+          exportRowCells(
+            r.profile,
+            { score: r.item.score, scoreBreakdown: r.item.scoreBreakdown },
+            cvUrls.get(r.profile.userId) ?? '',
+          ).map(csvEscape).join(';')
         ),
       ].join('\r\n');
 
@@ -563,10 +500,11 @@ serve(async (req: Request) => {
         .from('candidate_list_exports')
         .insert({
           request_id: body.id,
+          client_id: requestRow.client_id ?? null,
           exported_by: ctx.email,
           format: 'csv',
-          exported_fields: headers,
-          candidate_count: rows.length,
+          exported_fields: EXPORT_HEADERS,
+          candidate_count: exportRows.length,
         })
         .select()
         .single();
@@ -575,7 +513,7 @@ serve(async (req: Request) => {
       await supabase
         .from('candidate_list_items')
         .update({ status: 'exported' })
-        .in('id', approved.map((item: any) => item.id));
+        .in('id', exportRows.map((r: any) => r.item.id));
       await supabase
         .from('candidate_list_requests')
         .update({ status: 'exported' })
@@ -584,12 +522,16 @@ serve(async (req: Request) => {
         action: 'admin_candidate_list_exported',
         entityType: 'candidate_list_request',
         entityId: body.id,
-        metadata: { count: rows.length, export_id: exportRow.id },
+        metadata: {
+          count: exportRows.length,
+          export_id: exportRow.id,
+          client_id: requestRow.client_id ?? null,
+        },
       });
 
       return jsonResponse({
         filename: `stage-candidate-list-${body.id}.csv`,
-        count: rows.length,
+        count: exportRows.length,
         csv,
       });
     }

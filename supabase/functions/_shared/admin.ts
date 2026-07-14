@@ -150,6 +150,16 @@ export function csvEscape(value: unknown): string {
   return `"${text.replaceAll('"', '""')}"`;
 }
 
+// Neutraliza injeção de fórmula (CSV/Excel): campos controlados pelo candidato
+// (nome, headline, skills, resumo…) que começam com = + - @ ou TAB/CR podem
+// executar como fórmula no Excel do RH. Prefixa com aspa simples, que o Excel
+// trata como "texto literal". NÃO aplicar no telefone (sai como ="..." de
+// propósito, pra preservar o + do E.164). Fase 7 Onda 2.
+export function sanitizeCsvValue(value: unknown): string {
+  const text = value == null ? '' : String(value);
+  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+}
+
 export function normalizeText(value: unknown): string {
   return String(value ?? '')
     .toLowerCase()

@@ -21,6 +21,15 @@ const emptyRequest = {
   minScore: 60,
 };
 
+// Resultado do candidato entregue à empresa (Fase 7 Onda 2 · T-C3).
+const OUTCOME_OPTIONS = [
+  { value: 'interviewing', label: 'Em entrevista' },
+  { value: 'interviewed', label: 'Entrevistado' },
+  { value: 'hired', label: 'Contratado' },
+  { value: 'not_selected', label: 'Não selecionado' },
+  { value: 'no_response', label: 'Sem retorno' },
+];
+
 export function CandidateListsPage() {
   const [requests, setRequests] = useState<CandidateListRequest[]>([]);
   const [clients, setClients] = useState<EmployerClient[]>([]);
@@ -59,6 +68,12 @@ export function CandidateListsPage() {
 
   async function createRequest() {
     setMessage(null);
+    // Fase 7 Onda 2 (T-C2): cliente é obrigatório (rastreabilidade do
+    // compartilhamento). O edge também rejeita — aqui é só a mensagem amigável.
+    if (!form.clientId) {
+      setMessage('Selecione a empresa cliente (obrigatório). Cadastre em "Clientes" se ainda não existir.');
+      return;
+    }
     try {
       const payload = await invokeAdmin<{ request: CandidateListRequest }>('admin-candidate-lists', {
         action: 'create',
@@ -117,6 +132,23 @@ export function CandidateListsPage() {
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Erro ao atualizar candidato');
       if (selected) await openRequest(selected); // reverte pro estado real do servidor
+    }
+  }
+
+  async function setOutcome(item: CandidateListItem, outcome: string) {
+    setMessage(null);
+    const value = (outcome || null) as CandidateListItem['outcome'];
+    setItems((prev) => prev.map((x) => (x.id === item.id ? { ...x, outcome: value } : x)));
+    try {
+      await invokeAdmin('admin-candidate-lists', {
+        action: 'update_item',
+        itemId: item.id,
+        item: { outcome: value },
+      });
+      if (selected) await openRequest(selected);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Erro ao registrar resultado');
+      if (selected) await openRequest(selected);
     }
   }
 
@@ -193,6 +225,18 @@ export function CandidateListsPage() {
       cell: ({ row }) => <Badge>{row.original.status}</Badge>,
     },
     {
+      header: 'Resultado',
+      cell: ({ row }) => (
+        <Select
+          value={row.original.outcome ?? ''}
+          onChange={(e) => setOutcome(row.original, e.target.value)}
+        >
+          <option value="">—</option>
+          {OUTCOME_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </Select>
+      ),
+    },
+    {
       header: 'Acoes',
       cell: ({ row }) => (
         <div className="flex gap-2">
@@ -212,9 +256,9 @@ export function CandidateListsPage() {
       <Card>
         <h2 className="mb-3 text-base font-semibold">Nova lista</h2>
         <div className="grid gap-3 md:grid-cols-3">
-          <Field label="Empresa">
+          <Field label="Empresa (obrigatório)">
             <Select value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })}>
-              <option value="">Sem empresa</option>
+              <option value="">Selecione a empresa…</option>
               {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
             </Select>
           </Field>
@@ -264,7 +308,7 @@ export function CandidateListsPage() {
             </Field>
           </div>
           <div className="md:col-span-3">
-            <Button onClick={createRequest} disabled={!form.sourceJobId.trim() && !form.title.trim()}>
+            <Button onClick={createRequest} disabled={!form.clientId || (!form.sourceJobId.trim() && !form.title.trim())}>
               <Plus size={15} className="mr-2" />
               Criar lista
             </Button>
