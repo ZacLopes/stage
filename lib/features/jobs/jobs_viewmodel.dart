@@ -542,13 +542,25 @@ class JobsViewModel extends ChangeNotifier {
   /// FASE 2 (T2.2): swipe a partir da CÉLULA da lista (sem CardSwiper /
   /// índice). MESMA semântica otimista de [onSwipe] — mantido separado de
   /// propósito pra não tocar o caminho do swiper (mudou lá → muda aqui).
-  Future<void> swipeJobFromList(Job job, String action) async {
-    if (userId == null) return;
-    if (_swipedIds.contains(job.id)) return; // dedup
+  /// Devolve `true` se o swipe PERSISTIU (ou já estava swipado). `false` só
+  /// quando o `recordSwipe` falhou e o estado otimista foi revertido — o
+  /// assistente usa isso pra não dizer "salva" em cima de um erro. (Não dá pra
+  /// checar `likedJobs.any(...)`: o `loadLikedJobs` roda sem await e a lista só
+  /// atualiza depois — daria falso-negativo em toda vaga salva pelo card.)
+  Future<bool> swipeJobFromList(Job job, String action) async {
+    if (userId == null) return false;
+    final already = _swipedIds.contains(job.id);
+    // Dedup só corta caminho pra NÃO-'liked'. Um 'liked' precisa SEMPRE rodar o
+    // recordSwipe (upsert onConflict user_id,job_id) — senão o assistente
+    // dizia "salva" pra uma vaga que o user DESCARTOU antes (disliked também
+    // entra em _swipedIds); agora o upsert converte disliked→liked de fato.
+    if (action != 'liked' && already) return true;
 
-    _swipedIds.add(job.id);
-    _undoStack.add(job);
-    notifyListeners();
+    if (!already) {
+      _swipedIds.add(job.id);
+      _undoStack.add(job);
+      notifyListeners();
+    }
 
     try {
       await _swipeRepository.recordSwipe(userId!, job.id, action);
@@ -558,12 +570,17 @@ class JobsViewModel extends ChangeNotifier {
           unawaited(_notifyAutoApplySwipe(job));
         }
       }
+      return true;
     } catch (e) {
-      // Rollback otimista (espelho de onSwipe)
+      // Rollback otimista (espelho de onSwipe) — só reverte o que ESTA chamada
+      // empilhou (não mexe num swipe anterior que já estava lá).
       print('Error recording swipe (list): $e');
-      _swipedIds.remove(job.id);
-      _undoStack.remove(job);
-      notifyListeners();
+      if (!already) {
+        _swipedIds.remove(job.id);
+        _undoStack.remove(job);
+        notifyListeners();
+      }
+      return false;
     }
   }
 
@@ -1431,6 +1448,31 @@ class JobsViewModel extends ChangeNotifier {
       print('Error removing liked job: $e');
       // Rollback otimista
       _likedJobs.insert(idx, removed);
+      _swipedIds.add(jobId);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Des-salva por ID SEM depender de `_likedJobs` estar carregado (diferente do
+  /// [removeLikedJob], que aborta se a vaga não está na lista em memória). O
+  /// assistente salva a vaga pelo card mas a lista de likes pode não ter sido
+  /// recarregada ainda — então apagamos o swipe direto no banco. Devolve true se
+  /// removeu (idempotente: sem linha ⇒ removeLike não faz nada e retorna ok).
+  Future<bool> unsaveJobFromList(String jobId) async {
+    if (userId == null) return false;
+    final idx = _likedJobs.indexWhere((l) => l.job.id == jobId);
+    final LikedJob? removed = idx == -1 ? null : _likedJobs.removeAt(idx);
+    _swipedIds.remove(jobId);
+    notifyListeners();
+    try {
+      await _swipeRepository.removeLike(userId!, jobId);
+      // ignore: unawaited_futures
+      Analytics.shared.track(evJobUnsaved, props: {'job_id': jobId});
+      return true;
+    } catch (e) {
+      print('Error unsaving job (list): $e');
+      if (removed != null) _likedJobs.insert(idx, removed);
       _swipedIds.add(jobId);
       notifyListeners();
       return false;

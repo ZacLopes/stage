@@ -20,16 +20,13 @@ import '../../../services/profile_snapshot_service.dart';
 import '../../auth/user_viewmodel.dart';
 import '../../home/home_viewmodel.dart';
 import '../../tutorial/tutorial_keys.dart';
-import '../data/culture_fit_repository.dart';
 import '../job_swipe_context.dart';
 import '../jobs_viewmodel.dart';
-import '../models/culture_fit_profile.dart';
 import '../models/job.dart';
 import '../pending_adapted_cv_tracker.dart';
 import '../utils/match_score.dart';
 import '../../../services/notifications_service.dart';
 import '../widgets/company_request_sheet.dart';
-import '../widgets/culture_fit_prompt_sheet.dart';
 import '../widgets/first_save_celebration.dart';
 import '../widgets/job_card.dart';
 import '../widgets/resume_adaptation_sheet.dart';
@@ -159,9 +156,6 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       ProfileSnapshotService();
   StreamSubscription<void>? _profileEventsSub;
 
-  final CultureFitRepository _cultureFitRepository = CultureFitRepository();
-  CultureFitProfile? _cultureFitProfile;
-  bool _cultureFitSaving = false;
 
   @override
   void initState() {
@@ -204,7 +198,6 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         // T2.4 — holdout do match resolvido 1x por sessão (gate de
         // elegibilidade + flag PostHog; failure-safe = controle).
         unawaited(vm.resolveMatchScoreHoldout());
-        unawaited(_loadCultureFitProfile());
         if (mounted) {
           Analytics.shared.jobFeedOpened(jobsCount: vm.jobs.length);
           // T2.2 — card do topo exibido (exposição). Sem isso o funil
@@ -266,94 +259,6 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     );
   }
 
-  Future<void> _loadCultureFitProfile() async {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
-    final profile = await _cultureFitRepository.load(userId);
-    if (!mounted) return;
-    setState(() => _cultureFitProfile = profile);
-  }
-
-  Future<void> _openCultureFitPrompt() async {
-    if (_cultureFitSaving) return;
-    HapticFeedback.lightImpact();
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
-
-    var initialProfile =
-        _cultureFitProfile ?? CultureFitProfile.empty(userId);
-
-    var isRedo = false;
-    if (initialProfile.isComplete) {
-      final shouldRedo = await showModalBottomSheet<bool>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => const _CultureFitRedoSheet(),
-      );
-      if (!mounted || shouldRedo != true) return;
-      initialProfile = CultureFitProfile.empty(userId);
-      isRedo = true;
-    }
-
-    Analytics.shared.track(
-      evCultureFitPromptOpened,
-      props: {
-        'answered_count': initialProfile.answeredCount,
-        'is_complete': initialProfile.isComplete,
-        'is_redo': isRedo,
-      },
-    );
-
-    final result = await showModalBottomSheet<CultureFitProfile>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) =>
-          CultureFitPromptSheet(initialProfile: initialProfile),
-    );
-    if (!mounted || result == null) return;
-
-    setState(() => _cultureFitSaving = true);
-    CultureFitProfile saved;
-    try {
-      saved = await _cultureFitRepository.save(result);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _cultureFitSaving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Não consegui salvar agora: $e'),
-          backgroundColor: AppColors.error,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-    if (!mounted) return;
-    setState(() {
-      _cultureFitProfile = saved;
-      _cultureFitSaving = false;
-    });
-
-    Analytics.shared.track(
-      evCultureFitCompleted,
-      props: {
-        'answered_count': saved.answeredCount,
-        'is_complete': saved.isComplete,
-      },
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Fit cultural salvo. Vou usar isso para refinar vagas.'),
-        backgroundColor: AppColors.success,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
 
   void _openJobDetails(Job job, [MatchResult? match]) {
     HapticFeedback.lightImpact();
@@ -1084,38 +989,23 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
           // FASE 2 (T2.2): toggle swipe↔lista — só com feed_list_v1 ON.
           if (context.watch<JobsViewModel>().feedRpcEnabled)
             Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: Builder(builder: (context) {
-                final vm = context.read<JobsViewModel>();
-                final isList =
-                    vm.feedMode == JobsViewModel.feedModeList;
-                return IconButton(
-                  tooltip: isList ? 'Ver como cards' : 'Ver como lista',
-                  icon: Icon(
-                    isList
-                        ? Icons.style_rounded
-                        : Icons.view_agenda_rounded,
-                    color: AppColors.primary,
-                  ),
-                  onPressed: () {
-                    HapticFeedback.lightImpact();
-                    // ignore: unawaited_futures
-                    vm.setFeedMode(isList
-                        ? JobsViewModel.feedModeSwipe
-                        : JobsViewModel.feedModeList);
-                  },
-                );
-              }),
+              padding: const EdgeInsets.only(right: 6),
+              child: Center(
+                child: Builder(builder: (context) {
+                  final vm = context.watch<JobsViewModel>();
+                  return _FeedModeToggle(
+                    isList: vm.feedMode == JobsViewModel.feedModeList,
+                    onChanged: (list) {
+                      HapticFeedback.lightImpact();
+                      // ignore: unawaited_futures
+                      vm.setFeedMode(list
+                          ? JobsViewModel.feedModeList
+                          : JobsViewModel.feedModeSwipe);
+                    },
+                  );
+                }),
+              ),
             ),
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: _CultureFitActionButton(
-              answeredCount: _cultureFitProfile?.answeredCount ?? 0,
-              isComplete: _cultureFitProfile?.isComplete ?? false,
-              isLoading: _cultureFitSaving,
-              onTap: _openCultureFitPrompt,
-            ),
-          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: GestureDetector(
@@ -1854,277 +1744,6 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
   }
 }
 
-class _CultureFitActionButton extends StatefulWidget {
-  final int answeredCount;
-  final bool isComplete;
-  final bool isLoading;
-  final VoidCallback onTap;
-
-  const _CultureFitActionButton({
-    required this.answeredCount,
-    required this.isComplete,
-    required this.isLoading,
-    required this.onTap,
-  });
-
-  @override
-  State<_CultureFitActionButton> createState() =>
-      _CultureFitActionButtonState();
-}
-
-class _CultureFitActionButtonState extends State<_CultureFitActionButton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulse;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulse = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _pulse.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final remaining = (CultureFitKeys.all.length - widget.answeredCount).clamp(
-      0,
-      CultureFitKeys.all.length,
-    );
-    final showBadge = !widget.isComplete && !widget.isLoading;
-
-    return Semantics(
-      button: true,
-      label: 'Responder fit cultural',
-      child: GestureDetector(
-        onTap: widget.isLoading ? null : widget.onTap,
-        child: AnimatedBuilder(
-          animation: _pulse,
-          builder: (context, child) {
-            final scale = widget.isComplete ? 1.0 : 1.0 + (_pulse.value * 0.05);
-            return Transform.scale(scale: scale, child: child);
-          },
-          child: SizedBox(
-            width: 46,
-            height: 46,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Positioned.fill(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: widget.isComplete
-                          ? null
-                          : const LinearGradient(
-                              colors: [AppColors.warning, AppColors.primary],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                      color: widget.isComplete ? Colors.white : null,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: widget.isComplete
-                            ? AppColors.primary.withValues(alpha: 0.18)
-                            : Colors.white.withValues(alpha: 0.45),
-                        width: 1.2,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color:
-                              (widget.isComplete
-                                      ? AppColors.primary
-                                      : AppColors.warning)
-                                  .withValues(alpha: 0.22),
-                          blurRadius: 14,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: widget.isLoading
-                        ? const Center(
-                            child: SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2.4,
-                              ),
-                            ),
-                          )
-                        : Icon(
-                            widget.isComplete
-                                ? Icons.check_rounded
-                                : Icons.groups_rounded,
-                            color: widget.isComplete
-                                ? AppColors.primary
-                                : Colors.white,
-                            size: 22,
-                          ),
-                  ),
-                ),
-                if (showBadge)
-                  Positioned(
-                    right: -2,
-                    top: -2,
-                    child: Container(
-                      width: 19,
-                      height: 19,
-                      decoration: BoxDecoration(
-                        color: AppColors.error,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                      child: Center(
-                        child: Text(
-                          '$remaining',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w900,
-                            height: 1,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CultureFitRedoSheet extends StatelessWidget {
-  const _CultureFitRedoSheet();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Align(
-                alignment: Alignment.center,
-                child: Container(
-                  width: 42,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.borderStrong,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 22),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: const BoxDecoration(
-                      color: AppColors.primarySoft,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.check_rounded,
-                      color: AppColors.primary,
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Fit cultural preenchido',
-                          style: TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                        SizedBox(height: 6),
-                        Text(
-                          'Você pode refazer as 4 respostas. Ao salvar, as respostas anteriores serão substituídas.',
-                          style: TextStyle(
-                            color: AppColors.textTertiary,
-                            fontSize: 14,
-                            height: 1.4,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: () => Navigator.of(context).pop(true),
-                icon: const Icon(Icons.refresh_rounded, size: 19),
-                label: const Text('Refazer respostas'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: AppColors.onPrimary,
-                  elevation: 0,
-                  minimumSize: const Size(0, 50),
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: AppRadius.brMd,
-                  ),
-                  textStyle: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.textSecondary,
-                  side: const BorderSide(color: AppColors.border),
-                  minimumSize: const Size(0, 48),
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: AppRadius.brMd,
-                  ),
-                  textStyle: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                child: const Text('Manter respostas atuais'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-//  Premium swipe stamp
-//  t: 0.0 = invisible/tiny → 1.0 = full size; flipSign: -1 left, +1 right
-// ─────────────────────────────────────────────────────────────
 class _SwipeStamp extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -2226,6 +1845,116 @@ class _SwipeStamp extends StatelessWidget {
 
 /// Botão de filtros do AppBar com badge âmbar mostrando quantos filtros estão
 /// ativos. `activeCount = 0` → só o ícone roxo padrão (sem badge).
+/// Toggle de visualização do feed: Cards (swipe) ↔ Lista. Segmented control no
+/// estilo Stage (segmento ativo azul + sombra da marca, desliza suave). Mostra
+/// os DOIS modos com o ativo rotulado — pra o usuário entender de cara que
+/// aquilo troca a visualização (antes era um ícone único, ambíguo).
+class _FeedModeToggle extends StatelessWidget {
+  const _FeedModeToggle({required this.isList, required this.onChanged});
+
+  /// true = lista, false = cards (swipe).
+  final bool isList;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _segment(
+            icon: Icons.style_rounded,
+            label: 'Cards',
+            selected: !isList,
+            onTap: () => onChanged(false),
+          ),
+          const SizedBox(width: 2),
+          _segment(
+            icon: Icons.view_agenda_rounded,
+            label: 'Lista',
+            selected: isList,
+            onTap: () => onChanged(true),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _segment({
+    required IconData icon,
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: selected ? null : onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.symmetric(
+          horizontal: selected ? 10 : 7,
+          vertical: 6,
+        ),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.30),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: selected ? AppColors.onPrimary : AppColors.textTertiary,
+            ),
+            // A label só aparece no segmento ATIVO (expande suave) — compacto no
+            // header e destaca o modo atual.
+            AnimatedSize(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              child: selected
+                  ? Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: Text(
+                        label,
+                        style: AppTextStyles.labelSm.copyWith(
+                          color: AppColors.onPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _FilterButtonWithBadge extends StatelessWidget {
   final int activeCount;
 

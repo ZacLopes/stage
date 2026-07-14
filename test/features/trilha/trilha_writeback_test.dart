@@ -64,7 +64,8 @@ class _FakeRepo implements ProfileRepository {
   @override
   Future<PersonalInfo?> getPersonal(String userId) async => personal;
   @override
-  Future<PersonalInfo> upsertPersonal(PersonalInfo p) async {
+  Future<PersonalInfo> upsertPersonal(PersonalInfo p,
+      {Set<String> nullColumns = const {}}) async {
     upsertedPersonal = p;
     return p;
   }

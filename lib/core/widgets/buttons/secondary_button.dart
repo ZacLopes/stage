@@ -43,10 +43,17 @@ class SecondaryButton extends StatelessWidget {
                 Icon(icon, size: 18, color: AppColors.primary),
                 const SizedBox(width: AppSpacing.sm),
               ],
-              Text(
-                label,
-                style: AppTextStyles.labelLg.copyWith(
-                  color: AppColors.primary,
+              // Flexible + ellipsis: label longo degrada com reticências em vez
+              // de estourar/cortar a borda do botão (bug pego no device-test).
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.labelLg.copyWith(
+                    color: AppColors.primary,
+                  ),
                 ),
               ),
             ],

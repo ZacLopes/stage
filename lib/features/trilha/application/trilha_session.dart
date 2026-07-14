@@ -243,8 +243,11 @@ Future<Map<String, String>?> assistTopGap(
 /// ordenado por tier (tier1 primeiro). Pula `summary` (é GERADO, não pedido).
 /// NÃO é failure-safe DE PROPÓSITO: em erro RELANÇA, pro controller cair no
 /// texto (senão um erro viraria um card "0% + tá completo", contraditório).
-Future<({int completionPercent, List<({String key, String tier, String label})> missing})>
-    loadAssistGaps(
+Future<
+    ({
+      int completionPercent,
+      List<({String key, String tier, String label, String section})> missing
+    })> loadAssistGaps(
   String userId, {
   ProfileRepository? repository,
   ProfileSnapshotService? snapshotService,
@@ -260,7 +263,13 @@ Future<({int completionPercent, List<({String key, String tier, String label})> 
   final missing = [
     for (final l in gaps.missing)
       if (l.key != LacunaKey.summary)
-        (key: l.key.name, tier: l.tier.name, label: l.label)
+        (
+          key: l.key.name,
+          tier: l.tier.name,
+          label: l.label,
+          // section pra o card virar botão "preencher"; '' ⇒ não conduzível.
+          section: _sectionForLacuna(l.key) ?? '',
+        )
   ]..sort((a, b) =>
       (tierOrder[a.tier] ?? 9).compareTo(tierOrder[b.tier] ?? 9));
   return (completionPercent: gaps.completionPercent, missing: missing);
@@ -795,12 +804,20 @@ Future<void> assistWriteFieldValue(
       // UF do value é autoritativa: sem UF no texto ⇒ estado limpo (troca de
       // cidade não herda a UF antiga, e o undo pra uma cidade sem UF restaura
       // null certinho). O reader reemite "Cidade, UF" sempre que há estado.
-      await repo.upsertPersonal(p.copyWith(
-        locationCity: city,
-        locationState: st,
-        clearLocationState: true,
-        locationCountry: p.locationCountry ?? 'BR',
-      ));
+      // O CEP também é LIMPO: era de outra cidade (ex.: trocar Londrina→Recife
+      // deixava o CEP de Londrina), gerando par CEP/cidade impossível.
+      await repo.upsertPersonal(
+        p.copyWith(
+          locationCity: city,
+          locationState: st,
+          clearLocationState: true,
+          clearLocationPostalCode: true,
+          locationCountry: p.locationCountry ?? 'BR',
+        ),
+        // Força o NULL no banco (o upsert parcial descarta nulls): o CEP SEMPRE
+        // some (era de outra cidade); a UF some quando o value não traz UF.
+        nullColumns: {'location_postal_code', if (st == null) 'location_state'},
+      );
       return;
     case 'work_mode':
       final prefs =

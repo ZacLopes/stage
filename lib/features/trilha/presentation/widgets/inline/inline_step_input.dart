@@ -612,7 +612,9 @@ class _GuidedTextState extends State<_GuidedText> {
             controller: _controller,
             enabled: widget.enabled,
             minLines: widget.input.minLines,
-            maxLines: 5,
+            // Deriva do maxLength (não mais 5 cravado): textão abre num campo
+            // alto o bastante pra LER o texto inteiro na edição (device-test).
+            maxLines: widget.input.effectiveMaxLines,
             maxLength: widget.input.maxLength,
             onChanged: (_) => setState(() {}),
             style: AppTextStyles.bodyMd.copyWith(color: AppColors.textPrimary),

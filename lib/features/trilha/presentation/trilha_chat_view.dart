@@ -6,6 +6,8 @@
 // Sem doca que sobe: os widgets vivem no fio; o teclado só na barra (texto livre).
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // HapticFeedback
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/theme/theme.dart';
 import '../../../core/widgets/widgets.dart';
@@ -59,6 +61,20 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
   /// o usuário toca no lápis de uma resposta lá em cima.
   final GlobalKey _editAnchorKey = GlobalKey();
 
+  /// Âncora do card de conflito de import MAIS RECENTE — pra trazer o TOPO dele
+  /// à vista quando aparece (senão o auto-scroll pro fim deixava o user no
+  /// botão "Aplicar" e ele tinha que rolar pra cima pra ver os pontos).
+  final GlobalKey _newConflictKey = GlobalKey();
+
+  /// Tamanho do fio no último sync — pra distinguir "mensagem nova" (rola) de
+  /// "interação num card existente" (NÃO arranca o user pro fim).
+  int _lastThreadLen = 0;
+
+  /// Coach-mark de 1ª vez apontando o ✦ ("toca aqui pra ver tudo que eu faço").
+  /// O usuário pode não notar o botão — este balão ensina, uma vez só.
+  static const String _coachSeenKey = 'trilha_assist_coach_v1';
+  bool _showCoach = false;
+
   TrilhaChatController get _c => widget.controller;
 
   @override
@@ -66,6 +82,28 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _c.addListener(_onTick);
+    // ignore: unawaited_futures
+    _loadCoach();
+  }
+
+  Future<void> _loadCoach() async {
+    if (!_c.assistEnabled) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_coachSeenKey) ?? false) return;
+    } catch (_) {
+      return; // sem prefs → não arrisca mostrar sempre
+    }
+    if (mounted) setState(() => _showCoach = true);
+  }
+
+  void _dismissCoach() {
+    if (!_showCoach) return;
+    setState(() => _showCoach = false);
+    // ignore: unawaited_futures
+    SharedPreferences.getInstance()
+        .then((p) => p.setBool(_coachSeenKey, true))
+        .catchError((_) => false);
   }
 
   @override
@@ -103,10 +141,39 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
             curve: Curves.easeOutCubic,
           );
         }
+        _lastThreadLen = _c.thread.length;
+        return;
+      }
+      final grew = _c.thread.length > _lastThreadLen;
+      _lastThreadLen = _c.thread.length;
+
+      // Card de conflito recém-adicionado (é o último do fio) → traz o TOPO dele
+      // à vista, não o fim (senão o user cai no "Aplicar" e não vê os pontos).
+      if (grew && _c.thread.isNotEmpty && _c.thread.last is ImportConflictItem) {
+        final ctx = _newConflictKey.currentContext;
+        if (ctx != null) {
+          Scrollable.ensureVisible(ctx,
+              alignment: 0.02,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutCubic);
+          return;
+        }
+      }
+
+      // Interação IN-PLACE num card de conflito (marcar/editar linha) NÃO pode
+      // puxar pro fim — nem quando o card está a <160px do fim (o de várias
+      // linhas cabe na tolerância e o guard de distância abaixo não pegaria).
+      if (!grew &&
+          _c.thread.isNotEmpty &&
+          _c.thread.last is ImportConflictItem) {
         return;
       }
       final target = _scroll.position.maxScrollExtent;
-      if ((target - _scroll.offset).abs() < 1) return;
+      final distance = target - _scroll.offset;
+      // Só puxa pro fim quando CHEGOU mensagem nova, OU o user já está colado no
+      // fim. Se ele rolou pra cima (mexendo num card), NÃO arranca ele de lá.
+      if (!grew && distance > 160) return;
+      if (distance.abs() < 1) return;
       _scroll.animateTo(target,
           duration: const Duration(milliseconds: 280),
           curve: Curves.easeOutCubic);
@@ -149,6 +216,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
         return Column(
           children: [
             Expanded(child: _thread()),
+            if (_showCoach && _c.assistEnabled) _coachMark(),
             _bottomBar(),
           ],
         );
@@ -240,6 +308,9 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
           key: ValueKey('conflict-${item.id}'),
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: ImportConflictCard(
+            // Só o conflito MAIS RECENTE (último do fio) ganha a âncora — o
+            // _syncScroll traz o topo dele à vista. GlobalKey tem que ser único.
+            key: i == c.thread.length - 1 ? _newConflictKey : null,
             item: item,
             onToggle: (rowId, accepted) =>
                 _c.toggleConflictRow(item.id, rowId, accepted),
@@ -254,6 +325,20 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
               _c.undoConflicts(item.id);
             },
           ),
+        ));
+      } else if (item is AssistActionCardItem) {
+        children.add(Padding(
+          key: ValueKey('action-${item.id}'),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: _actionCard(item),
+        ));
+      } else if (item is StarterChipsItem) {
+        children.add(Padding(
+          key: ValueKey('starter-$i'),
+          // Alinha com o texto das bolhas da IA (avatar 34 + gap).
+          padding: const EdgeInsets.only(
+              left: 34 + AppSpacing.sm, bottom: AppSpacing.md),
+          child: _starterChips(item),
         ));
       } else if (item is AnsweredItem) {
         if (c.editingIndex == i && c.activeStep != null) {
@@ -418,6 +503,12 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
   // ── Card de vagas reais (Grande: consulta ao feed) ────────────────────────
 
   Widget _jobsCard(JobsCardItem item) {
+    final outOfProfile = item.outOfProfileArea.isNotEmpty;
+    final sub = outOfProfile
+        ? 'Fora das suas áreas — toca numa pra ver, ou salva 👇'
+        : (item.hasResume
+            ? 'Toca numa vaga pra ver ou salvar 👇'
+            : 'Preenche seu currículo pra eu calcular o match 👇');
     return Container(
       // Alinha com o texto das bolhas da IA: avatar (34) + gap (AppSpacing.sm).
       margin: const EdgeInsets.only(left: 34 + AppSpacing.sm),
@@ -430,57 +521,274 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Vagas pra você', style: AppTextStyles.overline),
+          Text(outOfProfile ? 'Vagas de ${item.outOfProfileArea}' : 'Vagas pra você',
+              style: AppTextStyles.overline),
           const SizedBox(height: 2),
-          Text(
-            item.hasResume
-                ? 'As que mais combinam com seu perfil 👇'
-                : 'Preenche seu currículo pra eu calcular o match 👇',
-            style:
-                AppTextStyles.bodySm.copyWith(color: AppColors.textTertiary),
+          Text(sub,
+              style:
+                  AppTextStyles.bodySm.copyWith(color: AppColors.textTertiary)),
+          const SizedBox(height: AppSpacing.sm),
+          for (final j in item.jobs) _jobRow(item, j),
+          if (outOfProfile) ...[
+            const SizedBox(height: AppSpacing.xs),
+            SecondaryButton(
+              // Toggle: adiciona a área OU remove (se adicionou por engano). O
+              // label é curto de propósito — a área já está no header ("Vagas de
+              // X") e o completo estourava a borda no device-test.
+              label: item.areaAdded
+                  ? 'Remover das minhas áreas'
+                  : 'Adicionar às minhas áreas',
+              icon: item.areaAdded
+                  ? Icons.close_rounded
+                  : Icons.add_rounded,
+              onPressed: () {
+                // ignore: unawaited_futures
+                _c.addAreaFromCard(item.id, item.outOfProfileArea);
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _jobRow(JobsCardItem item, AssistJobRow j) {
+    final sub = [j.company, if (j.area.isNotEmpty) j.area].join(' · ');
+    final saved = item.savedIds.contains(j.id);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: InkWell(
+        onTap: () {
+          // ignore: unawaited_futures
+          _c.openJobFromCard(j.id);
+        },
+        borderRadius: AppRadius.brMd,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(j.title,
+                        style: AppTextStyles.bodyMd
+                            .copyWith(fontWeight: FontWeight.w600)),
+                    if (sub.isNotEmpty)
+                      Text(sub,
+                          style: AppTextStyles.bodySm
+                              .copyWith(color: AppColors.textTertiary)),
+                  ],
+                ),
+              ),
+              if (j.hasScore) ...[
+                const SizedBox(width: AppSpacing.sm),
+                _matchBadge(j.score),
+              ],
+              const SizedBox(width: 4),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: Icon(
+                  saved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+                  size: 20,
+                  color: saved ? AppColors.primary : AppColors.textTertiary,
+                ),
+                tooltip: saved ? 'Tirar das salvas' : 'Salvar',
+                onPressed: () {
+                  // Toggle: salva se não estava, des-salva se já estava.
+                  // ignore: unawaited_futures
+                  _c.saveJobFromCard(item.id, j.id);
+                },
+              ),
+            ],
           ),
+        ),
+      ),
+    );
+  }
+
+  // ── Card de ação (exportar/importar): botão que dispara a ação nativa ──────
+
+  Widget _actionCard(AssistActionCardItem item) {
+    const margin = EdgeInsets.only(left: 34 + AppSpacing.sm);
+    final isExport = item.kind == 'export';
+    if (item.status == AssistEditStatus.cancelled) {
+      return Container(
+        margin: margin,
+        child: Text('Beleza, deixa pra depois.',
+            style:
+                AppTextStyles.bodySm.copyWith(color: AppColors.textTertiary)),
+      );
+    }
+    if (item.status == AssistEditStatus.applied) {
+      return Container(
+        margin: margin,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.check_circle_rounded,
+                  size: 16, color: AppColors.success),
+              const SizedBox(width: 6),
+              Flexible(
+                  child:
+                      Text(item.resultMessage, style: AppTextStyles.bodyMd)),
+            ]),
+            // Import salvou o PDF na biblioteca (aba Perfil) → atalho pra ver.
+            if (item.showCvLibraryLink) ...[
+              const SizedBox(height: AppSpacing.sm),
+              SecondaryButton(
+                label: 'Ver meus currículos',
+                icon: Icons.folder_open_rounded,
+                expand: false,
+                onPressed: () {
+                  // ignore: unawaited_futures
+                  _c.openCvLibraryFromCard();
+                },
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+    // pending (com botão)
+    return Container(
+      margin: margin,
+      padding: AppSpacing.allBase,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.brLg,
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            isExport
+                ? 'É só tocar pra gerar o PDF do seu currículo:'
+                : 'É só tocar pra escolher o PDF do seu CV:',
+            style: AppTextStyles.bodyMd,
+          ),
+          if (item.resultMessage.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(item.resultMessage,
+                style: AppTextStyles.bodySm.copyWith(color: AppColors.error)),
+          ],
           const SizedBox(height: AppSpacing.sm),
-          for (final j in item.jobs) _jobRow(j),
-          const SizedBox(height: AppSpacing.sm),
-          SecondaryButton(
-            label: 'Ver na aba Vagas',
-            icon: Icons.work_outline_rounded,
-            onPressed: () {
-              // ignore: unawaited_futures
-              _c.openTabFromCard('vagas');
-            },
+          PrimaryButton(
+            label: isExport ? 'Exportar PDF' : 'Importar CV',
+            icon: isExport
+                ? Icons.upload_rounded
+                : Icons.file_upload_outlined,
+            isLoading: item.running,
+            onPressed: item.running
+                ? null
+                : () {
+                    // ignore: unawaited_futures
+                    _c.runActionCard(item.id);
+                  },
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Center(
+            child: TextButton(
+              // Trava o cancelar enquanto a ação roda (senão o cancel corria com
+              // o resultado em voo e um sobrescrevia o outro).
+              onPressed:
+                  item.running ? null : () => _c.cancelActionCard(item.id),
+              child: Text('Agora não',
+                  style: AppTextStyles.bodySm
+                      .copyWith(color: AppColors.textTertiary)),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _jobRow(AssistJobRow j) {
-    final sub = [j.company, if (j.area.isNotEmpty) j.area].join(' · ');
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(j.title,
-                    style: AppTextStyles.bodyMd
-                        .copyWith(fontWeight: FontWeight.w600)),
-                if (sub.isNotEmpty)
-                  Text(sub,
-                      style: AppTextStyles.bodySm
-                          .copyWith(color: AppColors.textTertiary)),
-              ],
+  // ── Chips de partida (descoberta de capacidades) ──────────────────────────
+
+  IconData _starterChipIcon(String id) {
+    switch (id) {
+      case 'import':
+        return Icons.file_upload_outlined;
+      case 'zero':
+        return Icons.add_rounded;
+      case 'jobs':
+        return Icons.search_rounded;
+      case 'gaps':
+        return Icons.checklist_rounded;
+      case 'summary':
+        return Icons.auto_awesome_rounded;
+      case 'exp':
+        return Icons.work_outline_rounded;
+      case 'capabilities':
+        return Icons.auto_awesome_rounded;
+      default:
+        return Icons.chevron_right_rounded;
+    }
+  }
+
+  Widget _starterChips(StarterChipsItem item) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [for (final chip in item.chips) _starterChip(chip)],
+    );
+  }
+
+  Widget _starterChip(StarterChip chip) {
+    final icon = _starterChipIcon(chip.id);
+    // "Tudo que eu faço" abre a vitrine PERMANENTE (não some os chips).
+    if (chip.id == 'capabilities') {
+      return AppChip(label: chip.label, icon: icon, onTap: _openCapabilitiesSheet);
+    }
+    if (!chip.hero) {
+      return AppChip(
+        label: chip.label,
+        icon: icon,
+        onTap: () {
+          // ignore: unawaited_futures
+          _c.onStarterChip(chip);
+        },
+      );
+    }
+    // Herói (melhor próxima ação): pílula no gradiente da marca.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        // ignore: unawaited_futures
+        _c.onStarterChip(chip);
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: AppGradients.brand,
+          borderRadius: AppRadius.brPill,
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withValues(alpha: 0.28),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
-          ),
-          if (j.hasScore) ...[
-            const SizedBox(width: AppSpacing.sm),
-            _matchBadge(j.score),
           ],
-        ],
+        ),
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: AppColors.onPrimary),
+            const SizedBox(width: AppSpacing.xs),
+            Text(
+              chip.label,
+              style: AppTextStyles.labelMd.copyWith(
+                color: AppColors.onPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -546,7 +854,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
                 style: AppTextStyles.bodySm
                     .copyWith(color: AppColors.textTertiary))
           else ...[
-            Text('Ainda dá pra reforçar 👇',
+            Text('Toca no que você quer preencher agora 👇',
                 style: AppTextStyles.bodySm
                     .copyWith(color: AppColors.textTertiary)),
             const SizedBox(height: AppSpacing.sm),
@@ -568,15 +876,29 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
       'tier2' => AppColors.textSecondary,
       _ => AppColors.textTertiary,
     };
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+    // Conduzível (tem section) ⇒ vira botão que começa a preencher a seção.
+    final tappable = r.section.isNotEmpty;
+    final row = Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
       child: Row(
         children: [
           Icon(_gapIcon(r.key), size: 16, color: color),
           const SizedBox(width: AppSpacing.sm),
           Expanded(child: Text(r.label, style: AppTextStyles.bodyMd)),
+          if (tappable)
+            const Icon(Icons.chevron_right_rounded,
+                size: 18, color: AppColors.primary),
         ],
       ),
+    );
+    if (!tappable) return row;
+    return InkWell(
+      onTap: () {
+        // ignore: unawaited_futures
+        _c.fillGapFromCard(r.section);
+      },
+      borderRadius: AppRadius.brMd,
+      child: row,
     );
   }
 
@@ -1073,41 +1395,15 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
                   const SizedBox(height: AppSpacing.xs),
                   Text(
                     // Honesto: o próximo ganho (força real) — não "está tudo forte".
+                    // O resumo que a IA gera sobre o usuário NÃO aparece mais aqui
+                    // no chat (decisão do fundador): ele vive no preview do
+                    // Currículo/Perfil, não numa bolha da conversa.
                     widget.hubStatus?.message ??
-                        (c.generatedSummary != null
-                            ? 'A IA criou um resumo pro seu perfil:'
-                            : 'Quanto mais completo, mais empresas conseguem te achar.'),
+                        'Quanto mais completo, mais empresas conseguem te achar.',
                     textAlign: TextAlign.center,
                     style: AppTextStyles.bodyMd
                         .copyWith(color: AppColors.onPrimary),
                   ),
-                  if (c.generatedSummary != null) ...[
-                    const SizedBox(height: AppSpacing.sm),
-                    // Com o hub honesto, o subtítulo virou o "próximo ganho" —
-                    // então rotula o bloco do resumo pra não ficar solto.
-                    if (widget.hubStatus != null) ...[
-                      SizedBox(
-                        width: double.infinity,
-                        child: Text('Resumo que a IA montou:',
-                            textAlign: TextAlign.center,
-                            style: AppTextStyles.bodySm.copyWith(
-                                color: AppColors.onPrimary
-                                    .withValues(alpha: 0.9))),
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                    ],
-                    Container(
-                      width: double.infinity,
-                      padding: AppSpacing.allMd,
-                      decoration: BoxDecoration(
-                        color: AppColors.onPrimary.withValues(alpha: 0.15),
-                        borderRadius: AppRadius.brMd,
-                      ),
-                      child: Text(c.generatedSummary!,
-                          style: AppTextStyles.bodySm
-                              .copyWith(color: AppColors.onPrimary)),
-                    ),
-                  ],
                 ],
               ),
       ),
@@ -1135,6 +1431,13 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
               filled: false,
               onTap: _import,
             ),
+            const SizedBox(width: AppSpacing.sm),
+          ],
+          // ✦ acesso PERMANENTE à descoberta ("No que eu te ajudo") — os chips
+          // de partida são uso único; este ✦ deixa o usuário reabrir e ver tudo
+          // que o copiloto faz a qualquer momento.
+          if (_c.assistEnabled) ...[
+            _SparkleButton(onTap: _openCapabilitiesSheet),
             const SizedBox(width: AppSpacing.sm),
           ],
           Expanded(
@@ -1210,12 +1513,362 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
       ),
     );
   }
+
+  Widget _coachMark() {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _dismissCoach,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md, 0, AppSpacing.md, AppSpacing.xs),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: AppRadius.brMd,
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.30),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.auto_awesome_rounded,
+                    color: AppColors.onPrimary, size: 15),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text('Toca no ✦ pra ver tudo que eu faço',
+                      style: AppTextStyles.labelMd.copyWith(
+                          color: AppColors.onPrimary,
+                          fontWeight: FontWeight.w600)),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.close_rounded,
+                    color: AppColors.onPrimary, size: 15),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openCapabilitiesSheet() {
+    _dismissCoach(); // já descobriu → não precisa mais do coach
+    _c.trackCapabilitiesOpened();
+    HapticFeedback.selectionClick();
+    // ignore: unawaited_futures
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _CapabilitiesSheet(
+        onPick: (message) {
+          Navigator.of(context).pop();
+          // ignore: unawaited_futures
+          _c.submitFreeText(message);
+        },
+      ),
+    );
+  }
 }
 
-/// Moldura do modo EDIÇÃO: um realce azul-claro em volta do card sendo
-/// reeditado + um "Cancelar" que sai da edição SEM mexer no que já estava
-/// gravado. Uniforme pra qualquer widget (texto, chips, roda, slider…), então
-/// todo passo editável ganha a saída "não quero mais editar" de graça.
+/// Vitrine "No que eu te ajudo" — acesso PERMANENTE à descoberta do copiloto
+/// (os chips de partida são uso único). 3 categorias: Currículo · Vagas ·
+/// Carreira — a de Carreira (conselho, não captura de dado) é a prova de que é
+/// copiloto, não preenchedor. Tocar num exemplo fecha a folha e manda pro chat.
+
+/// Vitrine "No que eu te ajudo" — acesso PERMANENTE à descoberta do copiloto
+/// (os chips de partida são uso único). Header no gradiente da marca + 3
+/// categorias (Currículo · Vagas · Carreira, cada uma com cor própria) que
+/// entram escalonadas. A de Carreira (conselho, não captura de dado) é a prova
+/// de que é copiloto, não preenchedor. Tocar num exemplo fecha e manda pro chat.
+class _CapabilitiesSheet extends StatefulWidget {
+  const _CapabilitiesSheet({required this.onPick});
+
+  final ValueChanged<String> onPick;
+
+  @override
+  State<_CapabilitiesSheet> createState() => _CapabilitiesSheetState();
+}
+
+class _CapabilitiesSheetState extends State<_CapabilitiesSheet>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _in;
+
+  static const List<_CapCategory> _categories = [
+    _CapCategory(
+      icon: Icons.description_rounded,
+      accent: AppColors.primary,
+      title: 'Seu currículo',
+      desc: 'Monto, edito, importo e adapto',
+      examples: [
+        'Importa meu CV (PDF)',
+        'Melhora meu resumo',
+        'Adiciona Python nas skills',
+        'Exporta em PDF',
+      ],
+    ),
+    _CapCategory(
+      icon: Icons.work_outline_rounded,
+      accent: AppColors.brandCyan,
+      title: 'Suas vagas',
+      desc: 'Acho e comparo vagas com a sua cara',
+      examples: [
+        'Tem vaga de marketing?',
+        'Quais combinam comigo?',
+        'Estágios remotos',
+      ],
+    ),
+    _CapCategory(
+      icon: Icons.trending_up_rounded,
+      accent: AppColors.warning,
+      title: 'Sua carreira',
+      desc: 'Tiro suas dúvidas e te oriento',
+      examples: [
+        'O que falta no meu perfil?',
+        'Currículo sem experiência, e agora?',
+        'Como funciona a candidatura?',
+      ],
+    ),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _in = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 950))
+      ..forward();
+  }
+
+  @override
+  void dispose() {
+    _in.dispose();
+    super.dispose();
+  }
+
+  double _seg(double a, double b) =>
+      Curves.easeOut.transform(((_in.value - a) / (b - a)).clamp(0.0, 1.0));
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.74,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scroll) => Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: ListView(
+          controller: scroll,
+          padding: EdgeInsets.zero,
+          children: [
+            _header(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 22, 20, 10),
+              child: Column(
+                children: [
+                  for (var i = 0; i < _categories.length; i++) ...[
+                    AnimatedBuilder(
+                      animation: _in,
+                      builder: (context, child) {
+                        final v = _seg(0.12 + i * 0.16, 0.55 + i * 0.16);
+                        return Opacity(
+                          opacity: v,
+                          child: Transform.translate(
+                            offset: Offset(0, 18 * (1 - v)),
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: _category(_categories[i]),
+                    ),
+                    const SizedBox(height: 22),
+                  ],
+                  _footer(),
+                  const SizedBox(height: 18),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _header() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+      decoration: const BoxDecoration(gradient: AppGradients.brand),
+      child: Column(
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              shape: BoxShape.circle,
+              border:
+                  Border.all(color: Colors.white.withValues(alpha: 0.45), width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.white.withValues(alpha: 0.25),
+                  blurRadius: 18,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+            alignment: Alignment.center,
+            child: const Icon(Icons.auto_awesome_rounded,
+                color: Colors.white, size: 28),
+          ),
+          const SizedBox(height: 14),
+          Text('No que eu te ajudo',
+              style: AppTextStyles.titleMd.copyWith(
+                color: Colors.white,
+                fontSize: 21,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+              )),
+          const SizedBox(height: 4),
+          Text('Sou seu copiloto de carreira — toca no que precisar',
+              textAlign: TextAlign.center,
+              style: AppTextStyles.bodyMd
+                  .copyWith(color: Colors.white.withValues(alpha: 0.92))),
+        ],
+      ),
+    );
+  }
+
+  Widget _category(_CapCategory cat) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: cat.accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              alignment: Alignment.center,
+              child: Icon(cat.icon, color: cat.accent, size: 21),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(cat.title,
+                      style: AppTextStyles.bodyLg.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary)),
+                  const SizedBox(height: 1),
+                  Text(cat.desc,
+                      style: AppTextStyles.bodySm
+                          .copyWith(color: AppColors.textTertiary)),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [for (final ex in cat.examples) _pill(ex, cat.accent)],
+        ),
+      ],
+    );
+  }
+
+  Widget _pill(String label, Color accent) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        widget.onPick(label);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+        decoration: BoxDecoration(
+          color: accent.withValues(alpha: 0.10),
+          borderRadius: AppRadius.brPill,
+          border: Border.all(color: accent.withValues(alpha: 0.20)),
+        ),
+        child: Text(label,
+            style: AppTextStyles.labelMd
+                .copyWith(color: accent, fontWeight: FontWeight.w600)),
+      ),
+    );
+  }
+
+  Widget _footer() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: AppRadius.brMd,
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.lock_outline_rounded,
+              size: 18, color: AppColors.textTertiary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'É só me pedir em português. Tudo que eu mudar, você confirma '
+              'antes e dá pra desfazer.',
+              style: AppTextStyles.bodySm
+                  .copyWith(color: AppColors.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CapCategory {
+  final IconData icon;
+  final Color accent;
+  final String title;
+  final String desc;
+  final List<String> examples;
+  const _CapCategory({
+    required this.icon,
+    required this.accent,
+    required this.title,
+    required this.desc,
+    required this.examples,
+  });
+}
+
 class _EditFrame extends StatelessWidget {
   const _EditFrame({super.key, required this.child, required this.onCancel});
 
@@ -1272,6 +1925,67 @@ class _EditFrame extends StatelessWidget {
           ),
           child,
         ],
+      ),
+    );
+  }
+}
+
+/// ✦ da barra "Escreva uma mensagem…": pulsa (brilho respirando) pra o usuário
+/// notar que existe — é o acesso permanente à vitrine de capacidades.
+class _SparkleButton extends StatefulWidget {
+  const _SparkleButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  State<_SparkleButton> createState() => _SparkleButtonState();
+}
+
+class _SparkleButtonState extends State<_SparkleButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1700))
+      ..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: AnimatedBuilder(
+        animation: _pulse,
+        builder: (context, child) {
+          final t = Curves.easeInOut.transform(_pulse.value);
+          return Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              gradient: AppGradients.brand,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.brandCyan.withValues(alpha: 0.22 + 0.34 * t),
+                  blurRadius: 8 + 9 * t,
+                  spreadRadius: 0.5 + 1.2 * t,
+                ),
+              ],
+            ),
+            child: child,
+          );
+        },
+        child: const Icon(Icons.auto_awesome_rounded,
+            size: 20, color: AppColors.onPrimary),
       ),
     );
   }

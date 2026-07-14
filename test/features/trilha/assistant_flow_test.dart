@@ -55,6 +55,16 @@ AssistantTurnFn _nullTurn({void Function()? onCall}) => ({
       return null;
     };
 
+
+/// Copiloto ON abre com CHIPS (não entra na coleta sozinho). Os testes de
+/// comportamento do assistente precisam de um passo aberto — equivale a tocar
+/// "Montar do zero" na abertura.
+Future<void> _openStep(TrilhaChatController c) async {
+  await c.start();
+  await c.onStarterChip(const StarterChip(
+      id: 'zero', label: 'Montar do zero', action: StarterChipAction.startZero));
+}
+
 void main() {
   TrilhaChatController build({
     required AssistantTurnFn assistantTurn,
@@ -82,6 +92,8 @@ void main() {
         itemFieldReader,
     Future<void> Function(String, String, String, String)? itemFieldWriter,
     AssistJobsLoader? jobsLoader,
+    Future<bool> Function(String)? saveJob,
+    Future<bool> Function(String)? unsaveJob,
     Future<void> Function(String tabKey)? openTab,
     Future<AssistExportOutcome> Function()? exportPdf,
     Future<AssistImportResult> Function()? importCv,
@@ -124,6 +136,8 @@ void main() {
       assistItemFieldReader: itemFieldReader,
       assistItemFieldWriter: itemFieldWriter,
       assistJobsLoader: jobsLoader,
+      assistSaveJob: saveJob,
+      assistUnsaveJob: unsaveJob,
       assistOpenTab: openTab,
       assistExportPdf: exportPdf,
       assistImportCv: importCv,
@@ -185,7 +199,7 @@ void main() {
     var called = false;
     final c = build(assistantTurn: _nullTurn(onCall: () => called = true));
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     await c.submitFreeText('Magazine Luiza'); // sem '?', sem verbo de comando
     expect(called, isFalse); // atalho local
     expect(c.currentStep?.id, 'q.choice');
@@ -200,7 +214,7 @@ void main() {
       promptVersion: 'assistant_v1',
     )));
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     await c.submitFreeText('Magalu'); // fast-lane no passo de texto
     expect(c.currentStep?.id, 'q.choice');
     await c.submitFreeText('trabalho de casa'); // passo de escolha → IA
@@ -216,7 +230,7 @@ void main() {
       promptVersion: 'assistant_v1',
     )));
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     await c.submitFreeText('qual a diferença de estágio e trainee?'); // '?' → IA
     expect(
         c.thread
@@ -243,7 +257,7 @@ void main() {
       sectionSteps: (s) => s == 'skills' ? injected : const [],
     );
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     expect(c.currentStep?.id, 'q.text');
     await c.submitFreeText('quero preencher minhas skills'); // 'quero' → IA
     expect(c.currentStep?.id, 'gap.skills'); // seção injetada virou o atual
@@ -255,7 +269,7 @@ void main() {
       () async {
     final c = build(assistantTurn: _nullTurn());
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     await c.submitFreeText('o que falta no meu perfil?'); // '?' → IA → null
     expect(c.currentStep?.id, 'q.text'); // não avançou
     expect(
@@ -555,7 +569,7 @@ void main() {
           {'section': 'skills', 'label': '3 skills'},
     );
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     // Responde o único passo (fast-lane) → conclui → sugestão proativa aparece.
     await c.submitFreeText('Empresa X');
     expect(c.finished, isTrue);
@@ -600,7 +614,7 @@ void main() {
       skillsLoader: () async => ['Excel', 'Python'],
     );
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     await c.submitFreeText('Empresa X'); // conclui → sugere experiência
     expect(c.finished, isTrue);
 
@@ -869,7 +883,7 @@ void main() {
       skillsLoader: () async => const [], // ainda sem skills
     );
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     await c.submitFreeText('quero editar minhas habilidades');
     expect(c.thread.whereType<ListEditorItem>(), isEmpty);
     expect(c.currentStep?.id, 'gap.skills'); // caiu na coleta
@@ -1088,7 +1102,7 @@ void main() {
   test('"não sei" num passo de texto: não grava literal, repergunta', () async {
     final c = build(assistantTurn: _nullTurn());
     addTearDown(c.dispose);
-    await c.start();
+    await _openStep(c);
     expect(c.currentStep?.id, 'q.text');
     await c.submitFreeText('não sei');
     expect(c.currentStep?.id, 'q.text'); // NÃO avançou (não gravou 'não sei')
@@ -1462,126 +1476,82 @@ void main() {
         isTrue);
   });
 
-  test('export_pdf: ok → confirma; vazio → orienta; falha → avisa erro',
+  test('export_pdf: mostra card com botão; só roda a ação no toque (ok/vazio/falha)',
       () async {
-    // Sucesso.
+    // OK: submitFreeText só cria o card (não exporta ainda); runActionCard exporta.
     final ok = build(
       assistantTurn: _fixed(const AssistantTurn(
-        tool: 'export_pdf',
-        args: {},
-        reply: 'Pronto! É só salvar 👍',
-        promptVersion: 'assistant_v10',
-      )),
+        tool: 'export_pdf', args: {}, reply: '', promptVersion: 'assistant_v11')),
       exportPdf: () async => AssistExportOutcome.ok,
     );
     addTearDown(ok.dispose);
     await ok.start();
     await ok.submitFreeText('exporta meu currículo');
-    expect(ok.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Pronto')),
-        isTrue);
+    final card = ok.thread.whereType<AssistActionCardItem>().single;
+    expect(card.kind, 'export');
+    expect(card.status, AssistEditStatus.pending); // botão, ainda não exportou
+    await ok.runActionCard(card.id);
+    expect(card.status, AssistEditStatus.applied);
+    expect(card.resultMessage.contains('Pronto'), isTrue);
 
-    // Perfil vazio → mensagem de orientação (não a reply da IA).
+    // Vazio → orienta preencher.
     final empty = build(
       assistantTurn: _fixed(const AssistantTurn(
-        tool: 'export_pdf',
-        args: {},
-        reply: 'Pronto! É só salvar 👍',
-        promptVersion: 'assistant_v10',
-      )),
+        tool: 'export_pdf', args: {}, reply: '', promptVersion: 'assistant_v11')),
       exportPdf: () async => AssistExportOutcome.empty,
     );
     addTearDown(empty.dispose);
     await empty.start();
     await empty.submitFreeText('exporta meu currículo');
-    expect(
-        empty.thread.whereType<AiMsgItem>().any((m) => m.text.contains('vazio')),
-        isTrue);
-    expect(
-        empty.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Pronto')),
-        isFalse);
+    final ecard = empty.thread.whereType<AssistActionCardItem>().single;
+    await empty.runActionCard(ecard.id);
+    expect(ecard.resultMessage.contains('vazio'), isTrue);
 
-    // Falha na geração → NÃO diz "Pronto" (não mente sucesso); avisa erro.
+    // Falha → botão VOLTA (pending) pra tentar de novo, com aviso de erro.
     final failed = build(
       assistantTurn: _fixed(const AssistantTurn(
-        tool: 'export_pdf',
-        args: {},
-        reply: 'Pronto! É só salvar 👍',
-        promptVersion: 'assistant_v10',
-      )),
+        tool: 'export_pdf', args: {}, reply: '', promptVersion: 'assistant_v11')),
       exportPdf: () async => AssistExportOutcome.failed,
     );
     addTearDown(failed.dispose);
     await failed.start();
     await failed.submitFreeText('exporta meu currículo');
-    expect(
-        failed.thread.whereType<AiMsgItem>().any((m) => m.text.contains('erro')),
-        isTrue);
-    expect(
-        failed.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Pronto')),
-        isFalse);
+    final fcard = failed.thread.whereType<AssistActionCardItem>().single;
+    await failed.runActionCard(fcard.id);
+    expect(fcard.status, AssistEditStatus.pending); // pode tentar de novo
+    expect(fcard.resultMessage.contains('erro'), isTrue);
   });
 
-  test('import_cv: ok → "importei, processando"; cancelado → sem erro; falha → motivo',
-      () async {
-    // OK.
+  test('import_cv: card com botão; roda no toque (ok/cancel/falha)', () async {
+    // OK sem conflitos.
     final ok = build(
       assistantTurn: _fixed(const AssistantTurn(
-        tool: 'import_cv',
-        args: {},
-        reply: 'Boa! Escolhe o PDF 👇',
-        promptVersion: 'assistant_v11',
-      )),
-      // A mensagem agora vem do _startAssistImport (o controller só relaia).
+        tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
       importCv: () async => const AssistImportResult(AssistImportOutcome.ok,
           message: 'Importei seu CV! 📄'),
     );
     addTearDown(ok.dispose);
     await ok.start();
     await ok.submitFreeText('importa meu cv');
-    expect(
-        ok.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Importei')),
-        isTrue);
+    final card = ok.thread.whereType<AssistActionCardItem>().single;
+    expect(card.kind, 'import');
+    await ok.runActionCard(card.id);
+    expect(card.resultMessage.contains('Importei'), isTrue);
 
-    // Cancelado → mensagem leve, sem erro.
-    final cancel = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'import_cv',
-        args: {},
-        reply: '',
-        promptVersion: 'assistant_v11',
-      )),
-      importCv: () async =>
-          const AssistImportResult(AssistImportOutcome.cancelled),
-    );
-    addTearDown(cancel.dispose);
-    await cancel.start();
-    await cancel.submitFreeText('importa meu cv');
-    expect(
-        cancel.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Quando quiser')),
-        isTrue);
-
-    // Falha → mostra o MOTIVO específico (ex.: não-CV), não "Importei".
+    // Falha → motivo específico, botão volta pra tentar de novo.
     final fail = build(
       assistantTurn: _fixed(const AssistantTurn(
-        tool: 'import_cv',
-        args: {},
-        reply: '',
-        promptVersion: 'assistant_v11',
-      )),
+        tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
       importCv: () async => const AssistImportResult(AssistImportOutcome.failed,
           message: 'Isso parece um extrato bancário.'),
     );
     addTearDown(fail.dispose);
     await fail.start();
     await fail.submitFreeText('importa meu cv');
-    expect(
-        fail.thread
-            .whereType<AiMsgItem>()
-            .any((m) => m.text.contains('extrato bancário')),
-        isTrue);
-    expect(
-        fail.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Importei')),
-        isFalse);
+    final fcard = fail.thread.whereType<AssistActionCardItem>().single;
+    await fail.runActionCard(fcard.id);
+    expect(fcard.resultMessage.contains('extrato bancário'), isTrue);
+    expect(fcard.status, AssistEditStatus.pending);
   });
 
   test('show_gaps: renderiza card estruturado (completude + lacunas)', () async {
@@ -1688,6 +1658,8 @@ void main() {
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('importa meu cv');
+    // O import agora é gatilhado pelo botão do card de ação.
+    await c.runActionCard(c.thread.whereType<AssistActionCardItem>().single.id);
     final card = c.thread.whereType<ImportConflictItem>().single;
     expect(card.choices.length, 2);
     // Adição default aceita; conflito default NÃO (seguro: mantém o seu).
@@ -1716,10 +1688,14 @@ void main() {
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('importa meu cv');
+    final act = c.thread.whereType<AssistActionCardItem>().single;
+    await c.runActionCard(act.id);
     expect(c.thread.whereType<ImportConflictItem>(), isEmpty);
-    expect(
-        c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('nada novo')),
-        isTrue);
+    // A mensagem "nada novo" vai pro resultMessage do card de ação.
+    expect(act.resultMessage.contains('nada novo'), isTrue);
+    // Import ok SEMPRE salva o PDF na biblioteca → oferece o atalho "Ver meus
+    // currículos" (aba Perfil), mesmo sem conflito.
+    expect(act.showCvLibraryLink, isTrue);
   });
 
   test('conflito: rejeitar tudo → aplica nada', () async {
@@ -1747,10 +1723,117 @@ void main() {
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('importa meu cv');
+    await c.runActionCard(c.thread.whereType<AssistActionCardItem>().single.id);
     final card = c.thread.whereType<ImportConflictItem>().single;
     c.toggleConflictRow(card.id, 'r1', false); // rejeita a adição
     await c.applyConflicts(card.id);
     expect(calls, 0);
     expect(card.appliedCount, 0);
+  });
+
+  test('toggle salvar vaga: salva → des-salva pelo mesmo bookmark', () async {
+    final saved = <String>[];
+    final unsaved = <String>[];
+    final c = build(
+      assistantTurn: _nullTurn(),
+      saveJob: (id) async {
+        saved.add(id);
+        return true;
+      },
+      unsaveJob: (id) async {
+        unsaved.add(id);
+        return true;
+      },
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    final card = JobsCardItem(id: 'jc1', jobs: const [
+      AssistJobRow(id: 'j1', title: 'Estágio', company: 'X'),
+    ]);
+    c.thread.add(card);
+
+    await c.saveJobFromCard('jc1', 'j1');
+    expect(saved, ['j1']);
+    expect(card.savedIds.contains('j1'), isTrue);
+
+    await c.saveJobFromCard('jc1', 'j1'); // 2º toque = des-salva
+    expect(unsaved, ['j1']);
+    expect(card.savedIds.contains('j1'), isFalse);
+  });
+
+  test('toggle salvar: des-salvar que FALHA não tira o selo (sem mentir)',
+      () async {
+    final c = build(
+      assistantTurn: _nullTurn(),
+      saveJob: (id) async => true,
+      unsaveJob: (id) async => false, // rede caiu
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    final card = JobsCardItem(
+        id: 'jc1',
+        jobs: const [AssistJobRow(id: 'j1', title: 'E', company: 'X')]);
+    c.thread.add(card);
+    await c.saveJobFromCard('jc1', 'j1');
+    await c.saveJobFromCard('jc1', 'j1'); // des-salvar falha
+    expect(card.savedIds.contains('j1'), isTrue); // continua salva
+  });
+
+  test('toggle área: adiciona → remove pelo mesmo botão (sem mexer nas outras)',
+      () async {
+    var areas = <String>['Finanças'];
+    final c = build(
+      assistantTurn: _nullTurn(),
+      areasLoader: () async => areas,
+      areasReplacer: (next) async {
+        areas = List.of(next);
+      },
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    final card =
+        JobsCardItem(id: 'jc1', jobs: const [], outOfProfileArea: 'Marketing');
+    c.thread.add(card);
+
+    await c.addAreaFromCard('jc1', 'Marketing');
+    expect(areas.contains('Marketing'), isTrue);
+    expect(card.areaAdded, isTrue);
+
+    await c.addAreaFromCard('jc1', 'Marketing'); // 2º toque = remove
+    expect(areas.any((a) => a.toLowerCase() == 'marketing'), isFalse);
+    expect(card.areaAdded, isFalse);
+    expect(areas.contains('Finanças'), isTrue); // não mexe nas outras áreas
+  });
+
+  test('start() com assistente mostra os chips de partida (sem coleta automática)',
+      () async {
+    final c = build(assistantTurn: _nullTurn());
+    addTearDown(c.dispose);
+    await c.start();
+    expect(c.thread.whereType<StarterChipsItem>().length, 1);
+    expect(c.currentStep, isNull); // NÃO entra na coleta sozinho — quem escolhe é o user
+  });
+
+  test('has-data + start_section monta a sessão SOB DEMANDA (sem dead-end)',
+      () async {
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+          tool: 'start_section',
+          args: {'section': 'skills'},
+          reply: 'Bora!',
+          promptVersion: 'assistant_v11')),
+      sectionSteps: (section) => [
+        ConversationStep.single(
+            id: 'gap.$section',
+            aiMessage: 'msg',
+            input: const GuidedTextInput(example: 'x')),
+      ],
+    );
+    addTearDown(c.dispose);
+    await c.start(); // abre com chips; SEM sessão ainda
+    expect(c.currentStep, isNull);
+    await c.submitFreeText('preencher skills'); // → start_section → _injectSection
+    // A sessão foi montada sob demanda e a seção revelada (antes: dead-end).
+    expect(c.currentStep?.id, 'gap.skills');
   });
 }

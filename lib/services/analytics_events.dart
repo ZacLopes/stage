@@ -515,16 +515,6 @@ const String evProfileTabChanged = 'profile_tab_changed';
 /// preserva continuidade.
 const String evOnboardingAllSetContinued = 'onboarding_all_set_continued';
 
-/// Micro-questionário de fit cultural aberto a partir da aba Vagas.
-const String evCultureFitPromptOpened = 'match_culture_fit_prompt_opened';
-
-/// Uma resposta do questionário de fit cultural foi selecionada.
-const String evCultureFitQuestionAnswered =
-    'match_culture_fit_question_answered';
-
-/// As 4 respostas de fit cultural foram salvas.
-const String evCultureFitCompleted = 'match_culture_fit_completed';
-
 // ════════════════════════════════════════════════════════════════════
 // Fase 1 — applications (espinha de dados; R7: catálogo + emissor no
 // mesmo PR). Transições server-side (edges admin, Fase 4) emitirão via
@@ -643,6 +633,13 @@ const String evTrilhaAssistEditUndone = 'trilha_assist_edit_undone';
 /// Assistente executou uma AÇÃO de app (não-mutação de perfil). Props:
 /// action ∈ {show_jobs, open_tab, export_pdf}, + tab/count quando aplicável.
 const String evTrilhaAssistActionUsed = 'trilha_assist_action_used';
+
+/// Chips de partida (descoberta de capacidades) exibidos na abertura do chat.
+/// Props: has_data, count.
+const String evTrilhaAssistStarterShown = 'trilha_assist_starter_shown';
+
+/// Um chip de partida foi tocado. Props: chip_id.
+const String evTrilhaAssistStarterTapped = 'trilha_assist_starter_tapped';
 
 // ════════════════════════════════════════════════════════════════════
 // Allowlist agregada — usada pelo wrapper pra rejeitar nomes não-catalogados.
@@ -802,8 +799,6 @@ const Set<String> kAllowedEventNames = {
   evFirstSaveCelebrationContinued, evFirstSaveBannerDismissed,
   evPushReactivateTapped, evPushReactivateCompleted,
   evPdfGenerated, evProfileTabChanged, evOnboardingAllSetContinued,
-  evCultureFitPromptOpened, evCultureFitQuestionAnswered,
-  evCultureFitCompleted,
   // PLANO-FASE-6 T6.3 — trilha de coleta
   evTrilhaColetaStarted, evTrilhaColetaStepAnswered, evTrilhaColetaCompleted,
   evTrilhaColetaAbandoned, evTrilhaColetaInviteShown,
@@ -818,4 +813,5 @@ const Set<String> kAllowedEventNames = {
   evTrilhaAssistEditProposed, evTrilhaAssistEditApplied,
   evTrilhaAssistEditCancelled, evTrilhaAssistEditUndone,
   evTrilhaAssistActionUsed,
+  evTrilhaAssistStarterShown, evTrilhaAssistStarterTapped,
 };
