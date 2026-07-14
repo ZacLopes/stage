@@ -91,7 +91,7 @@ class _PendingUploadBannerState extends State<PendingUploadBanner> {
       await svc.clear(userId);
       if (!mounted) return;
       HapticFeedback.lightImpact();
-      AppSnackBar.success(context, 'Currículo salvo com sucesso!');
+      AppSnackBar.success(context, 'Arquivo importado salvo!');
       setState(() {
         _info = null;
         _retrying = false;
@@ -153,7 +153,7 @@ class _PendingUploadBannerState extends State<PendingUploadBanner> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Não conseguimos salvar seu currículo',
+                      'Não conseguimos salvar seu arquivo',
                       style: AppTextStyles.labelLg.copyWith(
                         fontWeight: FontWeight.w700,
                         color: AppColors.textPrimary,
@@ -161,7 +161,7 @@ class _PendingUploadBannerState extends State<PendingUploadBanner> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'A análise foi feita, mas o PDF original ainda não está na sua biblioteca.',
+                      'A análise foi feita, mas o arquivo original ainda não foi salvo como fonte do seu perfil.',
                       style: AppTextStyles.bodySm.copyWith(
                         color: AppColors.textSecondary,
                       ),

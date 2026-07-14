@@ -393,7 +393,7 @@ class _ResumeTabState extends State<ResumeTab>
             children: [
               CircularProgressIndicator(color: AppColors.primary),
               SizedBox(height: AppSpacing.base),
-              Text('Preparando seu currículo…', style: AppTextStyles.bodyMd),
+              Text('Preparando o assistente…', style: AppTextStyles.bodyMd),
             ],
           ),
         ),
@@ -470,7 +470,7 @@ class _ResumeTabState extends State<ResumeTab>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Currículo', style: AppTextStyles.headlineMd),
+          Text('Assistente', style: AppTextStyles.headlineMd),
           const SizedBox(height: AppSpacing.md),
           // Stepper reativo ao orquestrador (notifica a cada passo).
           AnimatedBuilder(
@@ -590,7 +590,7 @@ class _ResumeTabState extends State<ResumeTab>
               ),
               const SizedBox(height: AppSpacing.xs),
               Text(
-                'Responda à conversa ao lado pra montar seu currículo.',
+                'Continue a conversa para completar seu perfil.',
                 textAlign: TextAlign.center,
                 style: AppTextStyles.bodyMd
                     .copyWith(color: AppColors.textSecondary),
@@ -1033,7 +1033,7 @@ class _ResumeTabState extends State<ResumeTab>
       _scheduleImportRefresh();
       return const AssistImportResult(AssistImportOutcome.ok,
           message:
-              'Salvei seu CV na sua biblioteca de currículos 📄 Como seu perfil tá começando, vou preencher ele com os dados do CV (uns 15s) 👇');
+              'Guardei seu CV como fonte importada 📄 Como seu perfil tá começando, vou usar os dados dele pra preencher seu perfil (uns 15s) 👇');
     }
 
     // Perfil COM dados → dry-run + diff → card de conflito.
@@ -1042,11 +1042,11 @@ class _ResumeTabState extends State<ResumeTab>
     if (conflicts.isEmpty) {
       return const AssistImportResult(AssistImportOutcome.ok,
           message:
-              'Salvei seu CV na biblioteca 📄 Comparei com o seu perfil e não achei nada novo pra adicionar — você já tem tudo o que tá no CV 🙂');
+              'Guardei seu CV como fonte importada 📄 Comparei com o seu perfil e não achei nada novo pra adicionar — você já tem tudo o que tá no CV 🙂');
     }
     return AssistImportResult(AssistImportOutcome.ok,
         message:
-            'Salvei seu CV na biblioteca 📄 Comparei com o seu perfil: aqui está o que o CV tem de novo ou diferente — escolhe o que quer trazer 👇',
+            'Guardei seu CV como fonte importada 📄 Comparei com o seu perfil: aqui está o que o CV tem de novo ou diferente — escolhe o que quer trazer 👇',
         conflicts: conflicts);
   }
 

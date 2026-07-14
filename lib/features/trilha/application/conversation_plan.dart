@@ -924,7 +924,7 @@ String? Function(List<StepAnswer>) _experienceRecap(int n, String kind) =>
       ].join(' · ');
       final tail = [typeLabel, if (period != null) period].join(' · ');
       final body = head.isEmpty ? tail : '$head — $tail';
-      return '✓ Adicionei ao seu currículo: $body. ✨';
+      return '✓ Adicionei ao seu perfil: $body. ✨';
     };
 
 String? _lastDisplay(List<StepAnswer> h, String stepId) {

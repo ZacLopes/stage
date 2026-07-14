@@ -273,7 +273,7 @@ class _FirstSaveCelebrationState extends State<_FirstSaveCelebration>
             ),
             const SizedBox(height: 12),
             const Text(
-              'Suas vagas curtidas ficam na aba "Salvas".',
+              'As vagas que você salva ficam reunidas na próxima aba.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14.5,
@@ -375,7 +375,7 @@ class _FirstSaveCelebrationState extends State<_FirstSaveCelebration>
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         ),
         child: Text(
-          'Continuar curtindo vagas',
+          'Continuar vendo vagas',
           style: TextStyle(
             color: Colors.white.withOpacity(0.85),
             fontSize: 14,

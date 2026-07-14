@@ -70,7 +70,7 @@ class _ReviewResumeScreenState extends State<ReviewResumeScreen> {
 
     if (isWaiting) {
       return OnboardingScaffold(
-        title: 'Seu currículo',
+        title: 'Seu perfil',
         subtitle: 'Quase pronto…',
         progress: 0.63,
         onContinue: null,
@@ -93,7 +93,7 @@ class _ReviewResumeScreenState extends State<ReviewResumeScreen> {
     }
 
     return OnboardingScaffold(
-      title: 'Seu currículo',
+      title: 'Seu perfil',
       subtitle: widget.fromUpload
           ? 'Confira se ficou tudo certinho — você pode editar qualquer coisa.'
           : 'Confira o que você preencheu.',

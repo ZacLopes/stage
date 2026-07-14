@@ -1505,7 +1505,7 @@ void main() {
     await empty.submitFreeText('exporta meu currículo');
     final ecard = empty.thread.whereType<AssistActionCardItem>().single;
     await empty.runActionCard(ecard.id);
-    expect(ecard.resultMessage.contains('vazio'), isTrue);
+    expect(ecard.resultMessage.contains('dados suficientes'), isTrue);
 
     // Falha → botão VOLTA (pending) pra tentar de novo, com aviso de erro.
     final failed = build(

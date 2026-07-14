@@ -165,7 +165,7 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Erro ao salvar preferências.')),
+          const SnackBar(content: Text('Erro ao salvar os filtros.')),
         );
       }
     } finally {
@@ -325,7 +325,7 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
                 ShaderMask(
                   shaderCallback: (bounds) => _gradient.createShader(bounds),
                   child: const Text(
-                    'Filtros',
+                    'Filtros desta busca',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 20,
@@ -338,7 +338,7 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(
-                      '$_activeFiltersCount filtro${_activeFiltersCount > 1 ? "s" : ""} ativo${_activeFiltersCount > 1 ? "s" : ""}',
+                      '$_activeFiltersCount filtro${_activeFiltersCount > 1 ? "s" : ""} ativo${_activeFiltersCount > 1 ? "s" : ""} · só nesta busca',
                       style: const TextStyle(
                         fontSize: 12,
                         color: _textMuted,

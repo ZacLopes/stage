@@ -211,7 +211,7 @@ class _CompletionScreenState extends State<CompletionScreen>
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
-                              'Perfil Criado! 🎉',
+                              'Conta criada! 🎉',
                               style: TextStyle(fontFamily: 'Inter', 
                                 color: AppColors.primary,
                                 fontWeight: FontWeight.bold,
@@ -231,7 +231,7 @@ class _CompletionScreenState extends State<CompletionScreen>
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            'Escolha um caminho pra começar a aplicar para vagas.',
+                            'Escolha como quer começar a preencher seu perfil.',
                             style: TextStyle(fontFamily: 'Inter', 
                               fontSize: 16,
                               color: AppColors.textTertiary,
@@ -252,7 +252,7 @@ class _CompletionScreenState extends State<CompletionScreen>
                       child: _PathCard(
                         title: 'Já tenho um currículo',
                         subtitle:
-                            'Suba seu PDF — fica salvo na sua biblioteca e você já parte pra aplicar pras vagas.',
+                            'Suba seu PDF: usamos os dados pra preencher seu perfil e guardamos o arquivo original.',
                         icon: Icons.upload_file_rounded,
                         color: AppColors.brandBlue,
                         onTap: _uploadResumePath,
@@ -268,9 +268,9 @@ class _CompletionScreenState extends State<CompletionScreen>
                             position: _slideCard2, child: child),
                       ),
                       child: _PathCard(
-                        title: 'Começar do zero',
+                        title: 'Preencher passo a passo',
                         subtitle:
-                            'Vamos construir seu currículo passo a passo na trilha interativa.',
+                            'Vamos completar seu perfil juntos, uma etapa por vez.',
                         icon: Icons.auto_awesome_rounded,
                         color: AppColors.primary,
                         onTap: _startTrackPath,
@@ -295,7 +295,7 @@ class _PickingLoader extends StatelessWidget {
           const CircularProgressIndicator(color: AppColors.primary),
           const SizedBox(height: 16),
           Text(
-            'Salvando seu currículo...',
+            'Preparando seu perfil...',
             style: TextStyle(fontFamily: 'Inter', 
               color: AppColors.textTertiary,
               fontWeight: FontWeight.w500,

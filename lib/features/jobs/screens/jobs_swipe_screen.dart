@@ -1444,7 +1444,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                     left: 0,
                     child: _SwipeStamp(
                       icon: Icons.favorite_rounded,
-                      label: 'APLICAR',
+                      label: 'SALVAR',
                       color: AppColors.success,
                       t: likeT,
                       flipSign: -1,

@@ -498,8 +498,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'PDF gerado, mas não consegui salvar na biblioteca. '
-              'Tente exportar de novo do Perfil se quiser persistir.',
+              'PDF gerado, mas não consegui guardar uma cópia em Currículos.',
             ),
             backgroundColor: Colors.orange.shade700,
             behavior: SnackBarBehavior.floating,
@@ -1943,7 +1942,7 @@ class _SavedConfirmationDialogState extends State<_SavedConfirmationDialog>
                       child: Column(
                         children: [
                           const Text(
-                            'CV salvo na biblioteca!',
+                            'CV salvo!',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 20,
@@ -1954,7 +1953,7 @@ class _SavedConfirmationDialogState extends State<_SavedConfirmationDialog>
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Sua versão adaptada para ${widget.jobTitle.length > 38 ? '${widget.jobTitle.substring(0, 35)}…' : widget.jobTitle} ficou em Perfil → Biblioteca.',
+                            'Sua versão adaptada para ${widget.jobTitle.length > 38 ? '${widget.jobTitle.substring(0, 35)}…' : widget.jobTitle} ficou em Perfil → Currículos.',
                             textAlign: TextAlign.center,
                             style: const TextStyle(
                               fontSize: 13,

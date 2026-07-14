@@ -53,7 +53,7 @@ const Map<SavedResumeSource, _SourceMeta> _kSourceMeta = {
     Icons.edit_rounded,
   ),
   SavedResumeSource.imported: _SourceMeta(
-    'Importado',
+    'Fonte importada',
     AppColors.info, // sky blue
     Icons.cloud_upload_rounded,
   ),
@@ -174,7 +174,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Gerencie seus currículos e informações',
+                  'Gerencie seus dados, objetivos e currículos',
                   style: TextStyle(
                     fontSize: 14,
                     color: AppColors.textTertiary,
@@ -226,8 +226,8 @@ class _ProfileScreenState extends State<ProfileScreen>
           fontSize: 14,
         ),
         tabs: const [
-          Tab(text: 'Informações'),
-          Tab(text: 'Preferências'),
+          Tab(text: 'Dados'),
+          Tab(text: 'Objetivos'),
           Tab(text: 'Currículos'),
         ],
       ),
@@ -310,7 +310,7 @@ class _ResumesTabState extends State<_ResumesTab> {
                   children: [
                     Expanded(
                       child: Text(
-                        'Sua Biblioteca',
+                        'Seus currículos',
                         style: TextStyle(fontFamily: 'Outfit',
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -361,7 +361,7 @@ class _ResumesTabState extends State<_ResumesTab> {
           ),
           const SizedBox(height: 16),
           Text(
-            'Nenhum currículo salvo',
+            'Nenhum arquivo salvo',
             style: TextStyle(fontFamily: 'Outfit',
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -370,7 +370,7 @@ class _ResumesTabState extends State<_ResumesTab> {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Seus currículos gerados aparecerão aqui para você baixar ou editar.',
+            'Os arquivos que você importar e os currículos adaptados para vagas aparecerão aqui.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,
@@ -610,7 +610,7 @@ class _ResumesTabState extends State<_ResumesTab> {
                       text: '"${resume.title}"',
                       style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                     ),
-                    const TextSpan(text: ' da sua biblioteca? Esta ação não pode ser desfeita.'),
+                    const TextSpan(text: ' dos seus currículos? Esta ação não pode ser desfeita.'),
                   ],
                 ),
               ),
