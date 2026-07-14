@@ -5,10 +5,10 @@
 //
 // Como usar:
 //   1. Em debug mode, abre Settings → "[DEV] Gerar thumbnails dos templates"
-//   2. Toca em "Gerar 4 PNGs"
-//   3. App gera os 4 PNGs em <Documents>/template_thumbnails/
+//   2. Toca em "Gerar 5 PNGs"
+//   3. App gera os 5 PNGs em <Documents>/template_thumbnails/
 //   4. A tela mostra o caminho completo da pasta — copia ela e cola no Finder
-//   5. Move os 4 PNGs pra `assets/images/templates/` no projeto
+//   5. Move os 5 PNGs pra `assets/images/templates/` no projeto
 //   6. Roda `flutter pub get` e commita
 //
 // Quando rodar de novo: sempre que o HTML de um dos templates em
@@ -184,7 +184,7 @@ class _TemplateThumbnailGeneratorScreenState
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Regenera os PNGs de preview dos 4 templates de currículo. '
+                'Regenera os PNGs de preview dos 5 templates de currículo. '
                 'Use sempre que o HTML de algum template mudar.',
                 style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: AppColors.textSecondary, height: 1.4),
               ),
@@ -198,7 +198,7 @@ class _TemplateThumbnailGeneratorScreenState
                         child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
                     : const Icon(Icons.image_outlined),
-                label: Text(_running ? 'Gerando...' : 'Gerar 4 PNGs'),
+                label: Text(_running ? 'Gerando...' : 'Gerar 5 PNGs'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
