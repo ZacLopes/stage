@@ -213,31 +213,18 @@ class ProfilePdfData {
         .map((l) => ResumeLanguage(language: l.name, level: l.proficiencyLabel))
         .toList();
 
+    // Prêmios → ResumeData.awards (campo próprio, renderado pela seção
+    // "Prêmios e Reconhecimentos" do PdfService) — NÃO achievements. Reusa o
+    // mapeador ÚNICO [mapAward] (mesma conversão do currículo geral).
     final awardsOut = awards
         .where((a) => a.name.trim().isNotEmpty)
-        .map((a) => ResumeAward(
-              title: a.name,
-              institution: '',
-              date: a.date != null ? _formatYear(a.date!) : '',
-              description: '',
-            ))
+        .map(mapAward)
         .toList();
 
-    final academicProjects = projects.map((p) {
-      final bulletsText = p.bullets
-          .where((b) => b.text.trim().isNotEmpty)
-          .map((b) => b.text)
-          .join('\n');
-      final fallback = (p.description ?? '').trim();
-      return ResumeProject(
-        title: p.name,
-        role: p.role ?? '',
-        period: _formatProjectPeriod(p.startDate, p.endDate, p.isCurrent),
-        description: bulletsText.isNotEmpty ? bulletsText : fallback,
-        location: '',
-        relevantWork: p.context ?? '',
-      );
-    }).toList();
+    // Projetos → academicProjects via mapeador ÚNICO [mapProject] (mesma
+    // conversão do currículo geral — sem duas conversões divergentes).
+    final academicProjects =
+        projects.where(projectHasRenderableText).map(mapProject).toList();
 
     // Certifications viram "courses" no schema legacy (templates v1 já
     // tratam como cursos relevantes/certificações na mesma seção).
@@ -311,7 +298,52 @@ class ProfilePdfData {
     return '$g/${maxGpa.toStringAsFixed(2)}';
   }
 
-  String _formatProjectPeriod(DateTime? start, DateTime? end, bool isCurrent) {
+  // ── Mapeadores ÚNICOS (projeto/prêmio) ────────────────────────────────
+  // Reutilizados pelo currículo geral (ProfileSnapshot.toResumeData) pra que
+  // exista UMA conversão de Project→ResumeProject e Award→ResumeAward, não
+  // duas divergentes. São puros/estáticos (não tocam Supabase).
+
+  /// Um projeto tem texto renderável quando tem uma ÂNCORA PRIMÁRIA com texto
+  /// após trim: nome, papel, descrição livre ou algum bullet. O `context`
+  /// (→ ResumeProject.relevantWork) é uma anotação SECUNDÁRIA que só o template
+  /// Harvard renderiza — sozinho ele NÃO habilita o projeto (senão os outros 4
+  /// templates mostrariam um cabeçalho "Projetos" com uma entrada em branco).
+  /// Mesmo critério no predicate, no mapper, na prévia e nos templates.
+  static bool projectHasRenderableText(Project p) =>
+      p.name.trim().isNotEmpty ||
+      (p.role ?? '').trim().isNotEmpty ||
+      (p.description ?? '').trim().isNotEmpty ||
+      p.bullets.any((b) => b.text.trim().isNotEmpty);
+
+  /// Project → ResumeProject (academicProjects). Bullets viram descrição
+  /// multi-linha; sem bullets, cai na descrição livre legada.
+  static ResumeProject mapProject(Project p) {
+    final bulletsText = p.bullets
+        .where((b) => b.text.trim().isNotEmpty)
+        .map((b) => b.text)
+        .join('\n');
+    final fallback = (p.description ?? '').trim();
+    return ResumeProject(
+      title: p.name,
+      role: p.role ?? '',
+      period: _formatProjectPeriod(p.startDate, p.endDate, p.isCurrent),
+      description: bulletsText.isNotEmpty ? bulletsText : fallback,
+      location: '',
+      relevantWork: p.context ?? '',
+    );
+  }
+
+  /// Award → ResumeAward (campo próprio ResumeData.awards). O schema
+  /// relacional só tem name+date; institution/description ficam vazios.
+  static ResumeAward mapAward(Award a) => ResumeAward(
+        title: a.name,
+        institution: '',
+        date: a.date != null ? _formatYear(a.date!) : '',
+        description: '',
+      );
+
+  static String _formatProjectPeriod(
+      DateTime? start, DateTime? end, bool isCurrent) {
     if (start == null && end == null) return '';
     final s = start != null ? _formatMonthYear(start) : '';
     if (isCurrent) return s.isEmpty ? 'Atual' : '$s - Atual';
@@ -319,7 +351,7 @@ class ProfilePdfData {
     return '$s - ${_formatMonthYear(end)}';
   }
 
-  String _formatMonthYear(DateTime d) {
+  static String _formatMonthYear(DateTime d) {
     const months = [
       '', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
       'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
@@ -327,5 +359,5 @@ class ProfilePdfData {
     return '${months[d.month]} ${d.year}';
   }
 
-  String _formatYear(DateTime d) => d.year.toString();
+  static String _formatYear(DateTime d) => d.year.toString();
 }

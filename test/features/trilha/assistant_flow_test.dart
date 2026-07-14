@@ -17,6 +17,9 @@ class _FakeSnap implements ProfileSnapshotService {
   Future<ProfileSnapshot> loadSnapshot(String userId) async =>
       const ProfileSnapshot();
   @override
+  Future<ProfileSnapshot> loadGeneralResumeSnapshot(String userId) =>
+      loadSnapshot(userId);
+  @override
   Future<ProfileSnapshot?> loadCurrent() async => null;
 }
 

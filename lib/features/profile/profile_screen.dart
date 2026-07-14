@@ -8,6 +8,8 @@ import 'profile_viewmodel.dart';
 import 'profile_tab_prefs.dart';
 import 'application/profile_editor_view_model.dart';
 import '../home/home_viewmodel.dart';
+import '../resume/widgets/general_resume_card.dart';
+import '../../services/feature_flags_service.dart';
 import '../settings/settings_screen.dart';
 import 'resume_detail_screen.dart';
 import 'presentation/widgets/personal_info_form.dart';
@@ -293,6 +295,15 @@ class _ResumesTabState extends State<_ResumesTab> {
       });
     }
 
+    // FASE 2 (casa única): com trilha_assist_v1 ON, o topo ganha o card
+    // "Currículo geral" (projeção virtual do perfil, não persistida) e a lista
+    // persistida passa a se chamar "Arquivos e versões". OFF = comportamento
+    // anterior (só a lista de currículos). Mesma flag/userId do Assistente.
+    final assistEnabled = FeatureFlagsService.instance.isEnabledForUser(
+      FeatureFlagKeys.trilhaAssistV1,
+      Supabase.instance.client.auth.currentUser?.id,
+    );
+
     return Consumer<ProfileViewModel>(
       builder: (context, viewModel, child) {
         if (viewModel.isLoading) {
@@ -306,11 +317,15 @@ class _ResumesTabState extends State<_ResumesTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (assistEnabled) ...[
+                  const GeneralResumeCard(),
+                  const SizedBox(height: 24),
+                ],
                 Row(
                   children: [
                     Expanded(
                       child: Text(
-                        'Seus currículos',
+                        assistEnabled ? 'Arquivos e versões' : 'Seus currículos',
                         style: TextStyle(fontFamily: 'Outfit',
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
