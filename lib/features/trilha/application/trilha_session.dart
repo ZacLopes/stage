@@ -32,6 +32,7 @@ import '../../profile/domain/profile_title.dart';
 import '../../profile/domain/repositories/profile_repository.dart';
 import '../../profile/domain/skill_name_normalizer.dart';
 import '../domain/assist_skills_write.dart';
+import '../domain/guided_language_write.dart';
 import '../domain/guided_skills_write.dart';
 import 'cv_conflict.dart';
 import '../domain/conversation_step.dart'
@@ -1213,15 +1214,60 @@ Future<Future<void> Function()?> _reversibleRemoveSkill(
   };
 }
 
+/// Gate 3.0F — remove um idioma pelo contrato CAS `remove_guided_language_cas`.
+/// Lê o nível observado (expected); só `applied` devolve um undo que re-adiciona
+/// e restaura o nível. `stale`/`not_found`/ausente ⇒ null (sem falso sucesso).
+/// Sem writer (flag OFF) ⇒ null. Nunca remove por nome ambíguo.
+Future<Future<void> Function()?> _reversibleRemoveLanguage(
+  String userId,
+  String value,
+  ProfileRepository repo,
+  GuidedLanguageWriter? writer,
+) async {
+  if (writer == null) return null;
+  final v = value.trim();
+  if (v.isEmpty) return null;
+  Language? match;
+  for (final l in await repo.getLanguages(userId)) {
+    if (l.name.trim().toLowerCase() == v.toLowerCase()) {
+      match = l;
+      break;
+    }
+  }
+  if (match == null) return null; // idioma não está lá
+  final removedName = match.name;
+  final receipt = await writer.removeLanguage(
+    userId: userId,
+    name: removedName,
+    expectedLevel: match.proficiency?.name, // CAS contra o nível observado
+  );
+  if (receipt.outcome != GuidedLanguageRemoveOutcome.applied) {
+    return null; // stale/not_found → não removeu; sem falso sucesso
+  }
+  final removedLevel = receipt.removedLevel;
+  return () async {
+    await writer.mergeLanguages(userId: userId, names: [removedName]);
+    if (removedLevel != null) {
+      await writer.setLevel(
+        userId: userId,
+        name: removedName,
+        expectedLevel: null, // re-adicionado sem nível → esperado null
+        newLevel: removedLevel,
+      );
+    }
+  };
+}
+
 /// Fase B — remoção REVERSÍVEL de item multi-campo. Captura o registro, deleta,
 /// e devolve um restore (que re-insere com id novo — o item volta, íntegro).
-/// null ⇒ kind não tratado aqui (idioma segue no remover simples).
+/// null ⇒ kind não tratado aqui (interesse segue no remover simples).
 Future<Future<void> Function()?> assistReversibleRemove(
   String userId,
   String kind,
   String value, {
   ProfileRepository? repository,
   AssistSkillsWriter? skillsWriter,
+  GuidedLanguageWriter? languageWriter,
 }) async {
   // Gate 3.0E — remoção avulsa de skill pelo contrato CAS/recibo durável 3.0B
   // (open baseline → apply lista reduzida → undo). Sem deleteSkill por nome
@@ -1232,6 +1278,11 @@ Future<Future<void> Function()?> assistReversibleRemove(
   }
   final repo = repository ?? ProfileRepositorySupabase();
   switch (kind) {
+    case 'language':
+      // Gate 3.0F — remoção de idioma com CAS contra o nível observado
+      // (remove_guided_language_cas). Sem deleteLanguage por nome; stale não
+      // finge sucesso; undo re-adiciona e restaura o nível.
+      return _reversibleRemoveLanguage(userId, value, repo, languageWriter);
     case 'experience':
       for (final e in await repo.getExperiences(userId)) {
         final label = _expLabelOf(e.title, e.company);

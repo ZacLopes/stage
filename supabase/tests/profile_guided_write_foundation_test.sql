@@ -247,6 +247,7 @@ GRANT EXECUTE ON FUNCTION public.save_profile_fill_empty_service(uuid, jsonb)
 \ir ../migrations/20260717130000_profile_guided_write_foundation.sql
 \ir ../migrations/20260717140000_assist_skills_cas.sql
 \ir ../migrations/20260717150000_manual_skills_replace_authoritative.sql
+\ir ../migrations/20260717160000_guided_language_remove_cas.sql
 
 INSERT INTO auth.users(id) VALUES
   ('11111111-1111-1111-1111-111111111111'),
@@ -782,6 +783,65 @@ BEGIN
   END IF;
 
   RAISE NOTICE 'T6 OK — CAS manual-vence + replay idempotente';
+END
+$test$;
+
+-- T6b — Gate 3.0F: remove_guided_language_cas — ACL client-only + CAS de nível
+-- (stale não remove; applied devolve o nível removido; depois not_found).
+DO $test$
+DECLARE
+  u uuid := '11111111-1111-1111-1111-111111111111';
+  result jsonb;
+BEGIN
+  IF NOT has_function_privilege(
+       'authenticated',
+       'public.remove_guided_language_cas(uuid,text,text)', 'EXECUTE')
+     OR has_function_privilege(
+       'anon', 'public.remove_guided_language_cas(uuid,text,text)', 'EXECUTE')
+     OR has_function_privilege(
+       'service_role',
+       'public.remove_guided_language_cas(uuid,text,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'T6b ACL do remove incorreta';
+  END IF;
+
+  PERFORM set_config(
+    'request.jwt.claims',
+    jsonb_build_object('sub', u::text, 'role', 'authenticated')::text,
+    false
+  );
+  -- Português está em 'native' (herdado da T6).
+  SET LOCAL ROLE authenticated;
+  SELECT public.remove_guided_language_cas(u, 'portugues', 'basic') INTO result;
+  RESET ROLE;
+  IF result->>'status' <> 'stale'
+     OR result->>'live_level' <> 'native'
+     OR NOT EXISTS (
+       SELECT 1 FROM public.profile_languages
+       WHERE user_id = u AND name = 'Português'
+     ) THEN
+    RAISE EXCEPTION 'T6b remove stale removeu/errou: %', result;
+  END IF;
+
+  SET LOCAL ROLE authenticated;
+  SELECT public.remove_guided_language_cas(u, 'Português', 'native') INTO result;
+  RESET ROLE;
+  IF result->>'status' <> 'applied'
+     OR result->>'level' <> 'native'
+     OR EXISTS (
+       SELECT 1 FROM public.profile_languages
+       WHERE user_id = u AND name = 'Português'
+     ) THEN
+    RAISE EXCEPTION 'T6b remove válido falhou ou não devolveu nível: %', result;
+  END IF;
+
+  SET LOCAL ROLE authenticated;
+  SELECT public.remove_guided_language_cas(u, 'Português', 'native') INTO result;
+  RESET ROLE;
+  IF result->>'status' <> 'not_found' THEN
+    RAISE EXCEPTION 'T6b remove de inexistente não foi not_found: %', result;
+  END IF;
+
+  RAISE NOTICE 'T6b OK — remove idioma: ACL + CAS de nível + not_found';
 END
 $test$;
 

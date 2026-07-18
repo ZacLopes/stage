@@ -2816,7 +2816,8 @@ class TrilhaChatController extends ChangeNotifier {
             }
             if ({
               'skill', // Gate 3.0E: skill remove é CAS/recibo; nunca cai no
-              'experience', // remover por nome inseguro (fail-closed).
+              'language', // Gate 3.0F: idioma remove é CAS; ambos fail-closed
+              'experience', // (nunca caem no remover por nome inseguro).
               'education',
               'certification',
               'award',

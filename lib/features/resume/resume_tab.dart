@@ -36,6 +36,7 @@ import '../trilha/application/trilha_hub_status.dart';
 import '../trilha/application/trilha_section.dart';
 import '../trilha/application/trilha_session.dart';
 import '../trilha/data/assist_skills_writer_supabase.dart';
+import '../trilha/data/guided_language_writer_supabase.dart';
 import '../trilha/domain/assist_skills_write.dart';
 import '../trilha/presentation/trilha_chat_controller.dart';
 import '../trilha/presentation/trilha_chat_view.dart';
@@ -166,6 +167,8 @@ class _ResumeTabState extends State<ResumeTab>
       factory:
           widget.assistSkillsWriterFactory ?? () => AssistSkillsWriterSupabase(),
     );
+    // Gate 3.0F: writer de idioma (CAS remove) só quando a flag está ON.
+    final languageWriter = assistEnabled ? GuidedLanguageWriterSupabase() : null;
     final orch = TrilhaChatController(
       userId: uid,
       sessionBuilder: widget.sessionFactory ?? buildTrilhaSession,
@@ -228,6 +231,7 @@ class _ResumeTabState extends State<ResumeTab>
           kind,
           value,
           skillsWriter: skillsWriter,
+          languageWriter: languageWriter,
         );
         _scheduleProfileReload();
         if (restore == null) return null;

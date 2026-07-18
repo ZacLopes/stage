@@ -6,6 +6,7 @@ import 'package:career_gamification/features/trilha/application/trilha_draft.dar
 import 'package:career_gamification/features/trilha/application/trilha_session.dart';
 import 'package:career_gamification/features/trilha/application/trilha_writeback.dart';
 import 'package:career_gamification/features/trilha/domain/conversation_step.dart';
+import 'package:career_gamification/features/trilha/domain/guided_language_write.dart';
 import 'package:career_gamification/features/trilha/domain/guided_skills_write.dart';
 
 /// Repositório falso: registra o que foi gravado; lança em métodos não usados.
@@ -308,15 +309,69 @@ class _SpyGuidedSkillsWriter implements GuidedSkillsWriter {
   }
 }
 
+/// Spy do writer de idioma da coleta guiada (Gate 3.0F).
+class _SpyGuidedLanguageWriter implements GuidedLanguageWriter {
+  final List<List<String>> merged = [];
+  final List<(String, String?, String)> levels = []; // (name, expected, new)
+  final List<(String, String?)> removes = [];
+
+  @override
+  Future<GuidedLanguageMergeReceipt> mergeLanguages({
+    required String userId,
+    required List<String> names,
+  }) async {
+    merged.add(List<String>.from(names));
+    return GuidedLanguageMergeReceipt.fromRpc(<String, dynamic>{
+      'status': names.isEmpty ? 'noop' : 'applied',
+      'inserted': names.length,
+      'updated': 0,
+      'changed': names.length,
+    });
+  }
+
+  @override
+  Future<GuidedLanguageLevelReceipt> setLevel({
+    required String userId,
+    required String name,
+    required String? expectedLevel,
+    required String newLevel,
+  }) async {
+    levels.add((name, expectedLevel, newLevel));
+    return GuidedLanguageLevelReceipt.fromRpc(
+      const <String, dynamic>{'status': 'applied'},
+    );
+  }
+
+  @override
+  Future<GuidedLanguageRemoveReceipt> removeLanguage({
+    required String userId,
+    required String name,
+    required String? expectedLevel,
+  }) async {
+    removes.add((name, expectedLevel));
+    return GuidedLanguageRemoveReceipt.fromRpc(<String, dynamic>{
+      'status': 'applied',
+      'level': expectedLevel,
+    });
+  }
+}
+
 void main() {
   late _FakeRepo repo;
   late _SpyGuidedSkillsWriter guided;
+  late _SpyGuidedLanguageWriter langs;
   late TrilhaWriteback wb;
 
   setUp(() {
     repo = _FakeRepo();
     guided = _SpyGuidedSkillsWriter();
-    wb = TrilhaWriteback(repo, 'u1', guidedSkillsWriter: guided);
+    langs = _SpyGuidedLanguageWriter();
+    wb = TrilhaWriteback(
+      repo,
+      'u1',
+      guidedSkillsWriter: guided,
+      guidedLanguageWriter: langs,
+    );
   });
 
   StepAnswer choice(String stepId, List<String> ids) => StepAnswer.choice(
@@ -468,38 +523,49 @@ void main() {
       expect(repo.upsertedPersonal?.locationState, 'SP');
     });
 
-    test('idiomas: insere os novos e pula "none"', () async {
+    test('idiomas: manda ao merge aditivo e pula "none" (sem addLanguage)',
+        () async {
       await wb.save(choice('gap.languages', ['none', 'Inglês']));
-      expect(repo.addedLangs.map((l) => l.name), ['Inglês']);
+      // Gate 3.0F: merge_guided_profile_list('languages'), sem pré-leitura.
+      expect(langs.merged, [
+        ['Inglês']
+      ]);
+      expect(repo.addedLangs, isEmpty);
     });
 
-    test(
-      'idiomas: TODOS entram sem nível (preenchido no passo seguinte)',
-      () async {
-        await wb.save(choice('gap.languages', ['Português', 'Inglês']));
-        // Inclusive português — o usuário informa o nível de cada um no lang.level.
-        expect(
-          repo.addedLangs.firstWhere((l) => l.name == 'Português').proficiency,
-          isNull,
-        );
-        expect(
-          repo.addedLangs.firstWhere((l) => l.name == 'Inglês').proficiency,
-          isNull,
-        );
-      },
-    );
+    test('idiomas: manda todos os escolhidos ao merge (nível vem depois)',
+        () async {
+      await wb.save(choice('gap.languages', ['Português', 'Inglês']));
+      expect(langs.merged, [
+        ['Português', 'Inglês']
+      ]);
+    });
 
-    test(
-      'nível de idioma: atualiza a proficiência do idioma existente',
-      () async {
-        repo.languages = [
-          const Language(id: '1', userId: 'u1', name: 'Inglês'),
-        ];
-        await wb.save(choice('lang.level.Inglês', ['advanced']));
-        expect(repo.updatedLanguage?.name, 'Inglês');
-        expect(repo.updatedLanguage?.proficiency, LanguageProficiency.advanced);
-      },
-    );
+    test('nível de idioma: CAS com expected = nível observado', () async {
+      repo.languages = [const Language(id: '1', userId: 'u1', name: 'Inglês')];
+      await wb.save(choice('lang.level.Inglês', ['advanced']));
+      // setLevel(name='Inglês', expected=null (observado), new='advanced').
+      expect(langs.levels, [('Inglês', null, 'advanced')]);
+      expect(repo.updatedLanguage, isNull); // não usa mais updateLanguage
+    });
+
+    test('nível de idioma: expected reflete o nível observado atual', () async {
+      repo.languages = [
+        const Language(
+          id: '1',
+          userId: 'u1',
+          name: 'Inglês',
+          proficiency: LanguageProficiency.basic,
+        ),
+      ];
+      await wb.save(choice('lang.level.Inglês', ['advanced']));
+      expect(langs.levels, [('Inglês', 'basic', 'advanced')]);
+    });
+
+    test('nível de idioma: idioma inexistente → no-op (sem CAS)', () async {
+      await wb.save(choice('lang.level.Alemão', ['advanced']));
+      expect(langs.levels, isEmpty);
+    });
 
     test('intro (e desconhecidos): no-op, nada gravado', () async {
       await wb.save(choice('intro', ['go']));
