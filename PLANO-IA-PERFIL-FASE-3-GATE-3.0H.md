@@ -2,10 +2,10 @@
 
 ## Status
 
-Em andamento, por **fatias** (o gate é amplo). 1ª fatia entregue: o Edge writer
-`generate-bullets`. Branch `refactor/ia-fase-2-fechamento`, sobre `791824f`
-(3.0G-áreas). Dart+Edge; **sem migration nova** (as RPCs já existem na fundação
-de 14/07). Flag OFF/0.
+Em andamento, por **fatias** (o gate é amplo). Fatias entregues: os dois Edge
+writers (`generate-bullets`, `generate-profile-summary`). Branch
+`refactor/ia-fase-2-fechamento`. Dart+Edge; **sem migration nova** (as RPCs já
+existem na fundação de 14/07). Flag OFF/0.
 
 ## Achado da auditoria
 
@@ -34,10 +34,18 @@ aqui não derruba a resposta com `bullet_versions`).
 - `flutter test`: **672** (inalterado — Edge não afeta o app).
 - `git diff --check` limpo; env OK; manifest 121.
 
+## Fatia 2 entregue — generate-profile-summary
+
+`supabase/functions/generate-profile-summary/index.ts`: a gravação do
+resumo+headline deixou de ser `.update()` direto e passou a chamar
+`set_profile_summary_cas`. Os "esperados" são os valores que a IA leu no passo 1
+(`personalR.summary/headline`); se o vivo mudou desde então, o RPC volta
+`'stale'` e **mantém a edição manual** (logamos e devolvemos a sugestão gerada;
+o app recarrega e vê o estado real). `deno check` OK;
+`set_profile_summary_cas` validado no harness (promote test: stale/applied).
+
 ## Fatias restantes do 3.0H (não iniciadas)
 
-- **generate-profile-summary** → `set_profile_summary_cas` (CAS de
-  summary+headline; ler os valores esperados antes de gerar).
 - **Escalares app-side** (`assistWriteFieldValue`) → família de CAS de campo.
 - **Bullets/itens compostos app-side** (`_saveExperience`, `assistWriteItemField`)
   → `append_experience_bullets` / RPCs de item composto sob o mesmo lock.
