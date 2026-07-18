@@ -159,6 +159,13 @@ class _ResumeTabState extends State<ResumeTab>
     }
     final assistEnabled = FeatureFlagsService.instance
         .isTrilhaAssistEnabledForUser(uid);
+    // Cutover 3.0B/3.0E: um único writer CAS de skills, reusado pelo editor
+    // visual (edit_skills) e pela remoção reversível avulsa. OFF ⇒ null.
+    final skillsWriter = resolveResumeTabAssistSkillsWriter(
+      assistEnabled: assistEnabled,
+      factory:
+          widget.assistSkillsWriterFactory ?? () => AssistSkillsWriterSupabase(),
+    );
     final orch = TrilhaChatController(
       userId: uid,
       sessionBuilder: widget.sessionFactory ?? buildTrilhaSession,
@@ -216,7 +223,12 @@ class _ResumeTabState extends State<ResumeTab>
       },
       // Remoção reversível de experiência (captura + delete + restore pro undo).
       assistReversibleRemover: (kind, value) async {
-        final restore = await assistReversibleRemove(uid, kind, value);
+        final restore = await assistReversibleRemove(
+          uid,
+          kind,
+          value,
+          skillsWriter: skillsWriter,
+        );
         _scheduleProfileReload();
         if (restore == null) return null;
         return () async {
@@ -230,12 +242,7 @@ class _ResumeTabState extends State<ResumeTab>
       assistSkillsLoader: () => loadAssistSkills(uid),
       // Cutover 3.0B: somente este editor usa o apply/undo atômico com CAS e
       // recibo durável. OFF não instancia nem chama as RPCs novas.
-      assistSkillsWriter: resolveResumeTabAssistSkillsWriter(
-        assistEnabled: assistEnabled,
-        factory:
-            widget.assistSkillsWriterFactory ??
-            () => AssistSkillsWriterSupabase(),
-      ),
+      assistSkillsWriter: skillsWriter,
       assistSkillSuggester: () => assistSkillSuggestionsFor(uid),
       // Interesses e áreas ainda usam writers destrutivos no legado. A Fase 2
       // não os injeta no Assistente: interesses vão para Perfil → Dados e

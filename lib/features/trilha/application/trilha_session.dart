@@ -30,6 +30,8 @@ import '../../profile/domain/entities/simple_lists.dart'
     show Language, Certification, Award, Project, languageProficiencyFromId;
 import '../../profile/domain/profile_title.dart';
 import '../../profile/domain/repositories/profile_repository.dart';
+import '../../profile/domain/skill_name_normalizer.dart';
+import '../domain/assist_skills_write.dart';
 import '../domain/guided_skills_write.dart';
 import 'cv_conflict.dart';
 import '../domain/conversation_step.dart'
@@ -1172,15 +1174,62 @@ Future<void> _deleteWithCommitVerification({
   throw StateError('delete_not_confirmed');
 }
 
+/// Gate 3.0E — remove uma skill pelo contrato CAS/recibo durável 3.0B.
+/// `open` reserva o baseline autoritativo; `apply` da lista reduzida faz CAS da
+/// linha completa contra esse baseline; só `applied` devolve um undo que
+/// restaura o baseline exato via `undo`. `noop`/`stale`/ausente ⇒ null (sem
+/// falso sucesso). Sem writer (flag OFF) ⇒ null. Nunca remove por nome.
+Future<Future<void> Function()?> _reversibleRemoveSkill(
+  String userId,
+  String value,
+  AssistSkillsWriter? writer,
+) async {
+  if (writer == null) return null;
+  final key = foldSkillName(value);
+  if (key.isEmpty) return null;
+  final operationId = newAssistSkillsOperationId();
+  final opened = await writer.open(userId: userId, operationId: operationId);
+  final baseline = opened.baseline;
+  final desired = [
+    for (final name in baseline)
+      if (foldSkillName(name) != key) name,
+  ];
+  if (desired.length == baseline.length) return null; // skill não está lá
+  final receipt = await writer.apply(
+    userId: userId,
+    operationId: operationId,
+    expected: baseline,
+    desired: desired,
+  );
+  if (receipt.outcome != AssistSkillsApplyOutcome.applied) {
+    return null; // noop/stale → não removeu; sem falso sucesso
+  }
+  return () async {
+    await writer.undo(
+      userId: userId,
+      operationId: operationId,
+      expectedRestored: baseline,
+    );
+  };
+}
+
 /// Fase B — remoção REVERSÍVEL de item multi-campo. Captura o registro, deleta,
 /// e devolve um restore (que re-insere com id novo — o item volta, íntegro).
-/// null ⇒ kind não tratado aqui (skill/idioma seguem no remover simples).
+/// null ⇒ kind não tratado aqui (idioma segue no remover simples).
 Future<Future<void> Function()?> assistReversibleRemove(
   String userId,
   String kind,
   String value, {
   ProfileRepository? repository,
+  AssistSkillsWriter? skillsWriter,
 }) async {
+  // Gate 3.0E — remoção avulsa de skill pelo contrato CAS/recibo durável 3.0B
+  // (open baseline → apply lista reduzida → undo). Sem deleteSkill por nome
+  // ambíguo; stale/noop não fingem sucesso. Fica ANTES de instanciar o repo
+  // (o caminho de skill não usa `repo`).
+  if (kind == 'skill') {
+    return _reversibleRemoveSkill(userId, value, skillsWriter);
+  }
   final repo = repository ?? ProfileRepositorySupabase();
   switch (kind) {
     case 'experience':

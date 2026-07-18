@@ -2815,7 +2815,8 @@ class TrilhaChatController extends ChangeNotifier {
               return true; // o helper só devolve recibo após confirmar delete
             }
             if ({
-              'experience',
+              'skill', // Gate 3.0E: skill remove é CAS/recibo; nunca cai no
+              'experience', // remover por nome inseguro (fail-closed).
               'education',
               'certification',
               'award',
