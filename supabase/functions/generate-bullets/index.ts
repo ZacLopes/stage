@@ -214,17 +214,23 @@ serve(withEdgeAnalytics('generate-bullets', async (req) => {
         // depois marca a aprovada via update. Fire-and-forget — falha aqui NÃO
         // derruba a resposta com bullet_versions.
         if (target_experience_id) {
-            const profileBulletInserts = result.bullets.map((b: { angle: string; content: string; confidence: number }, idx: number) => ({
-                experience_id: target_experience_id,
+            // Gate 3.0H: append SEGURO via RPC (advisory lock por usuário, dedup
+            // por texto) em vez do INSERT direto. O client usa o JWT do usuário,
+            // então auth.uid() == user.id. experience_id/order_index ficam a
+            // cargo do RPC.
+            const bulletsPayload = result.bullets.map((b: { angle: string; content: string; confidence: number }) => ({
                 text: b.content,
                 angle: b.angle, // já é 'leadership'/'technical'/'impact'
                 strength_score: Math.round((b.confidence ?? 0.8) * 100),
-                order_index: idx,
             }))
             try {
-                await supabaseClient.from('profile_bullets').insert(profileBulletInserts)
+                await supabaseClient.rpc('append_experience_bullets', {
+                    p_user_id: user.id,
+                    p_experience_id: target_experience_id,
+                    p_bullets: bulletsPayload,
+                })
             } catch (e) {
-                console.error('[generate-bullets] profile_bullets insert failed:', e)
+                console.error('[generate-bullets] append_experience_bullets failed:', e)
             }
         }
 
