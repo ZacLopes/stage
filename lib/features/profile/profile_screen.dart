@@ -295,14 +295,14 @@ class _ResumesTabState extends State<_ResumesTab> {
       });
     }
 
-    // FASE 2 (casa única): com trilha_assist_v1 ON, o topo ganha o card
+    // FASE 2 (casa única): com coleta + trilha_assist_v1 ON, o topo ganha o card
     // "Currículo geral" (projeção virtual do perfil, não persistida) e a lista
     // persistida passa a se chamar "Arquivos e versões". OFF = comportamento
     // anterior (só a lista de currículos). Mesma flag/userId do Assistente.
-    final assistEnabled = FeatureFlagsService.instance.isEnabledForUser(
-      FeatureFlagKeys.trilhaAssistV1,
-      Supabase.instance.client.auth.currentUser?.id,
-    );
+    final assistEnabled = FeatureFlagsService.instance
+        .isTrilhaAssistEnabledForUser(
+          Supabase.instance.client.auth.currentUser?.id,
+        );
 
     return Consumer<ProfileViewModel>(
       builder: (context, viewModel, child) {

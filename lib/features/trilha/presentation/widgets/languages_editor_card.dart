@@ -65,7 +65,14 @@ class _LanguagesEditorCardState extends State<LanguagesEditorCard> {
   bool get _hasChanges =>
       _removed.isNotEmpty || _added.isNotEmpty || _changedEntries.isNotEmpty;
 
+  bool get _editingLocked =>
+      _saving ||
+      widget.item.applying ||
+      widget.item.undoing ||
+      widget.item.hasUnconfirmedChanges;
+
   void _addLanguage(String name) {
+    if (_editingLocked) return;
     if (_added.any((n) => n.toLowerCase() == name.toLowerCase())) return;
     setState(() {
       _added.add(name);
@@ -74,7 +81,12 @@ class _LanguagesEditorCardState extends State<LanguagesEditorCard> {
   }
 
   Future<void> _save() async {
-    if (!_hasChanges || _saving) return;
+    if (!_hasChanges ||
+        _saving ||
+        widget.item.applying ||
+        widget.item.undoing) {
+      return;
+    }
     setState(() => _saving = true);
     await widget.onApply(_addedEntries, _removed.toList(), _changedEntries);
     if (mounted) setState(() => _saving = false);
@@ -144,11 +156,25 @@ class _LanguagesEditorCardState extends State<LanguagesEditorCard> {
             const SizedBox(height: AppSpacing.sm),
             _summaryLine('Tirei', removed, AppColors.textTertiary),
           ],
-          const SizedBox(height: AppSpacing.md),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: _pill(icon: Icons.undo_rounded, label: 'Desfazer', onTap: widget.onUndo),
-          ),
+          if (widget.item.resultMessage.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(widget.item.resultMessage,
+                style: AppTextStyles.bodySm.copyWith(
+                  color: widget.item.undoAvailable
+                      ? AppColors.error
+                      : AppColors.textSecondary,
+                )),
+          ],
+          if (widget.item.undoAvailable) ...[
+            const SizedBox(height: AppSpacing.md),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _pill(
+                  icon: Icons.undo_rounded,
+                  label: widget.item.undoing ? 'Desfazendo…' : 'Desfazer',
+                  onTap: widget.item.undoing ? null : widget.onUndo),
+            ),
+          ],
         ],
       ),
     );
@@ -234,18 +260,52 @@ class _LanguagesEditorCardState extends State<LanguagesEditorCard> {
               children: [for (final o in canAdd) _addChip(o)],
             ),
           ],
+          if (widget.item.resultMessage.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(widget.item.resultMessage,
+                style: AppTextStyles.bodySm.copyWith(color: AppColors.error)),
+          ],
           const SizedBox(height: AppSpacing.md),
           Row(
             children: [
               Expanded(
                 child: _primaryButton(
-                  label: _saving ? 'Salvando…' : 'Salvar alterações',
-                  enabled: _hasChanges && !_saving,
+                  label: (_saving || widget.item.applying)
+                      ? 'Salvando…'
+                      : widget.item.hasUnconfirmedChanges
+                          ? 'Tentar novamente'
+                          : 'Salvar alterações',
+                  enabled: _hasChanges &&
+                      !_saving &&
+                      !widget.item.applying &&
+                      !widget.item.undoing,
                   onTap: _save,
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              _pill(label: 'Cancelar', onTap: widget.onCancel),
+              _pill(
+                icon: widget.item.hasUnconfirmedChanges &&
+                        widget.item.observedAfter != null
+                    ? Icons.undo_rounded
+                    : widget.item.hasUnconfirmedChanges
+                        ? Icons.info_outline_rounded
+                        : null,
+                label: widget.item.undoing
+                    ? 'Desfazendo…'
+                    : widget.item.hasUnconfirmedChanges &&
+                            widget.item.observedAfter != null
+                        ? 'Desfazer salvos'
+                        : widget.item.hasUnconfirmedChanges
+                            ? 'Sem confirmação'
+                            : 'Cancelar',
+                onTap: widget.item.applying || widget.item.undoing
+                    ? null
+                    : widget.item.hasUnconfirmedChanges
+                        ? widget.item.observedAfter != null
+                            ? widget.onUndo
+                            : null
+                        : widget.onCancel,
+              ),
             ],
           ),
         ],
@@ -283,8 +343,12 @@ class _LanguagesEditorCardState extends State<LanguagesEditorCard> {
                 decoration: TextDecoration.lineThrough))
         : PopupMenuButton<String>(
             tooltip: 'Nível',
+            enabled: !_editingLocked,
             padding: EdgeInsets.zero,
-            onSelected: (lvId) => setState(() => _levels[name] = lvId),
+            onSelected: (lvId) {
+              if (_editingLocked) return;
+              setState(() => _levels[name] = lvId);
+            },
             itemBuilder: (_) => [
               for (final id in kLanguageLevelsAscending)
                 PopupMenuItem<String>(
@@ -314,7 +378,7 @@ class _LanguagesEditorCardState extends State<LanguagesEditorCard> {
           labelPart,
           const SizedBox(width: 3),
           GestureDetector(
-            onTap: () => setState(() {
+            onTap: _editingLocked ? null : () => setState(() {
               if (added) {
                 _added.remove(name);
                 _levels.remove(name);
@@ -374,7 +438,7 @@ class _LanguagesEditorCardState extends State<LanguagesEditorCard> {
     );
   }
 
-  Widget _pill({IconData? icon, required String label, required VoidCallback onTap}) {
+  Widget _pill({IconData? icon, required String label, VoidCallback? onTap}) {
     return Material(
       color: AppColors.surface,
       borderRadius: AppRadius.brPill,

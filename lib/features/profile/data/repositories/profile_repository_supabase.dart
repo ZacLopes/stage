@@ -32,8 +32,10 @@ class ProfileRepositorySupabase implements ProfileRepository {
   }
 
   @override
-  Future<PersonalInfo> upsertPersonal(PersonalInfo info,
-      {Set<String> nullColumns = const {}}) async {
+  Future<PersonalInfo> upsertPersonal(
+    PersonalInfo info, {
+    Set<String> nullColumns = const {},
+  }) async {
     final map = info.toMap()
       ..removeWhere((k, v) => v == null && k != 'user_id');
     // Colunas a LIMPAR de propósito (ex.: trocar de cidade zera o CEP antigo):
@@ -152,15 +154,17 @@ class ProfileRepositorySupabase implements ProfileRepository {
       if (text.isEmpty) continue;
       final current = existing[draft.id];
       if (current == null || keptIds.contains(current.id)) {
-        final inserted = await addBullet(Bullet(
-          id: '',
-          experienceId: experienceId,
-          text: text,
-          angle: draft.angle,
-          strengthScore: draft.strengthScore,
-          verb: draft.verb,
-          orderIndex: index,
-        ));
+        final inserted = await addBullet(
+          Bullet(
+            id: '',
+            experienceId: experienceId,
+            text: text,
+            angle: draft.angle,
+            strengthScore: draft.strengthScore,
+            verb: draft.verb,
+            orderIndex: index,
+          ),
+        );
         keptIds.add(inserted.id);
         continue;
       }
@@ -490,7 +494,12 @@ class ProfileRepositorySupabase implements ProfileRepository {
         .from('profile_skills')
         .select()
         .eq('user_id', userId)
-        .order('order_index');
+        // O editor CAS usa exatamente `order_index, id` no servidor. O
+        // desempate é obrigatório porque dados legados podem compartilhar o
+        // mesmo order_index; sem ele, o baseline do card pode variar e gerar
+        // um `stale` falso mesmo sem escrita concorrente.
+        .order('order_index', ascending: true)
+        .order('id', ascending: true);
     return (rows as List)
         .map((r) => Skill.fromMap(r as Map<String, dynamic>))
         .toList();
@@ -547,7 +556,9 @@ class ProfileRepositorySupabase implements ProfileRepository {
     final existing = await getSkills(userId);
     final availableByKey = <String, List<Skill>>{};
     for (final skill in existing) {
-      availableByKey.putIfAbsent(foldSkillName(skill.name), () => []).add(skill);
+      availableByKey
+          .putIfAbsent(foldSkillName(skill.name), () => [])
+          .add(skill);
     }
     final keptIds = <String>{};
 
@@ -565,12 +576,9 @@ class ProfileRepositorySupabase implements ProfileRepository {
         current = candidates.removeAt(exactIndex < 0 ? 0 : exactIndex);
       }
       if (current == null) {
-        final inserted = await addSkill(Skill(
-          id: '',
-          userId: userId,
-          name: name,
-          orderIndex: index,
-        ));
+        final inserted = await addSkill(
+          Skill(id: '', userId: userId, name: name, orderIndex: index),
+        );
         keptIds.add(inserted.id);
       } else {
         final saved = await updateSkill(
@@ -1026,11 +1034,13 @@ class ProfileRepositorySupabase implements ProfileRepository {
   @override
   Future<void> markGuidedProgress(String userId, String segment) async {
     // ON CONFLICT (user_id, segment) DO NOTHING — idempotente.
-    await _client.from('profile_guided_progress').upsert(
-      {'user_id': userId, 'segment': segment},
-      onConflict: 'user_id,segment',
-      ignoreDuplicates: true,
-    );
+    await _client
+        .from('profile_guided_progress')
+        .upsert(
+          {'user_id': userId, 'segment': segment},
+          onConflict: 'user_id,segment',
+          ignoreDuplicates: true,
+        );
   }
 
   @override

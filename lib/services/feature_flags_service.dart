@@ -84,6 +84,18 @@ class FeatureFlagsService {
     return bucket < flag.rolloutPct;
   }
 
+  /// Gate estrutural da terceira aba: o Assistente só pode ligar dentro da
+  /// trilha de coleta que o hospeda. Manter esta composição aqui evita que
+  /// telas diferentes consultem apenas a flag filha e entrem em variantes
+  /// incompatíveis.
+  ///
+  /// Ausência de usuário ou de qualquer uma das flags é failure-safe: OFF.
+  bool isTrilhaAssistEnabledForUser(String? userId) {
+    if (userId == null || userId.isEmpty) return false;
+    return isEnabledForUser(FeatureFlagKeys.trilhaColetaV1, userId) &&
+        isEnabledForUser(FeatureFlagKeys.trilhaAssistV1, userId);
+  }
+
   /// Versão sem rollout — true se a flag está globalmente ligada.
   /// Use só em context onde rollout percentual não faz sentido (ex: feature
   /// que ou tá pronta ou não tá, sem teste A/B). Para o caso v1/v2 do
@@ -178,6 +190,6 @@ class FeatureFlagKeys {
   /// altera sob confirmação). ANINHADA em [trilhaColetaV1] — só vale onde a
   /// trilha existe. Default OFF (com OFF, a barra mantém o comportamento de
   /// hoje: resposta ao passo aberto). Kill-switch independente; rollout
-  /// 10→50→100.
+  /// 10→50→100. Seed na migration 20260717120000.
   static const String trilhaAssistV1 = 'trilha_assist_v1';
 }

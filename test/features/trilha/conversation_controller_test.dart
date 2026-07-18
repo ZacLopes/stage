@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:career_gamification/features/trilha/application/conversation_controller.dart';
 import 'package:career_gamification/features/trilha/domain/conversation_step.dart';
@@ -104,14 +106,68 @@ void main() {
       expect(captured.first.value, ['go']);
     });
 
-    test('falha no write-back NÃO derruba a conversa (defensivo)', () async {
-      final c = ConversationController(script(), onAnswer: (a) async {
-        throw Exception('rede caiu');
-      });
-      // Não deve lançar — e deve avançar mesmo assim.
-      await c.submit(StepAnswer.choice('s1', const [StepOption(id: 'go', label: 'Bora')]));
+    test('falha no write-back mantém o passo e retry avança uma vez', () async {
+      var shouldFail = true;
+      var calls = 0;
+      final c = ConversationController(
+        script(),
+        onAnswer: (a) async {
+          calls++;
+          if (shouldFail) throw Exception('rede caiu');
+        },
+      );
+      final answer = StepAnswer.choice('s1', const [
+        StepOption(id: 'go', label: 'Bora'),
+      ]);
+
+      final failed = await c.submit(answer);
+      expect(failed, ConversationSubmitResult.writeFailed);
+      expect(c.current?.id, 's1');
+      expect(c.answeredCount, 0);
+      expect(c.history, isEmpty);
+      expect(c.isSaving, isFalse);
+      expect(c.retryAnswer, same(answer));
+
+      shouldFail = false;
+      final retried = await c.submit(answer);
+      expect(retried, ConversationSubmitResult.advanced);
       expect(c.current?.id, 's2');
       expect(c.answeredCount, 1);
+      expect(calls, 2);
+      expect(c.retryAnswer, isNull);
+    });
+
+    test('falha no write-back não injeta os passos do expand', () async {
+      final c = ConversationController(
+        [
+          ConversationStep.single(
+            id: 'gate',
+            aiMessage: 'Tem?',
+            input: const ChoiceInput(
+              options: [StepOption(id: 'yes', label: 'Sim')],
+            ),
+            expand: (_) => [
+              ConversationStep.single(
+                id: 'follow-up',
+                aiMessage: 'Conte mais',
+                input: const GuidedTextInput(example: 'x'),
+              ),
+            ],
+          ),
+        ],
+        onAnswer: (_) async {
+          throw Exception('offline');
+        },
+      );
+
+      final result = await c.submit(
+        StepAnswer.choice('gate', const [StepOption(id: 'yes', label: 'Sim')]),
+      );
+
+      expect(result, ConversationSubmitResult.writeFailed);
+      expect(c.current?.id, 'gate');
+      expect(c.totalSteps, 1);
+      expect(c.history, isEmpty);
     });
 
     test('goBack volta um passo: reverte índice e histórico', () async {
@@ -181,6 +237,110 @@ void main() {
       expect(c.totalSteps, 2); // item.a/item.b removidos (sem follow-ups órfãos)
     });
 
+    test('goBack falha fechado se injectNext intercalou outra seção', () async {
+      final tail = ConversationStep.single(
+        id: 'tail',
+        aiMessage: 'Tail',
+        input: const GuidedTextInput(example: 'x'),
+      );
+      final gate = ConversationStep.single(
+        id: 'gate',
+        aiMessage: 'Gate',
+        input: const ChoiceInput(
+          options: [StepOption(id: 'yes', label: 'Sim')],
+        ),
+        expand: (_) => [tail],
+      );
+      final inserted = ConversationStep.single(
+        id: 'inserted',
+        aiMessage: 'Outra seção',
+        input: const GuidedTextInput(example: 'y'),
+      );
+      final c = ConversationController([gate]);
+
+      await c.submit(
+        StepAnswer.choice(
+          'gate',
+          const [StepOption(id: 'yes', label: 'Sim')],
+        ),
+      );
+      final gateExchange = c.history.single;
+      c.injectNext([inserted]);
+
+      expect(c.current, same(inserted));
+      expect(c.canRewindExchange(gateExchange), isFalse);
+      expect(c.canGoBack, isFalse);
+      c.goBack();
+      expect(c.history.single, same(gateExchange));
+      expect(c.current, same(inserted));
+      expect(c.totalSteps, 3); // gate + seção intercalada + tail original
+    });
+
+    test('revisão bloqueia rewind mesmo se reinjetar a mesma instância',
+        () async {
+      final tail = ConversationStep.single(
+        id: 'tail',
+        aiMessage: 'Tail',
+        input: const GuidedTextInput(example: 'x'),
+      );
+      final gate = ConversationStep.single(
+        id: 'gate',
+        aiMessage: 'Gate',
+        input: const GuidedTextInput(example: 'y'),
+        expand: (_) => [tail],
+      );
+      final c = ConversationController([gate]);
+
+      await c.submit(StepAnswer.text('gate', 'ok'));
+      final exchange = c.history.single;
+      c.injectNext([tail]);
+
+      expect(c.current, same(tail));
+      expect(c.canRewindExchange(exchange), isFalse);
+      c.goBack();
+      expect(c.history.single, same(exchange));
+      expect(c.totalSteps, 3);
+    });
+
+    test('injectNext é recusado enquanto submit aguarda o write-back', () async {
+      final writeGate = Completer<void>();
+      final tail = ConversationStep.single(
+        id: 'tail',
+        aiMessage: 'Tail',
+        input: const GuidedTextInput(example: 'x'),
+      );
+      final gate = ConversationStep.single(
+        id: 'gate',
+        aiMessage: 'Gate',
+        input: const GuidedTextInput(example: 'y'),
+        expand: (_) => [tail],
+      );
+      final inserted = ConversationStep.single(
+        id: 'inserted',
+        aiMessage: 'Outra seção',
+        input: const GuidedTextInput(example: 'z'),
+      );
+      final c = ConversationController(
+        [gate],
+        onAnswer: (_) => writeGate.future,
+      );
+
+      final submission = c.submit(StepAnswer.text('gate', 'ok'));
+      expect(c.isSaving, isTrue);
+      expect(c.injectNext([inserted]), isFalse);
+      expect(c.current, same(gate));
+      expect(c.totalSteps, 1);
+
+      writeGate.complete();
+      expect(await submission, ConversationSubmitResult.advanced);
+      expect(c.current, same(tail));
+      expect(c.canGoBack, isTrue);
+      c.goBack();
+      expect(c.current, same(gate));
+      expect(c.history, isEmpty);
+      expect(c.totalSteps, 1);
+    });
+
     test('restart volta ao começo', () async {
       final c = ConversationController(script());
       await c.submit(StepAnswer.choice('s1', const [StepOption(id: 'go', label: 'Bora')]));
@@ -188,6 +348,49 @@ void main() {
       expect(c.current?.id, 's1');
       expect(c.history, isEmpty);
       expect(c.progress, 0.0);
+    });
+
+    test('edição persistida substitui a resposta no histórico', () async {
+      final c = ConversationController(script());
+      await c.submit(
+        StepAnswer.choice('s1', const [StepOption(id: 'go', label: 'Bora')]),
+      );
+
+      final changed = c.replaceLatestAnswer(
+        StepAnswer.choice(
+          's1',
+          const [StepOption(id: 'go', label: 'Vamos')],
+        ),
+      );
+
+      expect(changed, isTrue);
+      expect(c.history.single.answer.displayText, 'Vamos');
+      expect(c.replaceLatestAnswer(StepAnswer.text('unknown', 'x')), isFalse);
+    });
+
+    test('edição exata não confunde respostas que reutilizam o step id',
+        () async {
+      final repeated = ConversationStep.single(
+        id: 'same',
+        aiMessage: 'Mesmo passo',
+        input: const GuidedTextInput(example: 'x'),
+      );
+      final c = ConversationController([repeated, repeated]);
+      await c.submit(StepAnswer.text('same', 'primeira'));
+      final first = c.history.single;
+      await c.submit(StepAnswer.text('same', 'segunda'));
+      final second = c.history.last;
+
+      final replacement = c.replaceAnswer(
+        first,
+        StepAnswer.text('same', 'primeira corrigida'),
+      );
+
+      expect(replacement, isNotNull);
+      expect(c.history.first.answer.displayText, 'primeira corrigida');
+      expect(c.history.last.answer.displayText, 'segunda');
+      expect(c.replaceAnswer(first, StepAnswer.text('same', 'stale')), isNull);
+      expect(c.replaceAnswer(second, StepAnswer.text('wrong', 'x')), isNull);
     });
 
     test('StepAnswer.text monta value e displayText corretos', () {

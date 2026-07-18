@@ -280,6 +280,8 @@ ConversationStep _area() => ConversationStep.single(
         searchHint: 'Buscar ou escrever sua área…',
       ),
       acknowledgement: 'Anotado! Já dá pra mirar nas vagas dessas áreas.',
+      // A coleta faz merge com áreas existentes; voltar não substituiria.
+      reversible: false,
     );
 
 /// Cargo/posição desejada específica (além da área) — opcional, logo após as
@@ -309,6 +311,8 @@ ConversationStep _workMode() => ConversationStep.single(
           StepOption(id: 'inPerson', label: 'Presencial'),
         ],
       ),
+      // A coleta faz merge com modalidades existentes.
+      reversible: false,
     );
 
 ConversationStep _jobType() => ConversationStep.single(
@@ -323,6 +327,8 @@ ConversationStep _jobType() => ConversationStep.single(
           StepOption(id: 'temporary', label: 'Temporário'),
         ],
       ),
+      // A coleta faz merge com tipos de vaga existentes.
+      reversible: false,
     );
 
 ConversationStep _city(
@@ -365,6 +371,8 @@ ConversationStep _skills(
       suggestionsLoader: suggestionsLoader,
     ),
     acknowledgement: 'Boa! Essas habilidades já te abrem portas. 💪',
+    // A coleta faz merge; o editor dedicado é a superfície de correção.
+    reversible: false,
     // Depois de marcar: se faltam pra chegar a 3, entra num loop que OBRIGA
     // chegar lá (a IA ajuda na 1ª rodada); se já tem 3+, a IA sugere como bônus.
     expand: (a) => _afterSkills(a, suggester, catalog, suggestionsLoader),
@@ -394,6 +402,7 @@ List<ConversationStep> _afterSkills(
             'Deixa eu te ajudar a lembrar de mais algumas, com base no seu perfil…',
         input: AsyncSuggestInput(load: suggester, catalog: catalog),
         acknowledgement: 'Perfil ficando completo! 🙌',
+        reversible: false,
       ),
     ];
   }
@@ -431,6 +440,8 @@ ConversationStep _skillsBoost(
             minSelections: remaining,
             searchHint: 'Buscar habilidade ou adicionar a sua…',
           ),
+    // Cada rodada adiciona ao conjunto; voltar manteria a seleção anterior.
+    reversible: false,
     expand: (a2) {
       final total = already + _pickCount(a2);
       if (total >= _kMinSkills) return const [];
@@ -1312,4 +1323,6 @@ ConversationStep _interests() => ConversationStep.single(
         searchHint: 'Buscar ou escrever um tema…',
       ),
       acknowledgement: 'Curti! Isso ajuda no fit cultural. ✨',
+      // A coleta faz merge com interesses existentes.
+      reversible: false,
     );

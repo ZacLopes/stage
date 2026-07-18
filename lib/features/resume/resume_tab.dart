@@ -20,7 +20,6 @@ import '../../core/widgets/widgets.dart';
 import '../../services/ai_service.dart';
 import '../../services/analytics_events.dart';
 import '../../services/analytics_service.dart';
-import '../../services/cv_import_service.dart';
 import '../../services/profile_snapshot_service.dart';
 import '../auth/user_viewmodel.dart';
 import '../../services/feature_flags_service.dart';
@@ -32,26 +31,49 @@ import '../jobs/models/user_preferences.dart';
 import '../jobs/screens/job_details_sheet.dart';
 import '../jobs/utils/filter_helpers.dart';
 import '../profile/application/profile_editor_view_model.dart';
+import '../trilha/application/assistant_context_store.dart';
 import '../trilha/application/trilha_hub_status.dart';
 import '../trilha/application/trilha_section.dart';
 import '../trilha/application/trilha_session.dart';
+import '../trilha/data/assist_skills_writer_supabase.dart';
+import '../trilha/domain/assist_skills_write.dart';
 import '../trilha/presentation/trilha_chat_controller.dart';
 import '../trilha/presentation/trilha_chat_view.dart';
 import 'services/general_resume_export.dart';
 import 'widgets/assistant_tab_layout.dart';
 import 'widgets/curriculo_section_stepper.dart';
 import 'widgets/curriculo_toggle.dart';
+import 'widgets/fortalecer_perfil_disclosure.dart';
 import 'widgets/general_resume_preview.dart';
 import 'widgets/section_detail_sheet.dart';
 
 /// Fábrica da sessão da trilha — injetável pra teste (evita Supabase).
 typedef TrilhaSessionFactory = Future<TrilhaSession> Function(String userId);
 
+/// Seam estreito do cutover 3.0B. A fábrica só pode ser avaliada quando o
+/// gate composto do Assistente está ligado; com OFF, nem o writer é criado.
+typedef ResumeTabAssistSkillsWriterFactory = AssistSkillsWriter Function();
+
+AssistSkillsWriter? resolveResumeTabAssistSkillsWriter({
+  required bool assistEnabled,
+  required ResumeTabAssistSkillsWriterFactory factory,
+}) {
+  if (!assistEnabled) return null;
+  return factory();
+}
+
 class ResumeTab extends StatefulWidget {
-  const ResumeTab({super.key, this.sessionFactory});
+  const ResumeTab({
+    super.key,
+    this.sessionFactory,
+    this.assistSkillsWriterFactory,
+  });
 
   /// Só pra teste: substitui [buildTrilhaSession].
   final TrilhaSessionFactory? sessionFactory;
+
+  /// Só pra teste: observa a criação do writer sem acessar Supabase.
+  final ResumeTabAssistSkillsWriterFactory? assistSkillsWriterFactory;
 
   @override
   State<ResumeTab> createState() => _ResumeTabState();
@@ -103,14 +125,9 @@ class _ResumeTabState extends State<ResumeTab>
   /// Debounce do reload do preview após edições do assistente (o "Salvar" de um
   /// editor chama os writers N vezes → coalescem num único reload).
   Timer? _reloadDebounce;
-  final List<Timer> _importRefreshTimers = [];
-
   @override
   void dispose() {
     _reloadDebounce?.cancel();
-    for (final t in _importRefreshTimers) {
-      t.cancel();
-    }
     _orch?.removeListener(_onOrch);
     _orch?.dispose();
     super.dispose();
@@ -127,7 +144,9 @@ class _ResumeTabState extends State<ResumeTab>
       try {
         // ignore: unawaited_futures
         context.read<ProfileEditorViewModel>().load();
-      } catch (_) {/* sem provider (teste): ignora */}
+      } catch (_) {
+        /* sem provider (teste): ignora */
+      }
       // ignore: unawaited_futures
       _refreshHubStatus();
     });
@@ -138,13 +157,18 @@ class _ResumeTabState extends State<ResumeTab>
     if (uid == null) {
       return Future.error(StateError('Sem usuário autenticado'));
     }
+    final assistEnabled = FeatureFlagsService.instance
+        .isTrilhaAssistEnabledForUser(uid);
     final orch = TrilhaChatController(
       userId: uid,
       sessionBuilder: widget.sessionFactory ?? buildTrilhaSession,
       // Assistente de IA na barra (PLANO-ASSISTENTE, Fase A). Atrás da flag
-      // `trilha_assist_v1`: OFF ⇒ a barra mantém o comportamento de hoje.
-      assistEnabled: FeatureFlagsService.instance
-          .isEnabledForUser(FeatureFlagKeys.trilhaAssistV1, uid),
+      // `trilha_assist_v1`, aninhada em `trilha_coleta_v1`: qualquer uma OFF
+      // mantém a barra no comportamento de hoje.
+      assistEnabled: assistEnabled,
+      assistantContextStore: assistEnabled
+          ? SharedPreferencesAssistantContextStore()
+          : null,
       assistContextLoader: () => buildAssistContext(uid),
       assistSectionSteps: assistSectionStepsFor,
       // Fase B: alterar um campo (propõe → confirma → aplica → desfaz).
@@ -155,7 +179,8 @@ class _ResumeTabState extends State<ResumeTab>
             : AssistFieldValue(
                 raw: m['raw'] ?? '',
                 text: m['text'] ?? '—',
-                label: m['label'] ?? field);
+                label: m['label'] ?? field,
+              );
       },
       // Os writers do assistente gravam DIRETO no banco (fora do
       // ProfileEditorViewModel). Envolvo cada um pra, no sucesso, reagendar um
@@ -182,7 +207,8 @@ class _ResumeTabState extends State<ResumeTab>
             : AssistFieldValue(
                 raw: m['raw'] ?? '',
                 text: m['text'] ?? '',
-                label: m['label'] ?? 'Experiência');
+                label: m['label'] ?? 'Experiência',
+              );
       },
       assistBulletWriter: (bulletId, text) async {
         await assistBulletWrite(uid, bulletId, text);
@@ -202,18 +228,18 @@ class _ResumeTabState extends State<ResumeTab>
       assistProactiveLoader: () => assistTopGap(uid),
       // Editor visual de skills: skills atuais (chips) + sugestões pela área.
       assistSkillsLoader: () => loadAssistSkills(uid),
+      // Cutover 3.0B: somente este editor usa o apply/undo atômico com CAS e
+      // recibo durável. OFF não instancia nem chama as RPCs novas.
+      assistSkillsWriter: resolveResumeTabAssistSkillsWriter(
+        assistEnabled: assistEnabled,
+        factory:
+            widget.assistSkillsWriterFactory ??
+            () => AssistSkillsWriterSupabase(),
+      ),
       assistSkillSuggester: () => assistSkillSuggestionsFor(uid),
-      // Editor visual de interesses (replace-all) e idiomas (nome + nível).
-      assistInterestsLoader: () => loadAssistInterests(uid),
-      assistInterestsReplacer: (names) async {
-        await assistReplaceInterests(uid, names);
-        _scheduleProfileReload();
-      },
-      assistAreasLoader: () => loadAssistAreas(uid),
-      assistAreasReplacer: (names) async {
-        await assistReplaceAreas(uid, names);
-        _scheduleProfileReload();
-      },
+      // Interesses e áreas ainda usam writers destrutivos no legado. A Fase 2
+      // não os injeta no Assistente: interesses vão para Perfil → Dados e
+      // áreas para Perfil → Objetivos até existir persistência transacional.
       assistLanguagesLoader: () => loadAssistLanguages(uid),
       assistLanguageUpserter: (name, level) async {
         await assistUpsertLanguage(uid, name, level);
@@ -236,19 +262,22 @@ class _ResumeTabState extends State<ResumeTab>
         if (idx == null || idx == HomeTabs.resume) return;
         try {
           context.read<HomeViewModel>().requestTabChange(idx);
-        } catch (_) {/* sem HomeViewModel (teste) */}
+        } catch (_) {
+          /* sem HomeViewModel (teste) */
+        }
       },
       assistOpenCvLibrary: () async {
         if (!mounted) return;
         try {
           final home = context.read<HomeViewModel>();
           home.requestTabChange(HomeTabs.profile);
-          // Sub-aba Currículos da ProfileScreen (ordem: Info=0, Prefs=1, CVs=2).
+          // Sub-aba Currículos da ProfileScreen (Dados=0, Objetivos=1, CVs=2).
           home.requestProfileSubTab(2);
-        } catch (_) {/* sem HomeViewModel (teste) */}
+        } catch (_) {
+          /* sem HomeViewModel (teste) */
+        }
       },
       assistExportPdf: _exportForAssistant,
-      assistImportCv: _startAssistImport,
       // Widget de conflito: aplica UMA linha escolhida + recarrega o preview.
       assistConflictApplier: (row, value) async {
         final undo = await assistApplyConflictRow(uid, row, value);
@@ -267,10 +296,11 @@ class _ResumeTabState extends State<ResumeTab>
           missing: [
             for (final m in g.missing)
               GapRow(
-                  key: m.key,
-                  tier: m.tier,
-                  label: m.label,
-                  section: m.section)
+                key: m.key,
+                tier: m.tier,
+                label: m.label,
+                section: m.section,
+              ),
           ],
         );
       },
@@ -300,10 +330,10 @@ class _ResumeTabState extends State<ResumeTab>
       onStarted: (totalSteps) {
         if (totalSteps > 0) {
           // ignore: unawaited_futures
-          Analytics.shared.track(evTrilhaColetaStarted, props: {
-            'source': 'resume_tab',
-            'total_steps': totalSteps,
-          });
+          Analytics.shared.track(
+            evTrilhaColetaStarted,
+            props: {'source': 'resume_tab', 'total_steps': totalSteps},
+          );
         }
       },
     );
@@ -328,7 +358,9 @@ class _ResumeTabState extends State<ResumeTab>
       try {
         // ignore: unawaited_futures
         context.read<ProfileEditorViewModel>().load();
-      } catch (_) {/* sem provider: ignora */}
+      } catch (_) {
+        /* sem provider: ignora */
+      }
       // O import mudou o perfil → recomputa a força honesta.
       // ignore: unawaited_futures
       _refreshHubStatus();
@@ -336,12 +368,16 @@ class _ResumeTabState extends State<ResumeTab>
     if (!orch.finished || _completionHandled) return;
     _completionHandled = true;
     // ignore: unawaited_futures
-    Analytics.shared.track(evTrilhaColetaCompleted,
-        props: {'answered': orch.answeredCount, 'source': 'resume_tab'});
+    Analytics.shared.track(
+      evTrilhaColetaCompleted,
+      props: {'answered': orch.answeredCount, 'source': 'resume_tab'},
+    );
     try {
       // ignore: unawaited_futures
       context.read<ProfileEditorViewModel>().load();
-    } catch (_) {/* sem provider: ignora */}
+    } catch (_) {
+      /* sem provider: ignora */
+    }
     // A trilha terminou de gravar → a força honesta reflete o perfil final.
     // ignore: unawaited_futures
     _refreshHubStatus();
@@ -362,13 +398,16 @@ class _ResumeTabState extends State<ResumeTab>
           final Widget body;
           if (snap.connectionState != ConnectionState.done) {
             body = KeyedSubtree(
-                key: const ValueKey('loading'), child: _loading());
+              key: const ValueKey('loading'),
+              child: _loading(),
+            );
           } else if (snap.hasError) {
-            body =
-                KeyedSubtree(key: const ValueKey('error'), child: _error());
+            body = KeyedSubtree(key: const ValueKey('error'), child: _error());
           } else {
             body = KeyedSubtree(
-                key: const ValueKey('ready'), child: _ready(snap.data!));
+              key: const ValueKey('ready'),
+              child: _ready(snap.data!),
+            );
           }
           return AnimatedSwitcher(
             duration: const Duration(milliseconds: 280),
@@ -385,44 +424,48 @@ class _ResumeTabState extends State<ResumeTab>
   // ── Estados ────────────────────────────────────────────────────────────────
 
   Widget _loading() => const SafeArea(
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(color: AppColors.primary),
-              SizedBox(height: AppSpacing.base),
-              Text('Preparando o assistente…', style: AppTextStyles.bodyMd),
-            ],
-          ),
-        ),
-      );
+    child: Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircularProgressIndicator(color: AppColors.primary),
+          SizedBox(height: AppSpacing.base),
+          Text('Preparando o assistente…', style: AppTextStyles.bodyMd),
+        ],
+      ),
+    ),
+  );
 
   Widget _error() => SafeArea(
-        child: Center(
-          child: Padding(
-            padding: AppSpacing.allXl,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.error_outline_rounded,
-                    color: AppColors.textTertiary, size: 40),
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  'Não consegui carregar agora. Tenta de novo daqui a pouco.',
-                  textAlign: TextAlign.center,
-                  style: AppTextStyles.bodyMd
-                      .copyWith(color: AppColors.textSecondary),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                SecondaryButton(
-                  label: 'Tentar de novo',
-                  onPressed: () => setState(() => _future = _load()),
-                ),
-              ],
+    child: Center(
+      child: Padding(
+        padding: AppSpacing.allXl,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.error_outline_rounded,
+              color: AppColors.textTertiary,
+              size: 40,
             ),
-          ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'Não consegui carregar agora. Tenta de novo daqui a pouco.',
+              textAlign: TextAlign.center,
+              style: AppTextStyles.bodyMd.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            SecondaryButton(
+              label: 'Tentar de novo',
+              onPressed: () => setState(() => _future = _load()),
+            ),
+          ],
         ),
-      );
+      ),
+    ),
+  );
 
   Widget _ready(TrilhaChatController orch) {
     final profileVM = context.watch<ProfileEditorViewModel>();
@@ -452,7 +495,10 @@ class _ResumeTabState extends State<ResumeTab>
   /// entre o Assistente conversa-única e o shell legado — é contexto da coleta,
   /// não uma segunda casa do perfil (§3.4).
   Widget _stepper(
-      TrilhaChatController orch, ProfileEditorViewModel profileVM) {
+    TrilhaChatController orch,
+    ProfileEditorViewModel profileVM, {
+    bool collapsible = false,
+  }) {
     return AnimatedBuilder(
       animation: orch,
       builder: (context, _) {
@@ -464,7 +510,7 @@ class _ResumeTabState extends State<ResumeTab>
           preFilled: _preFilledSections(profileVM),
           stickyCurrent: _stickySection,
         );
-        return CurriculoSectionStepper(
+        final stepper = CurriculoSectionStepper(
           statuses: statuses,
           // Toque numa seção → sheet de verificação do que foi coletado.
           onSectionTap: (section) => showSectionDetailSheet(
@@ -474,16 +520,31 @@ class _ResumeTabState extends State<ResumeTab>
             vm: profileVM,
           ),
         );
+        if (!collapsible) return stepper;
+        final completedCount = kStepperSections
+            .where((section) => statuses[section] == SectionStatus.done)
+            .length;
+        return FortalecerPerfilDisclosure(
+          completedCount: completedCount,
+          totalCount: kStepperSections.length,
+          child: stepper,
+        );
       },
     );
   }
 
   // ── Topo (flag ON): título + "Ver meu perfil" + stepper (SEM toggle) ────────
   Widget _assistantTopBar(
-      TrilhaChatController orch, ProfileEditorViewModel profileVM) {
+    TrilhaChatController orch,
+    ProfileEditorViewModel profileVM,
+  ) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-          AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.sm),
+        AppSpacing.lg,
+        AppSpacing.md,
+        AppSpacing.lg,
+        AppSpacing.sm,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -496,7 +557,7 @@ class _ResumeTabState extends State<ResumeTab>
             ],
           ),
           const SizedBox(height: AppSpacing.md),
-          _stepper(orch, profileVM),
+          _stepper(orch, profileVM, collapsible: true),
         ],
       ),
     );
@@ -512,7 +573,9 @@ class _ResumeTabState extends State<ResumeTab>
           final home = context.read<HomeViewModel>();
           home.requestTabChange(HomeTabs.profile);
           home.requestProfileSubTab(0);
-        } catch (_) {/* sem HomeViewModel (teste) */}
+        } catch (_) {
+          /* sem HomeViewModel (teste) */
+        }
       },
       icon: const Icon(Icons.person_outline_rounded, size: 18),
       label: const Text('Ver meu perfil'),
@@ -526,10 +589,16 @@ class _ResumeTabState extends State<ResumeTab>
 
   // ── Topo (flag OFF / rollback): título + stepper + CurriculoToggle ──────────
   Widget _legacyTopBar(
-      TrilhaChatController orch, ProfileEditorViewModel profileVM) {
+    TrilhaChatController orch,
+    ProfileEditorViewModel profileVM,
+  ) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-          AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.sm),
+        AppSpacing.lg,
+        AppSpacing.md,
+        AppSpacing.lg,
+        AppSpacing.sm,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -562,7 +631,9 @@ class _ResumeTabState extends State<ResumeTab>
   // → card de conclusão (inclusive o caso "nada a coletar", que cai direto na
   // conclusão). Por isso a Conversa é sempre a [TrilhaChatView].
   Widget _conversaView(
-      TrilhaChatController orch, ProfileEditorViewModel profileVM) {
+    TrilhaChatController orch,
+    ProfileEditorViewModel profileVM,
+  ) {
     return TrilhaChatView(
       controller: orch,
       // Força honesta pro card de conclusão (mesma fonte do header do preview).
@@ -600,108 +671,6 @@ class _ResumeTabState extends State<ResumeTab>
   Future<AssistExportOutcome> _exportForAssistant() {
     if (!mounted) return Future.value(AssistExportOutcome.failed);
     return GeneralResumeExport.export(context);
-  }
-
-  /// `import_cv`: abre o seletor, importa em BACKGROUND (a extração roda async).
-  /// A conversa NÃO reinicia — só recarrega o preview quando a extração cai.
-  /// Distingue cancelado (sem arquivo) / falha (arquivo inválido/não-CV) / ok.
-  Future<AssistImportResult> _startAssistImport() async {
-    if (!mounted) return const AssistImportResult(AssistImportOutcome.failed);
-    final uid = Supabase.instance.client.auth.currentUser?.id;
-    CvImportResult r;
-    try {
-      // triggerExtraction:false → pega os bytes e roda a extração à parte
-      // (dry-run pro diff, ou save:true se o perfil está vazio).
-      r = await CvImportService.pickAndImport(context, triggerExtraction: false);
-    } catch (_) {
-      return const AssistImportResult(AssistImportOutcome.failed);
-    }
-    if (!mounted) return const AssistImportResult(AssistImportOutcome.ok);
-    if (!r.success) {
-      // .cancelled() não tem errorMessage; .error(msg) tem.
-      return r.errorMessage == null
-          ? const AssistImportResult(AssistImportOutcome.cancelled)
-          : AssistImportResult(AssistImportOutcome.failed, message: r.errorMessage);
-    }
-    // PDF salvo mas texto ILEGÍVEL (escaneado/imagem): o extract-profile NÃO
-    // extrai nada. Não prometer extração que não vai rolar.
-    if (!r.textWasUsable || r.pdfBytes == null || uid == null) {
-      return const AssistImportResult(AssistImportOutcome.failed,
-          message:
-              'Salvei seu PDF, mas não consegui ler o texto dele (parece digitalizado/imagem) — me conta os dados aqui na conversa que eu anoto 🙂');
-    }
-    final bytes = r.pdfBytes!;
-
-    // Falha ao carregar o perfil NÃO pode virar "perfil vazio" (isso levaria ao
-    // save:true destrutivo, sobrescrevendo/descartando sem card). Aborta com aviso.
-    ProfileSnapshot snap;
-    try {
-      snap = await ProfileSnapshotService().loadSnapshot(uid);
-    } catch (_) {
-      return const AssistImportResult(AssistImportOutcome.failed,
-          message:
-              'Não consegui comparar com seu perfil agora 😕 Tenta de novo daqui a pouco.');
-    }
-    if (!mounted) return const AssistImportResult(AssistImportOutcome.ok);
-
-    // "Vazio" pro import = SEM nenhum dado que o diff protege. snap.isEmpty
-    // ignora os escalares pessoais (nome/telefone/cidade/linkedin/site), então
-    // checo também eles — senão um perfil só-com-identidade pularia o card e
-    // teria esses campos sobrescritos em silêncio pela extração.
-    final pp = snap.personal;
-    final hasPersonal = pp != null &&
-        [
-          '${pp.firstName ?? ''}${pp.lastName ?? ''}',
-          pp.phoneNumber,
-          pp.locationCity,
-          pp.linkedinUrl,
-          pp.website,
-        ].any((s) => (s ?? '').trim().isNotEmpty);
-    final profileIsEmpty = snap.isEmpty && !hasPersonal;
-
-    // Perfil VAZIO → nada com que conflitar: grava direto (save:true) + re-poll.
-    if (profileIsEmpty) {
-      // ignore: unawaited_futures
-      CvImportService.extractProfile(bytes, save: true);
-      _scheduleProfileReload();
-      _scheduleImportRefresh();
-      return const AssistImportResult(AssistImportOutcome.ok,
-          message:
-              'Guardei seu CV como fonte importada 📄 Como seu perfil tá começando, vou usar os dados dele pra preencher seu perfil (uns 15s) 👇');
-    }
-
-    // Perfil COM dados → dry-run + diff → card de conflito.
-    final conflicts = await loadCvConflicts(uid, bytes);
-    if (!mounted) return const AssistImportResult(AssistImportOutcome.ok);
-    if (conflicts.isEmpty) {
-      return const AssistImportResult(AssistImportOutcome.ok,
-          message:
-              'Guardei seu CV como fonte importada 📄 Comparei com o seu perfil e não achei nada novo pra adicionar — você já tem tudo o que tá no CV 🙂');
-    }
-    return AssistImportResult(AssistImportOutcome.ok,
-        message:
-            'Guardei seu CV como fonte importada 📄 Comparei com o seu perfil: aqui está o que o CV tem de novo ou diferente — escolhe o que quer trazer 👇',
-        conflicts: conflicts);
-  }
-
-  /// Re-poll do preview após um import: a extração (extract-profile) é async
-  /// (~15s), então recarrega algumas vezes até ela cair no banco.
-  void _scheduleImportRefresh() {
-    for (final t in _importRefreshTimers) {
-      t.cancel();
-    }
-    _importRefreshTimers.clear();
-    for (final sec in const [5, 12, 20]) {
-      _importRefreshTimers.add(Timer(Duration(seconds: sec), () {
-        if (!mounted) return;
-        try {
-          // ignore: unawaited_futures
-          context.read<ProfileEditorViewModel>().load();
-        } catch (_) {/* sem provider (teste) */}
-        // ignore: unawaited_futures
-        _refreshHubStatus();
-      }));
-    }
   }
 
   /// `open_tab`: mapeia o tabKey (pt-BR/en) pro índice da aba. null ⇒ não
@@ -745,7 +714,9 @@ class _ResumeTabState extends State<ResumeTab>
     if (jobsVM.jobs.isEmpty) {
       try {
         await jobsVM.init();
-      } catch (_) {/* best-effort */}
+      } catch (_) {
+        /* best-effort */
+      }
     }
     if (!mounted) return AssistJobsResult(hasResume: hasResume, jobs: const []);
     // listJobs exclui as vagas que o user já swipou (curtiu/descartou) — não
@@ -759,8 +730,11 @@ class _ResumeTabState extends State<ResumeTab>
     if (query != null && query.isNotEmpty) {
       final q = FilterHelpers.normalize(query);
       candidates = candidates
-          .where((j) =>
-              FilterHelpers.normalize('${j.title} ${j.companyName}').contains(q))
+          .where(
+            (j) => FilterHelpers.normalize(
+              '${j.title} ${j.companyName}',
+            ).contains(q),
+          )
           .toList();
     }
     // Área FORA do perfil (ex.: "tem vaga de marketing?" mas o perfil é Finanças):
@@ -771,48 +745,68 @@ class _ResumeTabState extends State<ResumeTab>
         final uid = jobsVM.userId;
         if (uid != null) {
           final cat = await JobRepository().fetchJobs(
-              preferences: UserJobPreferences(userId: uid, areas: [area]));
+            preferences: UserJobPreferences(userId: uid, areas: [area]),
+          );
           if (!mounted) {
             return AssistJobsResult(hasResume: hasResume, jobs: const []);
           }
           if (cat.isNotEmpty) {
             outOfProfile = area;
             candidates = (query != null && query.isNotEmpty)
-                ? cat.where((j) => FilterHelpers.normalize(
-                        '${j.title} ${j.companyName}')
-                    .contains(FilterHelpers.normalize(query))).toList()
+                ? cat
+                      .where(
+                        (j) => FilterHelpers.normalize(
+                          '${j.title} ${j.companyName}',
+                        ).contains(FilterHelpers.normalize(query)),
+                      )
+                      .toList()
                 : cat;
           }
         }
-      } catch (_) {/* best-effort */}
+      } catch (_) {
+        /* best-effort */
+      }
     }
     // Resolve o match só de um pool pequeno do topo (feed já vem rankeado), em
     // PARALELO (Future.wait) pra não somar N latências de rede em série.
     final pool = candidates.take(12).toList();
-    final results = await Future.wait(pool.map((job) async {
-      try {
-        final m = await jobsVM.resolveMatchForJob(job, hasResume: hasResume);
-        return (job: job, score: m.score, hasScore: !m.isNoResume && !m.isUnknown);
-      } catch (_) {
-        return null; // sem score — cai fora do topo
-      }
-    }));
+    final results = await Future.wait(
+      pool.map((job) async {
+        try {
+          final m = await jobsVM.resolveMatchForJob(job, hasResume: hasResume);
+          return (
+            job: job,
+            score: m.score,
+            hasScore: !m.isNoResume && !m.isUnknown,
+          );
+        } catch (_) {
+          return null; // sem score — cai fora do topo
+        }
+      }),
+    );
     if (!mounted) return AssistJobsResult(hasResume: hasResume, jobs: const []);
-    final scored = results.whereType<({Job job, int score, bool hasScore})>().toList();
+    final scored = results
+        .whereType<({Job job, int score, bool hasScore})>()
+        .toList();
     scored.sort((a, b) => b.score.compareTo(a.score));
     final rows = scored
         .take(limit)
-        .map((e) => AssistJobRow(
-              id: e.job.id,
-              title: e.job.title,
-              company: e.job.companyName,
-              area: e.job.area ?? '',
-              score: e.score,
-              hasScore: e.hasScore,
-            ))
+        .map(
+          (e) => AssistJobRow(
+            id: e.job.id,
+            title: e.job.title,
+            company: e.job.companyName,
+            area: e.job.area ?? '',
+            score: e.score,
+            hasScore: e.hasScore,
+          ),
+        )
         .toList();
     return AssistJobsResult(
-        hasResume: hasResume, jobs: rows, outOfProfileArea: outOfProfile);
+      hasResume: hasResume,
+      jobs: rows,
+      outOfProfileArea: outOfProfile,
+    );
   }
 
   /// Card de vagas: abre o DETALHE de uma vaga (por id) num bottom sheet.
@@ -822,7 +816,9 @@ class _ResumeTabState extends State<ResumeTab>
     Job? job;
     try {
       job = await jobsVM.fetchJobById(jobId);
-    } catch (_) {/* vaga sumiu */}
+    } catch (_) {
+      /* vaga sumiu */
+    }
     if (!mounted || job == null) return;
     await showModalBottomSheet<void>(
       context: context,
@@ -861,5 +857,4 @@ class _ResumeTabState extends State<ResumeTab>
       return false;
     }
   }
-
 }

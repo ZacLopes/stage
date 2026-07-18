@@ -3,10 +3,14 @@
 // de leitura/navegação, e o parquear/retomar do passo aberto. Sem rede: a
 // função do assistente (AssistantTurnFn) é injetada.
 
+import 'dart:async';
+
 import 'package:career_gamification/features/trilha/application/conversation_controller.dart';
 import 'package:career_gamification/features/trilha/application/cv_conflict.dart';
 import 'package:career_gamification/features/trilha/application/trilha_session.dart';
+import 'package:career_gamification/features/trilha/domain/assist_skills_write.dart';
 import 'package:career_gamification/features/trilha/domain/conversation_step.dart';
+import 'package:career_gamification/features/profile/domain/skill_name_normalizer.dart';
 import 'package:career_gamification/features/trilha/presentation/trilha_chat_controller.dart';
 import 'package:career_gamification/services/ai_service.dart';
 import 'package:career_gamification/services/profile_snapshot_service.dart';
@@ -25,30 +29,33 @@ class _FakeSnap implements ProfileSnapshotService {
 
 /// Plano fake: 1 passo de TEXTO + 1 passo de ESCOLHA.
 List<ConversationStep> _plan() => [
-      ConversationStep.single(
-        id: 'q.text',
-        aiMessage: 'Qual empresa?',
-        input: const GuidedTextInput(example: 'x'),
-      ),
-      ConversationStep.single(
-        id: 'q.choice',
-        aiMessage: 'Modalidade?',
-        input: const ChoiceInput(options: [
-          StepOption(id: 'remote', label: 'Remoto'),
-          StepOption(id: 'onsite', label: 'Presencial'),
-        ]),
-      ),
-    ];
+  ConversationStep.single(
+    id: 'q.text',
+    aiMessage: 'Qual empresa?',
+    input: const GuidedTextInput(example: 'x'),
+  ),
+  ConversationStep.single(
+    id: 'q.choice',
+    aiMessage: 'Modalidade?',
+    input: const ChoiceInput(
+      options: [
+        StepOption(id: 'remote', label: 'Remoto'),
+        StepOption(id: 'onsite', label: 'Presencial'),
+      ],
+    ),
+  ),
+];
 
-AssistantTurnFn _fixed(AssistantTurn turn) => ({
+AssistantTurnFn _fixed(AssistantTurn turn) =>
+    ({
       required String message,
       Map<String, dynamic>? openStep,
       Map<String, dynamic> context = const {},
       List<Map<String, dynamic>> history = const [],
-    }) async =>
-        turn;
+    }) async => turn;
 
-AssistantTurnFn _nullTurn({void Function()? onCall}) => ({
+AssistantTurnFn _nullTurn({void Function()? onCall}) =>
+    ({
       required String message,
       Map<String, dynamic>? openStep,
       Map<String, dynamic> context = const {},
@@ -58,14 +65,183 @@ AssistantTurnFn _nullTurn({void Function()? onCall}) => ({
       return null;
     };
 
-
 /// Copiloto ON abre com CHIPS (não entra na coleta sozinho). Os testes de
 /// comportamento do assistente precisam de um passo aberto — equivale a tocar
 /// "Montar do zero" na abertura.
 Future<void> _openStep(TrilhaChatController c) async {
   await c.start();
-  await c.onStarterChip(const StarterChip(
-      id: 'zero', label: 'Montar do zero', action: StarterChipAction.startZero));
+  await c.onStarterChip(
+    const StarterChip(
+      id: 'zero',
+      label: 'Montar do zero',
+      action: StarterChipAction.startZero,
+    ),
+  );
+}
+
+class _MemorySkillsOperation {
+  _MemorySkillsOperation({
+    required this.expected,
+    required this.desired,
+    required this.outcome,
+    required this.before,
+    required this.after,
+  });
+
+  final List<String> expected;
+  final List<String> desired;
+  final AssistSkillsApplyOutcome outcome;
+  final List<String> before;
+  final List<String> after;
+  bool undone = false;
+}
+
+class _MemoryAssistSkillsWriter implements AssistSkillsWriter {
+  _MemoryAssistSkillsWriter(Iterable<String> initial)
+    : state = normalizeSkillNames(initial);
+
+  List<String> state;
+  final Map<String, List<String>> baselines = {};
+  final Map<String, _MemorySkillsOperation> operations = {};
+  int openCalls = 0;
+  int applyCalls = 0;
+  int undoCalls = 0;
+  int mutations = 0;
+  bool loseNextApplyReply = false;
+  bool loseNextUndoReply = false;
+
+  @override
+  Future<AssistSkillsOpenReceipt> open({
+    required String userId,
+    required String operationId,
+  }) async {
+    openCalls++;
+    final replayed = baselines.containsKey(operationId);
+    final baseline = baselines.putIfAbsent(
+      operationId,
+      () => List<String>.of(state),
+    );
+    return AssistSkillsOpenReceipt.fromRpc({
+      'status': replayed ? 'replay' : 'opened',
+      'operation_id': operationId,
+      'baseline': baseline,
+      'count': baseline.length,
+    });
+  }
+
+  @override
+  Future<AssistSkillsApplyReceipt> apply({
+    required String userId,
+    required String operationId,
+    required List<String> expected,
+    required List<String> desired,
+  }) async {
+    applyCalls++;
+    final normalizedExpected = normalizeSkillNames(expected);
+    final normalizedDesired = normalizeSkillNames(desired);
+    final baseline = baselines[operationId];
+    if (baseline == null || !_sameSkills(baseline, normalizedExpected)) {
+      throw StateError('operation_not_opened');
+    }
+    var op = operations[operationId];
+    final replayed = op != null;
+    if (op != null &&
+        (!_sameSkills(op.expected, normalizedExpected) ||
+            !_sameSkills(op.desired, normalizedDesired))) {
+      throw StateError('operation_id_reused');
+    }
+    if (op == null) {
+      final before = List<String>.of(baseline);
+      final outcome = _sameSkills(state, normalizedDesired)
+          ? AssistSkillsApplyOutcome.noop
+          : !_sameSkills(state, normalizedExpected)
+          ? AssistSkillsApplyOutcome.stale
+          : AssistSkillsApplyOutcome.applied;
+      if (outcome == AssistSkillsApplyOutcome.applied) {
+        state = List<String>.of(normalizedDesired);
+        mutations++;
+      }
+      op = _MemorySkillsOperation(
+        expected: normalizedExpected,
+        desired: normalizedDesired,
+        outcome: outcome,
+        before: before,
+        after: outcome == AssistSkillsApplyOutcome.stale
+            ? List<String>.of(before)
+            : List<String>.of(state),
+      );
+      operations[operationId] = op;
+    }
+    if (loseNextApplyReply) {
+      loseNextApplyReply = false;
+      throw StateError('response_lost');
+    }
+    final outcome = op.undone ? AssistSkillsApplyOutcome.undone : op.outcome;
+    final live = List<String>.of(state);
+    return AssistSkillsApplyReceipt.fromRpc({
+      'status': replayed ? 'replay' : outcome.name,
+      'outcome': outcome.name,
+      'operation_id': operationId,
+      'live': live,
+      'resulting': op.after,
+      'count': live.length,
+      'can_undo':
+          outcome == AssistSkillsApplyOutcome.applied &&
+          !op.undone &&
+          _sameSkills(state, op.after),
+    });
+  }
+
+  @override
+  Future<AssistSkillsUndoReceipt> undo({
+    required String userId,
+    required String operationId,
+    required List<String> expectedRestored,
+  }) async {
+    undoCalls++;
+    final op = operations[operationId];
+    if (op == null || op.outcome != AssistSkillsApplyOutcome.applied) {
+      throw StateError('operation_not_undoable');
+    }
+    final normalizedRestored = normalizeSkillNames(expectedRestored);
+    if (!_sameSkills(normalizedRestored, op.before)) {
+      throw StateError('invalid_expected_restored');
+    }
+    final replayed = op.undone;
+    var outcome = AssistSkillsUndoOutcome.undone;
+    if (!op.undone) {
+      if (!_sameSkills(state, op.after)) {
+        outcome = AssistSkillsUndoOutcome.stale;
+      } else {
+        state = List<String>.of(op.before);
+        op.undone = true;
+        mutations++;
+      }
+    }
+    if (loseNextUndoReply) {
+      loseNextUndoReply = false;
+      throw StateError('response_lost');
+    }
+    final live = List<String>.of(state);
+    return AssistSkillsUndoReceipt.fromRpc({
+      'status': replayed ? 'replay' : outcome.name,
+      'outcome': outcome.name,
+      'operation_id': operationId,
+      'live': live,
+      'resulting': op.before,
+      'count': live.length,
+    });
+  }
+
+  static bool _sameSkills(Iterable<String> left, Iterable<String> right) {
+    final a = left.map(foldSkillName).toList();
+    final b = right.map(foldSkillName).toList();
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 }
 
 void main() {
@@ -81,9 +257,10 @@ void main() {
     AssistFieldReader? bulletReader,
     AssistFieldWriter? bulletWriter,
     Future<Future<void> Function()?> Function(String, String)?
-        reversibleRemover,
+    reversibleRemover,
     Future<Map<String, String>?> Function()? proactiveLoader,
     Future<List<String>> Function()? skillsLoader,
+    AssistSkillsWriter? skillsWriter,
     Future<List<String>> Function()? skillSuggester,
     Future<List<String>> Function()? interestsLoader,
     Future<void> Function(List<String>)? interestsReplacer,
@@ -92,7 +269,7 @@ void main() {
     Future<List<(String, String?)>> Function()? languagesLoader,
     Future<void> Function(String, String?)? languageUpserter,
     Future<Map<String, String>?> Function(String, String, String)?
-        itemFieldReader,
+    itemFieldReader,
     Future<void> Function(String, String, String, String)? itemFieldWriter,
     AssistJobsLoader? jobsLoader,
     Future<bool> Function(String)? saveJob,
@@ -102,10 +279,13 @@ void main() {
     Future<AssistImportResult> Function()? importCv,
     Future<AssistGaps> Function()? gapsLoader,
     Future<Future<void> Function()?> Function(ConflictRow, String)?
-        conflictApplier,
+    conflictApplier,
+    Future<List<String>> Function()? preFilledLoader,
     List<ConversationStep>? plan,
+    Future<void> Function(StepAnswer)? saveAnswer,
+    void Function()? onProfileEdited,
   }) {
-    Future<void> save(StepAnswer a) async {}
+    final save = saveAnswer ?? (StepAnswer a) async {};
     final session = TrilhaSession(
       controller: ConversationController(plan ?? _plan(), onAnswer: save),
       saveAnswer: save,
@@ -115,7 +295,7 @@ void main() {
       sessionBuilder: (_) async => session,
       snapshotService: _FakeSnap(),
       // Abertura adaptativa (perfil com algo) → entra direto na conversa.
-      preFilledLoader: () async => const ['skills'],
+      preFilledLoader: preFilledLoader ?? () async => const ['skills'],
       assistEnabled: assistEnabled,
       assistantTurn: assistantTurn,
       assistSectionSteps: sectionSteps,
@@ -129,6 +309,7 @@ void main() {
       assistReversibleRemover: reversibleRemover,
       assistProactiveLoader: proactiveLoader,
       assistSkillsLoader: skillsLoader,
+      assistSkillsWriter: skillsWriter,
       assistSkillSuggester: skillSuggester,
       assistInterestsLoader: interestsLoader,
       assistInterestsReplacer: interestsReplacer,
@@ -146,76 +327,150 @@ void main() {
       assistImportCv: importCv,
       assistGapsLoader: gapsLoader,
       assistConflictApplier: conflictApplier,
+      onProfileEdited: onProfileEdited,
       pollInterval: const Duration(milliseconds: 1),
       maxPolls: 2,
     );
   }
 
-  test('flag OFF: comportamento de hoje (texto responde o passo, sem IA)',
-      () async {
-    var called = false;
-    final c = build(
-        assistEnabled: false, assistantTurn: _nullTurn(onCall: () => called = true));
-    addTearDown(c.dispose);
-    await c.start();
-    expect(c.currentStep?.id, 'q.text');
-    await c.submitFreeText('Magalu');
-    expect(called, isFalse); // assistente nunca chamado com a flag OFF
-    expect(c.currentStep?.id, 'q.choice'); // texto virou resposta e avançou
-  });
+  test(
+    'flag OFF: comportamento de hoje (texto responde o passo, sem IA)',
+    () async {
+      var called = false;
+      final c = build(
+        assistEnabled: false,
+        assistantTurn: _nullTurn(onCall: () => called = true),
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      expect(c.currentStep?.id, 'q.text');
+      await c.submitFreeText('Magalu');
+      expect(called, isFalse); // assistente nunca chamado com a flag OFF
+      expect(c.currentStep?.id, 'q.choice'); // texto virou resposta e avançou
+    },
+  );
 
-  test('flag OFF + sem passo aberto: não engole a mensagem — bolha + dica',
-      () async {
-    // Regressão: com o assistente OFF e a trilha concluída (sem passo aberto),
-    // apertar enviar sumia com o texto em silêncio (botão "morto"). Agora mostra
-    // a fala e ensina a editar pela seção.
+  test(
+    'flag OFF + sem passo aberto: não engole a mensagem — bolha + dica',
+    () async {
+      // Regressão: com o assistente OFF e a trilha concluída (sem passo aberto),
+      // apertar enviar sumia com o texto em silêncio (botão "morto"). Agora mostra
+      // a fala e ensina a editar pela seção.
+      final c = build(
+        assistEnabled: false,
+        assistantTurn: _nullTurn(),
+        plan: [
+          ConversationStep.single(
+            id: 'q.only',
+            aiMessage: 'Alguma coisa?',
+            input: const GuidedTextInput(example: 'x'),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('Empresa X'); // responde o único passo → conclui
+      expect(c.currentStep, isNull); // sem passo aberto
+
+      await c.submitFreeText('edita minhas habilidades');
+      expect(
+        c.thread.whereType<UserMsgItem>().any(
+          (m) => m.text == 'edita minhas habilidades',
+        ),
+        isTrue,
+      ); // a fala não sumiu
+      expect(
+        c.thread.whereType<AiMsgItem>().any(
+          (m) => m.text.contains('tocar na seção'),
+        ),
+        isTrue,
+      ); // recebeu uma dica em vez de silêncio
+    },
+  );
+
+  test('lápis não abre para item multi-passo já finalizado', () async {
     final c = build(
       assistEnabled: false,
       assistantTurn: _nullTurn(),
       plan: [
         ConversationStep.single(
-            id: 'q.only',
-            aiMessage: 'Alguma coisa?',
-            input: const GuidedTextInput(example: 'x')),
+          id: 'exp.0.company',
+          aiMessage: 'Empresa?',
+          input: const GuidedTextInput(example: 'Stage'),
+        ),
       ],
     );
     addTearDown(c.dispose);
     await c.start();
-    await c.submitFreeText('Empresa X'); // responde o único passo → conclui
-    expect(c.currentStep, isNull); // sem passo aberto
+    await c.submitFreeText('Stage');
+    final item = c.thread.whereType<AnsweredItem>().single;
 
-    await c.submitFreeText('edita minhas habilidades');
-    expect(
-        c.thread
-            .whereType<UserMsgItem>()
-            .any((m) => m.text == 'edita minhas habilidades'),
-        isTrue); // a fala não sumiu
-    expect(
-        c.thread
-            .whereType<AiMsgItem>()
-            .any((m) => m.text.contains('tocar na seção')),
-        isTrue); // recebeu uma dica em vez de silêncio
+    expect(c.canEditAnswer(item), isFalse);
+    c.beginEdit(item);
+    expect(c.editingIndex, isNull);
   });
 
-  test('fast-lane: texto sem cara de comando responde o passo SEM chamar a IA',
-      () async {
-    var called = false;
-    final c = build(assistantTurn: _nullTurn(onCall: () => called = true));
-    addTearDown(c.dispose);
-    await _openStep(c);
-    await c.submitFreeText('Magazine Luiza'); // sem '?', sem verbo de comando
-    expect(called, isFalse); // atalho local
-    expect(c.currentStep?.id, 'q.choice');
-  });
+  test(
+    'falha ao editar mantém card antigo e editor aberto para retry',
+    () async {
+      var saves = 0;
+      final c = build(
+        assistEnabled: false,
+        assistantTurn: _nullTurn(),
+        plan: [
+          ConversationStep.single(
+            id: 'q.text',
+            aiMessage: 'Cidade?',
+            input: const GuidedTextInput(example: 'Recife'),
+          ),
+        ],
+        saveAnswer: (_) async {
+          saves++;
+          if (saves == 2) throw Exception('network');
+        },
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('Recife');
+      final original = c.thread.whereType<AnsweredItem>().single;
+      c.beginEdit(original);
+
+      await c.submit(StepAnswer.text('q.text', 'Olinda'));
+
+      expect(
+        c.thread.whereType<AnsweredItem>().single.exchange.answer.displayText,
+        'Recife',
+      );
+      expect(c.editingIndex, isNotNull);
+    },
+  );
+
+  test(
+    'fast-lane: texto sem cara de comando responde o passo SEM chamar a IA',
+    () async {
+      var called = false;
+      final c = build(assistantTurn: _nullTurn(onCall: () => called = true));
+      addTearDown(c.dispose);
+      await _openStep(c);
+      await c.submitFreeText('Magazine Luiza'); // sem '?', sem verbo de comando
+      expect(called, isFalse); // atalho local
+      expect(c.currentStep?.id, 'q.choice');
+    },
+  );
 
   test('answer_current_step (escolha): mapeia option_ids e responde', () async {
     final c = build(
-        assistantTurn: _fixed(const AssistantTurn(
-      tool: 'answer_current_step',
-      args: {'option_ids': ['remote']},
-      reply: 'Anotei!',
-      promptVersion: 'assistant_v1',
-    )));
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'answer_current_step',
+          args: {
+            'option_ids': ['remote'],
+          },
+          reply: 'Anotei!',
+          promptVersion: 'assistant_v1',
+        ),
+      ),
+    );
     addTearDown(c.dispose);
     await _openStep(c);
     await c.submitFreeText('Magalu'); // fast-lane no passo de texto
@@ -226,211 +481,385 @@ void main() {
 
   test('answer_question: mostra a resposta e MANTÉM o passo aberto', () async {
     final c = build(
-        assistantTurn: _fixed(const AssistantTurn(
-      tool: 'answer_question',
-      args: {},
-      reply: 'Estágio é enquanto você cursa 👍',
-      promptVersion: 'assistant_v1',
-    )));
-    addTearDown(c.dispose);
-    await _openStep(c);
-    await c.submitFreeText('qual a diferença de estágio e trainee?'); // '?' → IA
-    expect(
-        c.thread
-            .whereType<AiMsgItem>()
-            .any((m) => m.text.contains('Estágio é')),
-        isTrue);
-    expect(c.currentStep?.id, 'q.text'); // não avançou
-  });
-
-  test('start_section: injeta a seção e o passo aberto RETOMA depois', () async {
-    final injected = [
-      ConversationStep.single(
-          id: 'gap.skills',
-          aiMessage: 'Suas skills?',
-          input: const GuidedTextInput(example: 'x')),
-    ];
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'start_section',
-        args: {'section': 'skills'},
-        reply: 'Bora completar suas skills!',
-        promptVersion: 'assistant_v1',
-      )),
-      sectionSteps: (s) => s == 'skills' ? injected : const [],
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'answer_question',
+          args: {},
+          reply: 'Estágio é enquanto você cursa 👍',
+          promptVersion: 'assistant_v1',
+        ),
+      ),
     );
     addTearDown(c.dispose);
     await _openStep(c);
-    expect(c.currentStep?.id, 'q.text');
-    await c.submitFreeText('quero preencher minhas skills'); // 'quero' → IA
-    expect(c.currentStep?.id, 'gap.skills'); // seção injetada virou o atual
-    await c.submitFreeText('Python'); // responde a skill (fast-lane)
-    expect(c.currentStep?.id, 'q.text'); // RETOMOU o passo original
+    await c.submitFreeText(
+      'qual a diferença de estágio e trainee?',
+    ); // '?' → IA
+    expect(
+      c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Estágio é')),
+      isTrue,
+    );
+    expect(c.currentStep?.id, 'q.text'); // não avançou
   });
 
-  test('falha do assistente (null): failure-safe, mantém o passo e avisa',
-      () async {
-    final c = build(assistantTurn: _nullTurn());
-    addTearDown(c.dispose);
-    await _openStep(c);
-    await c.submitFreeText('o que falta no meu perfil?'); // '?' → IA → null
-    expect(c.currentStep?.id, 'q.text'); // não avançou
-    expect(
-        c.thread.whereType<AiMsgItem>().any((m) =>
-            m.text.contains('Não peguei bem') ||
-            m.text.contains('Não consegui')),
-        isTrue);
-  });
+  test(
+    'start_section: injeta a seção e o passo aberto RETOMA depois',
+    () async {
+      final injected = [
+        ConversationStep.single(
+          id: 'gap.skills',
+          aiMessage: 'Suas skills?',
+          input: const GuidedTextInput(example: 'x'),
+        ),
+      ];
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'start_section',
+            args: {'section': 'skills'},
+            reply: 'Bora completar suas skills!',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        sectionSteps: (s) => s == 'skills' ? injected : const [],
+      );
+      addTearDown(c.dispose);
+      await _openStep(c);
+      expect(c.currentStep?.id, 'q.text');
+      await c.submitFreeText('quero preencher minhas skills'); // 'quero' → IA
+      expect(c.currentStep?.id, 'gap.skills'); // seção injetada virou o atual
+      await c.submitFreeText('Python'); // responde a skill (fast-lane)
+      expect(c.currentStep?.id, 'q.text'); // RETOMOU o passo original
+    },
+  );
+
+  test(
+    'falha do assistente (null): failure-safe, mantém o passo e avisa',
+    () async {
+      final c = build(assistantTurn: _nullTurn());
+      addTearDown(c.dispose);
+      await _openStep(c);
+      await c.submitFreeText('o que falta no meu perfil?'); // '?' → IA → null
+      expect(c.currentStep?.id, 'q.text'); // não avançou
+      expect(
+        c.thread.whereType<AiMsgItem>().any(
+          (m) =>
+              m.text.contains('Não peguei bem') ||
+              m.text.contains('Não consegui'),
+        ),
+        isTrue,
+      );
+    },
+  );
 
   // ── Fase B: mutação (propõe → confirma → aplica → desfaz) ──────────────────
 
-  test('update_field: propõe (não grava) → confirma (grava) → desfaz (regrava)',
-      () async {
-    final writes = <List<String>>[];
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'update_field',
-        args: {
-          'field': 'desired_position',
-          'value': 'Analista de Dados',
-          'value_label': 'Analista de Dados',
+  test(
+    'update_field: propõe (não grava) → confirma (grava) → desfaz (regrava)',
+    () async {
+      final writes = <List<String>>[];
+      var current = 'Dev';
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'update_field',
+            args: {
+              'field': 'desired_position',
+              'value': 'Analista de Dados',
+              'value_label': 'Analista de Dados',
+            },
+            reply: 'Beleza!',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        readField: (field) async => field == 'desired_position'
+            ? AssistFieldValue(
+                raw: current,
+                text: current,
+                label: 'Cargo desejado',
+              )
+            : null,
+        writeField: (field, value) async {
+          writes.add([field, value]);
+          current = value;
         },
-        reply: 'Beleza!',
-        promptVersion: 'assistant_v1',
-      )),
-      readField: (field) async => field == 'desired_position'
-          ? const AssistFieldValue(
-              raw: 'Dev', text: 'Dev', label: 'Cargo desejado')
-          : null,
-      writeField: (field, value) async => writes.add([field, value]),
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('muda meu cargo pra Analista de Dados'); // 'muda' → IA
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText(
+        'muda meu cargo pra Analista de Dados',
+      ); // 'muda' → IA
 
-    // PROPÔS: 1 card pending, e NÃO gravou ainda.
-    final pending = c.thread
-        .whereType<AssistEditItem>()
-        .where((e) => e.status == AssistEditStatus.pending)
-        .toList();
-    expect(pending, hasLength(1));
-    expect(writes, isEmpty);
-    expect(pending.first.beforeText, 'Dev');
-    expect(pending.first.afterText, 'Analista de Dados');
-    final id = pending.first.id;
+      // PROPÔS: 1 card pending, e NÃO gravou ainda.
+      final pending = c.thread
+          .whereType<AssistEditItem>()
+          .where((e) => e.status == AssistEditStatus.pending)
+          .toList();
+      expect(pending, hasLength(1));
+      expect(writes, isEmpty);
+      expect(pending.first.beforeText, 'Dev');
+      expect(pending.first.afterText, 'Analista de Dados');
+      final id = pending.first.id;
 
-    // CONFIRMA → grava o novo valor.
-    await c.confirmAssistEdit(id);
-    expect(writes, [
-      ['desired_position', 'Analista de Dados']
-    ]);
-    final applied =
-        c.thread.whereType<AssistEditItem>().firstWhere((e) => e.id == id);
-    expect(applied.status, AssistEditStatus.applied);
+      // CONFIRMA → grava o novo valor.
+      await c.confirmAssistEdit(id);
+      expect(writes, [
+        ['desired_position', 'Analista de Dados'],
+      ]);
+      final applied = c.thread.whereType<AssistEditItem>().firstWhere(
+        (e) => e.id == id,
+      );
+      expect(applied.status, AssistEditStatus.applied);
 
-    // DESFAZ → regrava o valor anterior ('Dev').
-    await c.undoAssistEdit(id);
-    expect(writes.last, ['desired_position', 'Dev']);
-    expect(applied.status, AssistEditStatus.undone);
-  });
+      // DESFAZ → regrava o valor anterior ('Dev').
+      await c.undoAssistEdit(id);
+      expect(writes.last, ['desired_position', 'Dev']);
+      expect(applied.status, AssistEditStatus.undone);
+    },
+  );
 
   test('update_field: cancelar NÃO grava', () async {
     final writes = <List<String>>[];
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'update_field',
-        args: {'field': 'desired_position', 'value': 'X'},
-        reply: '',
-        promptVersion: 'assistant_v1',
-      )),
-      readField: (field) async => const AssistFieldValue(
-          raw: '', text: '—', label: 'Cargo desejado'),
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'update_field',
+          args: {'field': 'desired_position', 'value': 'X'},
+          reply: '',
+          promptVersion: 'assistant_v1',
+        ),
+      ),
+      readField: (field) async =>
+          const AssistFieldValue(raw: '', text: '—', label: 'Cargo desejado'),
       writeField: (field, value) async => writes.add([field, value]),
     );
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('quero mudar meu cargo'); // 'quero' → IA
-    final pending = c.thread
-        .whereType<AssistEditItem>()
-        .singleWhere((e) => e.status == AssistEditStatus.pending);
+    final pending = c.thread.whereType<AssistEditItem>().singleWhere(
+      (e) => e.status == AssistEditStatus.pending,
+    );
     c.cancelAssistEdit(pending.id);
     expect(writes, isEmpty); // nunca gravou
     expect(pending.status, AssistEditStatus.cancelled);
   });
 
-  // ── Fase B-2: add_item / remove_item ───────────────────────────────────────
-
-  test('add_item: propõe (op=add) → confirma (add) → desfaz (remove)', () async {
-    final adds = <List<String>>[];
-    final removes = <List<String>>[];
+  test('update_field: toque duplo dispara um único writer', () async {
+    var current = 'Dev';
+    var writes = 0;
+    final started = Completer<void>();
+    final release = Completer<void>();
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'add_item',
-        args: {'kind': 'skill', 'value': 'Python'},
-        reply: 'Boa!',
-        promptVersion: 'assistant_v1',
-      )),
-      itemAdder: (kind, value) async => adds.add([kind, value]),
-      itemRemover: (kind, value) async => removes.add([kind, value]),
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'update_field',
+          args: {'field': 'desired_position', 'value': 'Dados'},
+          reply: '',
+          promptVersion: 'assistant_v1',
+        ),
+      ),
+      readField: (_) async =>
+          AssistFieldValue(raw: current, text: current, label: 'Cargo'),
+      writeField: (_, value) async {
+        writes++;
+        if (!started.isCompleted) started.complete();
+        await release.future;
+        current = value;
+      },
     );
     addTearDown(c.dispose);
     await c.start();
-    await c.submitFreeText('adiciona Python nas minhas skills'); // 'adiciona' → IA
-    final pending = c.thread
-        .whereType<AssistEditItem>()
-        .singleWhere((e) => e.status == AssistEditStatus.pending);
-    expect(pending.op, AssistEditOp.add);
-    expect(adds, isEmpty); // não gravou ainda
-    await c.confirmAssistEdit(pending.id);
-    expect(adds, [
-      ['skill', 'Python']
-    ]);
-    await c.undoAssistEdit(pending.id); // desfaz add = remove
-    expect(removes, [
-      ['skill', 'Python']
-    ]);
+    await c.submitFreeText('muda meu cargo pra Dados');
+    final item = c.thread.whereType<AssistEditItem>().single;
+
+    final first = c.confirmAssistEdit(item.id);
+    final second = c.confirmAssistEdit(item.id);
+    await started.future;
+    expect(writes, 1);
+    release.complete();
+    await Future.wait([first, second]);
+
+    expect(writes, 1);
+    expect(item.status, AssistEditStatus.applied);
   });
+
+  test(
+    'update_field: edição manual mais recente bloqueia aplicar e desfazer',
+    () async {
+      var current = 'Dev';
+      final writes = <String>[];
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'update_field',
+            args: {'field': 'desired_position', 'value': 'Dados'},
+            reply: '',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        readField: (_) async =>
+            AssistFieldValue(raw: current, text: current, label: 'Cargo'),
+        writeField: (_, value) async {
+          writes.add(value);
+          current = value;
+        },
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('muda meu cargo para Dados');
+      final first = c.thread.whereType<AssistEditItem>().single;
+
+      current = 'Produto';
+      await c.confirmAssistEdit(first.id);
+      expect(writes, isEmpty);
+      expect(first.status, AssistEditStatus.pending);
+      expect(first.resultMessage, contains('mudou'));
+
+      // Um novo card parte do valor vivo e aplica normalmente.
+      await c.submitFreeText('muda meu cargo para Dados');
+      final second = c.thread.whereType<AssistEditItem>().last;
+      await c.confirmAssistEdit(second.id);
+      expect(current, 'Dados');
+      expect(second.status, AssistEditStatus.applied);
+
+      current = 'Operações';
+      await c.undoAssistEdit(second.id);
+      expect(current, 'Operações');
+      expect(second.status, AssistEditStatus.applied);
+      expect(second.resultMessage, contains('mais recente'));
+    },
+  );
+
+  test('update_field: mudança só de caixa exige recibo exato', () async {
+    var current = 'ana silva';
+    final c = build(
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'update_field',
+          args: {'field': 'name', 'value': 'Ana Silva'},
+          reply: '',
+          promptVersion: 'assistant_v1',
+        ),
+      ),
+      readField: (_) async =>
+          AssistFieldValue(raw: current, text: current, label: 'Nome'),
+      // Simula writer que retornou sem persistir a capitalização.
+      writeField: (_, value) async {},
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('corrige meu nome para Ana Silva');
+    final item = c.thread.whereType<AssistEditItem>().single;
+    await c.confirmAssistEdit(item.id);
+
+    expect(current, 'ana silva');
+    expect(item.status, AssistEditStatus.pending);
+    expect(item.resultMessage, isNotEmpty);
+  });
+
+  // ── Fase B-2: add_item / remove_item ───────────────────────────────────────
+
+  test(
+    'add_item: propõe (op=add) → confirma (add) → desfaz (remove)',
+    () async {
+      final adds = <List<String>>[];
+      final removes = <List<String>>[];
+      final state = <String>{};
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'add_item',
+            args: {'kind': 'skill', 'value': 'Python'},
+            reply: 'Boa!',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        itemAdder: (kind, value) async {
+          adds.add([kind, value]);
+          state.add(value);
+        },
+        itemRemover: (kind, value) async {
+          removes.add([kind, value]);
+          state.remove(value);
+        },
+        itemResolver: (kind, query) async => state
+            .where((value) => value.toLowerCase() == query.toLowerCase())
+            .toList(),
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText(
+        'adiciona Python nas minhas skills',
+      ); // 'adiciona' → IA
+      final pending = c.thread.whereType<AssistEditItem>().singleWhere(
+        (e) => e.status == AssistEditStatus.pending,
+      );
+      expect(pending.op, AssistEditOp.add);
+      expect(adds, isEmpty); // não gravou ainda
+      await c.confirmAssistEdit(pending.id);
+      expect(adds, [
+        ['skill', 'Python'],
+      ]);
+      await c.undoAssistEdit(pending.id); // desfaz add = remove
+      expect(removes, [
+        ['skill', 'Python'],
+      ]);
+    },
+  );
 
   test('remove_item: resolve 1 → confirma (remove) → desfaz (add)', () async {
     final adds = <List<String>>[];
     final removes = <List<String>>[];
+    final state = <String>{'Python'};
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'remove_item',
-        args: {'kind': 'skill', 'query': 'python'},
-        reply: '',
-        promptVersion: 'assistant_v1',
-      )),
-      itemAdder: (kind, value) async => adds.add([kind, value]),
-      itemRemover: (kind, value) async => removes.add([kind, value]),
-      itemResolver: (kind, query) async => ['Python'], // 1 match
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'remove_item',
+          args: {'kind': 'skill', 'query': 'python'},
+          reply: '',
+          promptVersion: 'assistant_v1',
+        ),
+      ),
+      itemAdder: (kind, value) async {
+        adds.add([kind, value]);
+        state.add(value);
+      },
+      itemRemover: (kind, value) async {
+        removes.add([kind, value]);
+        state.remove(value);
+      },
+      itemResolver: (kind, query) async => state
+          .where((value) => value.toLowerCase().contains(query.toLowerCase()))
+          .toList(),
     );
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('tira python das skills'); // 'tira' → IA
-    final pending = c.thread
-        .whereType<AssistEditItem>()
-        .singleWhere((e) => e.status == AssistEditStatus.pending);
+    final pending = c.thread.whereType<AssistEditItem>().singleWhere(
+      (e) => e.status == AssistEditStatus.pending,
+    );
     expect(pending.op, AssistEditOp.remove);
     expect(pending.value, 'Python'); // resolveu pro nome real
     await c.confirmAssistEdit(pending.id);
     expect(removes, [
-      ['skill', 'Python']
+      ['skill', 'Python'],
     ]);
     await c.undoAssistEdit(pending.id); // desfaz remove = add
     expect(adds, [
-      ['skill', 'Python']
+      ['skill', 'Python'],
     ]);
   });
 
   test('remove_item: 0 matches → esclarece, sem card', () async {
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'remove_item',
-        args: {'kind': 'skill', 'query': 'cobol'},
-        reply: '',
-        promptVersion: 'assistant_v1',
-      )),
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'remove_item',
+          args: {'kind': 'skill', 'query': 'cobol'},
+          reply: '',
+          promptVersion: 'assistant_v1',
+        ),
+      ),
       itemRemover: (kind, value) async {},
       itemResolver: (kind, query) async => const [], // não achou
     );
@@ -439,204 +868,249 @@ void main() {
     await c.submitFreeText('tira cobol das skills');
     expect(c.thread.whereType<AssistEditItem>(), isEmpty); // nenhum card
     expect(
-        c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Não achei')),
-        isTrue);
+      c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Não achei')),
+      isTrue,
+    );
   });
 
-  test('rewrite_summary: propõe antes→depois → confirma (grava) → desfaz',
-      () async {
-    final writes = <List<String>>[];
-    const novo = 'Estudante de ADM focado em dados, buscando estágio.';
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'rewrite_summary',
-        args: {'new_summary': novo},
-        reply: 'Deixei mais objetivo!',
-        promptVersion: 'assistant_v1',
-      )),
-      readField: (field) async => field == 'summary'
-          ? const AssistFieldValue(
-              raw: 'Resumo antigo bem longo aqui',
-              text: 'Resumo antigo bem longo aqui',
-              label: 'Resumo')
-          : null,
-      writeField: (field, value) async => writes.add([field, value]),
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('reescreve meu resumo mais objetivo'); // 'reescreve' → IA
-    final pending = c.thread
-        .whereType<AssistEditItem>()
-        .singleWhere((e) => e.status == AssistEditStatus.pending);
-    expect(pending.field, 'summary');
-    expect(pending.op, AssistEditOp.update);
-    expect(pending.afterText, novo);
-    expect(writes, isEmpty); // não gravou ainda
-    await c.confirmAssistEdit(pending.id);
-    expect(writes, [
-      ['summary', novo]
-    ]);
-    await c.undoAssistEdit(pending.id); // regrava o resumo anterior
-    expect(writes.last, ['summary', 'Resumo antigo bem longo aqui']);
-  });
+  test(
+    'rewrite_summary: propõe antes→depois → confirma (grava) → desfaz',
+    () async {
+      final writes = <List<String>>[];
+      const novo = 'Estudante de ADM focado em dados, buscando estágio.';
+      var current = 'Resumo antigo bem longo aqui';
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'rewrite_summary',
+            args: {'new_summary': novo},
+            reply: 'Deixei mais objetivo!',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        readField: (field) async => field == 'summary'
+            ? AssistFieldValue(raw: current, text: current, label: 'Resumo')
+            : null,
+        writeField: (field, value) async {
+          writes.add([field, value]);
+          current = value;
+        },
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText(
+        'reescreve meu resumo mais objetivo',
+      ); // 'reescreve' → IA
+      final pending = c.thread.whereType<AssistEditItem>().singleWhere(
+        (e) => e.status == AssistEditStatus.pending,
+      );
+      expect(pending.field, 'summary');
+      expect(pending.op, AssistEditOp.update);
+      expect(pending.afterText, novo);
+      expect(writes, isEmpty); // não gravou ainda
+      await c.confirmAssistEdit(pending.id);
+      expect(writes, [
+        ['summary', novo],
+      ]);
+      await c.undoAssistEdit(pending.id); // regrava o resumo anterior
+      expect(writes.last, ['summary', 'Resumo antigo bem longo aqui']);
+    },
+  );
 
-  test('improve_bullet: propõe antes→depois → confirma (grava) → desfaz',
-      () async {
-    final writes = <List<String>>[];
-    const novo = 'Estruturei uma planilha que agilizou o atendimento.';
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'improve_bullet',
-        args: {'bullet_id': 'b1', 'new_bullet': novo},
-        reply: 'Ficou mais forte!',
-        promptVersion: 'assistant_v1',
-      )),
-      bulletReader: (id) async => id == 'b1'
-          ? const AssistFieldValue(
-              raw: 'fazia planilha', text: 'fazia planilha', label: 'Ambev')
-          : null,
-      bulletWriter: (id, text) async => writes.add([id, text]),
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('melhora o bullet da Ambev'); // 'melhora' → IA
-    final pending = c.thread
-        .whereType<AssistEditItem>()
-        .singleWhere((e) => e.status == AssistEditStatus.pending);
-    expect(pending.op, AssistEditOp.bullet);
-    expect(pending.refId, 'b1');
-    expect(pending.beforeText, 'fazia planilha');
-    expect(pending.afterText, novo);
-    expect(writes, isEmpty); // não gravou ainda
-    await c.confirmAssistEdit(pending.id);
-    expect(writes, [
-      ['b1', novo]
-    ]);
-    await c.undoAssistEdit(pending.id); // regrava o bullet antigo
-    expect(writes.last, ['b1', 'fazia planilha']);
-  });
+  test(
+    'improve_bullet: propõe antes→depois → confirma (grava) → desfaz',
+    () async {
+      final writes = <List<String>>[];
+      const novo = 'Estruturei uma planilha que agilizou o atendimento.';
+      var current = 'fazia planilha';
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'improve_bullet',
+            args: {'bullet_id': 'b1', 'new_bullet': novo},
+            reply: 'Ficou mais forte!',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        bulletReader: (id) async => id == 'b1'
+            ? AssistFieldValue(raw: current, text: current, label: 'Ambev')
+            : null,
+        bulletWriter: (id, text) async {
+          writes.add([id, text]);
+          current = text;
+        },
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('melhora o bullet da Ambev'); // 'melhora' → IA
+      final pending = c.thread.whereType<AssistEditItem>().singleWhere(
+        (e) => e.status == AssistEditStatus.pending,
+      );
+      expect(pending.op, AssistEditOp.bullet);
+      expect(pending.refId, 'b1');
+      expect(pending.beforeText, 'fazia planilha');
+      expect(pending.afterText, novo);
+      expect(writes, isEmpty); // não gravou ainda
+      await c.confirmAssistEdit(pending.id);
+      expect(writes, [
+        ['b1', novo],
+      ]);
+      await c.undoAssistEdit(pending.id); // regrava o bullet antigo
+      expect(writes.last, ['b1', 'fazia planilha']);
+    },
+  );
 
-  test('remove_item (experiência): reversível — confirma deleta, desfaz restaura',
-      () async {
-    var deleted = false;
-    var restored = false;
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'remove_item',
-        args: {'kind': 'experience', 'query': 'ambev'},
-        reply: '',
-        promptVersion: 'assistant_v1',
-      )),
-      itemResolver: (kind, query) async => ['Estagiário · Ambev'], // 1 match
-      reversibleRemover: (kind, value) async {
-        deleted = true; // "deletou" e devolve o restore
-        return () async => restored = true;
-      },
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('apaga minha experiência na Ambev'); // 'apaga' → IA
-    final pending = c.thread
-        .whereType<AssistEditItem>()
-        .singleWhere((e) => e.status == AssistEditStatus.pending);
-    expect(pending.op, AssistEditOp.remove);
-    expect(pending.value, 'Estagiário · Ambev');
-    expect(deleted, isFalse); // ainda não deletou
-    await c.confirmAssistEdit(pending.id);
-    expect(deleted, isTrue); // deletou (reversível capturou o restore)
-    await c.undoAssistEdit(pending.id);
-    expect(restored, isTrue); // undo chamou o restore (re-inseriu)
-  });
+  test(
+    'remove_item (experiência): reversível — confirma deleta, desfaz restaura',
+    () async {
+      var deleted = false;
+      var restored = false;
+      var present = true;
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'remove_item',
+            args: {'kind': 'experience', 'query': 'ambev'},
+            reply: '',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        itemResolver: (kind, query) async =>
+            present ? ['Estagiário · Ambev'] : const [],
+        reversibleRemover: (kind, value) async {
+          deleted = true; // "deletou" e devolve o restore
+          present = false;
+          return () async {
+            restored = true;
+            present = true;
+          };
+        },
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText(
+        'apaga minha experiência na Ambev',
+      ); // 'apaga' → IA
+      final pending = c.thread.whereType<AssistEditItem>().singleWhere(
+        (e) => e.status == AssistEditStatus.pending,
+      );
+      expect(pending.op, AssistEditOp.remove);
+      expect(pending.value, 'Estagiário · Ambev');
+      expect(deleted, isFalse); // ainda não deletou
+      await c.confirmAssistEdit(pending.id);
+      expect(deleted, isTrue); // deletou (reversível capturou o restore)
+      await c.undoAssistEdit(pending.id);
+      expect(restored, isTrue); // undo chamou o restore (re-inseriu)
+    },
+  );
 
   // ── Fase C: sugestão proativa do próximo ganho ────────────────────────────
 
-  test('proativo: ao concluir, sugere a lacuna e "quero" entra direto na seção',
-      () async {
-    final injected = [
-      ConversationStep.single(
+  test(
+    'proativo: ao concluir, sugere a lacuna e "quero" entra direto na seção',
+    () async {
+      final injected = [
+        ConversationStep.single(
           id: 'gap.skills',
           aiMessage: 'Suas skills?',
-          input: const GuidedTextInput(example: 'x')),
-    ];
-    final c = build(
-      // Plano de 1 passo → responder já CONCLUI (dispara a sugestão proativa).
-      plan: [
-        ConversationStep.single(
+          input: const GuidedTextInput(example: 'x'),
+        ),
+      ];
+      final c = build(
+        // Plano de 1 passo → responder já CONCLUI (dispara a sugestão proativa).
+        plan: [
+          ConversationStep.single(
             id: 'q.only',
             aiMessage: 'Alguma coisa?',
-            input: const GuidedTextInput(example: 'x')),
-      ],
-      assistantTurn: _nullTurn(), // não deve ser chamado (atalho local)
-      sectionSteps: (s) => s == 'skills' ? injected : const [],
-      proactiveLoader: () async =>
-          {'section': 'skills', 'label': '3 skills'},
-    );
-    addTearDown(c.dispose);
-    await _openStep(c);
-    // Responde o único passo (fast-lane) → conclui → sugestão proativa aparece.
-    await c.submitFreeText('Empresa X');
-    expect(c.finished, isTrue);
-    expect(
-        c.thread
-            .whereType<AiMsgItem>()
-            .any((m) => m.text.contains('3 skills')),
-        isTrue);
-    // "quero" → atalho: entra DIRETO na seção sugerida (sem chamar a IA).
-    await c.submitFreeText('quero');
-    expect(c.currentStep?.id, 'gap.skills');
-    expect(c.thread.whereType<UserMsgItem>().any((m) => m.text == 'quero'),
-        isTrue);
-  });
+            input: const GuidedTextInput(example: 'x'),
+          ),
+        ],
+        assistantTurn: _nullTurn(), // não deve ser chamado (atalho local)
+        sectionSteps: (s) => s == 'skills' ? injected : const [],
+        proactiveLoader: () async => {'section': 'skills', 'label': '3 skills'},
+      );
+      addTearDown(c.dispose);
+      await _openStep(c);
+      // Responde o único passo (fast-lane) → conclui → sugestão proativa aparece.
+      await c.submitFreeText('Empresa X');
+      expect(c.finished, isTrue);
+      expect(
+        c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('3 skills')),
+        isTrue,
+      );
+      // "quero" → atalho: entra DIRETO na seção sugerida (sem chamar a IA).
+      await c.submitFreeText('quero');
+      expect(c.currentStep?.id, 'gap.skills');
+      expect(
+        c.thread.whereType<UserMsgItem>().any((m) => m.text == 'quero'),
+        isTrue,
+      );
+    },
+  );
 
-  test('proativo: "quero editar minhas habilidades" NÃO cai no atalho (regressão)',
-      () async {
-    // Bug: a frase começa com "quero" e sequestrava a seção sugerida (experiência)
-    // em vez de ir pro assistente abrir o editor de skills.
-    final injectedExp = [
-      ConversationStep.single(
+  test(
+    'proativo: "quero editar minhas habilidades" NÃO cai no atalho (regressão)',
+    () async {
+      // Bug: a frase começa com "quero" e sequestrava a seção sugerida (experiência)
+      // em vez de ir pro assistente abrir o editor de skills.
+      final injectedExp = [
+        ConversationStep.single(
           id: 'gap.experience',
           aiMessage: 'Suas experiências?',
-          input: const GuidedTextInput(example: 'x')),
-    ];
-    final c = build(
-      plan: [
-        ConversationStep.single(
+          input: const GuidedTextInput(example: 'x'),
+        ),
+      ];
+      final writer = _MemoryAssistSkillsWriter(['Excel', 'Python']);
+      final c = build(
+        plan: [
+          ConversationStep.single(
             id: 'q.only',
             aiMessage: 'Alguma coisa?',
-            input: const GuidedTextInput(example: 'x')),
-      ],
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'edit_skills',
-        args: {},
-        reply: 'Bora editar 👇',
-        promptVersion: 'assistant_v4',
-      )),
-      sectionSteps: (s) => s == 'experience' ? injectedExp : const [],
-      proactiveLoader: () async =>
-          {'section': 'experience', 'label': '1 experiência'},
-      skillsLoader: () async => ['Excel', 'Python'],
-    );
-    addTearDown(c.dispose);
-    await _openStep(c);
-    await c.submitFreeText('Empresa X'); // conclui → sugere experiência
-    expect(c.finished, isTrue);
+            input: const GuidedTextInput(example: 'x'),
+          ),
+        ],
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'edit_skills',
+            args: {},
+            reply: 'Bora editar 👇',
+            promptVersion: 'assistant_v4',
+          ),
+        ),
+        sectionSteps: (s) => s == 'experience' ? injectedExp : const [],
+        proactiveLoader: () async => {
+          'section': 'experience',
+          'label': '1 experiência',
+        },
+        skillsLoader: () async => ['leitura local desatualizada'],
+        skillsWriter: writer,
+      );
+      addTearDown(c.dispose);
+      await _openStep(c);
+      await c.submitFreeText('Empresa X'); // conclui → sugere experiência
+      expect(c.finished, isTrue);
 
-    await c.submitFreeText('quero editar minhas habilidades');
-    // NÃO entrou na seção sugerida (experiência)…
-    expect(c.currentStep?.id, isNot('gap.experience'));
-    // …abriu o editor de SKILLS pelo assistente.
-    expect(c.thread.whereType<ListEditorItem>().any((e) => e.kind == 'skill'),
-        isTrue);
-  });
+      await c.submitFreeText('quero editar minhas habilidades');
+      // NÃO entrou na seção sugerida (experiência)…
+      expect(c.currentStep?.id, isNot('gap.experience'));
+      // …abriu o editor de SKILLS pelo assistente.
+      expect(
+        c.thread.whereType<ListEditorItem>().any((e) => e.kind == 'skill'),
+        isTrue,
+      );
+    },
+  );
 
   test('remove_item: 2+ matches → desambigua, sem card', () async {
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'remove_item',
-        args: {'kind': 'skill', 'query': 'java'},
-        reply: '',
-        promptVersion: 'assistant_v1',
-      )),
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'remove_item',
+          args: {'kind': 'skill', 'query': 'java'},
+          reply: '',
+          promptVersion: 'assistant_v1',
+        ),
+      ),
       itemRemover: (kind, value) async {},
       itemResolver: (kind, query) async => ['Java', 'JavaScript'],
     );
@@ -645,131 +1119,204 @@ void main() {
     await c.submitFreeText('remove java das skills');
     expect(c.thread.whereType<AssistEditItem>(), isEmpty);
     expect(
-        c.thread.whereType<AiMsgItem>().any((m) =>
+      c.thread.whereType<AiMsgItem>().any(
+        (m) =>
             m.text.contains('Qual') &&
             m.text.contains('Java') &&
-            m.text.contains('JavaScript')),
-        isTrue);
+            m.text.contains('JavaScript'),
+      ),
+      isTrue,
+    );
   });
 
   // ── Fase C: extração de textão colado ─────────────────────────────────────
 
-  test('extract_profile: textão colado → card lista os campos, SEM gravar',
-      () async {
-    final adds = <List<String>>[];
-    final writes = <List<String>>[];
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'extract_profile',
-        args: {
-          'items': [
-            {'kind': 'language', 'value': 'Inglês'},
-            {'kind': 'skill', 'value': 'Excel'},
-            {'kind': 'skill', 'value': 'Python'},
-            {'kind': 'desired_position', 'value': 'Analista de dados'},
-          ],
+  test(
+    'extract_profile: textão colado → card lista os campos, SEM gravar',
+    () async {
+      final adds = <List<String>>[];
+      final writes = <List<String>>[];
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'extract_profile',
+            args: {
+              'items': [
+                {'kind': 'language', 'value': 'Inglês'},
+                {'kind': 'skill', 'value': 'Excel'},
+                {'kind': 'skill', 'value': 'Python'},
+                {'kind': 'desired_position', 'value': 'Analista de dados'},
+              ],
+            },
+            reply: 'Peguei alguns pontos 👇',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        itemAdder: (kind, value) async => adds.add([kind, value]),
+        itemRemover: (kind, value) async {},
+        readField: (field) async => field == 'desired_position'
+            ? const AssistFieldValue(raw: '', text: '', label: 'Cargo desejado')
+            : null,
+        writeField: (field, value) async => writes.add([field, value]),
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      // Blob multi-linha → NÃO é resposta do passo aberto, vai pra IA extrair.
+      await c.submitFreeText(
+        'Falo inglês fluente\nSei Excel e Python\nQuero ser analista de dados',
+      );
+
+      final card = c.thread.whereType<AssistExtractItem>().singleWhere(
+        (e) => e.status == AssistEditStatus.pending,
+      );
+      expect(card.entries, hasLength(4)); // idioma + 2 skills + cargo
+      expect(card.entries.map((e) => e.label).toList(), [
+        'Idioma: Inglês',
+        'Skill: Excel',
+        'Skill: Python',
+        'Cargo: Analista de dados',
+      ]);
+      expect(adds, isEmpty); // nada gravado até confirmar
+      expect(writes, isEmpty);
+    },
+  );
+
+  test(
+    'extract_profile: "Aplicar tudo" grava cada campo; Desfazer reverte tudo',
+    () async {
+      final adds = <List<String>>[];
+      final removes = <List<String>>[];
+      final writes = <List<String>>[];
+      final listState = <String, Set<String>>{};
+      var desiredPosition = 'Estagiário';
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'extract_profile',
+            args: {
+              'items': [
+                {'kind': 'skill', 'value': 'Excel'},
+                {'kind': 'language', 'value': 'Inglês'},
+                {'kind': 'desired_position', 'value': 'Analista de dados'},
+              ],
+            },
+            reply: '',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        itemAdder: (kind, value) async {
+          adds.add([kind, value]);
+          listState.putIfAbsent(kind, () => <String>{}).add(value);
         },
-        reply: 'Peguei alguns pontos 👇',
-        promptVersion: 'assistant_v1',
-      )),
-      itemAdder: (kind, value) async => adds.add([kind, value]),
-      itemRemover: (kind, value) async {},
-      readField: (field) async => field == 'desired_position'
-          ? const AssistFieldValue(raw: '', text: '', label: 'Cargo desejado')
-          : null,
-      writeField: (field, value) async => writes.add([field, value]),
+        itemRemover: (kind, value) async {
+          removes.add([kind, value]);
+          listState[kind]?.remove(value);
+        },
+        itemResolver: (kind, query) async =>
+            listState[kind]
+                ?.where((value) => value.toLowerCase() == query.toLowerCase())
+                .toList() ??
+            const [],
+        readField: (field) async => field == 'desired_position'
+            ? AssistFieldValue(
+                raw: desiredPosition,
+                text: desiredPosition,
+                label: 'Cargo desejado',
+              )
+            : null,
+        writeField: (field, value) async {
+          writes.add([field, value]);
+          desiredPosition = value;
+        },
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText(
+        'Sei Excel\nFalo inglês\nQuero ser analista de dados',
+      );
+      final card = c.thread.whereType<AssistExtractItem>().singleWhere(
+        (e) => e.status == AssistEditStatus.pending,
+      );
+
+      // APLICAR TUDO → skill/idioma via adder; cargo via writer.
+      await c.confirmExtract(card.id);
+      expect(adds, [
+        ['skill', 'Excel'],
+        ['language', 'Inglês'],
+      ]);
+      expect(writes, [
+        ['desired_position', 'Analista de dados'],
+      ]);
+      expect(card.status, AssistEditStatus.applied);
+
+      // DESFAZER → reverte o lote (ordem inversa): cargo volta pro anterior,
+      // idioma e skill são removidos.
+      await c.undoExtract(card.id);
+      expect(writes.last, [
+        'desired_position',
+        'Estagiário',
+      ]); // cargo restaurado
+      expect(removes, [
+        ['language', 'Inglês'],
+        ['skill', 'Excel'],
+      ]);
+      expect(card.status, AssistEditStatus.undone);
+    },
+  );
+
+  test('extract_profile: undo não sobrescreve cargo editado depois', () async {
+    var desiredPosition = 'Estagiário';
+    final c = build(
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'extract_profile',
+          args: {
+            'items': [
+              {'kind': 'desired_position', 'value': 'Analista de dados'},
+            ],
+          },
+          reply: '',
+          promptVersion: 'assistant_v1',
+        ),
+      ),
+      readField: (_) async => AssistFieldValue(
+        raw: desiredPosition,
+        text: desiredPosition,
+        label: 'Cargo desejado',
+      ),
+      writeField: (_, value) async => desiredPosition = value,
     );
     addTearDown(c.dispose);
     await c.start();
-    // Blob multi-linha → NÃO é resposta do passo aberto, vai pra IA extrair.
-    await c.submitFreeText(
-        'Falo inglês fluente\nSei Excel e Python\nQuero ser analista de dados');
-
-    final card = c.thread
-        .whereType<AssistExtractItem>()
-        .singleWhere((e) => e.status == AssistEditStatus.pending);
-    expect(card.entries, hasLength(4)); // idioma + 2 skills + cargo
-    expect(card.entries.map((e) => e.label).toList(), [
-      'Idioma: Inglês',
-      'Skill: Excel',
-      'Skill: Python',
-      'Cargo: Analista de dados',
-    ]);
-    expect(adds, isEmpty); // nada gravado até confirmar
-    expect(writes, isEmpty);
-  });
-
-  test('extract_profile: "Aplicar tudo" grava cada campo; Desfazer reverte tudo',
-      () async {
-    final adds = <List<String>>[];
-    final removes = <List<String>>[];
-    final writes = <List<String>>[];
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'extract_profile',
-        args: {
-          'items': [
-            {'kind': 'skill', 'value': 'Excel'},
-            {'kind': 'language', 'value': 'Inglês'},
-            {'kind': 'desired_position', 'value': 'Analista de dados'},
-          ],
-        },
-        reply: '',
-        promptVersion: 'assistant_v1',
-      )),
-      itemAdder: (kind, value) async => adds.add([kind, value]),
-      itemRemover: (kind, value) async => removes.add([kind, value]),
-      readField: (field) async => field == 'desired_position'
-          ? const AssistFieldValue(
-              raw: 'Estagiário', text: 'Estagiário', label: 'Cargo desejado')
-          : null,
-      writeField: (field, value) async => writes.add([field, value]),
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText(
-        'Sei Excel\nFalo inglês\nQuero ser analista de dados');
-    final card = c.thread
-        .whereType<AssistExtractItem>()
-        .singleWhere((e) => e.status == AssistEditStatus.pending);
-
-    // APLICAR TUDO → skill/idioma via adder; cargo via writer.
+    await c.submitFreeText('Quero ser analista de dados');
+    final card = c.thread.whereType<AssistExtractItem>().single;
     await c.confirmExtract(card.id);
-    expect(adds, [
-      ['skill', 'Excel'],
-      ['language', 'Inglês'],
-    ]);
-    expect(writes, [
-      ['desired_position', 'Analista de dados'],
-    ]);
-    expect(card.status, AssistEditStatus.applied);
+    expect(desiredPosition, 'Analista de dados');
 
-    // DESFAZER → reverte o lote (ordem inversa): cargo volta pro anterior,
-    // idioma e skill são removidos.
+    desiredPosition = 'Produto';
     await c.undoExtract(card.id);
-    expect(writes.last, ['desired_position', 'Estagiário']); // cargo restaurado
-    expect(removes, [
-      ['language', 'Inglês'],
-      ['skill', 'Excel'],
-    ]);
-    expect(card.status, AssistEditStatus.undone);
+    expect(desiredPosition, 'Produto');
+    expect(card.status, AssistEditStatus.applied);
+    expect(card.undoFailed, isTrue);
   });
 
   test('extract_profile: Cancelar NÃO grava nada', () async {
     final adds = <List<String>>[];
     final writes = <List<String>>[];
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'extract_profile',
-        args: {
-          'items': [
-            {'kind': 'skill', 'value': 'Excel'},
-            {'kind': 'desired_position', 'value': 'Analista'},
-          ],
-        },
-        reply: '',
-        promptVersion: 'assistant_v1',
-      )),
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'extract_profile',
+          args: {
+            'items': [
+              {'kind': 'skill', 'value': 'Excel'},
+              {'kind': 'desired_position', 'value': 'Analista'},
+            ],
+          },
+          reply: '',
+          promptVersion: 'assistant_v1',
+        ),
+      ),
       itemAdder: (kind, value) async => adds.add([kind, value]),
       writeField: (field, value) async => writes.add([field, value]),
     );
@@ -783,317 +1330,1181 @@ void main() {
     expect(writes, isEmpty);
   });
 
-  // ── Fase C: editor visual de skills ───────────────────────────────────────
+  test(
+    'extract_profile: writer ausente falha antes de qualquer gravação',
+    () async {
+      final adds = <List<String>>[];
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'extract_profile',
+            args: {
+              'items': [
+                {'kind': 'skill', 'value': 'Excel'},
+                {'kind': 'desired_position', 'value': 'Analista'},
+              ],
+            },
+            reply: '',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        itemAdder: (kind, value) async => adds.add([kind, value]),
+        itemRemover: (kind, value) async {},
+        itemResolver: (kind, query) async => const [],
+        // Sem reader/writer do cargo: o preflight deve barrar o lote inteiro.
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('Sei Excel\nQuero ser analista');
+      final card = c.thread.whereType<AssistExtractItem>().single;
 
-  test('edit_skills: abre editor com skills atuais + sugestões (sem gravar)',
-      () async {
+      await c.confirmExtract(card.id);
+
+      expect(adds, isEmpty);
+      expect(card.status, AssistEditStatus.pending);
+      expect(card.appliedIndexes, isEmpty);
+      expect(card.failedIndexes, {0, 1});
+      expect(card.resultMessage, contains('Não consegui'));
+    },
+  );
+
+  test(
+    'extract_profile: falha parcial faz retry somente dos itens falhos',
+    () async {
+      final state = <String>{};
+      final attempts = <String, int>{};
+      var failPython = true;
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'extract_profile',
+            args: {
+              'items': [
+                {'kind': 'skill', 'value': 'Excel'},
+                {'kind': 'skill', 'value': 'Python'},
+                {'kind': 'skill', 'value': 'SQL'},
+              ],
+            },
+            reply: '',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        itemAdder: (kind, value) async {
+          attempts[value] = (attempts[value] ?? 0) + 1;
+          if (value == 'Python' && failPython) throw StateError('offline');
+          state.add(value);
+        },
+        itemRemover: (kind, value) async => state.remove(value),
+        itemResolver: (kind, query) async =>
+            state.contains(query) ? [query] : const [],
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('Excel\nPython\nSQL');
+      final card = c.thread.whereType<AssistExtractItem>().single;
+
+      await c.confirmExtract(card.id);
+      expect(card.status, AssistEditStatus.pending);
+      expect(card.appliedIndexes, {0, 2});
+      expect(card.failedIndexes, {1});
+      expect(card.resultMessage, contains('2 de 3'));
+
+      failPython = false;
+      await c.confirmExtract(card.id);
+      expect(card.status, AssistEditStatus.applied);
+      expect(attempts, {'Excel': 1, 'Python': 2, 'SQL': 1});
+      expect(state, {'Excel', 'Python', 'SQL'});
+    },
+  );
+
+  test(
+    'extract_profile: falha parcial permite desfazer somente itens salvos',
+    () async {
+      final state = <String>{};
+      final removals = <String>[];
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'extract_profile',
+            args: {
+              'items': [
+                {'kind': 'skill', 'value': 'Excel'},
+                {'kind': 'skill', 'value': 'Python'},
+                {'kind': 'skill', 'value': 'SQL'},
+              ],
+            },
+            reply: '',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        itemAdder: (kind, value) async {
+          if (value == 'Python') throw StateError('offline');
+          state.add(value);
+        },
+        itemRemover: (kind, value) async {
+          removals.add(value);
+          state.remove(value);
+        },
+        itemResolver: (kind, query) async =>
+            state.contains(query) ? [query] : const [],
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('Excel\nPython\nSQL');
+      final card = c.thread.whereType<AssistExtractItem>().single;
+
+      await c.confirmExtract(card.id);
+      expect(card.isPartial, isTrue);
+      expect(card.appliedIndexes, {0, 2});
+      expect(card.failedIndexes, {1});
+      expect(state, {'Excel', 'SQL'});
+
+      await c.undoExtract(card.id);
+
+      expect(removals, ['SQL', 'Excel']);
+      expect(state, isEmpty);
+      expect(card.status, AssistEditStatus.undone);
+      expect(card.undoFailed, isFalse);
+    },
+  );
+
+  test(
+    'extract_profile: parcial só com itens preexistentes pode ser cancelado',
+    () async {
+      final state = <String>{'Excel'};
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'extract_profile',
+            args: {
+              'items': [
+                {'kind': 'skill', 'value': 'Excel'},
+                {'kind': 'skill', 'value': 'Python'},
+              ],
+            },
+            reply: '',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        itemAdder: (kind, value) async => throw StateError('offline'),
+        itemRemover: (kind, value) async => fail('não deveria remover'),
+        itemResolver: (kind, query) async =>
+            state.contains(query) ? [query] : const [],
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('Excel\nPython');
+      final card = c.thread.whereType<AssistExtractItem>().single;
+
+      await c.confirmExtract(card.id);
+      expect(card.isPartial, isTrue);
+      expect(card.madeChanges, isFalse);
+      expect(card.resultMessage, contains('já estavam'));
+      expect(card.resultMessage, isNot(contains('foram salvos')));
+
+      c.cancelExtract(card.id);
+      expect(card.status, AssistEditStatus.cancelled);
+      expect(state, {'Excel'});
+    },
+  );
+
+  test(
+    'extract_profile: undo parcial falho continua honesto e tenta só pendentes',
+    () async {
+      final state = <String>{};
+      var removalAttempts = 0;
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'extract_profile',
+            args: {
+              'items': [
+                {'kind': 'skill', 'value': 'Excel'},
+                {'kind': 'skill', 'value': 'Python'},
+              ],
+            },
+            reply: '',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        itemAdder: (kind, value) async {
+          if (value == 'Python') throw StateError('offline');
+          state.add(value);
+        },
+        itemRemover: (kind, value) async {
+          removalAttempts++;
+          if (removalAttempts == 1) throw StateError('offline');
+          state.remove(value);
+        },
+        itemResolver: (kind, query) async =>
+            state.contains(query) ? [query] : const [],
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('Excel\nPython');
+      final card = c.thread.whereType<AssistExtractItem>().single;
+      await c.confirmExtract(card.id);
+
+      await c.undoExtract(card.id);
+      expect(card.status, AssistEditStatus.pending);
+      expect(card.undoFailed, isTrue);
+      expect(card.resultMessage, contains('Não consegui desfazer'));
+      expect(state, {'Excel'});
+
+      await c.undoExtract(card.id);
+      expect(removalAttempts, 2);
+      expect(state, isEmpty);
+      expect(card.status, AssistEditStatus.undone);
+      expect(card.undoFailed, isFalse);
+    },
+  );
+
+  test(
+    'extract_profile: timeout após commit do undo é confirmado por releitura',
+    () async {
+      final state = <String>{};
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'extract_profile',
+            args: {
+              'items': [
+                {'kind': 'skill', 'value': 'Excel'},
+                {'kind': 'skill', 'value': 'Python'},
+              ],
+            },
+            reply: '',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        itemAdder: (kind, value) async {
+          if (value == 'Python') throw StateError('offline');
+          state.add(value);
+        },
+        itemRemover: (kind, value) async {
+          state.remove(value);
+          throw StateError('timeout_after_commit');
+        },
+        itemResolver: (kind, query) async =>
+            state.contains(query) ? [query] : const [],
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('Excel\nPython');
+      final card = c.thread.whereType<AssistExtractItem>().single;
+      await c.confirmExtract(card.id);
+
+      await c.undoExtract(card.id);
+
+      expect(state, isEmpty);
+      expect(card.status, AssistEditStatus.undone);
+      expect(card.undoFailed, isFalse);
+    },
+  );
+
+  test(
+    'extract_profile: timeout depois do commit é confirmado sem duplicar',
+    () async {
+      final state = <String>{};
+      var addCalls = 0;
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'extract_profile',
+            args: {
+              'items': [
+                {'kind': 'skill', 'value': 'Excel'},
+              ],
+            },
+            reply: '',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        itemAdder: (kind, value) async {
+          addCalls++;
+          state.add(value);
+          throw StateError('timeout_after_commit');
+        },
+        itemRemover: (kind, value) async => state.remove(value),
+        itemResolver: (kind, query) async =>
+            state.contains(query) ? [query] : const [],
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('Sei Excel\nEsse é meu perfil');
+      final card = c.thread.whereType<AssistExtractItem>().single;
+
+      await c.confirmExtract(card.id);
+
+      expect(card.status, AssistEditStatus.applied);
+      expect(addCalls, 1);
+      expect(state, {'Excel'});
+    },
+  );
+
+  test(
+    'extract_profile: item preexistente não cria undo nem afirma adição',
+    () async {
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'extract_profile',
+            args: {
+              'items': [
+                {'kind': 'skill', 'value': 'Excel'},
+              ],
+            },
+            reply: '',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        itemAdder: (kind, value) async => fail('não deveria adicionar'),
+        itemRemover: (kind, value) async => fail('não deveria remover'),
+        itemResolver: (kind, query) async => const ['Excel'],
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('Sei Excel\nEsse é meu perfil');
+      final card = c.thread.whereType<AssistExtractItem>().single;
+
+      await c.confirmExtract(card.id);
+
+      expect(card.status, AssistEditStatus.applied);
+      expect(card.madeChanges, isFalse);
+      expect(card.resultMessage, contains('já estavam'));
+    },
+  );
+
+  test('extract_profile: toque duplo executa o lote uma vez', () async {
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    final state = <String>{};
+    var addCalls = 0;
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'edit_skills',
-        args: {},
-        reply: 'Bora editar 👇',
-        promptVersion: 'assistant_v3',
-      )),
-      itemAdder: (kind, value) async {},
-      itemRemover: (kind, value) async {},
-      skillsLoader: () async => ['Excel', 'Python', 'Canva'],
-      skillSuggester: () async => ['SQL', 'Power BI', 'Python'], // Python já tem
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'extract_profile',
+          args: {
+            'items': [
+              {'kind': 'skill', 'value': 'Excel'},
+            ],
+          },
+          reply: '',
+          promptVersion: 'assistant_v1',
+        ),
+      ),
+      itemAdder: (kind, value) async {
+        addCalls++;
+        if (!entered.isCompleted) entered.complete();
+        await release.future;
+        state.add(value);
+      },
+      itemRemover: (kind, value) async => state.remove(value),
+      itemResolver: (kind, query) async =>
+          state.contains(query) ? [query] : const [],
     );
     addTearDown(c.dispose);
     await c.start();
-    await c.submitFreeText('quero editar minhas habilidades');
-    final card = c.thread.whereType<ListEditorItem>().single;
-    expect(card.initial, ['Excel', 'Python', 'Canva']);
-    expect(card.suggestions, ['SQL', 'Power BI']); // tira o que já tem (Python)
-    expect(card.status, AssistEditStatus.pending);
+    await c.submitFreeText('Sei Excel\nEsse é meu perfil');
+    final card = c.thread.whereType<AssistExtractItem>().single;
+
+    final first = c.confirmExtract(card.id);
+    await entered.future;
+    final second = c.confirmExtract(card.id);
+    release.complete();
+    await Future.wait([first, second]);
+
+    expect(addCalls, 1);
+    expect(card.status, AssistEditStatus.applied);
   });
 
-  test('edit_skills: "Salvar" aplica adds+removes; Desfazer reverte o lote',
-      () async {
-    final adds = <List<String>>[];
-    final removes = <List<String>>[];
+  test(
+    'extract_profile: falha no undo nunca afirma desfeito e permite retry',
+    () async {
+      final state = <String>{};
+      var failUndo = true;
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'extract_profile',
+            args: {
+              'items': [
+                {'kind': 'skill', 'value': 'Excel'},
+              ],
+            },
+            reply: '',
+            promptVersion: 'assistant_v1',
+          ),
+        ),
+        itemAdder: (kind, value) async => state.add(value),
+        itemRemover: (kind, value) async {
+          if (failUndo) throw StateError('offline');
+          state.remove(value);
+        },
+        itemResolver: (kind, query) async =>
+            state.contains(query) ? [query] : const [],
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('Sei Excel\nEsse é meu perfil');
+      final card = c.thread.whereType<AssistExtractItem>().single;
+      await c.confirmExtract(card.id);
+
+      await c.undoExtract(card.id);
+      expect(card.status, AssistEditStatus.applied);
+      expect(card.undoFailed, isTrue);
+      expect(card.resultMessage, contains('Não consegui desfazer'));
+      expect(state, {'Excel'});
+
+      failUndo = false;
+      await c.undoExtract(card.id);
+      expect(card.status, AssistEditStatus.undone);
+      expect(state, isEmpty);
+    },
+  );
+
+  // ── Fase C: editor visual de skills ───────────────────────────────────────
+
+  test(
+    'edit_skills: abre com baseline do servidor e sugestões normalizadas',
+    () async {
+      final writer = _MemoryAssistSkillsWriter(['Excel', 'Gestão', 'Canva']);
+      var localLoaderCalls = 0;
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'edit_skills',
+            args: {},
+            reply: 'Bora editar 👇',
+            promptVersion: 'assistant_v3',
+          ),
+        ),
+        skillsLoader: () async {
+          localLoaderCalls++;
+          return ['snapshot local incorreto'];
+        },
+        skillsWriter: writer,
+        skillSuggester: () async => ['SQL', 'Power BI', 'GESTAO'],
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('quero editar minhas habilidades');
+      final card = c.thread.whereType<ListEditorItem>().single;
+      expect(card.initial, ['Excel', 'Gestão', 'Canva']);
+      expect(card.suggestions, [
+        'SQL',
+        'Power BI',
+      ]); // tira o equivalente sem acento/caixa (GESTAO)
+      expect(card.status, AssistEditStatus.pending);
+      expect(writer.openCalls, 1);
+      expect(localLoaderCalls, 0);
+    },
+  );
+
+  test(
+    'edit_skills: "Salvar" aplica adds+removes; Desfazer reverte o lote',
+    () async {
+      final writer = _MemoryAssistSkillsWriter(['Excel', 'Python']);
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'edit_skills',
+            args: {},
+            reply: '',
+            promptVersion: 'assistant_v3',
+          ),
+        ),
+        skillsLoader: () async => List.of(writer.state),
+        skillsWriter: writer,
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('quero mexer nas minhas habilidades');
+      final card = c.thread.whereType<ListEditorItem>().single;
+
+      await c.applyListEditor(card.id, added: ['SQL'], removed: ['Python']);
+      expect(writer.state, ['Excel', 'SQL']);
+      expect(writer.mutations, 1);
+      expect(card.status, AssistEditStatus.applied);
+      expect(card.undoAvailable, isTrue);
+
+      await c.undoListEditor(card.id);
+      expect(writer.state, ['Excel', 'Python']);
+      expect(writer.mutations, 2);
+      expect(card.status, AssistEditStatus.undone);
+    },
+  );
+
+  test('edit_skills: noop não atribui adds/removes nem omite reload', () async {
+    final writer = _MemoryAssistSkillsWriter(['Gestão']);
+    var reloads = 0;
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'edit_skills',
-        args: {},
-        reply: '',
-        promptVersion: 'assistant_v3',
-      )),
-      itemAdder: (kind, value) async => adds.add([kind, value]),
-      itemRemover: (kind, value) async => removes.add([kind, value]),
-      skillsLoader: () async => ['Excel', 'Python'],
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'edit_skills',
+          args: {},
+          reply: '',
+          promptVersion: 'assistant_v3',
+        ),
+      ),
+      skillsWriter: writer,
+      onProfileEdited: () => reloads++,
     );
     addTearDown(c.dispose);
     await c.start();
-    await c.submitFreeText('quero mexer nas minhas habilidades');
+    await c.submitFreeText('edita minhas skills');
     final card = c.thread.whereType<ListEditorItem>().single;
 
-    await c.applyListEditor(card.id, added: ['SQL'], removed: ['Python']);
-    expect(adds, [
-      ['skill', 'SQL']
-    ]);
-    expect(removes, [
-      ['skill', 'Python']
-    ]);
-    expect(card.status, AssistEditStatus.applied);
+    await c.applyListEditor(card.id, added: ['GESTAO'], removed: const []);
 
-    // Desfazer (ordem inversa): re-adiciona Python e remove SQL.
-    await c.undoListEditor(card.id);
-    expect(adds.last, ['skill', 'Python']); // desfaz a remoção
-    expect(removes.last, ['skill', 'SQL']); // desfaz a adição
-    expect(card.status, AssistEditStatus.undone);
+    expect(card.status, AssistEditStatus.applied);
+    expect(card.addedApplied, isEmpty);
+    expect(card.removedApplied, isEmpty);
+    expect(card.resultMessage, contains('nada foi regravado'));
+    expect(writer.mutations, 0);
+    expect(reloads, 1);
+  });
+
+  test('edit_skills: resumo usa diff canônico do receipt resulting', () async {
+    final writer = _MemoryAssistSkillsWriter(['Gestão', 'Python']);
+    final c = build(
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'edit_skills',
+          args: {},
+          reply: '',
+          promptVersion: 'assistant_v3',
+        ),
+      ),
+      skillsWriter: writer,
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('edita minhas skills');
+    final card = c.thread.whereType<ListEditorItem>().single;
+
+    await c.applyListEditor(
+      card.id,
+      added: ['GESTAO', ' SQL '],
+      removed: ['Python'],
+    );
+
+    expect(card.addedApplied, ['SQL']);
+    expect(card.removedApplied, ['Python']);
+    expect(card.observedAfter, ['Gestão', 'SQL']);
   });
 
   test('edit_skills: sem mudança → Salvar fecha sem gravar', () async {
-    final adds = <List<String>>[];
-    final removes = <List<String>>[];
+    final writer = _MemoryAssistSkillsWriter(['Excel']);
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'edit_skills',
-        args: {},
-        reply: '',
-        promptVersion: 'assistant_v3',
-      )),
-      itemAdder: (kind, value) async => adds.add([kind, value]),
-      itemRemover: (kind, value) async => removes.add([kind, value]),
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'edit_skills',
+          args: {},
+          reply: '',
+          promptVersion: 'assistant_v3',
+        ),
+      ),
       skillsLoader: () async => ['Excel'],
+      skillsWriter: writer,
     );
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('quero editar minhas habilidades');
     final card = c.thread.whereType<ListEditorItem>().single;
     await c.applyListEditor(card.id, added: const [], removed: const []);
-    expect(adds, isEmpty);
-    expect(removes, isEmpty);
+    expect(writer.applyCalls, 0);
     expect(card.status, AssistEditStatus.cancelled); // fechou sem aplicar
   });
 
-  test('edit_skills sem skills ainda: cai na coleta (injeta a seção)', () async {
-    final injected = [
-      ConversationStep.single(
-          id: 'gap.skills',
-          aiMessage: 'Suas skills?',
-          input: const GuidedTextInput(example: 'x')),
-    ];
+  test('edit_skills: timeout após commit faz replay do mesmo recibo', () async {
+    final writer = _MemoryAssistSkillsWriter(['Excel', 'Python'])
+      ..loseNextApplyReply = true;
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'edit_skills',
-        args: {},
-        reply: '',
-        promptVersion: 'assistant_v3',
-      )),
-      sectionSteps: (s) => s == 'skills' ? injected : const [],
-      skillsLoader: () async => const [], // ainda sem skills
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'edit_skills',
+          args: {},
+          reply: '',
+          promptVersion: 'assistant_v3',
+        ),
+      ),
+      skillsLoader: () async => List.of(writer.state),
+      skillsWriter: writer,
     );
     addTearDown(c.dispose);
-    await _openStep(c);
+    await c.start();
     await c.submitFreeText('quero editar minhas habilidades');
-    expect(c.thread.whereType<ListEditorItem>(), isEmpty);
-    expect(c.currentStep?.id, 'gap.skills'); // caiu na coleta
+    final card = c.thread.whereType<ListEditorItem>().single;
+
+    await c.applyListEditor(card.id, added: ['SQL'], removed: ['Python']);
+    expect(card.status, AssistEditStatus.pending);
+    expect(card.resultMessage, isNotEmpty);
+    expect(card.hasUnconfirmedChanges, isTrue);
+    expect(writer.state, ['Excel', 'SQL']);
+    expect(writer.mutations, 1);
+
+    c.cancelListEditor(card.id);
+    expect(card.status, AssistEditStatus.pending);
+    await c.applyListEditor(card.id, added: ['Go'], removed: ['Python']);
+    expect(writer.applyCalls, 1); // delta diferente nunca reutiliza a operação
+    expect(card.resultMessage, contains('sem mudar o card'));
+
+    await c.applyListEditor(card.id, added: ['SQL'], removed: ['Python']);
+    expect(card.status, AssistEditStatus.applied);
+    expect(card.undoAvailable, isTrue);
+    expect(writer.operations, hasLength(1));
+    expect(writer.mutations, 1);
   });
+
+  test(
+    'edit_skills: replay aplicado não atribui edição manual posterior',
+    () async {
+      final writer = _MemoryAssistSkillsWriter(['Excel', 'Python'])
+        ..loseNextApplyReply = true;
+      var reloads = 0;
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'edit_skills',
+            args: {},
+            reply: '',
+            promptVersion: 'assistant_v3',
+          ),
+        ),
+        skillsWriter: writer,
+        onProfileEdited: () => reloads++,
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('edita minhas skills');
+      final card = c.thread.whereType<ListEditorItem>().single;
+
+      await c.applyListEditor(card.id, added: ['SQL'], removed: ['Python']);
+      writer.state.add('Go');
+      await c.applyListEditor(card.id, added: ['SQL'], removed: ['Python']);
+
+      expect(card.status, AssistEditStatus.applied);
+      expect(card.addedApplied, ['SQL']);
+      expect(card.removedApplied, ['Python']);
+      expect(card.observedAfter, ['Excel', 'SQL', 'Go']);
+      expect(card.undoAvailable, isFalse);
+      expect(card.resultMessage, contains('mudaram depois'));
+      expect(reloads, 1);
+    },
+  );
+
+  test(
+    'edit_skills: replay de apply já desfeito fecha como desfeito',
+    () async {
+      final writer = _MemoryAssistSkillsWriter(['Excel', 'Python'])
+        ..loseNextApplyReply = true;
+      var reloads = 0;
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'edit_skills',
+            args: {},
+            reply: '',
+            promptVersion: 'assistant_v3',
+          ),
+        ),
+        skillsWriter: writer,
+        onProfileEdited: () => reloads++,
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('edita minhas skills');
+      final card = c.thread.whereType<ListEditorItem>().single;
+
+      await c.applyListEditor(card.id, added: ['SQL'], removed: ['Python']);
+      final op = writer.operations[card.operationId]!;
+      op.undone = true;
+      writer.state = List<String>.of(op.before);
+      await c.applyListEditor(card.id, added: ['SQL'], removed: ['Python']);
+
+      expect(card.status, AssistEditStatus.undone);
+      expect(card.observedAfter, ['Excel', 'Python']);
+      expect(card.undoAvailable, isFalse);
+      expect(reloads, 1);
+    },
+  );
+
+  test('edit_skills: edição manual antes do apply vence por CAS', () async {
+    final writer = _MemoryAssistSkillsWriter(['Excel', 'Python']);
+    var reloads = 0;
+    final c = build(
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'edit_skills',
+          args: {},
+          reply: '',
+          promptVersion: 'assistant_v3',
+        ),
+      ),
+      skillsLoader: () async => List.of(writer.state),
+      skillsWriter: writer,
+      onProfileEdited: () => reloads++,
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('edita minhas skills');
+    final card = c.thread.whereType<ListEditorItem>().single;
+    writer.state.add('Go');
+
+    await c.applyListEditor(card.id, added: ['SQL'], removed: ['Python']);
+    expect(card.status, AssistEditStatus.cancelled);
+    expect(card.resultMessage, contains('Não sobrescrevi'));
+    expect(writer.state, ['Excel', 'Python', 'Go']);
+    expect(writer.mutations, 0);
+    expect(reloads, 1);
+
+    await c.applyListEditor(card.id, added: ['SQL'], removed: ['Python']);
+    expect(writer.applyCalls, 1); // stale é terminal para este operation id
+    await c.submitFreeText('abre o editor de skills de novo');
+    final reopened = c.thread.whereType<ListEditorItem>().last;
+    expect(reopened.id, isNot(card.id));
+    expect(reopened.operationId, isNot(card.operationId));
+    expect(reopened.initial, ['Excel', 'Python', 'Go']);
+  });
+
+  test('edit_skills: edição manual depois do apply bloqueia undo', () async {
+    final writer = _MemoryAssistSkillsWriter(['Excel', 'Python']);
+    var reloads = 0;
+    final c = build(
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'edit_skills',
+          args: {},
+          reply: '',
+          promptVersion: 'assistant_v3',
+        ),
+      ),
+      skillsLoader: () async => List.of(writer.state),
+      skillsWriter: writer,
+      onProfileEdited: () => reloads++,
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('edita minhas skills');
+    final card = c.thread.whereType<ListEditorItem>().single;
+
+    await c.applyListEditor(card.id, added: ['SQL'], removed: ['Python']);
+    writer.state.add('Go');
+    await c.undoListEditor(card.id);
+
+    expect(card.status, AssistEditStatus.applied);
+    expect(card.resultMessage, contains('Não sobrescrevi'));
+    expect(card.undoAvailable, isFalse);
+    expect(writer.state, ['Excel', 'SQL', 'Go']);
+    expect(reloads, 2); // apply confirmado + stale do undo
+  });
+
+  test('edit_skills: timeout no undo é idempotente no retry', () async {
+    final writer = _MemoryAssistSkillsWriter(['Excel', 'Python']);
+    final c = build(
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'edit_skills',
+          args: {},
+          reply: '',
+          promptVersion: 'assistant_v3',
+        ),
+      ),
+      skillsLoader: () async => List.of(writer.state),
+      skillsWriter: writer,
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('edita minhas skills');
+    final card = c.thread.whereType<ListEditorItem>().single;
+
+    await c.applyListEditor(card.id, added: ['SQL'], removed: const []);
+    expect(card.status, AssistEditStatus.applied);
+    writer.loseNextUndoReply = true;
+    await c.undoListEditor(card.id);
+    expect(card.status, AssistEditStatus.applied);
+    expect(writer.state, ['Excel', 'Python']);
+    expect(writer.mutations, 2);
+
+    await c.undoListEditor(card.id);
+    expect(card.status, AssistEditStatus.undone);
+    expect(writer.state, ['Excel', 'Python']);
+    expect(writer.mutations, 2);
+  });
+
+  test(
+    'edit_skills sem skills ainda: cai na coleta (injeta a seção)',
+    () async {
+      final injected = [
+        ConversationStep.single(
+          id: 'gap.skills',
+          aiMessage: 'Suas skills?',
+          input: const GuidedTextInput(example: 'x'),
+        ),
+      ];
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'edit_skills',
+            args: {},
+            reply: '',
+            promptVersion: 'assistant_v3',
+          ),
+        ),
+        sectionSteps: (s) => s == 'skills' ? injected : const [],
+        skillsLoader: () async => const [], // ainda sem skills
+        skillsWriter: _MemoryAssistSkillsWriter(const []),
+      );
+      addTearDown(c.dispose);
+      await _openStep(c);
+      await c.submitFreeText('quero editar minhas habilidades');
+      expect(c.thread.whereType<ListEditorItem>(), isEmpty);
+      expect(c.currentStep?.id, 'gap.skills'); // caiu na coleta
+    },
+  );
 
   // ── Fase C: editor de interesses (replace-all) ────────────────────────────
 
-  test('edit_interests: Salvar grava a lista FINAL (replace); Desfazer reverte',
-      () async {
-    final replaced = <List<String>>[];
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'edit_interests',
-        args: {},
-        reply: '',
-        promptVersion: 'assistant_v4',
-      )),
-      interestsLoader: () async => ['Xadrez', 'Corrida'],
-      interestsReplacer: (names) async => replaced.add(List.of(names)),
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('quero editar meus interesses');
-    final card = c.thread.whereType<ListEditorItem>().single;
-    expect(card.kind, 'interest');
-    expect(card.initial, ['Xadrez', 'Corrida']);
-
-    // Adiciona Leitura, tira Corrida → lista final [Xadrez, Leitura].
-    await c.applyListEditor(card.id, added: ['Leitura'], removed: ['Corrida']);
-    expect(replaced, [
-      ['Xadrez', 'Leitura']
-    ]);
-    expect(card.status, AssistEditStatus.applied);
-
-    // Desfazer → replace de volta pra lista original.
-    await c.undoListEditor(card.id);
-    expect(replaced.last, ['Xadrez', 'Corrida']);
-    expect(card.status, AssistEditStatus.undone);
-  });
-
-  test('edit_interests: tirar "Music" NÃO apaga a variante "music" (regressão)',
-      () async {
-    final replaced = <List<String>>[];
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'edit_interests',
-        args: {},
-        reply: '',
-        promptVersion: 'assistant_v4',
-      )),
-      interestsLoader: () async => ['Music', 'music', 'Cinema'],
-      interestsReplacer: (names) async => replaced.add(List.of(names)),
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('quero editar meus interesses');
-    final card = c.thread.whereType<ListEditorItem>().single;
-    // Tira SÓ 'Music' (string exata) — 'music' e 'Cinema' têm que ficar.
-    await c.applyListEditor(card.id, added: const [], removed: ['Music']);
-    expect(replaced, [
-      ['music', 'Cinema']
-    ]);
-  });
+  test(
+    'edit_interests: writer destrutivo fica bloqueado e orienta Perfil',
+    () async {
+      final replaced = <List<String>>[];
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'edit_interests',
+            args: {},
+            reply: '',
+            promptVersion: 'assistant_v4',
+          ),
+        ),
+        interestsLoader: () async => ['Xadrez', 'Corrida'],
+        interestsReplacer: (names) async => replaced.add(List.of(names)),
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('quero editar meus interesses');
+      expect(c.thread.whereType<ListEditorItem>(), isEmpty);
+      expect(replaced, isEmpty);
+      expect(
+        c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Perfil')),
+        isTrue,
+      );
+    },
+  );
 
   // ── Fase C: editor de idiomas (nome + nível) ──────────────────────────────
 
-  test('edit_languages: abre com idiomas+nível; opções = canônicos que faltam',
-      () async {
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'edit_languages',
-        args: {},
-        reply: '',
-        promptVersion: 'assistant_v4',
-      )),
-      languagesLoader: () async => [('Português', 'native'), ('Inglês', 'basic')],
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('quero editar meus idiomas');
-    final card = c.thread.whereType<LanguagesEditorItem>().single;
-    expect(card.initial.map((e) => e.name).toList(), ['Português', 'Inglês']);
-    expect(card.initial.first.level, 'native');
-    expect(card.options.contains('Português'), isFalse); // já tem
-    expect(card.options.contains('Espanhol'), isTrue); // dá pra adicionar
-  });
+  test(
+    'edit_languages: abre com idiomas+nível; opções = canônicos que faltam',
+    () async {
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'edit_languages',
+            args: {},
+            reply: '',
+            promptVersion: 'assistant_v4',
+          ),
+        ),
+        languagesLoader: () async => [
+          ('Português', 'native'),
+          ('Inglês', 'basic'),
+        ],
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('quero editar meus idiomas');
+      final card = c.thread.whereType<LanguagesEditorItem>().single;
+      expect(card.initial.map((e) => e.name).toList(), ['Português', 'Inglês']);
+      expect(card.initial.first.level, 'native');
+      expect(card.options.contains('Português'), isFalse); // já tem
+      expect(card.options.contains('Espanhol'), isTrue); // dá pra adicionar
+    },
+  );
 
-  test('edit_languages: adiciona + muda nível + remove; Desfazer reverte o lote',
-      () async {
-    final upserts = <List<String?>>[];
-    final removes = <List<String>>[];
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'edit_languages',
-        args: {},
-        reply: '',
-        promptVersion: 'assistant_v4',
-      )),
-      itemRemover: (kind, value) async => removes.add([kind, value]),
-      languagesLoader: () async => [('Português', 'native'), ('Inglês', 'basic')],
-      languageUpserter: (name, level) async => upserts.add([name, level]),
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('quero editar meus idiomas');
-    final card = c.thread.whereType<LanguagesEditorItem>().single;
+  test(
+    'edit_languages: adiciona + muda nível + remove; Desfazer reverte o lote',
+    () async {
+      final upserts = <List<String?>>[];
+      final removes = <List<String>>[];
+      final state = <String, String?>{'Português': 'native', 'Inglês': 'basic'};
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'edit_languages',
+            args: {},
+            reply: '',
+            promptVersion: 'assistant_v4',
+          ),
+        ),
+        itemRemover: (kind, value) async {
+          removes.add([kind, value]);
+          state.remove(value);
+        },
+        languagesLoader: () async => [
+          for (final entry in state.entries) (entry.key, entry.value),
+        ],
+        languageUpserter: (name, level) async {
+          upserts.add([name, level]);
+          state[name] = level;
+        },
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('quero editar meus idiomas');
+      final card = c.thread.whereType<LanguagesEditorItem>().single;
 
-    await c.applyLanguagesEditor(
-      card.id,
-      added: [const LangEntry('Espanhol', 'advanced')],
-      changed: [const LangEntry('Inglês', 'fluent')],
-      removed: ['Português'],
-    );
-    expect(upserts, [
-      ['Espanhol', 'advanced'], // adicionado
-      ['Inglês', 'fluent'], // nível alterado
-    ]);
-    expect(removes, [
-      ['language', 'Português']
-    ]);
-    expect(card.status, AssistEditStatus.applied);
+      await c.applyLanguagesEditor(
+        card.id,
+        added: [const LangEntry('Espanhol', 'advanced')],
+        changed: [const LangEntry('Inglês', 'fluent')],
+        removed: ['Português'],
+      );
+      expect(upserts, [
+        ['Espanhol', 'advanced'], // adicionado
+        ['Inglês', 'fluent'], // nível alterado
+      ]);
+      expect(removes, [
+        ['language', 'Português'],
+      ]);
+      expect(card.status, AssistEditStatus.applied);
 
-    // Desfazer (ordem inversa): re-upsert Português(native) + Inglês(basic),
-    // e remove Espanhol.
-    await c.undoLanguagesEditor(card.id);
-    expect(
+      // Desfazer (ordem inversa): re-upsert Português(native) + Inglês(basic),
+      // e remove Espanhol.
+      await c.undoLanguagesEditor(card.id);
+      expect(
         upserts,
         containsAll([
           ['Português', 'native'],
           ['Inglês', 'basic'],
-        ]));
-    expect(
+        ]),
+      );
+      expect(
         removes,
         containsAll([
           ['language', 'Espanhol'],
-        ]));
-    expect(card.status, AssistEditStatus.undone);
+        ]),
+      );
+      expect(card.status, AssistEditStatus.undone);
+    },
+  );
+
+  test(
+    'edit_languages: falha parcial nunca declara aplicado e aceita retry',
+    () async {
+      final state = <String, String?>{'Português': 'native', 'Inglês': 'basic'};
+      var failRemove = true;
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'edit_languages',
+            args: {},
+            reply: '',
+            promptVersion: 'assistant_v4',
+          ),
+        ),
+        languagesLoader: () async => [
+          for (final entry in state.entries) (entry.key, entry.value),
+        ],
+        languageUpserter: (name, level) async => state[name] = level,
+        itemRemover: (kind, value) async {
+          if (value == 'Português' && failRemove) throw Exception('network');
+          state.remove(value);
+        },
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('quero editar meus idiomas');
+      final card = c.thread.whereType<LanguagesEditorItem>().single;
+      const added = [LangEntry('Espanhol', 'advanced')];
+      const changed = [LangEntry('Inglês', 'fluent')];
+
+      await c.applyLanguagesEditor(
+        card.id,
+        added: added,
+        removed: const ['Português'],
+        changed: changed,
+      );
+      expect(card.status, AssistEditStatus.pending);
+      expect(card.resultMessage, isNotEmpty);
+
+      failRemove = false;
+      await c.applyLanguagesEditor(
+        card.id,
+        added: added,
+        removed: const ['Português'],
+        changed: changed,
+      );
+      expect(card.status, AssistEditStatus.applied);
+      expect(state, {'Inglês': 'fluent', 'Espanhol': 'advanced'});
+    },
+  );
+
+  test(
+    'edit_languages: undo parcial restaura o lote sem fingir cancelamento',
+    () async {
+      final state = <String, String?>{'Português': 'native', 'Inglês': 'basic'};
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'edit_languages',
+            args: {},
+            reply: '',
+            promptVersion: 'assistant_v4',
+          ),
+        ),
+        languagesLoader: () async => [
+          for (final entry in state.entries) (entry.key, entry.value),
+        ],
+        languageUpserter: (name, level) async => state[name] = level,
+        itemRemover: (_, value) async {
+          if (value == 'Português') throw Exception('network');
+          state.remove(value);
+        },
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('edita meus idiomas');
+      final card = c.thread.whereType<LanguagesEditorItem>().single;
+
+      await c.applyLanguagesEditor(
+        card.id,
+        added: const [LangEntry('Espanhol', 'advanced')],
+        removed: const ['Português'],
+        changed: const [LangEntry('Inglês', 'fluent')],
+      );
+      expect(card.hasUnconfirmedChanges, isTrue);
+      c.cancelLanguagesEditor(card.id);
+      expect(card.status, AssistEditStatus.pending);
+
+      await c.undoLanguagesEditor(card.id);
+      expect(state, {'Português': 'native', 'Inglês': 'basic'});
+      expect(card.status, AssistEditStatus.undone);
+    },
+  );
+
+  test('edit_languages: undo não sobrescreve nível editado depois', () async {
+    final state = <String, String?>{'Inglês': 'basic'};
+    final c = build(
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'edit_languages',
+          args: {},
+          reply: '',
+          promptVersion: 'assistant_v4',
+        ),
+      ),
+      languagesLoader: () async => [
+        for (final entry in state.entries) (entry.key, entry.value),
+      ],
+      languageUpserter: (name, level) async => state[name] = level,
+      itemRemover: (_, value) async => state.remove(value),
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await c.submitFreeText('edita meus idiomas');
+    final card = c.thread.whereType<LanguagesEditorItem>().single;
+    await c.applyLanguagesEditor(
+      card.id,
+      added: const [],
+      removed: const [],
+      changed: const [LangEntry('Inglês', 'fluent')],
+    );
+    expect(card.status, AssistEditStatus.applied);
+
+    state['Inglês'] = 'native';
+    await c.undoLanguagesEditor(card.id);
+    expect(state['Inglês'], 'native');
+    expect(card.status, AssistEditStatus.applied);
+    expect(card.resultMessage, contains('mais recente'));
   });
 
   // ── Rápidos: add de interesse, duplicado, lista, não-resposta ─────────────
 
-  test('add_item interest: comando direto → card → aplica', () async {
+  test('add_item interest: writer destrutivo fica bloqueado', () async {
     final adds = <List<String>>[];
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'add_item',
-        args: {'kind': 'interest', 'value': 'Sustentabilidade'},
-        reply: 'Boa!',
-        promptVersion: 'assistant_v6',
-      )),
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'add_item',
+          args: {'kind': 'interest', 'value': 'Sustentabilidade'},
+          reply: 'Boa!',
+          promptVersion: 'assistant_v6',
+        ),
+      ),
       itemAdder: (kind, value) async => adds.add([kind, value]),
       itemResolver: (kind, query) async => const [], // ainda não tem
     );
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('adiciona sustentabilidade nos interesses');
-    final pending = c.thread
-        .whereType<AssistEditItem>()
-        .singleWhere((e) => e.status == AssistEditStatus.pending);
-    expect(pending.op, AssistEditOp.add);
-    await c.confirmAssistEdit(pending.id);
-    expect(adds, [
-      ['interest', 'Sustentabilidade']
-    ]);
+    expect(c.thread.whereType<AssistEditItem>(), isEmpty);
+    expect(adds, isEmpty);
+    expect(
+      c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Perfil')),
+      isTrue,
+    );
   });
 
-  test('add_item duplicado: NÃO cria card (não mente nem apaga o existente)',
-      () async {
-    final adds = <List<String>>[];
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'add_item',
-        args: {'kind': 'skill', 'value': 'Python'},
-        reply: '',
-        promptVersion: 'assistant_v6',
-      )),
-      itemAdder: (kind, value) async => adds.add([kind, value]),
-      itemResolver: (kind, query) async => ['Python'], // já tem
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('adiciona Python nas skills');
-    expect(c.thread.whereType<AssistEditItem>(), isEmpty); // sem card
-    expect(
+  test(
+    'add_item duplicado: NÃO cria card (não mente nem apaga o existente)',
+    () async {
+      final adds = <List<String>>[];
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'add_item',
+            args: {'kind': 'skill', 'value': 'Python'},
+            reply: '',
+            promptVersion: 'assistant_v6',
+          ),
+        ),
+        itemAdder: (kind, value) async => adds.add([kind, value]),
+        itemResolver: (kind, query) async => ['Python'], // já tem
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('adiciona Python nas skills');
+      expect(c.thread.whereType<AssistEditItem>(), isEmpty); // sem card
+      expect(
         c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('já tá')),
-        isTrue);
-    expect(adds, isEmpty);
-  });
+        isTrue,
+      );
+      expect(adds, isEmpty);
+    },
+  );
 
   test('add_item lista: "SQL, Power BI e Excel" → card em lote', () async {
     final adds = <List<String>>[];
+    final state = <String>{};
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'add_item',
-        args: {'kind': 'skill', 'value': 'SQL, Power BI e Excel'},
-        reply: '',
-        promptVersion: 'assistant_v6',
-      )),
-      itemAdder: (kind, value) async => adds.add([kind, value]),
-      itemResolver: (kind, query) async => const [],
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'add_item',
+          args: {'kind': 'skill', 'value': 'SQL, Power BI e Excel'},
+          reply: '',
+          promptVersion: 'assistant_v6',
+        ),
+      ),
+      itemAdder: (kind, value) async {
+        adds.add([kind, value]);
+        state.add(value);
+      },
+      itemRemover: (kind, value) async => state.remove(value),
+      itemResolver: (kind, query) async =>
+          state.contains(query) ? [query] : const [],
     );
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('adiciona 3 skills: SQL, Power BI e Excel');
     final card = c.thread.whereType<AssistExtractItem>().single;
-    expect(card.entries.map((e) => e.value).toList(),
-        ['SQL', 'Power BI', 'Excel']);
+    expect(card.entries.map((e) => e.value).toList(), [
+      'SQL',
+      'Power BI',
+      'Excel',
+    ]);
     await c.confirmExtract(card.id);
     expect(adds, [
       ['skill', 'SQL'],
@@ -1110,72 +2521,93 @@ void main() {
     await c.submitFreeText('não sei');
     expect(c.currentStep?.id, 'q.text'); // NÃO avançou (não gravou 'não sei')
     expect(
-        c.thread
-            .whereType<AiMsgItem>()
-            .any((m) => m.text.contains('Tranquilo não saber')),
-        isTrue);
+      c.thread.whereType<AiMsgItem>().any(
+        (m) => m.text.contains('Tranquilo não saber'),
+      ),
+      isTrue,
+    );
   });
 
   // ── Médios: remover multi-campo (cert) + editar campo pessoal (nome) ───────
 
-  test('remove_item certification: resolve → confirma (deleta) → desfaz',
-      () async {
-    var deleted = false;
-    var restored = false;
+  test(
+    'remove_item certification: resolve → confirma (deleta) → desfaz',
+    () async {
+      var deleted = false;
+      var restored = false;
+      var present = true;
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'remove_item',
+            args: {'kind': 'certification', 'query': 'inglês'},
+            reply: '',
+            promptVersion: 'assistant_v7',
+          ),
+        ),
+        itemResolver: (kind, query) async => kind == 'certification' && present
+            ? ['Certificado de Inglês']
+            : const [],
+        reversibleRemover: (kind, value) async {
+          deleted = true;
+          present = false;
+          return () async {
+            restored = true;
+            present = true;
+          };
+        },
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('remove minha certificação de inglês');
+      final pending = c.thread.whereType<AssistEditItem>().singleWhere(
+        (e) => e.status == AssistEditStatus.pending,
+      );
+      expect(pending.op, AssistEditOp.remove);
+      expect(pending.value, 'Certificado de Inglês');
+      expect(deleted, isFalse);
+      await c.confirmAssistEdit(pending.id);
+      expect(deleted, isTrue);
+      await c.undoAssistEdit(pending.id);
+      expect(restored, isTrue);
+    },
+  );
+
+  test('update_field name: propõe → confirma (grava) → desfaz', () async {
+    final writes = <List<String>>[];
+    var current = 'João';
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'remove_item',
-        args: {'kind': 'certification', 'query': 'inglês'},
-        reply: '',
-        promptVersion: 'assistant_v7',
-      )),
-      itemResolver: (kind, query) async =>
-          kind == 'certification' ? ['Certificado de Inglês'] : const [],
-      reversibleRemover: (kind, value) async {
-        deleted = true;
-        return () async => restored = true;
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'update_field',
+          args: {
+            'field': 'name',
+            'value': 'João Pereira',
+            'value_label': 'João Pereira',
+          },
+          reply: '',
+          promptVersion: 'assistant_v7',
+        ),
+      ),
+      readField: (field) async => field == 'name'
+          ? AssistFieldValue(raw: current, text: current, label: 'Nome')
+          : null,
+      writeField: (field, value) async {
+        writes.add([field, value]);
+        current = value;
       },
     );
     addTearDown(c.dispose);
     await c.start();
-    await c.submitFreeText('remove minha certificação de inglês');
-    final pending = c.thread
-        .whereType<AssistEditItem>()
-        .singleWhere((e) => e.status == AssistEditStatus.pending);
-    expect(pending.op, AssistEditOp.remove);
-    expect(pending.value, 'Certificado de Inglês');
-    expect(deleted, isFalse);
-    await c.confirmAssistEdit(pending.id);
-    expect(deleted, isTrue);
-    await c.undoAssistEdit(pending.id);
-    expect(restored, isTrue);
-  });
-
-  test('update_field name: propõe → confirma (grava) → desfaz', () async {
-    final writes = <List<String>>[];
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'update_field',
-        args: {'field': 'name', 'value': 'João Pereira', 'value_label': 'João Pereira'},
-        reply: '',
-        promptVersion: 'assistant_v7',
-      )),
-      readField: (field) async => field == 'name'
-          ? const AssistFieldValue(raw: 'João', text: 'João', label: 'Nome')
-          : null,
-      writeField: (field, value) async => writes.add([field, value]),
-    );
-    addTearDown(c.dispose);
-    await c.start();
     await c.submitFreeText('muda meu nome pra João Pereira');
-    final pending = c.thread
-        .whereType<AssistEditItem>()
-        .singleWhere((e) => e.status == AssistEditStatus.pending);
+    final pending = c.thread.whereType<AssistEditItem>().singleWhere(
+      (e) => e.status == AssistEditStatus.pending,
+    );
     expect(pending.beforeText, 'João');
     expect(pending.afterText, 'João Pereira');
     await c.confirmAssistEdit(pending.id);
     expect(writes, [
-      ['name', 'João Pereira']
+      ['name', 'João Pereira'],
     ]);
     await c.undoAssistEdit(pending.id);
     expect(writes.last, ['name', 'João']); // regrava o anterior
@@ -1183,248 +2615,321 @@ void main() {
 
   // ── Médios pt2: editar UM campo de item multi-campo ────────────────────────
 
-  test('update_item: muda a empresa da experiência → confirma (por id) → desfaz',
-      () async {
-    final writes = <List<String>>[];
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'update_item',
-        args: {
-          'kind': 'experience',
-          'item': 'Ambev',
-          'field': 'company',
-          'value': 'Heineken'
+  test(
+    'update_item: muda a empresa da experiência → confirma (por id) → desfaz',
+    () async {
+      final writes = <List<String>>[];
+      var current = 'Ambev';
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'update_item',
+            args: {
+              'kind': 'experience',
+              'item': 'Ambev',
+              'field': 'company',
+              'value': 'Heineken',
+            },
+            reply: '',
+            promptVersion: 'assistant_v8',
+          ),
+        ),
+        itemResolver: (kind, query) async =>
+            kind == 'experience' ? ['Estagiário · Ambev'] : const [],
+        itemFieldReader: (kind, query, field) async =>
+            (kind == 'experience' && field == 'company')
+            ? {
+                'id': 'exp1',
+                'raw': current,
+                'text': current,
+                'label': 'Empresa · Estagiário',
+              }
+            : null,
+        itemFieldWriter: (kind, id, field, value) async {
+          writes.add([kind, id, field, value]);
+          current = value;
         },
-        reply: '',
-        promptVersion: 'assistant_v8',
-      )),
-      itemResolver: (kind, query) async =>
-          kind == 'experience' ? ['Estagiário · Ambev'] : const [],
-      itemFieldReader: (kind, query, field) async =>
-          (kind == 'experience' && field == 'company')
-              ? {
-                  'id': 'exp1',
-                  'raw': 'Ambev',
-                  'text': 'Ambev',
-                  'label': 'Empresa · Estagiário'
-                }
-              : null,
-      itemFieldWriter: (kind, id, field, value) async =>
-          writes.add([kind, id, field, value]),
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('muda a empresa da minha experiência pra Heineken');
-    final pending = c.thread
-        .whereType<AssistEditItem>()
-        .singleWhere((e) => e.status == AssistEditStatus.pending);
-    expect(pending.op, AssistEditOp.update);
-    expect(pending.beforeText, 'Ambev');
-    expect(pending.afterText, 'Heineken');
-    await c.confirmAssistEdit(pending.id);
-    expect(writes, [
-      ['experience', 'exp1', 'company', 'Heineken']
-    ]);
-    // Undo grava por ID (estável) o valor anterior — não depende do nome.
-    await c.undoAssistEdit(pending.id);
-    expect(writes.last, ['experience', 'exp1', 'company', 'Ambev']);
-  });
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText(
+        'muda a empresa da minha experiência pra Heineken',
+      );
+      final pending = c.thread.whereType<AssistEditItem>().singleWhere(
+        (e) => e.status == AssistEditStatus.pending,
+      );
+      expect(pending.op, AssistEditOp.update);
+      expect(pending.beforeText, 'Ambev');
+      expect(pending.afterText, 'Heineken');
+      await c.confirmAssistEdit(pending.id);
+      expect(writes, [
+        ['experience', 'exp1', 'company', 'Heineken'],
+      ]);
+      // Undo grava por ID (estável) o valor anterior — não depende do nome.
+      await c.undoAssistEdit(pending.id);
+      expect(writes.last, ['experience', 'exp1', 'company', 'Ambev']);
+    },
+  );
 
   test('update_item: item não encontrado → "Não achei", sem card', () async {
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'update_item',
-        args: {
-          'kind': 'experience',
-          'item': 'Nubank',
-          'field': 'company',
-          'value': 'X'
-        },
-        reply: '',
-        promptVersion: 'assistant_v8',
-      )),
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'update_item',
+          args: {
+            'kind': 'experience',
+            'item': 'Nubank',
+            'field': 'company',
+            'value': 'X',
+          },
+          reply: '',
+          promptVersion: 'assistant_v8',
+        ),
+      ),
       itemResolver: (kind, query) async => const [],
       itemFieldReader: (kind, query, field) async => null,
       itemFieldWriter: (kind, id, field, value) async {},
     );
     addTearDown(c.dispose);
     await c.start();
-    await c.submitFreeText('muda a empresa da minha experiência na Nubank pra X');
+    await c.submitFreeText(
+      'muda a empresa da minha experiência na Nubank pra X',
+    );
     expect(c.thread.whereType<AssistEditItem>(), isEmpty);
     expect(
-        c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Não achei')),
-        isTrue);
+      c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Não achei')),
+      isTrue,
+    );
   });
 
-  test('update_item semester não-numérico → pede o número, sem card (regressão)',
-      () async {
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'update_item',
-        args: {
-          'kind': 'education',
-          'item': 'ADM',
-          'field': 'semester',
-          'value': 'sétimo'
+  test(
+    'update_item semester não-numérico → pede o número, sem card (regressão)',
+    () async {
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'update_item',
+            args: {
+              'kind': 'education',
+              'item': 'ADM',
+              'field': 'semester',
+              'value': 'sétimo',
+            },
+            reply: '',
+            promptVersion: 'assistant_v8',
+          ),
+        ),
+        itemResolver: (kind, query) async => ['ADM · USP'],
+        itemFieldReader: (kind, query, field) async => {
+          'id': 'e1',
+          'raw': '5',
+          'text': '5',
+          'label': 'Semestre',
         },
-        reply: '',
-        promptVersion: 'assistant_v8',
-      )),
-      itemResolver: (kind, query) async => ['ADM · USP'],
-      itemFieldReader: (kind, query, field) async =>
-          {'id': 'e1', 'raw': '5', 'text': '5', 'label': 'Semestre'},
-      itemFieldWriter: (kind, id, field, value) async {},
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('corrige o semestre da minha faculdade pra sétimo');
-    expect(c.thread.whereType<AssistEditItem>(), isEmpty); // sem card falso
-    expect(
-        c.thread
-            .whereType<AiMsgItem>()
-            .any((m) => m.text.contains('número do semestre')),
-        isTrue);
-  });
+        itemFieldWriter: (kind, id, field, value) async {},
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText(
+        'corrige o semestre da minha faculdade pra sétimo',
+      );
+      expect(c.thread.whereType<AssistEditItem>(), isEmpty); // sem card falso
+      expect(
+        c.thread.whereType<AiMsgItem>().any(
+          (m) => m.text.contains('número do semestre'),
+        ),
+        isTrue,
+      );
+    },
+  );
 
   // ── Médios restante: áreas (editor), cidade e modalidade (update_field) ────
 
-  test('edit_areas: editor → salvar (replace) → desfazer', () async {
-    final replaced = <List<String>>[];
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'edit_areas',
-        args: {},
-        reply: '',
-        promptVersion: 'assistant_v9',
-      )),
-      areasLoader: () async => ['Vendas', 'Marketing'],
-      areasReplacer: (names) async => replaced.add(List.of(names)),
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('quero editar minhas áreas');
-    final card = c.thread.whereType<ListEditorItem>().single;
-    expect(card.kind, 'area');
-    expect(card.initial, ['Vendas', 'Marketing']);
-    await c.applyListEditor(card.id, added: ['Dados'], removed: ['Vendas']);
-    expect(replaced, [
-      ['Marketing', 'Dados']
-    ]);
-    await c.undoListEditor(card.id);
-    expect(replaced.last, ['Vendas', 'Marketing']);
-  });
+  test(
+    'edit_areas: writer destrutivo fica bloqueado e orienta Perfil',
+    () async {
+      final replaced = <List<String>>[];
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'edit_areas',
+            args: {},
+            reply: '',
+            promptVersion: 'assistant_v9',
+          ),
+        ),
+        areasLoader: () async => ['Vendas', 'Marketing'],
+        areasReplacer: (names) async => replaced.add(List.of(names)),
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('quero editar minhas áreas');
+      expect(c.thread.whereType<ListEditorItem>(), isEmpty);
+      expect(replaced, isEmpty);
+      expect(
+        c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Perfil')),
+        isTrue,
+      );
+    },
+  );
 
   test('update_field city: propõe → confirma → desfaz', () async {
     final writes = <List<String>>[];
+    var current = 'São Paulo, SP';
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'update_field',
-        args: {'field': 'city', 'value': 'Recife, PE', 'value_label': 'Recife, PE'},
-        reply: '',
-        promptVersion: 'assistant_v9',
-      )),
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'update_field',
+          args: {
+            'field': 'city',
+            'value': 'Recife, PE',
+            'value_label': 'Recife, PE',
+          },
+          reply: '',
+          promptVersion: 'assistant_v9',
+        ),
+      ),
       readField: (field) async => field == 'city'
-          ? const AssistFieldValue(
-              raw: 'São Paulo, SP', text: 'São Paulo, SP', label: 'Cidade')
+          ? AssistFieldValue(raw: current, text: current, label: 'Cidade')
           : null,
-      writeField: (field, value) async => writes.add([field, value]),
+      writeField: (field, value) async {
+        writes.add([field, value]);
+        current = value;
+      },
     );
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('muda minha cidade pra Recife, PE');
-    final pending = c.thread
-        .whereType<AssistEditItem>()
-        .singleWhere((e) => e.status == AssistEditStatus.pending);
+    final pending = c.thread.whereType<AssistEditItem>().singleWhere(
+      (e) => e.status == AssistEditStatus.pending,
+    );
     expect(pending.beforeText, 'São Paulo, SP');
     expect(pending.afterText, 'Recife, PE');
     await c.confirmAssistEdit(pending.id);
     expect(writes, [
-      ['city', 'Recife, PE']
+      ['city', 'Recife, PE'],
     ]);
     await c.undoAssistEdit(pending.id);
     expect(writes.last, ['city', 'São Paulo, SP']);
   });
 
-  test('update_field work_mode: propõe → confirma (replace) → desfaz', () async {
-    final writes = <List<String>>[];
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'update_field',
-        args: {'field': 'work_mode', 'value': 'remote', 'value_label': 'Remoto'},
-        reply: '',
-        promptVersion: 'assistant_v9',
-      )),
-      readField: (field) async => field == 'work_mode'
-          ? const AssistFieldValue(
-              raw: 'remote,hybrid', text: 'Remoto, Híbrido', label: 'Modalidade')
-          : null,
-      writeField: (field, value) async => writes.add([field, value]),
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('muda minha modalidade pra só remoto');
-    final pending = c.thread
-        .whereType<AssistEditItem>()
-        .singleWhere((e) => e.status == AssistEditStatus.pending);
-    expect(pending.beforeText, 'Remoto, Híbrido');
-    expect(pending.afterText, 'Remoto');
-    await c.confirmAssistEdit(pending.id);
-    expect(writes, [
-      ['work_mode', 'remote']
-    ]);
-    // Undo regrava os ids anteriores (não os rótulos).
-    await c.undoAssistEdit(pending.id);
-    expect(writes.last, ['work_mode', 'remote,hybrid']);
-  });
+  test(
+    'update_field work_mode: propõe → confirma (replace) → desfaz',
+    () async {
+      final writes = <List<String>>[];
+      var current = 'remote,hybrid';
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'update_field',
+            args: {
+              'field': 'work_mode',
+              'value': 'remote',
+              'value_label': 'Remoto',
+            },
+            reply: '',
+            promptVersion: 'assistant_v9',
+          ),
+        ),
+        readField: (field) async => field == 'work_mode'
+            ? AssistFieldValue(
+                raw: current,
+                text: current == 'remote' ? 'Remoto' : 'Remoto, Híbrido',
+                label: 'Modalidade',
+              )
+            : null,
+        writeField: (field, value) async {
+          writes.add([field, value]);
+          current = value;
+        },
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('muda minha modalidade pra só remoto');
+      final pending = c.thread.whereType<AssistEditItem>().singleWhere(
+        (e) => e.status == AssistEditStatus.pending,
+      );
+      expect(pending.beforeText, 'Remoto, Híbrido');
+      expect(pending.afterText, 'Remoto');
+      await c.confirmAssistEdit(pending.id);
+      expect(writes, [
+        ['work_mode', 'remote'],
+      ]);
+      // Undo regrava os ids anteriores (não os rótulos).
+      await c.undoAssistEdit(pending.id);
+      expect(writes.last, ['work_mode', 'remote,hybrid']);
+    },
+  );
 
-  test('update_field work_mode inválido → pede a modalidade, sem card nem write',
-      () async {
-    final writes = <List<String>>[];
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'update_field',
-        args: {'field': 'work_mode', 'value': 'flexível', 'value_label': 'Flexível'},
-        reply: '',
-        promptVersion: 'assistant_v9',
-      )),
-      readField: (field) async => field == 'work_mode'
-          ? const AssistFieldValue(raw: 'remote', text: 'Remoto', label: 'Modalidade')
-          : null,
-      writeField: (field, value) async => writes.add([field, value]),
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('quero trabalhar de forma flexível');
-    // Não propõe card (não gravaria nada), pede a modalidade certa.
-    expect(c.thread.whereType<AssistEditItem>(), isEmpty);
-    expect(writes, isEmpty);
-    expect(
-        c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('modalidade')),
-        isTrue);
-  });
+  test(
+    'update_field work_mode inválido → pede a modalidade, sem card nem write',
+    () async {
+      final writes = <List<String>>[];
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'update_field',
+            args: {
+              'field': 'work_mode',
+              'value': 'flexível',
+              'value_label': 'Flexível',
+            },
+            reply: '',
+            promptVersion: 'assistant_v9',
+          ),
+        ),
+        readField: (field) async => field == 'work_mode'
+            ? const AssistFieldValue(
+                raw: 'remote',
+                text: 'Remoto',
+                label: 'Modalidade',
+              )
+            : null,
+        writeField: (field, value) async => writes.add([field, value]),
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('quero trabalhar de forma flexível');
+      // Não propõe card (não gravaria nada), pede a modalidade certa.
+      expect(c.thread.whereType<AssistEditItem>(), isEmpty);
+      expect(writes, isEmpty);
+      expect(
+        c.thread.whereType<AiMsgItem>().any(
+          (m) => m.text.contains('modalidade'),
+        ),
+        isTrue,
+      );
+    },
+  );
 
   // ── Grandes: show_jobs / open_tab / export_pdf ────────────────────────────
 
   test('show_jobs: loader com vagas → card de vagas no fio', () async {
     ({String? area, String? query, int limit})? captured;
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'show_jobs',
-        args: {'area': 'Marketing', 'limit': 3},
-        reply: 'Achei estas 👇',
-        promptVersion: 'assistant_v10',
-      )),
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'show_jobs',
+          args: {'area': 'Marketing', 'limit': 3},
+          reply: 'Achei estas 👇',
+          promptVersion: 'assistant_v10',
+        ),
+      ),
       jobsLoader: ({String? area, String? query, int limit = 5}) async {
         captured = (area: area, query: query, limit: limit);
-        return const AssistJobsResult(hasResume: true, jobs: [
-          AssistJobRow(
+        return const AssistJobsResult(
+          hasResume: true,
+          jobs: [
+            AssistJobRow(
               id: 'j1',
               title: 'Analista de Marketing',
               company: 'Acme',
               area: 'Marketing',
               score: 82,
-              hasScore: true),
-        ]);
+              hasScore: true,
+            ),
+          ],
+        );
       },
     );
     addTearDown(c.dispose);
@@ -1435,18 +2940,22 @@ void main() {
     final card = c.thread.whereType<JobsCardItem>().single;
     expect(card.jobs.single.title, 'Analista de Marketing');
     expect(card.hasResume, isTrue);
-    expect(c.thread.whereType<AiMsgItem>().any((m) => m.text == 'Achei estas 👇'),
-        isTrue);
+    expect(
+      c.thread.whereType<AiMsgItem>().any((m) => m.text == 'Achei estas 👇'),
+      isTrue,
+    );
   });
 
   test('show_jobs: feed vazio → "não achei", sem card', () async {
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'show_jobs',
-        args: {},
-        reply: 'Olha as vagas!',
-        promptVersion: 'assistant_v10',
-      )),
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'show_jobs',
+          args: {},
+          reply: 'Olha as vagas!',
+          promptVersion: 'assistant_v10',
+        ),
+      ),
       jobsLoader: ({String? area, String? query, int limit = 5}) async =>
           const AssistJobsResult(hasResume: true, jobs: []),
     );
@@ -1455,19 +2964,23 @@ void main() {
     await c.submitFreeText('quais vagas você achou?');
     expect(c.thread.whereType<JobsCardItem>(), isEmpty);
     // Ignora a fala otimista da IA; é honesto sobre não ter achado.
-    expect(c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Não achei')),
-        isTrue);
+    expect(
+      c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Não achei')),
+      isTrue,
+    );
   });
 
   test('open_tab: chama o callback com a aba + confirma por bolha', () async {
     String? opened;
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'open_tab',
-        args: {'tab': 'vagas'},
-        reply: 'Te levo pras Vagas 👉',
-        promptVersion: 'assistant_v10',
-      )),
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'open_tab',
+          args: {'tab': 'vagas'},
+          reply: 'Te levo pras Vagas 👉',
+          promptVersion: 'assistant_v10',
+        ),
+      ),
       openTab: (tabKey) async => opened = tabKey,
     );
     addTearDown(c.dispose);
@@ -1475,264 +2988,192 @@ void main() {
     await c.submitFreeText('me leva pras vagas');
     expect(opened, 'vagas');
     expect(
-        c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Vagas')),
-        isTrue);
+      c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Vagas')),
+      isTrue,
+    );
   });
 
-  test('export_pdf: mostra card com botão; só roda a ação no toque (ok/vazio/falha)',
-      () async {
-    // OK: submitFreeText só cria o card (não exporta ainda); runActionCard exporta.
-    final ok = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'export_pdf', args: {}, reply: '', promptVersion: 'assistant_v11')),
-      exportPdf: () async => AssistExportOutcome.ok,
-    );
-    addTearDown(ok.dispose);
-    await ok.start();
-    await ok.submitFreeText('exporta meu currículo');
-    final card = ok.thread.whereType<AssistActionCardItem>().single;
-    expect(card.kind, 'export');
-    expect(card.status, AssistEditStatus.pending); // botão, ainda não exportou
-    await ok.runActionCard(card.id);
-    expect(card.status, AssistEditStatus.applied);
-    expect(card.resultMessage.contains('Pronto'), isTrue);
+  test(
+    'export_pdf: mostra card com botão; só roda a ação no toque (ok/vazio/falha)',
+    () async {
+      // OK: submitFreeText só cria o card (não exporta ainda); runActionCard exporta.
+      final ok = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'export_pdf',
+            args: {},
+            reply: '',
+            promptVersion: 'assistant_v11',
+          ),
+        ),
+        exportPdf: () async => AssistExportOutcome.ok,
+      );
+      addTearDown(ok.dispose);
+      await ok.start();
+      await ok.submitFreeText('exporta meu currículo');
+      final card = ok.thread.whereType<AssistActionCardItem>().single;
+      expect(card.kind, 'export');
+      expect(
+        card.status,
+        AssistEditStatus.pending,
+      ); // botão, ainda não exportou
+      await ok.runActionCard(card.id);
+      expect(card.status, AssistEditStatus.applied);
+      expect(card.resultMessage.contains('Pronto'), isTrue);
 
-    // Vazio → orienta preencher.
-    final empty = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'export_pdf', args: {}, reply: '', promptVersion: 'assistant_v11')),
-      exportPdf: () async => AssistExportOutcome.empty,
-    );
-    addTearDown(empty.dispose);
-    await empty.start();
-    await empty.submitFreeText('exporta meu currículo');
-    final ecard = empty.thread.whereType<AssistActionCardItem>().single;
-    await empty.runActionCard(ecard.id);
-    expect(ecard.resultMessage.contains('dados suficientes'), isTrue);
+      // Vazio → orienta preencher.
+      final empty = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'export_pdf',
+            args: {},
+            reply: '',
+            promptVersion: 'assistant_v11',
+          ),
+        ),
+        exportPdf: () async => AssistExportOutcome.empty,
+      );
+      addTearDown(empty.dispose);
+      await empty.start();
+      await empty.submitFreeText('exporta meu currículo');
+      final ecard = empty.thread.whereType<AssistActionCardItem>().single;
+      await empty.runActionCard(ecard.id);
+      expect(ecard.resultMessage.contains('dados suficientes'), isTrue);
 
-    // Falha → botão VOLTA (pending) pra tentar de novo, com aviso de erro.
-    final failed = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'export_pdf', args: {}, reply: '', promptVersion: 'assistant_v11')),
-      exportPdf: () async => AssistExportOutcome.failed,
-    );
-    addTearDown(failed.dispose);
-    await failed.start();
-    await failed.submitFreeText('exporta meu currículo');
-    final fcard = failed.thread.whereType<AssistActionCardItem>().single;
-    await failed.runActionCard(fcard.id);
-    expect(fcard.status, AssistEditStatus.pending); // pode tentar de novo
-    expect(fcard.resultMessage.contains('erro'), isTrue);
-  });
+      // Falha → botão VOLTA (pending) pra tentar de novo, com aviso de erro.
+      final failed = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'export_pdf',
+            args: {},
+            reply: '',
+            promptVersion: 'assistant_v11',
+          ),
+        ),
+        exportPdf: () async => AssistExportOutcome.failed,
+      );
+      addTearDown(failed.dispose);
+      await failed.start();
+      await failed.submitFreeText('exporta meu currículo');
+      final fcard = failed.thread.whereType<AssistActionCardItem>().single;
+      await failed.runActionCard(fcard.id);
+      expect(fcard.status, AssistEditStatus.pending); // pode tentar de novo
+      expect(fcard.resultMessage.contains('erro'), isTrue);
+    },
+  );
 
-  test('import_cv: card com botão; roda no toque (ok/cancel/falha)', () async {
-    // OK sem conflitos.
-    final ok = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
-      importCv: () async => const AssistImportResult(AssistImportOutcome.ok,
-          message: 'Importei seu CV! 📄'),
-    );
-    addTearDown(ok.dispose);
-    await ok.start();
-    await ok.submitFreeText('importa meu cv');
-    final card = ok.thread.whereType<AssistActionCardItem>().single;
-    expect(card.kind, 'import');
-    await ok.runActionCard(card.id);
-    expect(card.resultMessage.contains('Importei'), isTrue);
-
-    // Falha → motivo específico, botão volta pra tentar de novo.
-    final fail = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
-      importCv: () async => const AssistImportResult(AssistImportOutcome.failed,
-          message: 'Isso parece um extrato bancário.'),
-    );
-    addTearDown(fail.dispose);
-    await fail.start();
-    await fail.submitFreeText('importa meu cv');
-    final fcard = fail.thread.whereType<AssistActionCardItem>().single;
-    await fail.runActionCard(fcard.id);
-    expect(fcard.resultMessage.contains('extrato bancário'), isTrue);
-    expect(fcard.status, AssistEditStatus.pending);
-  });
-
-  test('show_gaps: renderiza card estruturado (completude + lacunas)', () async {
+  test('import_cv legado: não abre fluxo inseguro e orienta Perfil', () async {
+    var calls = 0;
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'show_gaps',
-        args: {},
-        reply: 'Olha só o que falta 👇',
-        promptVersion: 'assistant_v11',
-      )),
-      gapsLoader: () async => const AssistGaps(
-        completionPercent: 60,
-        missing: [
-          GapRow(key: 'experience', tier: 'tier1', label: 'Experiência'),
-          GapRow(key: 'summary', tier: 'tier2', label: 'Resumo profissional'),
-        ],
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'import_cv',
+          args: {},
+          reply: '',
+          promptVersion: 'assistant_v11',
+        ),
       ),
+      importCv: () async {
+        calls++;
+        return const AssistImportResult(AssistImportOutcome.ok);
+      },
     );
     addTearDown(c.dispose);
     await c.start();
-    await c.submitFreeText('o que falta no meu perfil?');
-    final card = c.thread.whereType<GapsCardItem>().single;
-    expect(card.completionPercent, 60);
-    expect(card.rows.length, 2);
-    expect(card.rows.first.label, 'Experiência');
-    expect(c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('o que falta')),
-        isTrue);
+    await c.submitFreeText('importa meu cv');
+    expect(calls, 0);
+    expect(c.thread.whereType<AssistActionCardItem>(), isEmpty);
+    expect(
+      c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Perfil')),
+      isTrue,
+    );
   });
+
+  test(
+    'show_gaps: renderiza card estruturado (completude + lacunas)',
+    () async {
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'show_gaps',
+            args: {},
+            reply: 'Olha só o que falta 👇',
+            promptVersion: 'assistant_v11',
+          ),
+        ),
+        gapsLoader: () async => const AssistGaps(
+          completionPercent: 60,
+          missing: [
+            GapRow(key: 'experience', tier: 'tier1', label: 'Experiência'),
+            GapRow(key: 'summary', tier: 'tier2', label: 'Resumo profissional'),
+          ],
+        ),
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('o que falta no meu perfil?');
+      final card = c.thread.whereType<GapsCardItem>().single;
+      expect(card.completionPercent, 60);
+      expect(card.rows.length, 2);
+      expect(card.rows.first.label, 'Experiência');
+      expect(
+        c.thread.whereType<AiMsgItem>().any(
+          (m) => m.text.contains('o que falta'),
+        ),
+        isTrue,
+      );
+    },
+  );
 
   test('show_gaps: sem loader → cai na resposta de texto (sem card)', () async {
     final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'show_gaps',
-        args: {},
-        reply: 'Seu perfil tá em 60%.',
-        promptVersion: 'assistant_v11',
-      )),
+      assistantTurn: _fixed(
+        const AssistantTurn(
+          tool: 'show_gaps',
+          args: {},
+          reply: 'Seu perfil tá em 60%.',
+          promptVersion: 'assistant_v11',
+        ),
+      ),
       // gapsLoader ausente
     );
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('o que falta?');
     expect(c.thread.whereType<GapsCardItem>(), isEmpty);
-    expect(c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('60%')),
-        isTrue);
+    expect(
+      c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('60%')),
+      isTrue,
+    );
   });
 
-  test('show_gaps: loader lança → cai no texto, sem card 0%/"completo" falso',
-      () async {
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-        tool: 'show_gaps',
-        args: {},
-        reply: 'Seu perfil tá em 60%.',
-        promptVersion: 'assistant_v11',
-      )),
-      gapsLoader: () async => throw Exception('rede caiu'),
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('o que falta?');
-    // Erro NÃO vira card (senão mostraria 0% + "tá completo"); cai no texto.
-    expect(c.thread.whereType<GapsCardItem>(), isEmpty);
-    expect(c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('60%')),
-        isTrue);
-  });
+  test(
+    'show_gaps: loader lança → cai no texto, sem card 0%/"completo" falso',
+    () async {
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'show_gaps',
+            args: {},
+            reply: 'Seu perfil tá em 60%.',
+            promptVersion: 'assistant_v11',
+          ),
+        ),
+        gapsLoader: () async => throw Exception('rede caiu'),
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('o que falta?');
+      // Erro NÃO vira card (senão mostraria 0% + "tá completo"); cai no texto.
+      expect(c.thread.whereType<GapsCardItem>(), isEmpty);
+      expect(
+        c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('60%')),
+        isTrue,
+      );
+    },
+  );
 
   // ── Widget de conflito de import ──────────────────────────────────────────
-
-  test('import_cv com conflitos → card; editar+aplicar chama o applier; desfaz',
-      () async {
-    final applied = <String>[];
-    final undone = <String>[];
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-          tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
-      importCv: () async => const AssistImportResult(
-        AssistImportOutcome.ok,
-        message: 'Comparei 👇',
-        conflicts: [
-          ConflictRow(
-              id: 'r1',
-              section: ConflictSection.skill,
-              kind: ConflictKind.addition,
-              label: 'SQL',
-              cvText: 'SQL',
-              value: 'SQL'),
-          ConflictRow(
-              id: 'r2',
-              section: ConflictSection.city,
-              kind: ConflictKind.conflict,
-              label: 'Cidade',
-              cvText: 'Recife, PE',
-              currentText: 'São Paulo, SP',
-              field: 'city',
-              value: 'Recife, PE'),
-        ],
-      ),
-      conflictApplier: (row, value) async {
-        applied.add('${row.id}=$value');
-        return () async => undone.add(row.id);
-      },
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('importa meu cv');
-    // O import agora é gatilhado pelo botão do card de ação.
-    await c.runActionCard(c.thread.whereType<AssistActionCardItem>().single.id);
-    final card = c.thread.whereType<ImportConflictItem>().single;
-    expect(card.choices.length, 2);
-    // Adição default aceita; conflito default NÃO (seguro: mantém o seu).
-    expect(card.choices[0].accepted, isTrue);
-    expect(card.choices[1].accepted, isFalse);
-    // Edita o conflito (implica aceitar) → apply usa o valor editado.
-    c.editConflictRow(card.id, 'r2', 'Olinda, PE');
-    expect(card.choices[1].accepted, isTrue);
-    await c.applyConflicts(card.id);
-    expect(applied, containsAll(['r1=SQL', 'r2=Olinda, PE']));
-    expect(card.status, AssistEditStatus.applied);
-    expect(card.appliedCount, 2);
-    // Desfaz → roda os undos.
-    await c.undoConflicts(card.id);
-    expect(undone, containsAll(['r1', 'r2']));
-    expect(card.status, AssistEditStatus.undone);
-  });
-
-  test('import_cv sem conflitos (perfil bate) → só mensagem, sem card', () async {
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-          tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
-      importCv: () async => const AssistImportResult(AssistImportOutcome.ok,
-          message: 'Li seu CV, nada novo 🙂'),
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('importa meu cv');
-    final act = c.thread.whereType<AssistActionCardItem>().single;
-    await c.runActionCard(act.id);
-    expect(c.thread.whereType<ImportConflictItem>(), isEmpty);
-    // A mensagem "nada novo" vai pro resultMessage do card de ação.
-    expect(act.resultMessage.contains('nada novo'), isTrue);
-    // Import ok SEMPRE salva o PDF na biblioteca → oferece o atalho "Ver meus
-    // currículos" (aba Perfil), mesmo sem conflito.
-    expect(act.showCvLibraryLink, isTrue);
-  });
-
-  test('conflito: rejeitar tudo → aplica nada', () async {
-    var calls = 0;
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-          tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
-      importCv: () async => const AssistImportResult(
-        AssistImportOutcome.ok,
-        conflicts: [
-          ConflictRow(
-              id: 'r1',
-              section: ConflictSection.skill,
-              kind: ConflictKind.addition,
-              label: 'SQL',
-              cvText: 'SQL',
-              value: 'SQL'),
-        ],
-      ),
-      conflictApplier: (row, value) async {
-        calls++;
-        return null;
-      },
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    await c.submitFreeText('importa meu cv');
-    await c.runActionCard(c.thread.whereType<AssistActionCardItem>().single.id);
-    final card = c.thread.whereType<ImportConflictItem>().single;
-    c.toggleConflictRow(card.id, 'r1', false); // rejeita a adição
-    await c.applyConflicts(card.id);
-    expect(calls, 0);
-    expect(card.appliedCount, 0);
-  });
 
   test('toggle salvar vaga: salva → des-salva pelo mesmo bookmark', () async {
     final saved = <String>[];
@@ -1750,9 +3191,10 @@ void main() {
     );
     addTearDown(c.dispose);
     await c.start();
-    final card = JobsCardItem(id: 'jc1', jobs: const [
-      AssistJobRow(id: 'j1', title: 'Estágio', company: 'X'),
-    ]);
+    final card = JobsCardItem(
+      id: 'jc1',
+      jobs: const [AssistJobRow(id: 'j1', title: 'Estágio', company: 'X')],
+    );
     c.thread.add(card);
 
     await c.saveJobFromCard('jc1', 'j1');
@@ -1764,79 +3206,107 @@ void main() {
     expect(card.savedIds.contains('j1'), isFalse);
   });
 
-  test('toggle salvar: des-salvar que FALHA não tira o selo (sem mentir)',
-      () async {
-    final c = build(
-      assistantTurn: _nullTurn(),
-      saveJob: (id) async => true,
-      unsaveJob: (id) async => false, // rede caiu
-    );
-    addTearDown(c.dispose);
-    await c.start();
-    final card = JobsCardItem(
+  test(
+    'toggle salvar: des-salvar que FALHA não tira o selo (sem mentir)',
+    () async {
+      final c = build(
+        assistantTurn: _nullTurn(),
+        saveJob: (id) async => true,
+        unsaveJob: (id) async => false, // rede caiu
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      final card = JobsCardItem(
         id: 'jc1',
-        jobs: const [AssistJobRow(id: 'j1', title: 'E', company: 'X')]);
-    c.thread.add(card);
-    await c.saveJobFromCard('jc1', 'j1');
-    await c.saveJobFromCard('jc1', 'j1'); // des-salvar falha
-    expect(card.savedIds.contains('j1'), isTrue); // continua salva
-  });
+        jobs: const [AssistJobRow(id: 'j1', title: 'E', company: 'X')],
+      );
+      c.thread.add(card);
+      await c.saveJobFromCard('jc1', 'j1');
+      await c.saveJobFromCard('jc1', 'j1'); // des-salvar falha
+      expect(card.savedIds.contains('j1'), isTrue); // continua salva
+    },
+  );
 
-  test('toggle área: adiciona → remove pelo mesmo botão (sem mexer nas outras)',
-      () async {
+  test('card de vagas não grava áreas e orienta Perfil → Objetivos', () async {
     var areas = <String>['Finanças'];
+    var replaceCalls = 0;
     final c = build(
       assistantTurn: _nullTurn(),
       areasLoader: () async => areas,
       areasReplacer: (next) async {
+        replaceCalls++;
         areas = List.of(next);
       },
     );
     addTearDown(c.dispose);
     await c.start();
-    final card =
-        JobsCardItem(id: 'jc1', jobs: const [], outOfProfileArea: 'Marketing');
+    final card = JobsCardItem(
+      id: 'jc1',
+      jobs: const [],
+      outOfProfileArea: 'Marketing',
+    );
     c.thread.add(card);
 
     await c.addAreaFromCard('jc1', 'Marketing');
-    expect(areas.contains('Marketing'), isTrue);
-    expect(card.areaAdded, isTrue);
-
-    await c.addAreaFromCard('jc1', 'Marketing'); // 2º toque = remove
-    expect(areas.any((a) => a.toLowerCase() == 'marketing'), isFalse);
+    expect(replaceCalls, 0);
+    expect(areas, ['Finanças']);
     expect(card.areaAdded, isFalse);
-    expect(areas.contains('Finanças'), isTrue); // não mexe nas outras áreas
+    expect(
+      c.thread.whereType<AiMsgItem>().last.text,
+      contains('Perfil → Objetivos'),
+    );
   });
 
-  test('start() com assistente mostra os chips de partida (sem coleta automática)',
-      () async {
-    final c = build(assistantTurn: _nullTurn());
-    addTearDown(c.dispose);
-    await c.start();
-    expect(c.thread.whereType<StarterChipsItem>().length, 1);
-    expect(c.currentStep, isNull); // NÃO entra na coleta sozinho — quem escolhe é o user
-  });
+  test(
+    'start() com assistente mostra os chips de partida (sem coleta automática)',
+    () async {
+      final c = build(
+        assistantTurn: _nullTurn(),
+        preFilledLoader: () async => const [],
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      final starter = c.thread.whereType<StarterChipsItem>().single;
+      expect(starter.chips.any((chip) => chip.id == 'import'), isFalse);
+      expect(
+        starter.chips.singleWhere((chip) => chip.id == 'zero').hero,
+        isTrue,
+      );
+      expect(
+        c.currentStep,
+        isNull,
+      ); // NÃO entra na coleta sozinho — quem escolhe é o user
+    },
+  );
 
-  test('has-data + start_section monta a sessão SOB DEMANDA (sem dead-end)',
-      () async {
-    final c = build(
-      assistantTurn: _fixed(const AssistantTurn(
-          tool: 'start_section',
-          args: {'section': 'skills'},
-          reply: 'Bora!',
-          promptVersion: 'assistant_v11')),
-      sectionSteps: (section) => [
-        ConversationStep.single(
+  test(
+    'has-data + start_section monta a sessão SOB DEMANDA (sem dead-end)',
+    () async {
+      final c = build(
+        assistantTurn: _fixed(
+          const AssistantTurn(
+            tool: 'start_section',
+            args: {'section': 'skills'},
+            reply: 'Bora!',
+            promptVersion: 'assistant_v11',
+          ),
+        ),
+        sectionSteps: (section) => [
+          ConversationStep.single(
             id: 'gap.$section',
             aiMessage: 'msg',
-            input: const GuidedTextInput(example: 'x')),
-      ],
-    );
-    addTearDown(c.dispose);
-    await c.start(); // abre com chips; SEM sessão ainda
-    expect(c.currentStep, isNull);
-    await c.submitFreeText('preencher skills'); // → start_section → _injectSection
-    // A sessão foi montada sob demanda e a seção revelada (antes: dead-end).
-    expect(c.currentStep?.id, 'gap.skills');
-  });
+            input: const GuidedTextInput(example: 'x'),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+      await c.start(); // abre com chips; SEM sessão ainda
+      expect(c.currentStep, isNull);
+      await c.submitFreeText(
+        'preencher skills',
+      ); // → start_section → _injectSection
+      // A sessão foi montada sob demanda e a seção revelada (antes: dead-end).
+      expect(c.currentStep?.id, 'gap.skills');
+    },
+  );
 }

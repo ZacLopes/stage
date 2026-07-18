@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/theme.dart';
+import '../../../profile/domain/skill_name_normalizer.dart';
 import '../trilha_chat_controller.dart' show ListEditorItem, AssistEditStatus;
 
 class ListEditorCard extends StatefulWidget {
@@ -39,17 +40,22 @@ class _ListEditorCardState extends State<ListEditorCard> {
   static const _margin = EdgeInsets.only(left: 34 + AppSpacing.sm);
 
   bool get _hasChanges => _removed.isNotEmpty || _added.isNotEmpty;
+  bool get _editingLocked =>
+      _saving ||
+      widget.item.applying ||
+      widget.item.undoing ||
+      widget.item.hasUnconfirmedChanges;
 
   String get _noun => widget.item.kind == 'skill'
       ? 'skills'
       : widget.item.kind == 'area'
-          ? 'áreas'
-          : 'interesses';
+      ? 'áreas'
+      : 'interesses';
   String get _singular => widget.item.kind == 'skill'
       ? 'habilidade'
       : widget.item.kind == 'area'
-          ? 'área'
-          : 'interesse';
+      ? 'área'
+      : 'interesse';
 
   @override
   void dispose() {
@@ -58,18 +64,22 @@ class _ListEditorCardState extends State<ListEditorCard> {
   }
 
   void _toggleRemove(String s) {
+    if (_editingLocked) return;
     setState(() {
       if (!_removed.remove(s)) _removed.add(s);
     });
   }
 
   void _addSkill(String raw) {
+    if (_editingLocked) return;
     final s = raw.trim();
     if (s.isEmpty) return;
-    final lower = s.toLowerCase();
-    final alreadyThere = widget.item.initial
-            .any((x) => x.toLowerCase() == lower && !_removed.contains(x)) ||
-        _added.any((x) => x.toLowerCase() == lower);
+    final key = foldSkillName(s);
+    final alreadyThere =
+        widget.item.initial.any(
+          (x) => foldSkillName(x) == key && !_removed.contains(x),
+        ) ||
+        _added.any((x) => foldSkillName(x) == key);
     if (alreadyThere) {
       _addCtrl.clear();
       return;
@@ -80,8 +90,18 @@ class _ListEditorCardState extends State<ListEditorCard> {
     });
   }
 
+  void _removeAdded(String value) {
+    if (_editingLocked) return;
+    setState(() => _added.remove(value));
+  }
+
   Future<void> _save() async {
-    if (!_hasChanges || _saving) return;
+    if (!_hasChanges ||
+        _saving ||
+        widget.item.applying ||
+        widget.item.undoing) {
+      return;
+    }
     setState(() => _saving = true);
     await widget.onApply(List.of(_added), _removed.toList());
     // O controller marca o item applied → o build passa a mostrar o resumo.
@@ -92,9 +112,17 @@ class _ListEditorCardState extends State<ListEditorCard> {
   Widget build(BuildContext context) {
     switch (widget.item.status) {
       case AssistEditStatus.cancelled:
-        return _muted('Beleza, não mexi nos seus $_noun.');
+        final hasTerminalWarning = widget.item.resultMessage.isNotEmpty;
+        return _muted(
+          !hasTerminalWarning
+              ? 'Beleza, não mexi nos seus $_noun.'
+              : widget.item.resultMessage,
+          icon: hasTerminalWarning
+              ? Icons.info_outline_rounded
+              : Icons.check_rounded,
+        );
       case AssistEditStatus.undone:
-        return _muted('Desfeito — seus $_noun voltaram como estavam.');
+        return _muted('A alteração deste card foi desfeita.');
       case AssistEditStatus.applied:
         return _appliedCard();
       case AssistEditStatus.pending:
@@ -102,23 +130,30 @@ class _ListEditorCardState extends State<ListEditorCard> {
     }
   }
 
-  Widget _muted(String text) => Container(
+  Widget _muted(String text, {IconData icon = Icons.check_rounded}) =>
+      Container(
         margin: _margin,
-        child: Row(children: [
-          const Icon(Icons.check_rounded, size: 15, color: AppColors.textTertiary),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(text,
-                style: AppTextStyles.bodySm
-                    .copyWith(color: AppColors.textTertiary)),
-          ),
-        ]),
+        child: Row(
+          children: [
+            Icon(icon, size: 15, color: AppColors.textTertiary),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                text,
+                style: AppTextStyles.bodySm.copyWith(
+                  color: AppColors.textTertiary,
+                ),
+              ),
+            ),
+          ],
+        ),
       );
 
   // ── Estado APLICADO: resumo + Desfazer ──────────────────────────────────────
   Widget _appliedCard() {
     final added = widget.item.addedApplied;
     final removed = widget.item.removedApplied;
+    final didListChange = added.isNotEmpty || removed.isNotEmpty;
     return Container(
       margin: _margin,
       padding: AppSpacing.allBase,
@@ -130,18 +165,28 @@ class _ListEditorCardState extends State<ListEditorCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(children: [
-            const Icon(Icons.check_circle_rounded,
-                size: 15, color: AppColors.success),
-            const SizedBox(width: 6),
-            Text(
-                widget.item.kind == 'skill'
+          Row(
+            children: [
+              const Icon(
+                Icons.check_circle_rounded,
+                size: 15,
+                color: AppColors.success,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                !didListChange
+                    ? 'Skills já estavam assim'
+                    : widget.item.kind == 'skill'
                     ? 'Skills atualizadas'
                     : widget.item.kind == 'area'
-                        ? 'Áreas atualizadas'
-                        : 'Interesses atualizados',
-                style: AppTextStyles.overline.copyWith(color: AppColors.success)),
-          ]),
+                    ? 'Áreas atualizadas'
+                    : 'Interesses atualizados',
+                style: AppTextStyles.overline.copyWith(
+                  color: AppColors.success,
+                ),
+              ),
+            ],
+          ),
           if (added.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.sm),
             _summaryLine('Adicionei', added, AppColors.primary),
@@ -150,15 +195,28 @@ class _ListEditorCardState extends State<ListEditorCard> {
             const SizedBox(height: AppSpacing.sm),
             _summaryLine('Tirei', removed, AppColors.textTertiary),
           ],
-          const SizedBox(height: AppSpacing.md),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: _pill(
-              icon: Icons.undo_rounded,
-              label: 'Desfazer',
-              onTap: widget.onUndo,
+          if (widget.item.resultMessage.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              widget.item.resultMessage,
+              style: AppTextStyles.bodySm.copyWith(
+                color: widget.item.undoAvailable
+                    ? AppColors.error
+                    : AppColors.textSecondary,
+              ),
             ),
-          ),
+          ],
+          if (widget.item.undoAvailable) ...[
+            const SizedBox(height: AppSpacing.md),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _pill(
+                icon: Icons.undo_rounded,
+                label: widget.item.undoing ? 'Desfazendo…' : 'Desfazer',
+                onTap: widget.item.undoing ? null : widget.onUndo,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -168,8 +226,10 @@ class _ListEditorCardState extends State<ListEditorCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: AppTextStyles.labelSm.copyWith(color: AppColors.textTertiary)),
+        Text(
+          label,
+          style: AppTextStyles.labelSm.copyWith(color: AppColors.textTertiary),
+        ),
         const SizedBox(height: 4),
         Wrap(
           spacing: 6,
@@ -181,23 +241,28 @@ class _ListEditorCardState extends State<ListEditorCard> {
   }
 
   Widget _staticChip(String label, Color color) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.10),
-          borderRadius: AppRadius.brPill,
-        ),
-        child: Text(label,
-            style: AppTextStyles.labelMd
-                .copyWith(color: color, fontWeight: FontWeight.w600)),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.10),
+      borderRadius: AppRadius.brPill,
+    ),
+    child: Text(
+      label,
+      style: AppTextStyles.labelMd.copyWith(
+        color: color,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+  );
 
   // ── Estado PENDENTE: editor interativo ──────────────────────────────────────
   Widget _editorCard() {
     final suggestions = widget.item.suggestions.where((s) {
-      final lower = s.toLowerCase();
-      final inCurrent = widget.item.initial
-          .any((x) => x.toLowerCase() == lower && !_removed.contains(x));
-      final inAdded = _added.any((x) => x.toLowerCase() == lower);
+      final key = foldSkillName(s);
+      final inCurrent = widget.item.initial.any(
+        (x) => foldSkillName(x) == key && !_removed.contains(x),
+      );
+      final inAdded = _added.any((x) => foldSkillName(x) == key);
       return !inCurrent && !inAdded;
     }).toList();
 
@@ -212,16 +277,27 @@ class _ListEditorCardState extends State<ListEditorCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(children: [
-            const Icon(Icons.tune_rounded, size: 15, color: AppColors.primary),
-            const SizedBox(width: 6),
-            Text(widget.item.title,
-                style: AppTextStyles.overline.copyWith(color: AppColors.primary)),
-          ]),
+          Row(
+            children: [
+              const Icon(
+                Icons.tune_rounded,
+                size: 15,
+                color: AppColors.primary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                widget.item.title,
+                style: AppTextStyles.overline.copyWith(
+                  color: AppColors.primary,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: AppSpacing.xs),
-          Text('Toca no ✕ pra tirar, ou adiciona novas embaixo.',
-              style:
-                  AppTextStyles.bodySm.copyWith(color: AppColors.textTertiary)),
+          Text(
+            'Toca no ✕ pra tirar, ou adiciona novas embaixo.',
+            style: AppTextStyles.bodySm.copyWith(color: AppColors.textTertiary),
+          ),
           const SizedBox(height: AppSpacing.sm),
           Wrap(
             spacing: 6,
@@ -237,7 +313,7 @@ class _ListEditorCardState extends State<ListEditorCard> {
                 _editableChip(
                   label: s,
                   added: true,
-                  onTap: () => setState(() => _added.remove(s)),
+                  onTap: () => _removeAdded(s),
                 ),
             ],
           ),
@@ -245,16 +321,24 @@ class _ListEditorCardState extends State<ListEditorCard> {
           _addField(),
           if (suggestions.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.sm),
-            Text('Sugestões',
-                style: AppTextStyles.labelSm
-                    .copyWith(color: AppColors.textTertiary)),
+            Text(
+              'Sugestões',
+              style: AppTextStyles.labelSm.copyWith(
+                color: AppColors.textTertiary,
+              ),
+            ),
             const SizedBox(height: 6),
             Wrap(
               spacing: 6,
               runSpacing: 6,
-              children: [
-                for (final s in suggestions) _suggestionChip(s),
-              ],
+              children: [for (final s in suggestions) _suggestionChip(s)],
+            ),
+          ],
+          if (widget.item.resultMessage.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              widget.item.resultMessage,
+              style: AppTextStyles.bodySm.copyWith(color: AppColors.error),
             ),
           ],
           const SizedBox(height: AppSpacing.md),
@@ -262,13 +346,44 @@ class _ListEditorCardState extends State<ListEditorCard> {
             children: [
               Expanded(
                 child: _primaryButton(
-                  label: _saving ? 'Salvando…' : 'Salvar alterações',
-                  enabled: _hasChanges && !_saving,
+                  label: (_saving || widget.item.applying)
+                      ? 'Salvando…'
+                      : widget.item.hasUnconfirmedChanges
+                      ? 'Tentar novamente'
+                      : 'Salvar alterações',
+                  enabled:
+                      _hasChanges &&
+                      !_saving &&
+                      !widget.item.applying &&
+                      !widget.item.undoing,
                   onTap: _save,
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              _pill(label: 'Cancelar', onTap: widget.onCancel),
+              _pill(
+                icon:
+                    widget.item.hasUnconfirmedChanges &&
+                        widget.item.observedAfter != null
+                    ? Icons.undo_rounded
+                    : widget.item.hasUnconfirmedChanges
+                    ? Icons.info_outline_rounded
+                    : null,
+                label: widget.item.undoing
+                    ? 'Desfazendo…'
+                    : widget.item.hasUnconfirmedChanges &&
+                          widget.item.observedAfter != null
+                    ? 'Desfazer salvos'
+                    : widget.item.hasUnconfirmedChanges
+                    ? 'Sem confirmação'
+                    : 'Cancelar',
+                onTap: widget.item.applying || widget.item.undoing
+                    ? null
+                    : widget.item.hasUnconfirmedChanges
+                    ? widget.item.observedAfter != null
+                          ? widget.onUndo
+                          : null
+                    : widget.onCancel,
+              ),
             ],
           ),
         ],
@@ -301,7 +416,7 @@ class _ListEditorCardState extends State<ListEditorCard> {
       border = AppColors.border;
     }
     return GestureDetector(
-      onTap: onTap,
+      onTap: _editingLocked ? null : onTap,
       child: Container(
         padding: const EdgeInsets.only(left: 12, right: 7, top: 6, bottom: 6),
         decoration: BoxDecoration(
@@ -321,8 +436,11 @@ class _ListEditorCardState extends State<ListEditorCard> {
               ),
             ),
             const SizedBox(width: 5),
-            Icon(removed ? Icons.refresh_rounded : Icons.close_rounded,
-                size: 15, color: fg),
+            Icon(
+              removed ? Icons.refresh_rounded : Icons.close_rounded,
+              size: 15,
+              color: fg,
+            ),
           ],
         ),
       ),
@@ -330,27 +448,33 @@ class _ListEditorCardState extends State<ListEditorCard> {
   }
 
   Widget _suggestionChip(String label) => GestureDetector(
-        onTap: () => _addSkill(label),
-        child: Container(
-          padding: const EdgeInsets.only(left: 7, right: 12, top: 6, bottom: 6),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: AppRadius.brPill,
-            border: Border.all(
-                color: AppColors.primary.withValues(alpha: 0.30), width: 1.2),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.add_rounded, size: 15, color: AppColors.primary),
-              const SizedBox(width: 4),
-              Text(label,
-                  style: AppTextStyles.labelMd.copyWith(
-                      color: AppColors.primary, fontWeight: FontWeight.w600)),
-            ],
-          ),
+    onTap: _editingLocked ? null : () => _addSkill(label),
+    child: Container(
+      padding: const EdgeInsets.only(left: 7, right: 12, top: 6, bottom: 6),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.brPill,
+        border: Border.all(
+          color: AppColors.primary.withValues(alpha: 0.30),
+          width: 1.2,
         ),
-      );
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.add_rounded, size: 15, color: AppColors.primary),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: AppTextStyles.labelMd.copyWith(
+              color: AppColors.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 
   Widget _addField() {
     return Container(
@@ -365,13 +489,17 @@ class _ListEditorCardState extends State<ListEditorCard> {
           Expanded(
             child: TextField(
               controller: _addCtrl,
+              enabled: !_editingLocked,
               textInputAction: TextInputAction.done,
               onSubmitted: _addSkill,
-              style: AppTextStyles.bodyMd.copyWith(color: AppColors.textPrimary),
+              style: AppTextStyles.bodyMd.copyWith(
+                color: AppColors.textPrimary,
+              ),
               decoration: InputDecoration(
                 hintText: 'Adicionar $_singular…',
-                hintStyle: AppTextStyles.bodyMd
-                    .copyWith(color: AppColors.textTertiary),
+                hintStyle: AppTextStyles.bodyMd.copyWith(
+                  color: AppColors.textTertiary,
+                ),
                 isDense: true,
                 filled: false,
                 border: InputBorder.none,
@@ -386,10 +514,14 @@ class _ListEditorCardState extends State<ListEditorCard> {
             shape: const CircleBorder(),
             child: InkWell(
               customBorder: const CircleBorder(),
-              onTap: () => _addSkill(_addCtrl.text),
+              onTap: _editingLocked ? null : () => _addSkill(_addCtrl.text),
               child: const Padding(
                 padding: EdgeInsets.all(7),
-                child: Icon(Icons.add_rounded, size: 20, color: AppColors.primary),
+                child: Icon(
+                  Icons.add_rounded,
+                  size: 20,
+                  color: AppColors.primary,
+                ),
               ),
             ),
           ),
@@ -398,12 +530,15 @@ class _ListEditorCardState extends State<ListEditorCard> {
     );
   }
 
-  Widget _primaryButton(
-      {required String label,
-      required bool enabled,
-      required VoidCallback onTap}) {
+  Widget _primaryButton({
+    required String label,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) {
     return Material(
-      color: enabled ? AppColors.primary : AppColors.primary.withValues(alpha: 0.4),
+      color: enabled
+          ? AppColors.primary
+          : AppColors.primary.withValues(alpha: 0.4),
       borderRadius: AppRadius.brMd,
       child: InkWell(
         onTap: enabled ? onTap : null,
@@ -411,14 +546,16 @@ class _ListEditorCardState extends State<ListEditorCard> {
         child: Container(
           height: 46,
           alignment: Alignment.center,
-          child: Text(label,
-              style: AppTextStyles.labelLg.copyWith(color: AppColors.onPrimary)),
+          child: Text(
+            label,
+            style: AppTextStyles.labelLg.copyWith(color: AppColors.onPrimary),
+          ),
         ),
       ),
     );
   }
 
-  Widget _pill({IconData? icon, required String label, required VoidCallback onTap}) {
+  Widget _pill({IconData? icon, required String label, VoidCallback? onTap}) {
     return Material(
       color: AppColors.surface,
       borderRadius: AppRadius.brPill,
@@ -427,7 +564,9 @@ class _ListEditorCardState extends State<ListEditorCard> {
         borderRadius: AppRadius.brPill,
         child: Container(
           padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.base, vertical: 12),
+            horizontal: AppSpacing.base,
+            vertical: 12,
+          ),
           decoration: BoxDecoration(
             borderRadius: AppRadius.brPill,
             border: Border.all(color: AppColors.border),
@@ -439,9 +578,12 @@ class _ListEditorCardState extends State<ListEditorCard> {
                 Icon(icon, size: 15, color: AppColors.textSecondary),
                 const SizedBox(width: 5),
               ],
-              Text(label,
-                  style: AppTextStyles.labelMd
-                      .copyWith(color: AppColors.textSecondary)),
+              Text(
+                label,
+                style: AppTextStyles.labelMd.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
             ],
           ),
         ),

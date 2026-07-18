@@ -624,11 +624,22 @@ const String evTrilhaAssistEditProposed = 'trilha_assist_edit_proposed';
 /// Alteração CONFIRMADA e aplicada. Props: lacuna_key, op.
 const String evTrilhaAssistEditApplied = 'trilha_assist_edit_applied';
 
+/// Um lote não conseguiu gravar nenhuma entrada. Props: lacuna_key, op.
+const String evTrilhaAssistEditFailed = 'trilha_assist_edit_failed';
+
+/// Um lote gravou somente parte das entradas. Props: lacuna_key, op,
+/// applied_count, total_count.
+const String evTrilhaAssistEditPartial = 'trilha_assist_edit_partial';
+
 /// Alteração cancelada (não aplicou). Props: lacuna_key, op.
 const String evTrilhaAssistEditCancelled = 'trilha_assist_edit_cancelled';
 
 /// Alteração DESFEITA depois de aplicada. Props: lacuna_key, op.
 const String evTrilhaAssistEditUndone = 'trilha_assist_edit_undone';
+
+/// O undo de um lote falhou total ou parcialmente. Props: lacuna_key, op,
+/// failed_count.
+const String evTrilhaAssistEditUndoFailed = 'trilha_assist_edit_undo_failed';
 
 /// Assistente executou uma AÇÃO de app (não-mutação de perfil). Props:
 /// action ∈ {show_jobs, open_tab, export_pdf}, + tab/count quando aplicável.
@@ -811,7 +822,9 @@ const Set<String> kAllowedEventNames = {
   evTrilhaAssistClarifyRequested, evTrilhaAssistError,
   // PLANO-ASSISTENTE (Fase B) — mutações
   evTrilhaAssistEditProposed, evTrilhaAssistEditApplied,
+  evTrilhaAssistEditFailed, evTrilhaAssistEditPartial,
   evTrilhaAssistEditCancelled, evTrilhaAssistEditUndone,
+  evTrilhaAssistEditUndoFailed,
   evTrilhaAssistActionUsed,
   evTrilhaAssistStarterShown, evTrilhaAssistStarterTapped,
 };
