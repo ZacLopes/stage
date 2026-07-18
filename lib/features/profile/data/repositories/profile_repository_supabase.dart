@@ -743,23 +743,17 @@ class ProfileRepositorySupabase implements ProfileRepository {
 
   @override
   Future<void> replaceInterests(String userId, List<String> names) async {
-    await _client.from('profile_interests').delete().eq('user_id', userId);
-    if (names.isEmpty) return;
-    await _client
-        .from('profile_interests')
-        .insert(
-          names
-              .asMap()
-              .entries
-              .map(
-                (e) => {
-                  'user_id': userId,
-                  'name': e.value,
-                  'order_index': e.key,
-                },
-              )
-              .toList(),
-        );
+    // Gate 3.0G — replace ATÔMICO server-side de interesses
+    // (replace_profile_interests_atomic_v1): transação única sob o advisory
+    // lock, preservando IDs dos itens retidos e autoritativo sobre a grafia.
+    // Substitui o DELETE-all + INSERT-all (destrutivo, perdia IDs). O recibo
+    // (genérico de replace atômico {status,count}) falha fechado em resposta
+    // malformada; erros do RPC (limite 50, duplicata legada, ACL) propagam.
+    final raw = await _client.rpc(
+      'replace_profile_interests_atomic_v1',
+      params: {'p_user_id': userId, 'p_names': names},
+    );
+    ManualSkillsReplaceReceipt.fromRpc(raw, expectedMax: names.length);
   }
 
   @override
