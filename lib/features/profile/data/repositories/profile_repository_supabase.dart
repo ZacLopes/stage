@@ -869,18 +869,25 @@ class ProfileRepositorySupabase implements ProfileRepository {
     String userId,
     List<DesiredTitle> titles,
   ) async {
-    await _client.from('profile_desired_titles').delete().eq('user_id', userId);
-    if (titles.isEmpty) return;
-    await _client
-        .from('profile_desired_titles')
-        .insert(
-          titles.asMap().entries.map((e) {
-            final m = e.value.toMap()..remove('id');
-            m['order_index'] = e.key;
-            m['user_id'] = userId;
-            return m;
-          }).toList(),
-        );
+    // Gate 3.0G-áreas — replace ATÔMICO com precedência de source
+    // (replace_profile_desired_titles_atomic_v1): transação única sob o
+    // advisory lock, preserva IDs dos itens retidos e mantém a fonte mais forte
+    // por chave normalizada (nunca rebaixa uma área escolhida 'user_added' para
+    // inferida). Substitui o DELETE-all + INSERT-all (destrutivo). A inferência
+    // canônica (linhas 'inferred' ocultas) segue montada no domínio ANTES
+    // daqui — a lista recebida já é o estado final. Recibo fail-closed; erros
+    // do RPC (source inválida, duplicata legada, limite, ACL) propagam.
+    final raw = await _client.rpc(
+      'replace_profile_desired_titles_atomic_v1',
+      params: {
+        'p_user_id': userId,
+        'p_titles': [
+          for (final t in titles)
+            {'title': t.title, 'source': t.toMap()['source']},
+        ],
+      },
+    );
+    ManualSkillsReplaceReceipt.fromRpc(raw, expectedMax: titles.length);
   }
 
   @override
