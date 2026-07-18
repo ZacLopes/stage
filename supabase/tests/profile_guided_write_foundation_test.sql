@@ -246,6 +246,7 @@ GRANT EXECUTE ON FUNCTION public.save_profile_fill_empty_service(uuid, jsonb)
 -- Migration REAL sob teste.
 \ir ../migrations/20260717130000_profile_guided_write_foundation.sql
 \ir ../migrations/20260717140000_assist_skills_cas.sql
+\ir ../migrations/20260717150000_manual_skills_replace_authoritative.sql
 
 INSERT INTO auth.users(id) VALUES
   ('11111111-1111-1111-1111-111111111111'),
@@ -274,7 +275,7 @@ BEGIN
   );
   SET LOCAL ROLE authenticated;
   SELECT public.replace_profile_skills_atomic_v1(
-    u, '["  python  ", "SQL"]'::jsonb
+    u, '["  Python  ", "SQL"]'::jsonb
   )
   INTO result;
   RESET ROLE;
@@ -287,22 +288,24 @@ BEGIN
   IF replay_id <> python_id THEN
     RAISE EXCEPTION 'T1 perdeu o ID da skill preservada';
   END IF;
+  -- Reorder (nome idêntico) NÃO dispara o trigger de taxonomia → canonical
+  -- preservado, metadados intactos, nova ordem aplicada.
   IF NOT EXISTS (
     SELECT 1 FROM public.profile_skills
     WHERE id = python_id AND category = 'manual'
       AND canonical_skill_id IS NOT NULL AND order_index = 0
   ) THEN
-    RAISE EXCEPTION 'T1 perdeu metadados da skill preservada';
+    RAISE EXCEPTION 'T1 reorder perdeu metadados/canonical';
   END IF;
 
   SET LOCAL ROLE authenticated;
   SELECT public.replace_profile_skills_atomic_v1(
-    u, '["PYTHON", "SQL"]'::jsonb
+    u, '["Python", "SQL"]'::jsonb
   )
   INTO result;
   RESET ROLE;
   IF result->>'status' <> 'noop' THEN
-    RAISE EXCEPTION 'T1 replay não foi noop: %', result;
+    RAISE EXCEPTION 'T1 replay exato não foi noop: %', result;
   END IF;
   SELECT id INTO replay_id FROM public.profile_skills
   WHERE user_id = u AND name = 'Python';
@@ -317,7 +320,62 @@ BEGIN
   IF got_state <> 'Python,SQL' THEN
     RAISE EXCEPTION 'T1 estado final inválido: %', got_state;
   END IF;
-  RAISE NOTICE 'T1 OK — replace atômico/idempotente preserva metadados';
+  RAISE NOTICE 'T1 OK — replace atômico/idempotente; reorder preserva metadados';
+END
+$test$;
+
+-- T1b — Gate 3.0D: replace manual é AUTORITATIVO sobre a grafia. Uma correção
+-- cosmética (case/acento/whitespace) do usuário vence a grafia armazenada,
+-- preservando ID e category; incluir `name` no UPDATE recomputa canonical pelo
+-- trigger de taxonomia (no harness o stub o zera para skill sem catálogo).
+DO $test$
+DECLARE
+  u uuid := 'a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1';
+  skill_id uuid;
+  live_name text;
+  result jsonb;
+BEGIN
+  INSERT INTO auth.users(id) VALUES (u) ON CONFLICT DO NOTHING;
+  INSERT INTO public.profile_skills(
+    user_id, name, category, canonical_skill_id, order_index
+  )
+  VALUES (u, 'python', 'manual', gen_random_uuid(), 0)
+  RETURNING id INTO skill_id;
+
+  PERFORM set_config(
+    'request.jwt.claims',
+    jsonb_build_object('sub', u::text, 'role', 'authenticated')::text,
+    false
+  );
+  SET LOCAL ROLE authenticated;
+  SELECT public.replace_profile_skills_atomic_v1(u, '["Python"]'::jsonb)
+  INTO result;
+  RESET ROLE;
+
+  IF result->>'status' <> 'applied' OR (result->>'count')::int <> 1 THEN
+    RAISE EXCEPTION 'T1b rename não foi aplicado: %', result;
+  END IF;
+  SELECT name INTO live_name FROM public.profile_skills WHERE id = skill_id;
+  IF live_name IS DISTINCT FROM 'Python' THEN
+    RAISE EXCEPTION 'T1b grafia manual não venceu: % (esperava Python)',
+      live_name;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.profile_skills
+    WHERE id = skill_id AND category = 'manual' AND order_index = 0
+  ) THEN
+    RAISE EXCEPTION 'T1b rename perdeu ID/category/ordem';
+  END IF;
+
+  -- Idempotência: reenviar a mesma grafia agora é noop.
+  SET LOCAL ROLE authenticated;
+  SELECT public.replace_profile_skills_atomic_v1(u, '["Python"]'::jsonb)
+  INTO result;
+  RESET ROLE;
+  IF result->>'status' <> 'noop' THEN
+    RAISE EXCEPTION 'T1b replay do rename não foi noop: %', result;
+  END IF;
+  RAISE NOTICE 'T1b OK — grafia manual vence (autoritativo); ID/category/ordem';
 END
 $test$;
 

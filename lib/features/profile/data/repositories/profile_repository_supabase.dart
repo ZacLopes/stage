@@ -7,6 +7,7 @@
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/entities/entities.dart';
+import '../../domain/manual_skills_replace.dart';
 import '../../domain/repositories/profile_repository.dart';
 import '../../domain/skill_name_normalizer.dart';
 
@@ -552,53 +553,17 @@ class ProfileRepositorySupabase implements ProfileRepository {
         'Escolha no máximo $kMaxProfileSkills habilidades.',
       );
     }
-
-    final existing = await getSkills(userId);
-    final availableByKey = <String, List<Skill>>{};
-    for (final skill in existing) {
-      availableByKey
-          .putIfAbsent(foldSkillName(skill.name), () => [])
-          .add(skill);
-    }
-    final keptIds = <String>{};
-
-    for (var index = 0; index < desired.length; index++) {
-      final name = desired[index];
-      final candidates = availableByKey[foldSkillName(name)];
-      Skill? current;
-      if (candidates != null && candidates.isNotEmpty) {
-        // Prefere a grafia exata para não colidir com um segundo registro que
-        // difira apenas por acento durante o UPDATE.
-        final exactKey = cleanSkillName(name).toLowerCase();
-        final exactIndex = candidates.indexWhere(
-          (skill) => cleanSkillName(skill.name).toLowerCase() == exactKey,
-        );
-        current = candidates.removeAt(exactIndex < 0 ? 0 : exactIndex);
-      }
-      if (current == null) {
-        final inserted = await addSkill(
-          Skill(id: '', userId: userId, name: name, orderIndex: index),
-        );
-        keptIds.add(inserted.id);
-      } else {
-        final saved = await updateSkill(
-          current.copyWith(name: name, orderIndex: index),
-        );
-        keptIds.add(saved.id);
-      }
-    }
-
-    final removedIds = existing
-        .where((skill) => !keptIds.contains(skill.id))
-        .map((skill) => skill.id)
-        .toList(growable: false);
-    if (removedIds.isNotEmpty) {
-      await _client
-          .from('profile_skills')
-          .delete()
-          .eq('user_id', userId)
-          .inFilter('id', removedIds);
-    }
+    // Gate 3.0D — replace ATÔMICO server-side: uma transação sob o advisory
+    // lock por usuário, preservando IDs/metadados (category/canonical_skill_id)
+    // dos itens retidos. Substitui o antigo get -> insert/update/delete
+    // multi-request (janela de falha parcial). O recibo tipado falha fechado em
+    // resposta malformada; erros do RPC (limite 12, duplicata legada, ACL)
+    // propagam como PostgrestException e o ViewModel os trata sem falso sucesso.
+    final raw = await _client.rpc(
+      'replace_profile_skills_atomic_v1',
+      params: {'p_user_id': userId, 'p_names': desired},
+    );
+    ManualSkillsReplaceReceipt.fromRpc(raw, expectedMax: desired.length);
   }
 
   // ──────────────────────────────────────────────────────────────────────

@@ -100,6 +100,7 @@ WHERE p.oid = 'public.save_profile_from_json(uuid,jsonb)'::regprocedure;
 \ir ../migrations/20260717120000_seed_trilha_assist_v1.sql
 \ir ../migrations/20260717130000_profile_guided_write_foundation.sql
 \ir ../migrations/20260717140000_assist_skills_cas.sql
+\ir ../migrations/20260717150000_manual_skills_replace_authoritative.sql
 
 -- C1 — cadeia/ACL/trigger: as duas fundações coexistem sem wrapper órfão,
 -- reabertura de helper ou perda de fencing nas tabelas anteriores.
@@ -269,9 +270,11 @@ BEGIN
     RAISE EXCEPTION 'C2 merge guiado/manual divergiu: %', result;
   END IF;
 
+  -- Re-save exato (mesma grafia/ordem) é noop e preserva identidade/metadados.
+  -- (A grafia manual autoritativa em variante cosmética é coberta na T1b.)
   SET LOCAL ROLE authenticated;
   result := public.replace_profile_skills_atomic_v1(
-    u, '["GESTAO", "SQL"]'::jsonb
+    u, '["Gestão", "SQL"]'::jsonb
   );
   RESET ROLE;
   IF result->>'status' <> 'noop'
