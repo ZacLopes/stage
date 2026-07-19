@@ -31,6 +31,37 @@ tudo) falhe. É falso sucesso em falha parcial.
 - Kinds de choice: `personal` (escalar), `add` (skill/interest/coursework/
   award/project), `add_cert`, e educação/experiência/idioma.
 
+## Mapa de choices — SPEC COMPLETO (audit fechado)
+
+Fonte: `ConflictChoice` (`.row`, `.effectiveValue`) + `ConflictRow`
+(`section, kind, field, value, currentText, extra, refId, cvItem`). `value` do
+choice = `effectiveValue` (editado); `source` = `row.value` (valor ORIGINAL,
+para o vínculo com o payload). Por seção:
+
+| Seção (kind) | Choice `{...}` |
+|---|---|
+| name/phone/city/summary/linkedin/website (conflict) | `{kind:'personal', field:row.field, expected:row.currentText, value:effectiveValue}` (+ phone: `expected_country_code`/`country_code` se a linha carregar) |
+| skill/interest/coursework/award/project (addition) | `{kind:'add', section:row.section.name, value:effectiveValue, source:row.value}` |
+| certification (addition) | `{kind:'add_cert', name:effectiveValue, issuer:row.extra?, source:row.value}` |
+| language (addition) | `{kind:'add_lang', name:effectiveValue, source:row.value}` (nível vem do payload, NÃO do cliente) |
+| language (conflict de nível) | `{kind:'lang_level', name:effectiveValue, expected:<ID do nível observado>}` — **ver LACUNA abaixo** |
+| experience (conflict) | `{kind:'item_field', section:'experience', field:row.field, expected:row.currentText, value:effectiveValue, ref_id:row.refId}` |
+| experience (addition) | `{kind:'add_experience', company:cvItem.company, title:cvItem.title}` |
+| education (conflict) | `{kind:'item_field', section:'education', field:row.field, expected:row.currentText, value:effectiveValue, ref_id:row.refId}` |
+| education (addition) | `{kind:'add_education', institution:cvItem.institution, degree:cvItem.degree}` |
+
+**LACUNA (decisão pendente) — `lang_level`:** o RPC exige `expected` = o **ID**
+do nível observado (ex.: `basic`). A `ConflictRow` de conflito de idioma só tem
+`currentText` = **rótulo** (`existing.proficiencyLabel`, ex.: "Avançado") e
+`extra` = o novo id do CV — não o id observado. Opções: (a) adicionar o id
+observado à `ConflictRow` (mexe em `cv_conflict.dart` detecção); (b) traduzir
+rótulo→id (frágil); (c) manter conflito de nível no caminho legado por ora.
+
+**Verificação obrigatória antes de fiar:** rodar CADA tipo de choice mapeado
+pelo `apply_reviewed_conflicts_and_promote` REAL num harness SQL (aplica/
+rejeita/stale) — pega qualquer erro do mapa contra a RPC de verdade, não contra
+o entendimento.
+
 ## O que falta ligar (escopo do gate)
 
 1. **Plumbing de ids:** `ImportConflictItem` precisa carregar `candidate_id` e
