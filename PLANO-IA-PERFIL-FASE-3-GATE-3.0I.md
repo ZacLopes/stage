@@ -40,17 +40,16 @@ tudo) falhe. É falso sucesso em falha parcial.
 2. **Mapa de choices:** converter cada `ConflictChoice`/`ConflictRow` aceito no
    objeto `{kind, …}` no formato EXATO da RPC (por seção). Fail-closed: uma
    linha que não mapeia não pode virar sucesso silencioso.
-   **COMPLICAÇÕES ENCONTRADAS no audit (exigem design, não é 1:1 limpo):**
-   - **Campos compostos:** `name` (first+last) e `city` (cidade+estado) NÃO
-     encaixam no kind `personal` (só campo escalar único; `_profile_scalar_column`
-     não tem `name`; `city`→`location_city` perde o estado). Decidir: kind novo,
-     dividir em dois choices, ou manter esses no caminho legado.
-   - **Adições de experiência/educação:** formato próprio (data parseável — o
-     aplicador atual já retorna null sem data válida). O mapa precisa espelhar a
-     mesma rejeição, senão a escolha some.
-   - **Idioma (conflito de nível):** hoje é upsert com `assistUpsertLanguage`
-     (que limpa nível null) — ver como o kind `add_lang`/`personal` cobre nível.
-   Cada complicação é ponto de "não estragar" — decisão explícita por caso.
+   **CORREÇÃO (audit 2ª passada):** os campos compostos JÁ são tratados. O RPC
+   de revisão usa o helper interno `_cas_write_personal_field` (14/07:1591), que
+   parte `name`→first+last, `city`→cidade/UF (+limpa CEP) e `phone`→número+DDI,
+   com CAS contra o valor VIVO composto. (Eu tinha lido `cas_write_profile_scalar`
+   por engano.) Portanto o kind `personal` cobre name/phone/city/summary/
+   linkedin/website; **não é preciso migration de campos compostos.**
+   Restam detalhes normais do mapa: `personal` precisa de `expected`
+   (=`row.currentText`) e, para phone, `expected_country_code`/`country_code`;
+   adições de experiência/educação têm formato próprio (espelhar a rejeição por
+   data). Fail-closed: linha que não mapeia não vira sucesso silencioso.
 3. **Chamada única + agregado honesto:** substituir o laço por-item por 1 RPC;
    o card reflete `{applied, stale, rejected, failed, promoted}` — **nunca**
    `applied` cego. Mensagens honestas por resultado.
