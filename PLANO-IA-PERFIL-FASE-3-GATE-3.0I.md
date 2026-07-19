@@ -7,6 +7,40 @@
 mais delicado** gate restante; este plano existe para ser revisado ANTES de
 codar. Flag OFF; sem operação remota.
 
+## ⚠️ ACHADO CRÍTICO (18/07, "o fato vence") — o fluxo do card está DORMENTE
+
+Verificado por grep próprio (não só pelo explorador):
+- **`loadCvConflicts`** (`trilha_session.dart:286`) tem **ZERO chamadores** em `lib/`
+  — só a definição. Nada o invoca em produção.
+- **`assistImportCv`** (callback que criaria o `ImportConflictItem`) é declarado
+  (`trilha_chat_controller.dart:524/681`) e usado (1698) mas **NUNCA atribuído**:
+  o `TrilhaChatController(` do `resume_tab.dart:172` não o passa, e não há outra
+  construção que passe → em produção é sempre `null` → a ação de import volta
+  `failed` e **nenhum `ImportConflictItem` é criado**.
+- **`attempt_id`** (= `saved_resumes.extraction_attempt_id`) tem **ZERO**
+  ocorrências em `lib/` — é gerado server-side e nunca retorna ao cliente. O
+  `candidate_id` só existe no caminho PERSISTIDO (`pickAndImport` →
+  `CvImportResult.savedResumeId`), que é OUTRO caminho e não alimenta o card.
+- O caminho do card (`loadCvConflicts`) usa extração **dry-run** (`save:false`)
+  → não cria candidata → **não há candidate_id nem attempt_id em escopo** no
+  `applyConflicts`.
+
+**Consequência:** o blocker do §6.1 (`applyConflicts` marca `applied` cego) é
+**real no código, mas está em código MORTO/dormente** — não pode disparar em
+produção hoje. "Terminar o 3.0I" fiando o RPC exigiria: reviver o fluxo
+(atribuir `assistImportCv`, chamar `loadCvConflicts` de um caminho real), trazer
+`candidate_id`, **mudar o `extract-profile` para devolver `attempt_id`** (não
+chega ao cliente hoje) e carregá-lo até o card. Isso é trabalho NET-NEW +
+mais uma mudança de Edge — **não** é "tornar seguro um caminho que já roda".
+
+**O que JÁ está pronto e é reutilizável:** o mapa puro `conflictRowToRpcChoice`
+(todas as seções, `lang_level` incluso), testado e verificado 1:1 contra o RPC
+real (promote test). Fica pronto para o dia em que o fluxo for revivido.
+
+**Decisão do fundador (pendente):** (a) parar o 3.0I aqui e ir para caminhos
+VIVOS; (b) reviver+fiar o fluxo inteiro (net-new + Edge); (c) só deixar o código
+morto fail-closed como salvaguarda. Ver relatório.
+
 ## O blocker (confirmado, handoff §6.1)
 
 `TrilhaChatController.applyConflicts(cardId)` (controller ~2022-2054) aplica as
