@@ -9,6 +9,7 @@ ConflictRow _row(
   String value = '',
   String currentText = '',
   String extra = '',
+  String observedLevelId = '',
   String refId = '',
   Map<String, dynamic> cvItem = const {},
 }) =>
@@ -22,6 +23,7 @@ ConflictRow _row(
       value: value,
       currentText: currentText,
       extra: extra,
+      observedLevelId: observedLevelId,
       refId: refId,
       cvItem: cvItem,
     );
@@ -104,10 +106,24 @@ void main() {
       });
     });
 
-    test('language CONFLITO de nível → null (LACUNA documentada, fail-closed)', () {
+    test('language CONFLITO de nível → lang_level (expected = id observado)', () {
       final r = _row(ConflictSection.language, ConflictKind.conflict,
-          value: 'Inglês', currentText: 'Básico', extra: 'advanced');
-      expect(conflictRowToRpcChoice(r, 'Inglês'), isNull);
+          value: 'Inglês',
+          currentText: 'Básico',
+          extra: 'advanced',
+          observedLevelId: 'basic');
+      // name = nome ORIGINAL (chave de vínculo), NÃO o effectiveValue editado.
+      expect(conflictRowToRpcChoice(r, 'qualquer-edicao'), {
+        'kind': 'lang_level',
+        'name': 'Inglês',
+        'expected': 'basic',
+      });
+    });
+
+    test('language CONFLITO sem nome → null (fail-closed, sem chave de vínculo)', () {
+      final r = _row(ConflictSection.language, ConflictKind.conflict,
+          value: '', observedLevelId: 'basic');
+      expect(conflictRowToRpcChoice(r, 'x'), isNull);
     });
 
     test('experience conflito → item_field; adição → add_experience', () {

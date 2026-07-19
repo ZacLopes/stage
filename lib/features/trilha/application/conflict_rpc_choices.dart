@@ -3,9 +3,9 @@
 //
 // FUNÇÃO PURA (sem I/O, sem fiação): converte `ConflictRow` + valor efetivo no
 // formato EXATO por kind. Fail-closed: retorna null quando a linha não pode ser
-// mapeada com segurança (ex.: conflito de nível de idioma — ver LACUNA) — nunca
-// inventa um choice. A verificação contra o RPC REAL (harness SQL) é o passo
-// seguinte, antes de qualquer fiação.
+// mapeada com segurança (falta chave de vínculo) — nunca inventa um choice.
+// Verificado contra o RPC REAL: as formas batem 1:1 com as validadas no
+// promote test (inclui `lang_level` aplicado/stale).
 
 import 'cv_conflict.dart';
 
@@ -59,10 +59,16 @@ Map<String, dynamic>? conflictRowToRpcChoice(
         // Nível vem do payload VINCULADO (não do cliente).
         return {'kind': 'add_lang', 'name': value, 'source': row.value};
       }
-      // LACUNA (decisão pendente): o conflito de NÍVEL vira `lang_level` e o RPC
-      // exige `expected` = ID do nível observado; a linha só tem o RÓTULO
-      // (currentText) — não dá pra mapear com segurança ainda. Fail-closed.
-      return null;
+      // Conflito de NÍVEL: `lang_level`. `name` = idioma (chave de vínculo com o
+      // perfil vivo e o payload) → o nome ORIGINAL (`row.value`), nunca editado.
+      // `expected` = id do nível OBSERVADO (token do CAS); o nível NOVO vem do
+      // payload vinculado, não do cliente. Fail-closed se faltar a chave.
+      if (row.value.isEmpty) return null;
+      return {
+        'kind': 'lang_level',
+        'name': row.value,
+        'expected': row.observedLevelId,
+      };
 
     case ConflictSection.experience:
       if (row.kind == ConflictKind.conflict) {

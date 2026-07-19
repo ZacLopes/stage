@@ -56,6 +56,10 @@ class ConflictRow {
   /// Nível/emissor/etc. secundário (idioma: proficiency id; cert: emissor).
   final String extra;
 
+  /// Idioma (conflito de nível): id do nível OBSERVADO (currente), p/ CAS do
+  /// `lang_level` no RPC de revisão. '' fora de conflito de idioma.
+  final String observedLevelId;
+
   /// Item existente a editar (conflito de campo de experiência/formação): id.
   final String refId;
 
@@ -72,6 +76,7 @@ class ConflictRow {
     this.field = '',
     this.value = '',
     this.extra = '',
+    this.observedLevelId = '',
     this.refId = '',
     this.cvItem = const {},
   });
@@ -333,7 +338,8 @@ class CvConflictDiff {
               cvText: _profLabel(prof),
               currentText: existing.proficiencyLabel,
               value: name,
-              extra: prof));
+              extra: prof,
+              observedLevelId: _profId(existing.proficiency)));
         }
       }
     }
