@@ -337,12 +337,13 @@ class _ResumeTabState extends State<ResumeTab>
               );
             }
           : null,
-      // Gate 3.0I — aplica o lote revisado numa transação atômica + promove.
-      // Devolve o agregado cru do RPC pro card refletir a VERDADE.
+      // Gate 3.0I — aplica o lote revisado numa transação atômica + promove, via
+      // o WRAPPER que tira a foto pré-apply (pro Desfazer). Devolve o agregado
+      // cru do RPC pro card refletir a VERDADE.
       assistReviewedConflictApplier: assistEnabled
           ? (candidateId, attemptId, choices) async {
               final res = await Supabase.instance.client.rpc(
-                'apply_reviewed_conflicts_and_promote',
+                'apply_reviewed_with_snapshot',
                 params: {
                   'p_candidate_id': candidateId,
                   'p_attempt_id': attemptId,
@@ -351,6 +352,22 @@ class _ResumeTabState extends State<ResumeTab>
               );
               _scheduleProfileReload();
               return res is Map ? res.cast<String, dynamic>() : null;
+            }
+          : null,
+      // Gate 3.0I — desfaz um import aplicado restaurando a foto pré-apply
+      // (revert_reviewed_apply). true só se reverteu de verdade (stale ⇒ false,
+      // e o card segue aplicado, sem mentir que desfez).
+      assistReviewedConflictReverter: assistEnabled
+          ? (candidateId, attemptId) async {
+              final res = await Supabase.instance.client.rpc(
+                'revert_reviewed_apply',
+                params: {
+                  'p_candidate_id': candidateId,
+                  'p_attempt_id': attemptId,
+                },
+              );
+              _scheduleProfileReload();
+              return res is Map && res['reverted'] == true;
             }
           : null,
       // Render estruturado: lacunas do perfil (% + o que falta) pro card.

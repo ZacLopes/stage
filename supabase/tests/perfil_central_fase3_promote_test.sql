@@ -126,7 +126,10 @@ CREATE TABLE IF NOT EXISTS public.profile_languages (
   name text, proficiency text, order_index integer DEFAULT 0);
 CREATE TABLE IF NOT EXISTS public.profile_skills (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY, user_id uuid NOT NULL,
-  name text, category text, order_index integer DEFAULT 0);
+  name text, category text, order_index integer DEFAULT 0,
+  -- paridade com o schema real (a taxonomia recomputa via trigger em prod; no
+  -- mock não há trigger → o revert reafirma o valor da foto, no-op aqui).
+  canonical_skill_id uuid);
 CREATE UNIQUE INDEX IF NOT EXISTS profile_skills_uq ON public.profile_skills (user_id, lower(name));
 CREATE TABLE IF NOT EXISTS public.profile_certifications (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY, user_id uuid NOT NULL,

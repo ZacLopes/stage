@@ -119,3 +119,4 @@
 20260717140000_assist_skills_cas.sql
 20260717150000_manual_skills_replace_authoritative.sql
 20260717160000_guided_language_remove_cas.sql
+20260719120000_import_revert_snapshot.sql

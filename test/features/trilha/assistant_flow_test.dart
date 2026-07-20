@@ -3207,6 +3207,62 @@ void main() {
     expect(card.outcome?.isHardFailure, isTrue);
   });
 
+  test('undoConflicts: reverter OK → undone; sem reverter → canRevert=false',
+      () async {
+    final rows = [skillRow('Docker')];
+    late String revCand;
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+          tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
+      importCv: () async => AssistImportResult(AssistImportOutcome.ok,
+          conflicts: rows, candidateId: 'cand-9', attemptId: 'att-9'),
+      reviewedApplier: (_, _, _) async =>
+          {'applied': ['skill:Docker'], 'promoted': true},
+      reviewedReverter: (candidateId, attemptId) async {
+        revCand = candidateId;
+        return true;
+      },
+    );
+    addTearDown(c.dispose);
+    expect(c.canRevertConflicts, isTrue); // reverter fiado → card mostra Desfazer
+    final card = await buildConflictCard(c, rows: rows);
+    await c.applyConflicts(card.id);
+    expect(card.status, AssistEditStatus.applied);
+    await c.undoConflicts(card.id);
+    expect(revCand, 'cand-9');
+    expect(card.status, AssistEditStatus.undone);
+  });
+
+  test('undoConflicts: reverter stale (false) → NÃO marca undone, segue applied',
+      () async {
+    final rows = [skillRow('Docker')];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+          tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
+      importCv: () async => AssistImportResult(AssistImportOutcome.ok,
+          conflicts: rows, candidateId: 'cand-9', attemptId: 'att-9'),
+      reviewedApplier: (_, _, _) async =>
+          {'applied': ['skill:Docker'], 'promoted': true},
+      reviewedReverter: (_, _) async => false, // stale / não reverteu
+    );
+    addTearDown(c.dispose);
+    final card = await buildConflictCard(c, rows: rows);
+    await c.applyConflicts(card.id);
+    await c.undoConflicts(card.id);
+    expect(card.status, AssistEditStatus.applied); // não mentiu que desfez
+  });
+
+  test('sem reverter fiado: canRevertConflicts=false (card esconde Desfazer)',
+      () async {
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+          tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
+      importCv: () async => const AssistImportResult(AssistImportOutcome.ok),
+    );
+    addTearDown(c.dispose);
+    expect(c.canRevertConflicts, isFalse);
+  });
+
   test(
     'show_gaps: renderiza card estruturado (completude + lacunas)',
     () async {

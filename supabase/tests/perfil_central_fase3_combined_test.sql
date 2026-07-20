@@ -102,6 +102,7 @@ WHERE p.oid = 'public.save_profile_from_json(uuid,jsonb)'::regprocedure;
 \ir ../migrations/20260717140000_assist_skills_cas.sql
 \ir ../migrations/20260717150000_manual_skills_replace_authoritative.sql
 \ir ../migrations/20260717160000_guided_language_remove_cas.sql
+\ir ../migrations/20260719120000_import_revert_snapshot.sql
 
 -- C1 — cadeia/ACL/trigger: as duas fundações coexistem sem wrapper órfão,
 -- reabertura de helper ou perda de fencing nas tabelas anteriores.
@@ -481,5 +482,8 @@ DROP TRIGGER IF EXISTS zzzz_test_hold_profile_write
 CREATE TRIGGER zzzz_test_hold_profile_write
   AFTER INSERT OR UPDATE ON public.profile_personal
   FOR EACH STATEMENT EXECUTE FUNCTION public._test_hold_profile_write();
+
+-- Gate 3.0I — reversão do import revisado (snapshot pré-apply + restore).
+\ir perfil_central_fase3_revert_test.sql
 
 SELECT 'ALL_COMBINED_SQL_TESTS_OK' AS result;
