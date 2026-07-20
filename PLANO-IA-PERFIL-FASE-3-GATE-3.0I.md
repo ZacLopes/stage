@@ -1,6 +1,19 @@
 # Fase 3 — Gate 3.0I: import/conflict wiring (o blocker confirmado do §6.1)
 
-## Status
+## Status — CONCLUÍDO (19/07, opção 2: fluxo revivido + reversão de verdade)
+
+Fundador escolheu construir o fluxo inteiro (net-new) + reversão real (snapshot).
+Entregue em fatias verificadas (commits `eff6fed`→`65eef0a`): Edge opt-in
+(complete_import_extraction) · coordenador (begin_import_source+persist) · diff via
+coordenador + ids no card · applyConflicts via RPC atômico + agregado honesto (FIM
+DO FALSO-SUCESSO) · religou `_handleImportCv`+resume_tab (gated) · REVERSÃO
+(migration 122 `20260719120000`: snapshot pré-apply + revert_reviewed_apply, molde
+do undo de skills, com stale-guard + VERIFY) PROVADA no harness (RV1 ida-e-volta
+idêntico, RV2 stale, RV3 idempotente; exit 0). Verde: flutter test 699, analyzer
+627, 2 harnesses SQL, deno 31, manifest 122, env, diff. Flag OFF, nada remoto.
+Co-deploy 3.0J: migrations 120000/130000/**122** + Edge extract-profile juntos.
+
+## Status (histórico do plano)
 
 **Planejado** (audit read-only). NÃO iniciado em código. Branch
 `refactor/ia-fase-2-fechamento`, sobre `4233882` (3.0H fatia 2). É o **maior e
