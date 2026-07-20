@@ -280,6 +280,9 @@ void main() {
     Future<AssistGaps> Function()? gapsLoader,
     Future<Future<void> Function()?> Function(ConflictRow, String)?
     conflictApplier,
+    Future<Map<String, dynamic>?> Function(String, String, List<Map<String, dynamic>>)?
+    reviewedApplier,
+    Future<bool> Function(String, String)? reviewedReverter,
     Future<List<String>> Function()? preFilledLoader,
     List<ConversationStep>? plan,
     Future<void> Function(StepAnswer)? saveAnswer,
@@ -327,6 +330,8 @@ void main() {
       assistImportCv: importCv,
       assistGapsLoader: gapsLoader,
       assistConflictApplier: conflictApplier,
+      assistReviewedConflictApplier: reviewedApplier,
+      assistReviewedConflictReverter: reviewedReverter,
       onProfileEdited: onProfileEdited,
       pollInterval: const Duration(milliseconds: 1),
       maxPolls: 2,
@@ -3062,8 +3067,8 @@ void main() {
     },
   );
 
-  test('import_cv legado: não abre fluxo inseguro e orienta Perfil', () async {
-    var calls = 0;
+  test('import_cv SEM fluxo fiado (flag OFF): orienta Perfil, não abre nada',
+      () async {
     final c = build(
       assistantTurn: _fixed(
         const AssistantTurn(
@@ -3073,20 +3078,133 @@ void main() {
           promptVersion: 'assistant_v11',
         ),
       ),
-      importCv: () async {
-        calls++;
-        return const AssistImportResult(AssistImportOutcome.ok);
-      },
+      // sem importCv (null) ⇒ caminho legado/OFF.
     );
     addTearDown(c.dispose);
     await c.start();
     await c.submitFreeText('importa meu cv');
-    expect(calls, 0);
     expect(c.thread.whereType<AssistActionCardItem>(), isEmpty);
     expect(
       c.thread.whereType<AiMsgItem>().any((m) => m.text.contains('Perfil')),
       isTrue,
     );
+  });
+
+  // Gate 3.0I — o card de conflito reflete o AGREGADO HONESTO do RPC, nunca um
+  // "aplicado" cego. Monta o card via o fluxo real (import_cv → action card →
+  // runActionCard → importCv devolve conflitos + ids) e aplica com um applier
+  // fake que devolve o agregado escolhido.
+  Future<ImportConflictItem> buildConflictCard(
+    TrilhaChatController c, {
+    required List<ConflictRow> rows,
+  }) async {
+    await c.start();
+    await c.submitFreeText('importa meu cv');
+    final action = c.thread.whereType<AssistActionCardItem>().single;
+    await c.runActionCard(action.id);
+    return c.thread.whereType<ImportConflictItem>().single;
+  }
+
+  ConflictRow skillRow(String name) => ConflictRow(
+        id: 'r_$name',
+        section: ConflictSection.skill,
+        kind: ConflictKind.addition,
+        label: name,
+        cvText: name,
+        value: name,
+      );
+
+  test('import_cv fiado: abre card de ação; toque monta o card de conflito',
+      () async {
+    final rows = [skillRow('Docker'), skillRow('Go')];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+          tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
+      importCv: () async => AssistImportResult(
+        AssistImportOutcome.ok,
+        conflicts: rows,
+        candidateId: 'cand-1',
+        attemptId: 'att-1',
+      ),
+    );
+    addTearDown(c.dispose);
+    final card = await buildConflictCard(c, rows: rows);
+    expect(card.candidateId, 'cand-1');
+    expect(card.attemptId, 'att-1');
+    expect(card.choices.length, 2);
+    expect(card.status, AssistEditStatus.pending);
+  });
+
+  test('applyConflicts: sucesso parcial → applied + agregado honesto (não cego)',
+      () async {
+    final rows = [skillRow('Docker'), skillRow('Go')];
+    late List<Map<String, dynamic>> sentChoices;
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+          tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
+      importCv: () async => AssistImportResult(AssistImportOutcome.ok,
+          conflicts: rows, candidateId: 'cand-1', attemptId: 'att-1'),
+      reviewedApplier: (candidateId, attemptId, choices) async {
+        sentChoices = choices;
+        expect(candidateId, 'cand-1');
+        expect(attemptId, 'att-1');
+        return {
+          'applied': ['skill:Docker'],
+          'stale': [],
+          'rejected': ['skill:Go'],
+          'failed': [],
+          'promoted': true,
+        };
+      },
+    );
+    addTearDown(c.dispose);
+    final card = await buildConflictCard(c, rows: rows);
+    await c.applyConflicts(card.id);
+    expect(sentChoices.length, 2); // ambas aceitas (adições) → mapeadas
+    expect(card.status, AssistEditStatus.applied);
+    expect(card.appliedCount, 1);
+    expect(card.outcome?.rejectedCount, 1);
+    expect(card.outcome?.isPartial, isTrue);
+  });
+
+  test('applyConflicts: FALHA dura → NÃO marca applied, fica pendente p/ retry',
+      () async {
+    final rows = [skillRow('Docker')];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+          tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
+      importCv: () async => AssistImportResult(AssistImportOutcome.ok,
+          conflicts: rows, candidateId: 'cand-1', attemptId: 'att-1'),
+      reviewedApplier: (_, _, _) async => {
+        'applied': [],
+        'stale': [],
+        'rejected': [],
+        'failed': ['apply_failed:XX000'],
+        'promoted': false,
+      },
+    );
+    addTearDown(c.dispose);
+    final card = await buildConflictCard(c, rows: rows);
+    await c.applyConflicts(card.id);
+    expect(card.status, AssistEditStatus.pending); // NÃO applied
+    expect(card.outcome?.isHardFailure, isTrue);
+  });
+
+  test('applyConflicts: exceção do applier → falha dura (fromRpc(null))',
+      () async {
+    final rows = [skillRow('Docker')];
+    final c = build(
+      assistantTurn: _fixed(const AssistantTurn(
+          tool: 'import_cv', args: {}, reply: '', promptVersion: 'assistant_v11')),
+      importCv: () async => AssistImportResult(AssistImportOutcome.ok,
+          conflicts: rows, candidateId: 'cand-1', attemptId: 'att-1'),
+      reviewedApplier: (_, _, _) async => throw Exception('rede caiu'),
+    );
+    addTearDown(c.dispose);
+    final card = await buildConflictCard(c, rows: rows);
+    await c.applyConflicts(card.id);
+    expect(card.status, AssistEditStatus.pending);
+    expect(card.outcome?.isHardFailure, isTrue);
   });
 
   test(

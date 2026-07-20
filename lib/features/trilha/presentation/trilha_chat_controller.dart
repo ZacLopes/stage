@@ -1678,19 +1678,29 @@ class TrilhaChatController extends ChangeNotifier {
     _notify();
   }
 
-  /// Compatibilidade com uma Edge antiga que ainda possa devolver `import_cv`.
-  /// A Fase 2 não possui uma superfície segura para revisar/substituir a fonte;
-  /// por isso não abre o pipeline legado nem inventa um destino na UI.
+  /// Gate 3.0I — com o fluxo de revisão SEGURO fiado ([assistImportCv] != null:
+  /// escolhe o PDF → reserva candidata → extrai nela → diffa → aplica atômico +
+  /// promove), abre o card de ação "importar CV" (espelha o export). Sem o
+  /// callback fiado (flag OFF / caminho legado), mantém a orientação segura de
+  /// hoje — nunca abre o pipeline inseguro antigo.
   Future<void> _handleImportCv(
     AssistantTurn turn,
     ConversationStep? step,
   ) async {
-    _replyAndKeepStep(
-      'A importação de CV pelo Assistente está temporariamente '
-      'indisponível. Você ainda pode revisar e completar seus dados em '
-      'Perfil → Dados.',
-      step,
-    );
+    if (assistImportCv == null) {
+      _replyAndKeepStep(
+        'A importação de CV pelo Assistente está temporariamente '
+        'indisponível. Você ainda pode revisar e completar seus dados em '
+        'Perfil → Dados.',
+        step,
+      );
+      return;
+    }
+    // Não empurra a reply da IA (pode vir como confirmação pós-ação); o card
+    // fala por si, e o resultado pós-toque tem texto próprio.
+    _pushActionCard('import');
+    if (step != null) inputVisible = true;
+    _notify();
   }
 
   void _pushActionCard(String kind) {
