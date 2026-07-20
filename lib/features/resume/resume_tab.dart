@@ -31,7 +31,9 @@ import '../jobs/models/user_preferences.dart';
 import '../jobs/screens/job_details_sheet.dart';
 import '../jobs/utils/filter_helpers.dart';
 import '../profile/application/profile_editor_view_model.dart';
+import '../../services/cv_import_service.dart';
 import '../trilha/application/assistant_context_store.dart';
+import '../trilha/application/import_review_coordinator.dart';
 import '../trilha/application/trilha_hub_status.dart';
 import '../trilha/application/trilha_section.dart';
 import '../trilha/application/trilha_session.dart';
@@ -290,6 +292,8 @@ class _ResumeTabState extends State<ResumeTab>
       },
       assistExportPdf: _exportForAssistant,
       // Widget de conflito: aplica UMA linha escolhida + recarrega o preview.
+      // LEGADO (congelado, R6): não é mais usado pelo card (Gate 3.0I trocou pelo
+      // fluxo em lote abaixo). Mantido injetado por compatibilidade.
       assistConflictApplier: (row, value) async {
         final undo = await assistApplyConflictRow(uid, row, value);
         _scheduleProfileReload();
@@ -299,6 +303,56 @@ class _ResumeTabState extends State<ResumeTab>
           _scheduleProfileReload();
         };
       },
+      // Gate 3.0I — import de CV via revisão: escolhe o PDF, reserva a candidata
+      // (begin_import_source), extrai NA candidata e diffa contra o perfil. Só
+      // com a flag ON; OFF ⇒ null ⇒ ação de import segue no comportamento de hoje.
+      assistImportCv: assistEnabled
+          ? () async {
+              final picked = await CvImportService.pickCvBytes();
+              if (picked.cancelled) {
+                return const AssistImportResult(AssistImportOutcome.cancelled);
+              }
+              if (!picked.success || picked.bytes == null) {
+                return AssistImportResult(AssistImportOutcome.failed,
+                    message: picked.errorMessage);
+              }
+              final review = await loadImportReviewConflicts(
+                uid,
+                picked.bytes!,
+                originalFilename: picked.fileName,
+                rawTextFallback: picked.rawText,
+              );
+              if (review == null) {
+                return const AssistImportResult(AssistImportOutcome.failed,
+                    message: 'Não consegui ler o CV agora 😕 Tenta de novo.');
+              }
+              return AssistImportResult(
+                AssistImportOutcome.ok,
+                conflicts: review.rows,
+                candidateId: review.candidateId,
+                attemptId: review.attemptId,
+                message: review.rows.isEmpty
+                    ? 'Seu perfil já está em dia com esse CV 👍'
+                    : null,
+              );
+            }
+          : null,
+      // Gate 3.0I — aplica o lote revisado numa transação atômica + promove.
+      // Devolve o agregado cru do RPC pro card refletir a VERDADE.
+      assistReviewedConflictApplier: assistEnabled
+          ? (candidateId, attemptId, choices) async {
+              final res = await Supabase.instance.client.rpc(
+                'apply_reviewed_conflicts_and_promote',
+                params: {
+                  'p_candidate_id': candidateId,
+                  'p_attempt_id': attemptId,
+                  'p_choices': choices,
+                },
+              );
+              _scheduleProfileReload();
+              return res is Map ? res.cast<String, dynamic>() : null;
+            }
+          : null,
       // Render estruturado: lacunas do perfil (% + o que falta) pro card.
       assistGapsLoader: () async {
         final g = await loadAssistGaps(uid);

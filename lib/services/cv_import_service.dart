@@ -51,6 +51,33 @@ class CvImportResult {
   const CvImportResult.error(String msg) : this(success: false, errorMessage: msg);
 }
 
+/// Resultado do [CvImportService.pickCvBytes] (fluxo de revisão): bytes do PDF
+/// já validado como CV, sem tocar biblioteca/perfil. `cancelled` = usuário
+/// fechou o picker; `success:false` com `errorMessage` = arquivo inválido/não-CV.
+class CvPickResult {
+  final bool success;
+  final bool cancelled;
+  final String? errorMessage;
+  final Uint8List? bytes;
+  final String? fileName;
+  final String? rawText;
+  const CvPickResult._({
+    this.success = false,
+    this.cancelled = false,
+    this.errorMessage,
+    this.bytes,
+    this.fileName,
+    this.rawText,
+  });
+  const CvPickResult.cancelled() : this._(cancelled: true);
+  const CvPickResult.error(String msg) : this._(errorMessage: msg);
+  const CvPickResult.ok({
+    required Uint8List bytes,
+    String? fileName,
+    String? rawText,
+  }) : this._(success: true, bytes: bytes, fileName: fileName, rawText: rawText);
+}
+
 /// Default base title for imported PDFs in the library. The first import
 /// is saved as exactly this; subsequent imports get "(2)", "(3)", ...
 const String kImportedResumeBaseTitle = 'Meu Currículo';
@@ -222,6 +249,50 @@ class CvImportService {
     } catch (e) {
       Analytics.shared.cvImportFailed(reason: e.toString().split('\n').first);
       return CvImportResult.error('Falha inesperada: $e');
+    }
+  }
+
+  /// Fluxo de REVISÃO (Gate 3.0I): abre o picker, aplica a MESMA guarda
+  /// anti-não-CV (extrato/holerite/gov.br — incidente LGPD) do [pickAndImport] e
+  /// devolve os bytes + nome + texto cru. NÃO salva na biblioteca nem extrai — a
+  /// candidata é criada depois via begin_import_source (o coordenador). Isolado
+  /// de propósito: não toca o [pickAndImport], que é muito usado.
+  static Future<CvPickResult> pickCvBytes() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) {
+        return const CvPickResult.cancelled();
+      }
+      final file = result.files.single;
+      final bytes = file.bytes ??
+          (file.path != null ? await File(file.path!).readAsBytes() : null);
+      if (bytes == null) {
+        return const CvPickResult.error('Não foi possível ler o arquivo.');
+      }
+      final byteList = Uint8List.fromList(bytes);
+      String? rawText;
+      try {
+        final t = ResumePdfExtractor.extract(byteList);
+        if (ResumePdfExtractor.isUsable(t)) {
+          final det = CvContentValidator.detect(t);
+          if (det.isNonCv) {
+            return CvPickResult.error(
+                CvContentValidator.messageFor(det.category!));
+          }
+          rawText = t;
+        }
+      } catch (_) {/* validação anti-não-CV é best-effort */}
+      return CvPickResult.ok(
+        bytes: byteList,
+        fileName: file.name,
+        rawText: rawText,
+      );
+    } catch (e) {
+      return CvPickResult.error('Falha ao abrir o PDF: $e');
     }
   }
 
