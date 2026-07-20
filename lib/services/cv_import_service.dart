@@ -317,10 +317,15 @@ class CvImportService {
   /// `profile_data` (JSON estruturado do CV). [save] false ⇒ dry-run (a edge só
   /// parseia e devolve, sem gravar). `force:true` SEMPRE (senão cache-hit volta
   /// só o `parsed` legacy, sem `profile_data`). null ⇒ falhou/sem dados.
+  /// [candidateId]/[attemptId] (fluxo de revisão, Gate 3.0I): quando presentes,
+  /// a Edge persiste o payload NA CANDIDATA reservada (`complete_import_extraction`,
+  /// status→ready) SEM tocar o perfil. Ausentes ⇒ comportamento de hoje intacto.
   static Future<Map<String, dynamic>?> extractProfile(
     Uint8List pdfBytes, {
     required bool save,
     String? rawTextFallback,
+    String? candidateId,
+    String? attemptId,
   }) async {
     try {
       final pdfBase64 = base64Encode(pdfBytes);
@@ -332,6 +337,10 @@ class CvImportService {
               'force': true,
               'save': save,
               if (rawTextFallback != null) 'raw_text_fallback': rawTextFallback,
+              if (candidateId != null && candidateId.isNotEmpty)
+                'candidate_id': candidateId,
+              if (attemptId != null && attemptId.isNotEmpty)
+                'attempt_id': attemptId,
             },
           )
           .timeout(const Duration(seconds: 75));
