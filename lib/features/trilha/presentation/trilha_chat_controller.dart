@@ -19,6 +19,7 @@ import '../../../services/analytics_service.dart';
 import '../../../services/profile_snapshot_service.dart';
 import '../application/assistant_context_store.dart';
 import '../application/conversation_controller.dart';
+import '../application/conflict_rpc_choices.dart';
 import '../application/cv_conflict.dart';
 import '../application/import_apply_outcome.dart';
 import '../application/trilha_session.dart';
@@ -343,7 +344,6 @@ class ImportConflictItem extends ChatItem {
   AssistEditStatus status;
   bool applying = false; // guarda de reentrância (evita duplo-apply)
   int appliedCount = 0;
-  final List<Future<void> Function()> undos = [];
 
   /// Resultado honesto da última aplicação (agregado do RPC) — pro card mostrar
   /// "N aplicados, M mantidos (você já tinha editado), K rejeitados" em vez de
@@ -546,6 +546,8 @@ class TrilhaChatController extends ChangeNotifier {
     this.assistImportCv,
     this.assistGapsLoader,
     this.assistConflictApplier,
+    this.assistReviewedConflictApplier,
+    this.assistReviewedConflictReverter,
     this.assistOpenJobDetail,
     this.assistSaveJob,
     this.assistUnsaveJob,
@@ -706,13 +708,37 @@ class TrilhaChatController extends ChangeNotifier {
   /// show_gaps/show_profile_summary. null ⇒ cai na resposta de texto.
   final Future<AssistGaps> Function()? assistGapsLoader;
 
-  /// Widget de conflito: aplica UMA linha escolhida (o app grava via os writers
-  /// + repo) e devolve o undo (reverte só ela). null ⇒ não aplica.
+  /// LEGADO (congelado, R6): aplicava UMA linha por vez (sem atomicidade nem
+  /// agregado honesto). Não é mais usado pelo `applyConflicts` (Gate 3.0I) —
+  /// substituído pelo applier em lote abaixo. Mantido injetável pra não quebrar
+  /// callers; pode sair num gate futuro de limpeza.
   final Future<Future<void> Function()?> Function(
     ConflictRow row,
     String value,
   )?
   assistConflictApplier;
+
+  /// Gate 3.0I — aplica o LOTE revisado numa transação atômica via
+  /// `apply_reviewed_conflicts_and_promote(candidateId, attemptId, choices)` e
+  /// devolve o agregado cru do RPC (`{applied,stale,rejected,failed,promoted}`).
+  /// null ⇒ não aplica (card vira cancelado). É a fonte do resultado HONESTO —
+  /// nunca "aplicado" cego numa falha parcial.
+  final Future<Map<String, dynamic>?> Function(
+    String candidateId,
+    String attemptId,
+    List<Map<String, dynamic>> choices,
+  )?
+  assistReviewedConflictApplier;
+
+  /// Gate 3.0I — desfaz um import JÁ aplicado, restaurando o snapshot pré-apply
+  /// via `revert_reviewed_apply(candidateId, attemptId)`. Devolve true só se
+  /// reverteu de verdade. null ⇒ sem reversão disponível → o card NÃO oferece
+  /// "Desfazer" (sem falso affordance).
+  final Future<bool> Function(String candidateId, String attemptId)?
+  assistReviewedConflictReverter;
+
+  /// O card só mostra "Desfazer" quando há reversão real fiada.
+  bool get canRevertConflicts => assistReviewedConflictReverter != null;
 
   /// Card de vagas: abre o DETALHE de uma vaga (por id). null ⇒ não abre.
   final Future<void> Function(String jobId)? assistOpenJobDetail;
@@ -2049,9 +2075,14 @@ class TrilhaChatController extends ChangeNotifier {
     _notify();
   }
 
+  /// Gate 3.0I — aplica o lote revisado numa ÚNICA transação atômica
+  /// (`apply_reviewed_conflicts_and_promote`) e reflete o agregado HONESTO:
+  /// nunca marca "aplicado" cego. Falha dura (rollback global) ⇒ o card CONTINUA
+  /// pendente (o RPC é idempotente por candidata+attempt+hash, então o usuário
+  /// pode tentar de novo com segurança).
   Future<void> applyConflicts(String cardId) async {
     final item = _pendingConflicts[cardId];
-    final applier = assistConflictApplier;
+    final applier = assistReviewedConflictApplier;
     if (item == null || item.status != AssistEditStatus.pending) return;
     if (item.applying) return; // guarda de reentrância (duplo-toque)
     if (applier == null) {
@@ -2061,24 +2092,42 @@ class TrilhaChatController extends ChangeNotifier {
     }
     item.applying = true;
     _notify();
-    final undos = <Future<void> Function()>[];
+
+    // Só as linhas ACEITAS, cada uma pelo mapa puro verificado 1:1 contra o RPC.
+    // Uma linha que não mapeia (não deveria ocorrer — o mapa cobre todas as
+    // seções) é descartada; o agregado do RPC reflete só o que de fato entrou.
+    final choices = <Map<String, dynamic>>[];
     for (final c in item.choices.where((c) => c.accepted)) {
-      try {
-        final undo = await applier(c.row, c.effectiveValue);
-        if (undo != null) undos.add(undo);
-      } catch (_) {
-        /* best-effort por linha */
-      }
+      final choice = conflictRowToRpcChoice(c.row, c.effectiveValue);
+      if (choice != null) choices.add(choice);
+    }
+
+    Map<String, dynamic>? raw;
+    try {
+      raw = await applier(item.candidateId, item.attemptId, choices);
+    } catch (_) {
+      raw = null; // fromRpc(null) ⇒ falha dura, nunca sucesso otimista
     }
     if (_disposed) return;
     item.applying = false;
-    item.undos.addAll(undos);
-    item.appliedCount = undos.length;
-    item.status = AssistEditStatus.applied;
+    final outcome = ImportApplyOutcome.fromRpc(raw);
+    item.outcome = outcome;
+    item.appliedCount = outcome.appliedCount;
+    // Falha dura ⇒ NADA foi aplicado (rollback global): mantém pendente pra
+    // retry. Caso contrário promoveu ⇒ applied (com mensagem honesta no card).
+    item.status =
+        outcome.isHardFailure ? AssistEditStatus.pending : AssistEditStatus.applied;
     // ignore: unawaited_futures
     Analytics.shared.track(
       evTrilhaAssistEditApplied,
-      props: {'lacuna_key': 'import_conflict', 'op': 'apply'},
+      props: {
+        'lacuna_key': 'import_conflict',
+        'op': 'apply',
+        'applied': outcome.appliedCount,
+        'stale': outcome.staleCount,
+        'rejected': outcome.rejectedCount,
+        'promoted': outcome.promoted,
+      },
     );
     _notify();
   }
@@ -2090,23 +2139,34 @@ class TrilhaChatController extends ChangeNotifier {
     _notify();
   }
 
+  /// Gate 3.0I — desfaz um import aplicado restaurando o snapshot pré-apply via
+  /// `revert_reviewed_apply` (o servidor não desfaz item-a-item; a reversão é o
+  /// snapshot completo). Só marca `undone` se a reversão confirmou de verdade —
+  /// senão o card segue `applied` (sem mentir que desfez). Sem reverter fiado, o
+  /// card nem mostra "Desfazer" ([canRevertConflicts]).
   Future<void> undoConflicts(String cardId) async {
     final item = _pendingConflicts[cardId];
+    final reverter = assistReviewedConflictReverter;
     if (item == null || item.status != AssistEditStatus.applied) return;
-    for (final undo in item.undos.reversed) {
-      try {
-        await undo();
-      } catch (_) {
-        /* best-effort */
-      }
+    if (reverter == null || item.applying) return;
+    item.applying = true;
+    _notify();
+    bool reverted = false;
+    try {
+      reverted = await reverter(item.candidateId, item.attemptId);
+    } catch (_) {
+      reverted = false;
     }
     if (_disposed) return;
-    item.status = AssistEditStatus.undone;
-    // ignore: unawaited_futures
-    Analytics.shared.track(
-      evTrilhaAssistEditUndone,
-      props: {'lacuna_key': 'import_conflict', 'op': 'apply'},
-    );
+    item.applying = false;
+    if (reverted) {
+      item.status = AssistEditStatus.undone;
+      // ignore: unawaited_futures
+      Analytics.shared.track(
+        evTrilhaAssistEditUndone,
+        props: {'lacuna_key': 'import_conflict', 'op': 'apply'},
+      );
+    }
     _notify();
   }
 

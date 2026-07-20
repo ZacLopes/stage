@@ -325,6 +325,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
               // ignore: unawaited_futures
               _c.undoConflicts(item.id);
             },
+            canUndo: _c.canRevertConflicts,
           ),
         ));
       } else if (item is AssistActionCardItem) {
