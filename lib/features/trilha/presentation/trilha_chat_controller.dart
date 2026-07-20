@@ -20,6 +20,7 @@ import '../../../services/profile_snapshot_service.dart';
 import '../application/assistant_context_store.dart';
 import '../application/conversation_controller.dart';
 import '../application/cv_conflict.dart';
+import '../application/import_apply_outcome.dart';
 import '../application/trilha_session.dart';
 import '../../profile/domain/skill_name_normalizer.dart';
 import '../domain/assist_skills_write.dart';
@@ -303,10 +304,18 @@ class AssistImportResult {
 
   /// Linhas de conflito (import mid-trilha com perfil não-vazio) → card.
   final List<ConflictRow> conflicts;
+
+  /// Ids da candidata reservada (Gate 3.0I) — necessários pra aplicar as
+  /// escolhas revisadas via `apply_reviewed_conflicts_and_promote`. Vazios
+  /// quando não há candidata (import sem conflitos / caminho legado).
+  final String candidateId;
+  final String attemptId;
   const AssistImportResult(
     this.outcome, {
     this.message,
     this.conflicts = const [],
+    this.candidateId = '',
+    this.attemptId = '',
   });
 }
 
@@ -325,13 +334,26 @@ class ConflictChoice {
 class ImportConflictItem extends ChatItem {
   final String id;
   final List<ConflictChoice> choices;
+
+  /// Candidata reservada (Gate 3.0I): a aplicação chama
+  /// `apply_reviewed_conflicts_and_promote(candidateId, attemptId, choices)` —
+  /// 1 transação atômica que aplica + promove, com agregado honesto.
+  final String candidateId;
+  final String attemptId;
   AssistEditStatus status;
   bool applying = false; // guarda de reentrância (evita duplo-apply)
   int appliedCount = 0;
   final List<Future<void> Function()> undos = [];
+
+  /// Resultado honesto da última aplicação (agregado do RPC) — pro card mostrar
+  /// "N aplicados, M mantidos (você já tinha editado), K rejeitados" em vez de
+  /// um "aplicado" cego. null enquanto pendente.
+  ImportApplyOutcome? outcome;
   ImportConflictItem({
     required this.id,
     required this.choices,
+    required this.candidateId,
+    required this.attemptId,
     this.status = AssistEditStatus.pending,
   });
 }
@@ -1709,10 +1731,18 @@ class TrilhaChatController extends ChangeNotifier {
         // O PDF foi salvo na biblioteca (aba Perfil) em qualquer import ok —
         // oferece o atalho pra ver lá.
         item.showCvLibraryLink = true;
-        if (res.conflicts.isNotEmpty) {
+        // Fail-closed (Gate 3.0I): só monta o card de revisão quando há uma
+        // candidata reservada — sem candidate_id/attempt_id não há como aplicar
+        // as escolhas depois (o RPC exige os dois). Sem eles, o import ok já
+        // preencheu o que dava pelo caminho normal; não oferecemos revisão.
+        if (res.conflicts.isNotEmpty &&
+            res.candidateId.isNotEmpty &&
+            res.attemptId.isNotEmpty) {
           final cid = 'conflict_${_editSeq++}';
           final citem = ImportConflictItem(
             id: cid,
+            candidateId: res.candidateId,
+            attemptId: res.attemptId,
             choices: [
               for (final r in res.conflicts)
                 ConflictChoice(r, accepted: r.kind == ConflictKind.addition),

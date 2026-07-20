@@ -21,6 +21,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../services/cv_import_service.dart';
 import '../../../services/pdf_text_extractor.dart';
+import '../../../services/profile_snapshot_service.dart';
+import 'cv_conflict.dart';
 
 /// Início do fluxo de revisão: ids da candidata reservada + o payload extraído
 /// (profile_data) pra construir o diff.
@@ -129,6 +131,57 @@ Future<ImportReviewStart?> startImportReview(
     );
   } catch (_) {
     // fail-closed: nunca monta o card sobre estado incerto.
+    return null;
+  }
+}
+
+/// Diff do fluxo de revisão + ids da candidata — application-level (sem tipo de
+/// UI). A camada de apresentação embrulha num AssistImportResult pro card.
+class ImportReviewConflicts {
+  final List<ConflictRow> rows;
+  final String candidateId;
+  final String attemptId;
+  const ImportReviewConflicts({
+    required this.rows,
+    required this.candidateId,
+    required this.attemptId,
+  });
+}
+
+/// Inicia a revisão E monta o diff: reserva+persiste a candidata
+/// ([startImportReview]) e diffa o profile_data contra o perfil atual. Retorna
+/// as linhas + os ids da candidata, ou null em falha (fail-closed). Uma
+/// candidata 'ready' sem card (diff vazio / erro do diff) é inofensiva — fica na
+/// biblioteca sem ser promovida.
+Future<ImportReviewConflicts?> loadImportReviewConflicts(
+  String userId,
+  Uint8List pdfBytes, {
+  String? title,
+  String? originalFilename,
+  String? rawTextFallback,
+  SupabaseClient? client,
+  Random? rng,
+  ProfileSnapshotService? snapshotService,
+}) async {
+  final start = await startImportReview(
+    pdfBytes,
+    title: title,
+    originalFilename: originalFilename,
+    rawTextFallback: rawTextFallback,
+    client: client,
+    rng: rng,
+  );
+  if (start == null) return null;
+  try {
+    final snapSvc = snapshotService ?? ProfileSnapshotService();
+    final snapshot = await snapSvc.loadSnapshot(userId);
+    final rows = CvConflictDiff.compute(start.profileData, snapshot);
+    return ImportReviewConflicts(
+      rows: rows,
+      candidateId: start.candidateId,
+      attemptId: start.attemptId,
+    );
+  } catch (_) {
     return null;
   }
 }
