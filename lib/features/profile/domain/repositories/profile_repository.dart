@@ -77,6 +77,29 @@ abstract class ProfileRepository {
   Future<List<Interest>> getInterests(String userId);
   Future<void> replaceInterests(String userId, List<String> names);
 
+  /// Gate 3.0H app-side — CAS de escalar de `profile_personal` (manual-recente-
+  /// vence). Retorna 'applied' ou 'stale'. name/city/phone são compostos;
+  /// [expected] é o valor OBSERVADO (display) no propose. Fail-closed → 'stale'.
+  Future<String> casWritePersonalField(
+    String userId,
+    String field,
+    String expected,
+    String value, {
+    String? expectedCountryCode,
+    String? newCountryCode,
+  });
+
+  /// Gate 3.0H app-side — CAS de campo de item por ref_id (experience/education/
+  /// certification/bullet). Retorna 'applied' ou 'stale'.
+  Future<String> casWriteItemField(
+    String userId,
+    String kind,
+    String refId,
+    String field,
+    String expected,
+    String value,
+  );
+
   Future<List<Award>> getAwards(String userId);
   Future<Award> addAward(Award award);
   Future<Award> updateAward(Award award);

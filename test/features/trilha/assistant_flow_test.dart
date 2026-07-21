@@ -250,12 +250,12 @@ void main() {
     bool assistEnabled = true,
     List<ConversationStep> Function(String)? sectionSteps,
     AssistFieldReader? readField,
-    AssistFieldWriter? writeField,
+    AssistCasWriter? writeField,
     AssistFieldWriter? itemAdder,
     AssistFieldWriter? itemRemover,
     Future<List<String>> Function(String, String)? itemResolver,
     AssistFieldReader? bulletReader,
-    AssistFieldWriter? bulletWriter,
+    AssistCasWriter? bulletWriter,
     Future<Future<void> Function()?> Function(String, String)?
     reversibleRemover,
     Future<Map<String, String>?> Function()? proactiveLoader,
@@ -270,7 +270,7 @@ void main() {
     Future<void> Function(String, String?)? languageUpserter,
     Future<Map<String, String>?> Function(String, String, String)?
     itemFieldReader,
-    Future<void> Function(String, String, String, String)? itemFieldWriter,
+    Future<void> Function(String, String, String, String, String)? itemFieldWriter,
     AssistJobsLoader? jobsLoader,
     Future<bool> Function(String)? saveJob,
     Future<bool> Function(String)? unsaveJob,
@@ -584,7 +584,7 @@ void main() {
                 label: 'Cargo desejado',
               )
             : null,
-        writeField: (field, value) async {
+        writeField: (field, value, _) async {
           writes.add([field, value]);
           current = value;
         },
@@ -636,7 +636,7 @@ void main() {
       ),
       readField: (field) async =>
           const AssistFieldValue(raw: '', text: '—', label: 'Cargo desejado'),
-      writeField: (field, value) async => writes.add([field, value]),
+      writeField: (field, value, _) async => writes.add([field, value]),
     );
     addTearDown(c.dispose);
     await c.start();
@@ -665,7 +665,7 @@ void main() {
       ),
       readField: (_) async =>
           AssistFieldValue(raw: current, text: current, label: 'Cargo'),
-      writeField: (_, value) async {
+      writeField: (_, value, _) async {
         writes++;
         if (!started.isCompleted) started.complete();
         await release.future;
@@ -704,7 +704,7 @@ void main() {
         ),
         readField: (_) async =>
             AssistFieldValue(raw: current, text: current, label: 'Cargo'),
-        writeField: (_, value) async {
+        writeField: (_, value, _) async {
           writes.add(value);
           current = value;
         },
@@ -749,7 +749,7 @@ void main() {
       readField: (_) async =>
           AssistFieldValue(raw: current, text: current, label: 'Nome'),
       // Simula writer que retornou sem persistir a capitalização.
-      writeField: (_, value) async {},
+      writeField: (_, value, _) async {},
     );
     addTearDown(c.dispose);
     await c.start();
@@ -896,7 +896,7 @@ void main() {
         readField: (field) async => field == 'summary'
             ? AssistFieldValue(raw: current, text: current, label: 'Resumo')
             : null,
-        writeField: (field, value) async {
+        writeField: (field, value, _) async {
           writes.add([field, value]);
           current = value;
         },
@@ -940,7 +940,7 @@ void main() {
         bulletReader: (id) async => id == 'b1'
             ? AssistFieldValue(raw: current, text: current, label: 'Ambev')
             : null,
-        bulletWriter: (id, text) async {
+        bulletWriter: (id, text, _) async {
           writes.add([id, text]);
           current = text;
         },
@@ -1162,7 +1162,7 @@ void main() {
         readField: (field) async => field == 'desired_position'
             ? const AssistFieldValue(raw: '', text: '', label: 'Cargo desejado')
             : null,
-        writeField: (field, value) async => writes.add([field, value]),
+        writeField: (field, value, _) async => writes.add([field, value]),
       );
       addTearDown(c.dispose);
       await c.start();
@@ -1229,7 +1229,7 @@ void main() {
                 label: 'Cargo desejado',
               )
             : null,
-        writeField: (field, value) async {
+        writeField: (field, value, _) async {
           writes.add([field, value]);
           desiredPosition = value;
         },
@@ -1289,7 +1289,7 @@ void main() {
         text: desiredPosition,
         label: 'Cargo desejado',
       ),
-      writeField: (_, value) async => desiredPosition = value,
+      writeField: (_, value, _) async => desiredPosition = value,
     );
     addTearDown(c.dispose);
     await c.start();
@@ -1323,7 +1323,7 @@ void main() {
         ),
       ),
       itemAdder: (kind, value) async => adds.add([kind, value]),
-      writeField: (field, value) async => writes.add([field, value]),
+      writeField: (field, value, _) async => writes.add([field, value]),
     );
     addTearDown(c.dispose);
     await c.start();
@@ -2597,7 +2597,7 @@ void main() {
       readField: (field) async => field == 'name'
           ? AssistFieldValue(raw: current, text: current, label: 'Nome')
           : null,
-      writeField: (field, value) async {
+      writeField: (field, value, _) async {
         writes.add([field, value]);
         current = value;
       },
@@ -2650,7 +2650,7 @@ void main() {
                 'label': 'Empresa · Estagiário',
               }
             : null,
-        itemFieldWriter: (kind, id, field, value) async {
+        itemFieldWriter: (kind, id, field, value, _) async {
           writes.add([kind, id, field, value]);
           current = value;
         },
@@ -2693,7 +2693,7 @@ void main() {
       ),
       itemResolver: (kind, query) async => const [],
       itemFieldReader: (kind, query, field) async => null,
-      itemFieldWriter: (kind, id, field, value) async {},
+      itemFieldWriter: (kind, id, field, value, _) async {},
     );
     addTearDown(c.dispose);
     await c.start();
@@ -2731,7 +2731,7 @@ void main() {
           'text': '5',
           'label': 'Semestre',
         },
-        itemFieldWriter: (kind, id, field, value) async {},
+        itemFieldWriter: (kind, id, field, value, _) async {},
       );
       addTearDown(c.dispose);
       await c.start();
@@ -2797,7 +2797,7 @@ void main() {
       readField: (field) async => field == 'city'
           ? AssistFieldValue(raw: current, text: current, label: 'Cidade')
           : null,
-      writeField: (field, value) async {
+      writeField: (field, value, _) async {
         writes.add([field, value]);
         current = value;
       },
@@ -2843,7 +2843,7 @@ void main() {
                 label: 'Modalidade',
               )
             : null,
-        writeField: (field, value) async {
+        writeField: (field, value, _) async {
           writes.add([field, value]);
           current = value;
         },
@@ -2890,7 +2890,7 @@ void main() {
                 label: 'Modalidade',
               )
             : null,
-        writeField: (field, value) async => writes.add([field, value]),
+        writeField: (field, value, _) async => writes.add([field, value]),
       );
       addTearDown(c.dispose);
       await c.start();

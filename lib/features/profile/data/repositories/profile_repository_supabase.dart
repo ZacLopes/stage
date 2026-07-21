@@ -757,6 +757,55 @@ class ProfileRepositorySupabase implements ProfileRepository {
   }
 
   @override
+  Future<String> casWritePersonalField(
+    String userId,
+    String field,
+    String expected,
+    String value, {
+    String? expectedCountryCode,
+    String? newCountryCode,
+  }) async {
+    // Gate 3.0H app-side — CAS server-side sob o advisory lock. 'stale' quando o
+    // vivo diverge do observado (manual-recente-vence). Fail-closed: resposta
+    // inesperada → 'stale' (nunca finge 'applied').
+    final raw = await _client.rpc(
+      'cas_write_personal_field_v1',
+      params: {
+        'p_user_id': userId,
+        'p_field': field,
+        'p_expected': expected,
+        'p_value': value,
+        'p_expected_country_code': expectedCountryCode,
+        'p_new_country_code': newCountryCode,
+      },
+    );
+    return raw == 'applied' ? 'applied' : 'stale';
+  }
+
+  @override
+  Future<String> casWriteItemField(
+    String userId,
+    String kind,
+    String refId,
+    String field,
+    String expected,
+    String value,
+  ) async {
+    final raw = await _client.rpc(
+      'cas_write_item_field_v1',
+      params: {
+        'p_user_id': userId,
+        'p_kind': kind,
+        'p_ref_id': refId,
+        'p_field': field,
+        'p_expected': expected,
+        'p_value': value,
+      },
+    );
+    return raw == 'applied' ? 'applied' : 'stale';
+  }
+
+  @override
   Future<List<Award>> getAwards(String userId) async {
     final rows = await _client
         .from('profile_awards')

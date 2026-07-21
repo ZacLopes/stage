@@ -738,13 +738,38 @@ Future<Map<String, String>?> assistReadFieldMap(
 /// Fase B — GRAVADOR: aplica um valor a um campo (reusa o write-back; savers
 /// idempotentes). value '' ⇒ limpa (pro undo de um set-a-partir-de-vazio, que o
 /// saver sozinho ignoraria).
+/// [expected] (Gate 3.0H app-side) = valor OBSERVADO no propose. Quando presente
+/// e o campo é de `profile_personal`, grava pelo CAS atômico server-side
+/// (`cas_write_personal_field_v1`, manual-recente-vence). Ausente ⇒ caminho
+/// legado (read-modify-write) — usado pelos testes diretos e por callers legados.
+/// job_preferences (desired_position/work_mode) segue legado (outra tabela).
 Future<void> assistWriteFieldValue(
   String userId,
   String field,
   String value, {
+  String? expected,
   ProfileRepository? repository,
 }) async {
   final repo = repository ?? ProfileRepositorySupabase();
+  const personalCasFields = {
+    'summary', 'name', 'linkedin', 'website', 'city', 'phone',
+  };
+  if (expected != null && personalCasFields.contains(field)) {
+    // phone é composto (número+DDI): o DDI não é editado por este fluxo, então
+    // lê o atual e passa como esperado/novo (o CAS valida o número; se o DDI
+    // mudou concorrentemente, volta 'stale' — fail-closed).
+    String? cc;
+    if (field == 'phone') {
+      cc = (await repo.getPersonal(userId))?.phoneCountryCode;
+    }
+    // 'stale' ⇒ o vivo mudou desde o propose: não grava (manual vence). O
+    // controller relê e reflete honestamente (não finge sucesso).
+    await repo.casWritePersonalField(
+      userId, field, expected, value,
+      expectedCountryCode: cc, newCountryCode: cc,
+    );
+    return;
+  }
   switch (field) {
     case 'desired_position':
       final v = value.trim();
@@ -915,9 +940,16 @@ Future<void> assistWriteItemField(
   String id,
   String field,
   String value, {
+  String? expected,
   ProfileRepository? repository,
 }) async {
   final repo = repository ?? ProfileRepositorySupabase();
+  // Gate 3.0H app-side — CAS atômico por ref_id quando temos o observado.
+  // Ausente ⇒ legado (testes diretos / callers legados).
+  if (expected != null) {
+    await repo.casWriteItemField(userId, kind, id, field, expected, value);
+    return;
+  }
   final v = value.trim();
   switch (kind) {
     case 'experience':
@@ -1119,9 +1151,15 @@ Future<void> assistBulletWrite(
   String userId,
   String bulletId,
   String text, {
+  String? expected,
   ProfileRepository? repository,
 }) async {
   final repo = repository ?? ProfileRepositorySupabase();
+  // Gate 3.0H app-side — CAS do texto do bullet por id quando temos o observado.
+  if (expected != null) {
+    await repo.casWriteItemField(userId, 'bullet', bulletId, 'text', expected, text);
+    return;
+  }
   final t = text.trim();
   if (t.isEmpty) return;
   for (final e in await repo.getExperiences(userId)) {

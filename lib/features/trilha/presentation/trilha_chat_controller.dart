@@ -488,8 +488,17 @@ class AssistFieldValue {
 /// Lê o valor atual de um campo (pro diff/undo). null ⇒ campo não editável aqui.
 typedef AssistFieldReader = Future<AssistFieldValue?> Function(String field);
 
-/// Aplica um valor cru a um campo (value '' limpa). Reusa o write-back.
+/// Aplica um valor cru a um campo (value '' limpa). Reusado por vários callbacks
+/// de 2 args (adder/remover/upserter/bullet-legado) — NÃO mexer.
 typedef AssistFieldWriter = Future<void> Function(String field, String value);
+
+/// Gate 3.0H app-side — writer de escalar/bullet COM o observado ([expected])
+/// pro CAS server-side (manual-recente-vence). `a`=campo/bulletId, `b`=valor.
+typedef AssistCasWriter = Future<void> Function(
+  String a,
+  String b,
+  String expected,
+);
 
 /// Grande: consulta o feed real de vagas (já filtrado pelo perfil do user).
 /// Filtro opcional por área/texto (client-side). Retorna as melhores N + se tem CV.
@@ -603,7 +612,8 @@ class TrilhaChatController extends ChangeNotifier {
   final AssistFieldReader? assistReadField;
 
   /// Fase B: aplica um valor a um campo (reusa o write-back). null ⇒ sem mutação.
-  final AssistFieldWriter? assistWriteField;
+  /// Gate 3.0H: 3º arg = valor observado no propose (CAS server-side).
+  final AssistCasWriter? assistWriteField;
 
   /// Fase B: adiciona um item de lista (kind, value) — ex.: skill/idioma (merge).
   final AssistFieldWriter? assistItemAdder;
@@ -621,7 +631,8 @@ class TrilhaChatController extends ChangeNotifier {
   final AssistFieldReader? assistBulletReader;
 
   /// Fase B: reescreve um bullet (bulletId, novo texto). Undo regrava o antigo.
-  final AssistFieldWriter? assistBulletWriter;
+  /// Gate 3.0H: 3º arg = texto observado no propose (CAS server-side).
+  final AssistCasWriter? assistBulletWriter;
 
   /// Fase B: remoção REVERSÍVEL de item multi-campo (experiência/projeto):
   /// captura o registro, deleta, e devolve um restore (pro undo re-inserir).
@@ -674,11 +685,13 @@ class TrilhaChatController extends ChangeNotifier {
   assistItemFieldReader;
 
   /// Editar CAMPO de item multi-campo: grava o campo do item (por id, estável).
+  /// Gate 3.0H: 5º arg = valor observado no propose (CAS server-side).
   final Future<void> Function(
     String kind,
     String id,
     String field,
     String value,
+    String expected,
   )?
   assistItemFieldWriter;
 
@@ -2851,7 +2864,9 @@ class TrilhaChatController extends ChangeNotifier {
               return false;
             }
             try {
-              await iw(item.itemKind, item.refId, item.field, expectedValue);
+              // Gate 3.0H: 5º arg = observado (CAS server-side manual-vence).
+              await iw(
+                item.itemKind, item.refId, item.field, expectedValue, requiredCurrent);
             } catch (_) {
               // A leitura por id estável confirma um possível commit tardio.
             }
@@ -2872,7 +2887,8 @@ class TrilhaChatController extends ChangeNotifier {
             return false;
           }
           try {
-            await w(item.field, expectedValue);
+            // Gate 3.0H: 3º arg = observado (CAS server-side manual-vence).
+            await w(item.field, expectedValue, requiredCurrent);
           } catch (_) {
             // Timeout pode chegar depois do commit; a leitura viva decide.
           }
@@ -2954,7 +2970,8 @@ class TrilhaChatController extends ChangeNotifier {
             return false;
           }
           try {
-            await bw(item.refId, expectedValue);
+            // Gate 3.0H: 3º arg = texto observado (CAS server-side).
+            await bw(item.refId, expectedValue, requiredCurrent);
           } catch (_) {
             // A leitura viva abaixo distingue falha de commit confirmado.
           }
@@ -3133,7 +3150,9 @@ class TrilhaChatController extends ChangeNotifier {
             continue;
           }
           try {
-            await writer!('desired_position', e.value);
+            // desired_position é job_preferences → segue legado; o observado
+            // (before) vai no 3º arg mas é ignorado pelo writer (não é CAS).
+            await writer!('desired_position', e.value, before);
           } catch (_) {
             final after = await reader('desired_position');
             if (after == null || !_samePersistedText(after.raw, e.value)) {
@@ -3147,7 +3166,7 @@ class TrilhaChatController extends ChangeNotifier {
               throw StateError('undo_stale_value');
             }
             try {
-              await writer!('desired_position', before);
+              await writer!('desired_position', before, e.value);
             } catch (_) {
               // Confirma no valor vivo antes de decidir se o rollback falhou.
             }

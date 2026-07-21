@@ -199,8 +199,8 @@ class _ResumeTabState extends State<ResumeTab>
       // reload do preview — assim a aba Currículo/stepper refletem a edição na
       // hora (adds aparecem, removes somem). Cobre também os undos, que reusam
       // estes mesmos callbacks.
-      assistWriteField: (field, value) async {
-        await assistWriteFieldValue(uid, field, value);
+      assistWriteField: (field, value, expected) async {
+        await assistWriteFieldValue(uid, field, value, expected: expected);
         _scheduleProfileReload();
       },
       assistItemAdder: (kind, value) async {
@@ -222,8 +222,8 @@ class _ResumeTabState extends State<ResumeTab>
                 label: m['label'] ?? 'Experiência',
               );
       },
-      assistBulletWriter: (bulletId, text) async {
-        await assistBulletWrite(uid, bulletId, text);
+      assistBulletWriter: (bulletId, text, expected) async {
+        await assistBulletWrite(uid, bulletId, text, expected: expected);
         _scheduleProfileReload();
       },
       // Remoção reversível de experiência (captura + delete + restore pro undo).
@@ -261,8 +261,8 @@ class _ResumeTabState extends State<ResumeTab>
       // Editar UM campo de item multi-campo (experiência/formação/cert).
       assistItemFieldReader: (kind, query, field) =>
           assistReadItemField(uid, kind, query, field),
-      assistItemFieldWriter: (kind, id, field, value) async {
-        await assistWriteItemField(uid, kind, id, field, value);
+      assistItemFieldWriter: (kind, id, field, value, expected) async {
+        await assistWriteItemField(uid, kind, id, field, value, expected: expected);
         _scheduleProfileReload();
       },
       // Grandes: ações de app. Vagas reais (lê o feed já filtrado pelo perfil),
