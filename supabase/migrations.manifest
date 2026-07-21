@@ -120,3 +120,4 @@
 20260717150000_manual_skills_replace_authoritative.sql
 20260717160000_guided_language_remove_cas.sql
 20260719120000_import_revert_snapshot.sql
+20260720120000_appside_cas_contracts.sql

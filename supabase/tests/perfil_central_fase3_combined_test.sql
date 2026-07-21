@@ -103,6 +103,7 @@ WHERE p.oid = 'public.save_profile_from_json(uuid,jsonb)'::regprocedure;
 \ir ../migrations/20260717150000_manual_skills_replace_authoritative.sql
 \ir ../migrations/20260717160000_guided_language_remove_cas.sql
 \ir ../migrations/20260719120000_import_revert_snapshot.sql
+\ir ../migrations/20260720120000_appside_cas_contracts.sql
 
 -- C1 — cadeia/ACL/trigger: as duas fundações coexistem sem wrapper órfão,
 -- reabertura de helper ou perda de fencing nas tabelas anteriores.
@@ -485,5 +486,8 @@ CREATE TRIGGER zzzz_test_hold_profile_write
 
 -- Gate 3.0I — reversão do import revisado (snapshot pré-apply + restore).
 \ir perfil_central_fase3_revert_test.sql
+
+-- Gate 3.0H (app-side) — contratos CAS de escalar + item-field.
+\ir perfil_central_fase3_appside_cas_test.sql
 
 SELECT 'ALL_COMBINED_SQL_TESTS_OK' AS result;
