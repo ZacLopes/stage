@@ -2,6 +2,10 @@
 -- campo de item (cas_write_item_field_v1). Roda depois do combined (schema mock
 -- + migrations). Chamado como superuser com request.jwt.claims setando auth.uid.
 
+-- Mock mínimo de Objetivos (criada por migration anterior, fora do harness).
+CREATE TABLE IF NOT EXISTS public.profile_job_preferences (
+  user_id uuid PRIMARY KEY, desired_position text, work_mode text[]);
+
 -- H-SCALAR — applied quando o observado bate; stale quando diverge; compostos.
 DO $h$
 DECLARE u uuid := '000000ca-0000-0000-0000-0000000000c1'; r text;
@@ -105,6 +109,42 @@ BEGIN
   EXCEPTION WHEN sqlstate 'P0002' THEN NULL; END;
 
   RAISE NOTICE 'H-ITEM OK: item-field CAS applied/stale; institution limpa id; semester int; posse';
+END $h$;
+
+-- H-JOBPREF — Objetivos: desired_position escalar + work_mode como CONJUNTO.
+DO $h$
+DECLARE u uuid := '000000ca-0000-0000-0000-0000000000c3'; r text;
+BEGIN
+  PERFORM set_config('request.jwt.claims', ('{"sub":"'||u||'"}')::text, false);
+  INSERT INTO auth.users(id) VALUES (u) ON CONFLICT DO NOTHING;
+  DELETE FROM public.profile_job_preferences WHERE user_id = u;
+  INSERT INTO public.profile_job_preferences(user_id, desired_position, work_mode)
+    VALUES (u, 'Dev', ARRAY['remote','hybrid']);
+
+  -- desired_position applied + stale
+  r := public.cas_write_job_pref_field_v1(u, 'desired_position', 'Dev', 'Senior Dev');
+  IF r <> 'applied' OR (SELECT desired_position FROM public.profile_job_preferences WHERE user_id=u) <> 'Senior Dev' THEN
+    RAISE EXCEPTION 'H-JOBPREF: desired_position applied falhou (%)', r; END IF;
+  r := public.cas_write_job_pref_field_v1(u, 'desired_position', 'Dev', 'x');
+  IF r <> 'stale' THEN RAISE EXCEPTION 'H-JOBPREF: desired_position stale falhou (%)', r; END IF;
+
+  -- work_mode: observado em ORDEM DIFERENTE ('hybrid,remote') ainda casa (conjunto)
+  r := public.cas_write_job_pref_field_v1(u, 'work_mode', 'hybrid,remote', 'remote');
+  IF r <> 'applied'
+     OR (SELECT work_mode FROM public.profile_job_preferences WHERE user_id=u) <> ARRAY['remote'] THEN
+    RAISE EXCEPTION 'H-JOBPREF: work_mode conjunto applied falhou (%)', r; END IF;
+
+  -- work_mode stale (observado != vivo)
+  r := public.cas_write_job_pref_field_v1(u, 'work_mode', 'remote,hybrid', 'in_person');
+  IF r <> 'stale' THEN RAISE EXCEPTION 'H-JOBPREF: work_mode stale falhou (%)', r; END IF;
+
+  -- work_mode: value inválido NÃO zera (no-op, espelha legado)
+  r := public.cas_write_job_pref_field_v1(u, 'work_mode', 'remote', 'flexível');
+  IF r <> 'applied'
+     OR (SELECT work_mode FROM public.profile_job_preferences WHERE user_id=u) <> ARRAY['remote'] THEN
+    RAISE EXCEPTION 'H-JOBPREF: work_mode value invalido zerou (%)', r; END IF;
+
+  RAISE NOTICE 'H-JOBPREF OK: desired_position applied/stale; work_mode conjunto (ordem-livre)/stale/guarda';
 END $h$;
 
 SELECT 'APPSIDE_CAS_SQL_TESTS_OK' AS result;

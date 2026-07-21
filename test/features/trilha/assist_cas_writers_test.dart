@@ -37,6 +37,19 @@ class _CasRepo implements ProfileRepository {
     return result;
   }
 
+  final List<List<String>> jobPrefCalls = [];
+
+  @override
+  Future<String> casWriteJobPrefField(
+    String userId,
+    String field,
+    String expected,
+    String value,
+  ) async {
+    jobPrefCalls.add([userId, field, expected, value]);
+    return result;
+  }
+
   @override
   Future<PersonalInfo?> getPersonal(String userId) async =>
       PersonalInfo(userId: userId, phoneCountryCode: currentCc);
@@ -82,14 +95,18 @@ void main() {
       expect(repo.personalCalls, isEmpty);
     });
 
-    test('desired_position (job_prefs) com expected: NÃO usa o CAS de personal',
+    test('desired_position + work_mode roteiam pro CAS de Objetivos (não personal)',
         () async {
       final repo = _CasRepo();
-      try {
-        await assistWriteFieldValue('u', 'desired_position', 'Dev',
-            expected: 'obs', repository: repo);
-      } catch (_) {/* legado job_prefs (noSuchMethod) */}
+      await assistWriteFieldValue('u', 'desired_position', 'Senior Dev',
+          expected: 'Dev', repository: repo);
+      await assistWriteFieldValue('u', 'work_mode', 'remote',
+          expected: 'remote,hybrid', repository: repo);
       expect(repo.personalCalls, isEmpty);
+      expect(repo.jobPrefCalls, [
+        ['u', 'desired_position', 'Dev', 'Senior Dev'],
+        ['u', 'work_mode', 'remote,hybrid', 'remote'],
+      ]);
     });
 
     test('item-field: chama casWriteItemField com ref_id/field/expected', () async {

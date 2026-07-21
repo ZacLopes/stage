@@ -806,6 +806,25 @@ class ProfileRepositorySupabase implements ProfileRepository {
   }
 
   @override
+  Future<String> casWriteJobPrefField(
+    String userId,
+    String field,
+    String expected,
+    String value,
+  ) async {
+    final raw = await _client.rpc(
+      'cas_write_job_pref_field_v1',
+      params: {
+        'p_user_id': userId,
+        'p_field': field,
+        'p_expected': expected,
+        'p_value': value,
+      },
+    );
+    return raw == 'applied' ? 'applied' : 'stale';
+  }
+
+  @override
   Future<List<Award>> getAwards(String userId) async {
     final rows = await _client
         .from('profile_awards')

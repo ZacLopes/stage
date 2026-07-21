@@ -738,11 +738,11 @@ Future<Map<String, String>?> assistReadFieldMap(
 /// Fase B — GRAVADOR: aplica um valor a um campo (reusa o write-back; savers
 /// idempotentes). value '' ⇒ limpa (pro undo de um set-a-partir-de-vazio, que o
 /// saver sozinho ignoraria).
-/// [expected] (Gate 3.0H app-side) = valor OBSERVADO no propose. Quando presente
-/// e o campo é de `profile_personal`, grava pelo CAS atômico server-side
-/// (`cas_write_personal_field_v1`, manual-recente-vence). Ausente ⇒ caminho
-/// legado (read-modify-write) — usado pelos testes diretos e por callers legados.
-/// job_preferences (desired_position/work_mode) segue legado (outra tabela).
+/// [expected] (Gate 3.0H app-side) = valor OBSERVADO no propose. Quando presente,
+/// grava pelo CAS atômico server-side (manual-recente-vence): campos de
+/// `profile_personal` → `cas_write_personal_field_v1`; Objetivos
+/// (desired_position/work_mode) → `cas_write_job_pref_field_v1`. Ausente ⇒
+/// caminho legado (read-modify-write) — usado pelos testes diretos e callers legados.
 Future<void> assistWriteFieldValue(
   String userId,
   String field,
@@ -751,6 +751,13 @@ Future<void> assistWriteFieldValue(
   ProfileRepository? repository,
 }) async {
   final repo = repository ?? ProfileRepositorySupabase();
+  // Objetivos (job_preferences): CAS próprio (desired_position escalar,
+  // work_mode conjunto de ids).
+  const jobPrefCasFields = {'desired_position', 'work_mode'};
+  if (expected != null && jobPrefCasFields.contains(field)) {
+    await repo.casWriteJobPrefField(userId, field, expected, value);
+    return;
+  }
   const personalCasFields = {
     'summary', 'name', 'linkedin', 'website', 'city', 'phone',
   };

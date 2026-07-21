@@ -111,3 +111,55 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.cas_write_item_field_v1(uuid,text,uuid,text,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.cas_write_item_field_v1(uuid,text,uuid,text,text,text) TO authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 3. Objetivos (profile_job_preferences): desired_position (escalar) e work_mode
+--    (TEXT[] — comparado como CONJUNTO, ordem não importa). Fecha o último legado
+--    app-side do assistente. `expected`/`value` de work_mode = ids por vírgula
+--    ('remote,hybrid'); espelha a guarda do legado (value inválido não zera).
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.cas_write_job_pref_field_v1(
+  p_user_id uuid, p_field text, p_expected text, p_value text)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_live text; v_live_arr text[]; v_exp_norm text[]; v_live_norm text[]; v_new_arr text[];
+BEGIN
+  IF auth.uid() IS NULL OR auth.uid() <> p_user_id THEN
+    RAISE EXCEPTION 'not_authorized' USING ERRCODE='28000';
+  END IF;
+  PERFORM pg_advisory_xact_lock(public.profile_write_lock_key(p_user_id));
+  INSERT INTO public.profile_job_preferences(user_id) VALUES (p_user_id) ON CONFLICT (user_id) DO NOTHING;
+
+  IF p_field = 'desired_position' THEN
+    SELECT COALESCE(desired_position,'') INTO v_live
+      FROM public.profile_job_preferences WHERE user_id = p_user_id;
+    IF btrim(v_live) IS DISTINCT FROM btrim(COALESCE(p_expected,'')) THEN RETURN 'stale'; END IF;
+    UPDATE public.profile_job_preferences
+       SET desired_position = NULLIF(btrim(p_value),'') WHERE user_id = p_user_id;
+    RETURN 'applied';
+
+  ELSIF p_field = 'work_mode' THEN
+    SELECT work_mode INTO v_live_arr
+      FROM public.profile_job_preferences WHERE user_id = p_user_id;
+    -- CAS por CONJUNTO ordenado-distinto (o reader emite ids em ordem qualquer).
+    v_exp_norm := ARRAY(SELECT DISTINCT btrim(x)
+      FROM unnest(string_to_array(COALESCE(p_expected,''), ',')) x
+      WHERE btrim(x) <> '' ORDER BY 1);
+    v_live_norm := ARRAY(SELECT DISTINCT x
+      FROM unnest(COALESCE(v_live_arr, ARRAY[]::text[])) x ORDER BY 1);
+    IF v_exp_norm IS DISTINCT FROM v_live_norm THEN RETURN 'stale'; END IF;
+    -- novo conjunto: só ids válidos.
+    v_new_arr := ARRAY(SELECT DISTINCT btrim(x)
+      FROM unnest(string_to_array(COALESCE(p_value,''), ',')) x
+      WHERE btrim(x) IN ('remote','hybrid','in_person'));
+    -- guarda do legado: value NÃO-vazio sem nenhum id válido NÃO zera (no-op).
+    IF COALESCE(array_length(v_new_arr,1),0) = 0 AND btrim(COALESCE(p_value,'')) <> '' THEN
+      RETURN 'applied';
+    END IF;
+    UPDATE public.profile_job_preferences
+       SET work_mode = NULLIF(v_new_arr, ARRAY[]::text[]) WHERE user_id = p_user_id;
+    RETURN 'applied';
+  END IF;
+  RAISE EXCEPTION 'invalid_field' USING ERRCODE='22023';
+END $$;
+REVOKE ALL ON FUNCTION public.cas_write_job_pref_field_v1(uuid,text,text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.cas_write_job_pref_field_v1(uuid,text,text,text) TO authenticated;

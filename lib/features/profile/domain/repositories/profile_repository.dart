@@ -100,6 +100,15 @@ abstract class ProfileRepository {
     String value,
   );
 
+  /// Gate 3.0H app-side — CAS de campo de Objetivos (job_preferences):
+  /// desired_position (escalar) e work_mode (conjunto de ids). 'applied'/'stale'.
+  Future<String> casWriteJobPrefField(
+    String userId,
+    String field,
+    String expected,
+    String value,
+  );
+
   Future<List<Award>> getAwards(String userId);
   Future<Award> addAward(Award award);
   Future<Award> updateAward(Award award);
