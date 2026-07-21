@@ -38,6 +38,11 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
   late final TextEditingController _phoneNumber;
   late final TextEditingController _dateOfBirth;
   late final TextEditingController _summary;
+  // Fase 3 — campos que existiam no modelo mas não tinham editor manual.
+  late final TextEditingController _headline;
+  late final TextEditingController _linkedin;
+  late final TextEditingController _website;
+  late final TextEditingController _availability;
   // DDI editável — guarda só os dígitos; o '+' é renderizado fixo via
   // prefixText. Default '55' (Brasil), mas user pode digitar qualquer código.
   late final TextEditingController _phoneCountryCodeCtrl;
@@ -63,6 +68,10 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
           : initialPhone,
     );
     _summary = TextEditingController(text: i?.summary ?? '');
+    _headline = TextEditingController(text: i?.headline ?? '');
+    _linkedin = TextEditingController(text: i?.linkedinUrl ?? '');
+    _website = TextEditingController(text: i?.website ?? '');
+    _availability = TextEditingController(text: i?.availability ?? '');
     _phoneCountryCodeCtrl = TextEditingController(
       text: initialCountry.replaceAll('+', ''),
     );
@@ -72,7 +81,10 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
       text: _parsedDob != null ? _formatDob(_parsedDob!) : '',
     );
 
-    for (final c in [_firstName, _lastName, _phoneNumber, _summary]) {
+    for (final c in [
+      _firstName, _lastName, _phoneNumber, _summary,
+      _headline, _linkedin, _website, _availability,
+    ]) {
       c.addListener(_emitChange);
     }
     _email.addListener(_onEmailChanged);
@@ -195,6 +207,11 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
       dateOfBirth: _parsedDob,
       ageRange: ageRangeFromDate(_parsedDob),
       summary: _summary.text.trim().isEmpty ? null : _summary.text.trim(),
+      headline: _headline.text.trim().isEmpty ? null : _headline.text.trim(),
+      linkedinUrl: _linkedin.text.trim().isEmpty ? null : _linkedin.text.trim(),
+      website: _website.text.trim().isEmpty ? null : _website.text.trim(),
+      availability:
+          _availability.text.trim().isEmpty ? null : _availability.text.trim(),
     ));
   }
 
@@ -206,6 +223,10 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
     _phoneNumber.dispose();
     _dateOfBirth.dispose();
     _summary.dispose();
+    _headline.dispose();
+    _linkedin.dispose();
+    _website.dispose();
+    _availability.dispose();
     _phoneCountryCodeCtrl.dispose();
     super.dispose();
   }
@@ -326,11 +347,43 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
         ),
         const SizedBox(height: 14),
         TextField(
+          controller: _headline,
+          decoration: _decoration(
+            'Título profissional',
+            helper: 'Uma linha curta que te resume (ex.: "Estudante de Engenharia · Estágio em dados").',
+          ),
+          textCapitalization: TextCapitalization.sentences,
+        ),
+        const SizedBox(height: 14),
+        TextField(
           controller: _summary,
           decoration: _decoration('Resumo profissional'),
           minLines: 5,
           maxLines: null,
           keyboardType: TextInputType.multiline,
+          textCapitalization: TextCapitalization.sentences,
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: _linkedin,
+          decoration: _decoration('LinkedIn', helper: 'Link ou usuário do seu perfil.'),
+          keyboardType: TextInputType.url,
+          autocorrect: false,
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: _website,
+          decoration: _decoration('Site / portfólio'),
+          keyboardType: TextInputType.url,
+          autocorrect: false,
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: _availability,
+          decoration: _decoration(
+            'Disponibilidade',
+            helper: 'Quando você pode começar (ex.: "Imediata", "A partir de março").',
+          ),
           textCapitalization: TextCapitalization.sentences,
         ),
       ],
