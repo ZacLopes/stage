@@ -19,6 +19,7 @@ import '../../core/theme/theme.dart';
 import '../../core/widgets/widgets.dart';
 import '../../services/ai_service.dart';
 import '../../services/analytics_events.dart';
+import '../../services/profile_events.dart';
 import '../../services/analytics_service.dart';
 import '../../services/profile_snapshot_service.dart';
 import '../auth/user_viewmodel.dart';
@@ -152,6 +153,10 @@ class _ResumeTabState extends State<ResumeTab>
       }
       // ignore: unawaited_futures
       _refreshHubStatus();
+      // Fase 3 F3 — escrita do assistente muta o perfil FORA do editor VM; sem
+      // este sinal os caches de match (JobsViewModel/UserViewModel) ficavam
+      // velhos (só o editor manual disparava). Agora chat também invalida.
+      ProfileEvents.instance.notifyChanged();
     });
   }
 

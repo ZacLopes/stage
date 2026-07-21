@@ -7,6 +7,7 @@ import '../../services/ai_service.dart';
 import '../../services/analytics_service.dart';
 import '../profile/data/repositories/profile_repository_supabase.dart';
 import 'services/trail_to_profile_bridge.dart';
+import '../../services/profile_events.dart';
 import 'gamification_logic.dart';
 
 enum PhaseStatus { locked, available, completed }
@@ -380,8 +381,13 @@ class GamificationViewModel extends ChangeNotifier {
 
           // Profile-first (Semana 2): roteia pro schema relacional via bridge.
           // Fire-and-forget — falha aqui NÃO derruba trilha legacy.
+          // Fase 3 F3 — o bridge escreve DIRETO no repo e não avisava ninguém;
+          // sinaliza a mudança pra os caches de match invalidarem (uniformiza
+          // com editor manual + chat).
           // ignore: unawaited_futures
-          _profileBridge.route(phaseId: rawPhaseId, answer: answer);
+          _profileBridge
+              .route(phaseId: rawPhaseId, answer: answer)
+              .then((_) => ProfileEvents.instance.notifyChanged());
         }
       }
     } catch (e) {
