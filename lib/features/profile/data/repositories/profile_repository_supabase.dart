@@ -7,6 +7,7 @@
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/entities/entities.dart';
+import '../../domain/manual_skills_replace.dart';
 import '../../domain/repositories/profile_repository.dart';
 import '../../domain/skill_name_normalizer.dart';
 
@@ -32,8 +33,10 @@ class ProfileRepositorySupabase implements ProfileRepository {
   }
 
   @override
-  Future<PersonalInfo> upsertPersonal(PersonalInfo info,
-      {Set<String> nullColumns = const {}}) async {
+  Future<PersonalInfo> upsertPersonal(
+    PersonalInfo info, {
+    Set<String> nullColumns = const {},
+  }) async {
     final map = info.toMap()
       ..removeWhere((k, v) => v == null && k != 'user_id');
     // Colunas a LIMPAR de propósito (ex.: trocar de cidade zera o CEP antigo):
@@ -152,15 +155,17 @@ class ProfileRepositorySupabase implements ProfileRepository {
       if (text.isEmpty) continue;
       final current = existing[draft.id];
       if (current == null || keptIds.contains(current.id)) {
-        final inserted = await addBullet(Bullet(
-          id: '',
-          experienceId: experienceId,
-          text: text,
-          angle: draft.angle,
-          strengthScore: draft.strengthScore,
-          verb: draft.verb,
-          orderIndex: index,
-        ));
+        final inserted = await addBullet(
+          Bullet(
+            id: '',
+            experienceId: experienceId,
+            text: text,
+            angle: draft.angle,
+            strengthScore: draft.strengthScore,
+            verb: draft.verb,
+            orderIndex: index,
+          ),
+        );
         keptIds.add(inserted.id);
         continue;
       }
@@ -490,7 +495,12 @@ class ProfileRepositorySupabase implements ProfileRepository {
         .from('profile_skills')
         .select()
         .eq('user_id', userId)
-        .order('order_index');
+        // O editor CAS usa exatamente `order_index, id` no servidor. O
+        // desempate é obrigatório porque dados legados podem compartilhar o
+        // mesmo order_index; sem ele, o baseline do card pode variar e gerar
+        // um `stale` falso mesmo sem escrita concorrente.
+        .order('order_index', ascending: true)
+        .order('id', ascending: true);
     return (rows as List)
         .map((r) => Skill.fromMap(r as Map<String, dynamic>))
         .toList();
@@ -543,54 +553,17 @@ class ProfileRepositorySupabase implements ProfileRepository {
         'Escolha no máximo $kMaxProfileSkills habilidades.',
       );
     }
-
-    final existing = await getSkills(userId);
-    final availableByKey = <String, List<Skill>>{};
-    for (final skill in existing) {
-      availableByKey.putIfAbsent(foldSkillName(skill.name), () => []).add(skill);
-    }
-    final keptIds = <String>{};
-
-    for (var index = 0; index < desired.length; index++) {
-      final name = desired[index];
-      final candidates = availableByKey[foldSkillName(name)];
-      Skill? current;
-      if (candidates != null && candidates.isNotEmpty) {
-        // Prefere a grafia exata para não colidir com um segundo registro que
-        // difira apenas por acento durante o UPDATE.
-        final exactKey = cleanSkillName(name).toLowerCase();
-        final exactIndex = candidates.indexWhere(
-          (skill) => cleanSkillName(skill.name).toLowerCase() == exactKey,
-        );
-        current = candidates.removeAt(exactIndex < 0 ? 0 : exactIndex);
-      }
-      if (current == null) {
-        final inserted = await addSkill(Skill(
-          id: '',
-          userId: userId,
-          name: name,
-          orderIndex: index,
-        ));
-        keptIds.add(inserted.id);
-      } else {
-        final saved = await updateSkill(
-          current.copyWith(name: name, orderIndex: index),
-        );
-        keptIds.add(saved.id);
-      }
-    }
-
-    final removedIds = existing
-        .where((skill) => !keptIds.contains(skill.id))
-        .map((skill) => skill.id)
-        .toList(growable: false);
-    if (removedIds.isNotEmpty) {
-      await _client
-          .from('profile_skills')
-          .delete()
-          .eq('user_id', userId)
-          .inFilter('id', removedIds);
-    }
+    // Gate 3.0D — replace ATÔMICO server-side: uma transação sob o advisory
+    // lock por usuário, preservando IDs/metadados (category/canonical_skill_id)
+    // dos itens retidos. Substitui o antigo get -> insert/update/delete
+    // multi-request (janela de falha parcial). O recibo tipado falha fechado em
+    // resposta malformada; erros do RPC (limite 12, duplicata legada, ACL)
+    // propagam como PostgrestException e o ViewModel os trata sem falso sucesso.
+    final raw = await _client.rpc(
+      'replace_profile_skills_atomic_v1',
+      params: {'p_user_id': userId, 'p_names': desired},
+    );
+    ManualSkillsReplaceReceipt.fromRpc(raw, expectedMax: desired.length);
   }
 
   // ──────────────────────────────────────────────────────────────────────
@@ -770,23 +743,85 @@ class ProfileRepositorySupabase implements ProfileRepository {
 
   @override
   Future<void> replaceInterests(String userId, List<String> names) async {
-    await _client.from('profile_interests').delete().eq('user_id', userId);
-    if (names.isEmpty) return;
-    await _client
-        .from('profile_interests')
-        .insert(
-          names
-              .asMap()
-              .entries
-              .map(
-                (e) => {
-                  'user_id': userId,
-                  'name': e.value,
-                  'order_index': e.key,
-                },
-              )
-              .toList(),
-        );
+    // Gate 3.0G — replace ATÔMICO server-side de interesses
+    // (replace_profile_interests_atomic_v1): transação única sob o advisory
+    // lock, preservando IDs dos itens retidos e autoritativo sobre a grafia.
+    // Substitui o DELETE-all + INSERT-all (destrutivo, perdia IDs). O recibo
+    // (genérico de replace atômico {status,count}) falha fechado em resposta
+    // malformada; erros do RPC (limite 50, duplicata legada, ACL) propagam.
+    final raw = await _client.rpc(
+      'replace_profile_interests_atomic_v1',
+      params: {'p_user_id': userId, 'p_names': names},
+    );
+    ManualSkillsReplaceReceipt.fromRpc(raw, expectedMax: names.length);
+  }
+
+  @override
+  Future<String> casWritePersonalField(
+    String userId,
+    String field,
+    String expected,
+    String value, {
+    String? expectedCountryCode,
+    String? newCountryCode,
+  }) async {
+    // Gate 3.0H app-side — CAS server-side sob o advisory lock. 'stale' quando o
+    // vivo diverge do observado (manual-recente-vence). Fail-closed: resposta
+    // inesperada → 'stale' (nunca finge 'applied').
+    final raw = await _client.rpc(
+      'cas_write_personal_field_v1',
+      params: {
+        'p_user_id': userId,
+        'p_field': field,
+        'p_expected': expected,
+        'p_value': value,
+        'p_expected_country_code': expectedCountryCode,
+        'p_new_country_code': newCountryCode,
+      },
+    );
+    return raw == 'applied' ? 'applied' : 'stale';
+  }
+
+  @override
+  Future<String> casWriteItemField(
+    String userId,
+    String kind,
+    String refId,
+    String field,
+    String expected,
+    String value,
+  ) async {
+    final raw = await _client.rpc(
+      'cas_write_item_field_v1',
+      params: {
+        'p_user_id': userId,
+        'p_kind': kind,
+        'p_ref_id': refId,
+        'p_field': field,
+        'p_expected': expected,
+        'p_value': value,
+      },
+    );
+    return raw == 'applied' ? 'applied' : 'stale';
+  }
+
+  @override
+  Future<String> casWriteJobPrefField(
+    String userId,
+    String field,
+    String expected,
+    String value,
+  ) async {
+    final raw = await _client.rpc(
+      'cas_write_job_pref_field_v1',
+      params: {
+        'p_user_id': userId,
+        'p_field': field,
+        'p_expected': expected,
+        'p_value': value,
+      },
+    );
+    return raw == 'applied' ? 'applied' : 'stale';
   }
 
   @override
@@ -902,18 +937,25 @@ class ProfileRepositorySupabase implements ProfileRepository {
     String userId,
     List<DesiredTitle> titles,
   ) async {
-    await _client.from('profile_desired_titles').delete().eq('user_id', userId);
-    if (titles.isEmpty) return;
-    await _client
-        .from('profile_desired_titles')
-        .insert(
-          titles.asMap().entries.map((e) {
-            final m = e.value.toMap()..remove('id');
-            m['order_index'] = e.key;
-            m['user_id'] = userId;
-            return m;
-          }).toList(),
-        );
+    // Gate 3.0G-áreas — replace ATÔMICO com precedência de source
+    // (replace_profile_desired_titles_atomic_v1): transação única sob o
+    // advisory lock, preserva IDs dos itens retidos e mantém a fonte mais forte
+    // por chave normalizada (nunca rebaixa uma área escolhida 'user_added' para
+    // inferida). Substitui o DELETE-all + INSERT-all (destrutivo). A inferência
+    // canônica (linhas 'inferred' ocultas) segue montada no domínio ANTES
+    // daqui — a lista recebida já é o estado final. Recibo fail-closed; erros
+    // do RPC (source inválida, duplicata legada, limite, ACL) propagam.
+    final raw = await _client.rpc(
+      'replace_profile_desired_titles_atomic_v1',
+      params: {
+        'p_user_id': userId,
+        'p_titles': [
+          for (final t in titles)
+            {'title': t.title, 'source': t.toMap()['source']},
+        ],
+      },
+    );
+    ManualSkillsReplaceReceipt.fromRpc(raw, expectedMax: titles.length);
   }
 
   @override
@@ -1026,11 +1068,13 @@ class ProfileRepositorySupabase implements ProfileRepository {
   @override
   Future<void> markGuidedProgress(String userId, String segment) async {
     // ON CONFLICT (user_id, segment) DO NOTHING — idempotente.
-    await _client.from('profile_guided_progress').upsert(
-      {'user_id': userId, 'segment': segment},
-      onConflict: 'user_id,segment',
-      ignoreDuplicates: true,
-    );
+    await _client
+        .from('profile_guided_progress')
+        .upsert(
+          {'user_id': userId, 'segment': segment},
+          onConflict: 'user_id,segment',
+          ignoreDuplicates: true,
+        );
   }
 
   @override

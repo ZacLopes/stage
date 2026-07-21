@@ -303,4 +303,66 @@ void main() {
     // agora PERGUNTA a data de saída (end) — o ramo foi re-avaliado.
     expect(c.currentStep?.id, 'exp.0.end');
   });
+
+  test('gate de ramificação não pode ser editado depois do follow-up', () async {
+    final tail = ConversationStep.single(
+        id: 'exp.0.ofazia',
+        aiMessage: 'O que fazia?',
+        input: const GuidedTextInput(example: 'x'));
+    final gate = ConversationStep.single(
+      id: 'exp.0.current',
+      aiMessage: 'Ainda está nessa experiência?',
+      input: choice([('yes', 'Sim, ainda estou'), ('no', 'Não, já saí')]),
+      expand: (a) =>
+          (a.value as List).contains('yes') ? [tail] : const [],
+    );
+    final c = await setup([gate]);
+    addTearDown(c.dispose);
+
+    await c.submit(StepAnswer.choice('exp.0.current',
+        [const StepOption(id: 'yes', label: 'Sim, ainda estou')]));
+    await c.submit(StepAnswer.text('exp.0.ofazia', 'Analisava dados'));
+
+    final gateCard = c.thread
+        .whereType<AnsweredItem>()
+        .firstWhere((item) => item.exchange.step.id == 'exp.0.current');
+    expect(c.canEditAnswer(gateCard), isFalse);
+    c.beginEdit(gateCard);
+    expect(c.isEditing, isFalse);
+  });
+
+  test('card antigo não edita gate novo que reutiliza o mesmo step id', () async {
+    final tail = ConversationStep.single(
+        id: 'exp.0.ofazia',
+        aiMessage: 'O que fazia?',
+        input: const GuidedTextInput(example: 'x'));
+    final gate = ConversationStep.single(
+      id: 'exp.0.current',
+      aiMessage: 'Ainda está nessa experiência?',
+      input: choice([('yes', 'Sim, ainda estou'), ('no', 'Não, já saí')]),
+      expand: (a) => (a.value as List).contains('yes') ? [tail] : const [],
+    );
+    final c = await setup([gate, gate]);
+    addTearDown(c.dispose);
+
+    Future<void> answerGate() => c.submit(StepAnswer.choice(
+        'exp.0.current',
+        [const StepOption(id: 'yes', label: 'Sim, ainda estou')]));
+
+    await answerGate();
+    await c.submit(StepAnswer.text('exp.0.ofazia', 'Analisava dados'));
+    await answerGate();
+
+    final gateCards = c.thread
+        .whereType<AnsweredItem>()
+        .where((item) => item.exchange.step.id == 'exp.0.current')
+        .toList();
+    expect(gateCards, hasLength(2));
+    expect(c.canEditAnswer(gateCards.first), isFalse);
+    expect(c.canEditAnswer(gateCards.last), isTrue);
+
+    c.beginEdit(gateCards.first);
+    expect(c.isEditing, isFalse);
+    expect(c.currentStep?.id, 'exp.0.ofazia');
+  });
 }

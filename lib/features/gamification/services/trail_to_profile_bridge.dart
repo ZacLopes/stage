@@ -24,16 +24,35 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../profile/domain/entities/entities.dart';
 import '../../profile/domain/repositories/profile_repository.dart';
+import '../../trilha/data/guided_skills_writer_supabase.dart';
+import '../../trilha/domain/guided_skills_write.dart';
 
 class TrailToProfileBridge {
   final ProfileRepository _repo;
-  TrailToProfileBridge(this._repo);
+
+  /// Writer aditivo/idempotente das skills (Gate 3.0C) — o mesmo contrato
+  /// `merge_guided_profile_list` usado por [TrilhaWriteback]. A bridge deixa de
+  /// ser um writer concorrente esquecido em `replaceSkills`.
+  final GuidedSkillsWriter _guidedSkillsWriter;
+
+  /// Resolver do usuário logado. Default lê do singleton Supabase; injetável
+  /// para teste (seam sem mudança de comportamento em produção).
+  final String? Function() _currentUserId;
+
+  TrailToProfileBridge(
+    this._repo, {
+    GuidedSkillsWriter? guidedSkillsWriter,
+    String? Function()? currentUserId,
+  }) : _guidedSkillsWriter = guidedSkillsWriter ?? GuidedSkillsWriterSupabase(),
+       _currentUserId =
+           currentUserId ??
+           (() => Supabase.instance.client.auth.currentUser?.id);
 
   /// Recebe phase_id e answer (como vem do GamificationViewModel) e roteia pra
   /// tabela correspondente. Retorna sem erro mesmo se o phase_id não estiver
   /// mapeado ainda — assim a trilha legacy não quebra.
   Future<void> route({required String phaseId, required dynamic answer}) async {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
+    final userId = _currentUserId();
     if (userId == null) return;
 
     try {
@@ -283,18 +302,12 @@ class TrailToProfileBridge {
   Future<void> _routeT4(String userId, String phaseId, dynamic answer) async {
     // M4_1: tools/skills. M4_2: idiomas.
     if (phaseId.contains('m4_1') || phaseId.contains('m4.1')) {
-      // Tools / skills
+      // Tools / skills — merge ADITIVO server-side (Gate 3.0C): sem pré-leitura,
+      // dedup/insere sob lock, nunca apaga skill manual. O `try/catch` de
+      // `route` mantém a bridge defensiva (nunca derruba a trilha legacy).
       final names = _toStringList(answer);
       if (names.isNotEmpty) {
-        final existing = await _repo.getSkills(userId);
-        final existingNames = existing.map((s) => s.name.toLowerCase()).toSet();
-        final newNames = names
-            .where((n) => !existingNames.contains(n.toLowerCase()))
-            .toList();
-        await _repo.replaceSkills(userId, [
-          ...existing.map((s) => s.name),
-          ...newNames,
-        ]);
+        await _guidedSkillsWriter.mergeSkills(userId: userId, names: names);
       }
     } else if (phaseId.contains('m4_2') || phaseId.contains('m4.2')) {
       // Languages

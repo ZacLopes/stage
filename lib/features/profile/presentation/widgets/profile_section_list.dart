@@ -78,9 +78,10 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
         _sectionCertifications(vm),
         _sectionInterests(vm),
         _sectionProjects(vm),
-        if (_showOptional)
-          _sectionAwards(vm)
-        else
+        if (_showOptional) ...[
+          _sectionAwards(vm),
+          _sectionCoursework(vm),
+        ] else
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: TextButton.icon(
@@ -280,6 +281,24 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
         inputLabel: 'Interesse',
         initialItems: names,
         onSave: vm.replaceInterests,
+      ),
+      children: names.isEmpty ? const [] : [_ChipList(items: names)],
+    );
+  }
+
+  // Fase 3 F1c — matérias/disciplinas relevantes (lista simples, como interesses).
+  Widget _sectionCoursework(ProfileEditorViewModel vm) {
+    final names = vm.coursework.map((c) => c.name).toList();
+    return _sectionShell(
+      key: 'coursework',
+      title: 'Disciplinas relevantes',
+      count: names.length,
+      onEdit: () => EditListModal.show(
+        context: context,
+        title: 'Editar disciplinas',
+        inputLabel: 'Disciplina',
+        initialItems: names,
+        onSave: vm.replaceCoursework,
       ),
       children: names.isEmpty ? const [] : [_ChipList(items: names)],
     );

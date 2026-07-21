@@ -109,6 +109,35 @@ class PreferencesViewModel extends ChangeNotifier {
     await upsertPrefs(current.copyWith(jobTypes: types));
   }
 
+  /// Fase 3 — cargo desejado (texto; vazio limpa via a flag do copyWith).
+  Future<void> setDesiredPosition(String? position) async {
+    final current = _prefs ?? _emptyPrefs();
+    final v = (position ?? '').trim();
+    await upsertPrefs(v.isEmpty
+        ? current.copyWith(clearDesiredPosition: true)
+        : current.copyWith(desiredPosition: v));
+  }
+
+  /// Fase 3 — senioridade (lista de níveis; vazia limpa).
+  Future<void> setExperienceLevel(List<ExperienceLevel> levels) async {
+    final current = _prefs ?? _emptyPrefs();
+    await upsertPrefs(current.copyWith(experienceLevel: levels));
+  }
+
+  /// Fase 3 — fit cultural (ids das opções; só o que vier não-nulo é atualizado).
+  Future<void> setCulturalFit({
+    String? companyStage,
+    String? workEnvironment,
+    String? workStyle,
+  }) async {
+    final current = _prefs ?? _emptyPrefs();
+    await upsertPrefs(current.copyWith(
+      companyStage: companyStage,
+      workEnvironment: workEnvironment,
+      workStyle: workStyle,
+    ));
+  }
+
   Future<void> setPrimaryLocation({
     String? country,
     String? state,

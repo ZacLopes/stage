@@ -108,6 +108,7 @@ class _ChatThreadViewState extends State<ChatThreadView>
   final ScrollController _scroll = ScrollController();
   final List<_ChatItem> _items = [];
   bool _typing = false;
+  StepAnswer? _retryAnswer;
   bool _inputVisible = false;
   bool _finished = false;
 
@@ -192,9 +193,33 @@ class _ChatThreadViewState extends State<ChatThreadView>
     });
     _scrollToEnd();
 
-    // Write-back (defensivo no controller).
-    await _c.submit(answer);
+    // Write-back fail-closed: sem persistência, remove o eco otimista, mantém
+    // o mesmo passo e oferece retry. Nunca mostra o acknowledgement de sucesso.
+    final submitResult = await _c.submit(answer);
     if (!mounted) return;
+    if (submitResult != ConversationSubmitResult.advanced) {
+      setState(() {
+        if (_items.isNotEmpty &&
+            _items.last.kind == _ItemKind.user &&
+            _items.last.text == answer.displayText) {
+          _items.removeLast();
+        }
+        if (submitResult == ConversationSubmitResult.writeFailed) {
+          _retryAnswer = answer;
+          _items.add(
+            const _ChatItem(
+              _ItemKind.ai,
+              'Não consegui salvar essa resposta agora 😕 Tenta de novo.',
+            ),
+          );
+        }
+        _typing = false;
+        _inputVisible = _c.current != null;
+      });
+      _scrollToEnd();
+      return;
+    }
+    _retryAnswer = null;
     _shownProgress = math.max(_shownProgress, _c.progress);
 
     // Reação da IA ao que foi respondido (recap dinâmico > ack fixo).
@@ -674,6 +699,15 @@ class _ChatThreadViewState extends State<ChatThreadView>
               enabled: !_c.isSaving,
               onSubmit: _onSubmit,
             ),
+            if (_retryAnswer != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              PrimaryButton(
+                label: 'Tentar salvar novamente',
+                onPressed: _c.isSaving
+                    ? null
+                    : () => _onSubmit(_retryAnswer!),
+              ),
+            ],
           ],
         ),
       );

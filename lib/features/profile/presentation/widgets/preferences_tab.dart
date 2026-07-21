@@ -123,6 +123,41 @@ class _PreferencesTabState extends State<PreferencesTab> {
                 .toList(),
             onEdit: () => _editWorkLocations(context),
           ),
+          const SizedBox(height: 10),
+          // Fase 3 — campos coletados pela trilha mas sem editor manual até agora.
+          _PrefCard(
+            icon: Icons.badge_rounded,
+            title: 'Cargo desejado',
+            emptyHint: 'Não informado',
+            chips: [
+              if ((prefsVm.prefs?.desiredPosition ?? '').trim().isNotEmpty)
+                prefsVm.prefs!.desiredPosition!.trim(),
+            ],
+            onEdit: () => _editDesiredPosition(context),
+          ),
+          const SizedBox(height: 10),
+          _PrefCard(
+            icon: Icons.trending_up_rounded,
+            title: 'Momento de carreira',
+            emptyHint: 'Não definido',
+            chips: (prefsVm.prefs?.experienceLevel ?? const [])
+                .map((l) => _experienceLevelLabels[l] ?? '')
+                .where((s) => s.isNotEmpty)
+                .toList(),
+            onEdit: () => _editExperienceLevel(context),
+          ),
+          const SizedBox(height: 10),
+          _PrefCard(
+            icon: Icons.favorite_outline_rounded,
+            title: 'Fit cultural',
+            emptyHint: 'Não definido',
+            chips: [
+              _labelFor(_companyStageOptions, prefsVm.prefs?.companyStage),
+              _labelFor(_workEnvironmentOptions, prefsVm.prefs?.workEnvironment),
+              _labelFor(_workStyleOptions, prefsVm.prefs?.workStyle),
+            ].whereType<String>().toList(),
+            onEdit: () => _editCulturalFit(context),
+          ),
         ],
       ),
     );
@@ -153,6 +188,21 @@ class _PreferencesTabState extends State<PreferencesTab> {
   Future<void> _editWorkLocations(BuildContext context) {
     AnalyticsService.shared.track('prefs_tab_edit_opened', props: {'section': 'work_locations'});
     return _showSheet(context, const _WorkLocationsSheet());
+  }
+
+  Future<void> _editDesiredPosition(BuildContext context) {
+    AnalyticsService.shared.track('prefs_tab_edit_opened', props: {'section': 'desired_position'});
+    return _showSheet(context, const _DesiredPositionSheet());
+  }
+
+  Future<void> _editExperienceLevel(BuildContext context) {
+    AnalyticsService.shared.track('prefs_tab_edit_opened', props: {'section': 'experience_level'});
+    return _showSheet(context, const _ExperienceLevelSheet());
+  }
+
+  Future<void> _editCulturalFit(BuildContext context) {
+    AnalyticsService.shared.track('prefs_tab_edit_opened', props: {'section': 'cultural_fit'});
+    return _showSheet(context, const _CulturalFitSheet());
   }
 
   Future<void> _showSheet(BuildContext context, Widget child) {
@@ -1578,4 +1628,264 @@ void _snack(BuildContext context, String message) {
       duration: const Duration(seconds: 2),
     ),
   );
+}
+
+// =============================================================================
+// Fase 3 — Cargo desejado, Momento de carreira (senioridade) e Fit cultural.
+// Rótulos espelham conversation_plan.dart (a trilha coleta as mesmas opções).
+// =============================================================================
+
+const _experienceLevelLabels = <ExperienceLevel, String>{
+  ExperienceLevel.entry: 'Começando agora',
+  ExperienceLevel.mid: 'Já tenho alguma experiência',
+  ExperienceLevel.senior: 'Experiente / sênior',
+};
+const _experienceLevelIcons = <ExperienceLevel, IconData>{
+  ExperienceLevel.entry: Icons.spa_rounded,
+  ExperienceLevel.mid: Icons.trending_up_rounded,
+  ExperienceLevel.senior: Icons.workspace_premium_rounded,
+};
+const _companyStageOptions = <(String, String)>[
+  ('startup', 'Startup'),
+  ('scaleup', 'Scale-up'),
+  ('established', 'Empresa consolidada'),
+  ('open', 'Tanto faz'),
+];
+const _workEnvironmentOptions = <(String, String)>[
+  ('structured', 'Metas e processos claros'),
+  ('dynamic', 'Dinâmico, muda rápido'),
+  ('balanced', 'Um equilíbrio dos dois'),
+];
+const _workStyleOptions = <(String, String)>[
+  ('autonomy', 'Com autonomia, no meu ritmo'),
+  ('collaboration', 'Muito em equipe'),
+  ('flexible', 'Depende, me adapto'),
+];
+
+String? _labelFor(List<(String, String)> options, String? id) {
+  if (id == null || id.isEmpty) return null;
+  for (final o in options) {
+    if (o.$1 == id) return o.$2;
+  }
+  return null;
+}
+
+// ── Cargo desejado (texto) ───────────────────────────────────────────────────
+class _DesiredPositionSheet extends StatefulWidget {
+  const _DesiredPositionSheet();
+  @override
+  State<_DesiredPositionSheet> createState() => _DesiredPositionSheetState();
+}
+
+class _DesiredPositionSheetState extends State<_DesiredPositionSheet> {
+  late final TextEditingController _ctrl;
+  late final String _initial;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initial = context.read<PreferencesViewModel>().prefs?.desiredPosition ?? '';
+    _ctrl = TextEditingController(text: _initial);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  bool get _isDirty => _ctrl.text.trim() != _initial.trim();
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    HapticFeedback.mediumImpact();
+    try {
+      await context.read<PreferencesViewModel>().setDesiredPosition(_ctrl.text);
+      if (!mounted) return;
+      Navigator.pop(context);
+      _snack(context, 'Cargo desejado atualizado');
+    } catch (_) {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _SheetShell(
+      title: 'Cargo desejado',
+      subtitle:
+          'Uma posição específica (ex.: "Desenvolvedor Front-end"), além das áreas amplas. Ajuda no match.',
+      action: _saveButton(enabled: _isDirty, loading: _saving, onPressed: _save),
+      child: TextField(
+        controller: _ctrl,
+        autofocus: true,
+        textCapitalization: TextCapitalization.words,
+        decoration: InputDecoration(
+          hintText: 'Ex.: Analista de Marketing',
+          filled: true,
+          fillColor: AppColors.surface,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+          ),
+        ),
+        onChanged: (_) => setState(() {}),
+      ),
+    );
+  }
+}
+
+// ── Momento de carreira / senioridade (escolha única) ────────────────────────
+class _ExperienceLevelSheet extends StatefulWidget {
+  const _ExperienceLevelSheet();
+  @override
+  State<_ExperienceLevelSheet> createState() => _ExperienceLevelSheetState();
+}
+
+class _ExperienceLevelSheetState extends State<_ExperienceLevelSheet> {
+  ExperienceLevel? _selected;
+  ExperienceLevel? _initial;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final list = context.read<PreferencesViewModel>().prefs?.experienceLevel ??
+        const <ExperienceLevel>[];
+    _initial = list.isNotEmpty ? list.first : null;
+    _selected = _initial;
+  }
+
+  bool get _isDirty => _selected != _initial;
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    HapticFeedback.mediumImpact();
+    try {
+      await context.read<PreferencesViewModel>().setExperienceLevel(
+            _selected == null ? const [] : [_selected!],
+          );
+      if (!mounted) return;
+      Navigator.pop(context);
+      _snack(context, 'Momento de carreira atualizado');
+    } catch (_) {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _SheetShell(
+      title: 'Momento de carreira',
+      subtitle: 'Onde você está hoje. Toque de novo pra desmarcar.',
+      action: _saveButton(enabled: _isDirty, loading: _saving, onPressed: _save),
+      child: Column(
+        children: ExperienceLevel.values.map((lvl) {
+          final selected = _selected == lvl;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _ListTile(
+              icon: _experienceLevelIcons[lvl] ?? Icons.circle_outlined,
+              label: _experienceLevelLabels[lvl] ?? '',
+              selected: selected,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _selected = selected ? null : lvl);
+              },
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+// ── Fit cultural (3 perguntas de escolha única) ──────────────────────────────
+class _CulturalFitSheet extends StatefulWidget {
+  const _CulturalFitSheet();
+  @override
+  State<_CulturalFitSheet> createState() => _CulturalFitSheetState();
+}
+
+class _CulturalFitSheetState extends State<_CulturalFitSheet> {
+  String? _stage, _env, _style;
+  String? _iStage, _iEnv, _iStyle;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final p = context.read<PreferencesViewModel>().prefs;
+    _stage = _iStage = p?.companyStage;
+    _env = _iEnv = p?.workEnvironment;
+    _style = _iStyle = p?.workStyle;
+  }
+
+  bool get _isDirty => _stage != _iStage || _env != _iEnv || _style != _iStyle;
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    HapticFeedback.mediumImpact();
+    try {
+      await context.read<PreferencesViewModel>().setCulturalFit(
+            companyStage: _stage,
+            workEnvironment: _env,
+            workStyle: _style,
+          );
+      if (!mounted) return;
+      Navigator.pop(context);
+      _snack(context, 'Fit cultural atualizado');
+    } catch (_) {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Widget _question(
+    String title,
+    List<(String, String)> options,
+    IconData icon,
+    String? value,
+    ValueChanged<String?> onPick,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: AppTextStyles.labelMd),
+        const SizedBox(height: 8),
+        for (final o in options)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _ListTile(
+              icon: icon,
+              label: o.$2,
+              selected: value == o.$1,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                onPick(value == o.$1 ? null : o.$1);
+              },
+            ),
+          ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _SheetShell(
+      title: 'Fit cultural',
+      subtitle: 'Ajuda a te conectar por cultura, não só por skill.',
+      action: _saveButton(enabled: _isDirty, loading: _saving, onPressed: _save),
+      child: Column(
+        children: [
+          _question('Que tipo de empresa combina com você?', _companyStageOptions,
+              Icons.business_rounded, _stage, (v) => setState(() => _stage = v)),
+          _question('E o dia a dia?', _workEnvironmentOptions,
+              Icons.dashboard_rounded, _env, (v) => setState(() => _env = v)),
+          _question('Como você rende melhor?', _workStyleOptions,
+              Icons.person_rounded, _style, (v) => setState(() => _style = v)),
+        ],
+      ),
+    );
+  }
 }

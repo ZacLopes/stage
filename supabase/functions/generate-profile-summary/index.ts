@@ -148,14 +148,31 @@ serve(withEdgeAnalytics('generate-profile-summary', async (req) => {
             throw new Error('IA não retornou um resumo válido')
         }
 
-        // 4. Grava no perfil (RLS via JWT do usuário). O trigger recalcula completeness.
-        const update: Record<string, string> = { summary }
-        if (headline) update.headline = headline
-        const { error: updateError } = await client
-            .from('profile_personal').update(update).eq('user_id', userId)
+        // 4. Grava com CAS (Gate 3.0H): não sobrescreve uma edição manual
+        // concorrente de summary/headline. Os "esperados" são o que a IA
+        // observou no passo 1 (personalR); se o vivo mudou desde então, volta
+        // 'stale' e o banco mantém a edição manual. RLS/auth via JWT do usuário
+        // (auth.uid() == userId). O trigger recalcula completeness.
+        const expectedSummary = (personal?.summary ?? '').trim()
+        const expectedHeadline = (personal?.headline ?? '').trim()
+        const { data: casResult, error: updateError } = await client.rpc(
+            'set_profile_summary_cas',
+            {
+                p_user_id: userId,
+                p_summary: summary,
+                p_headline: headline,
+                p_expected_summary: expectedSummary,
+                p_expected_headline: expectedHeadline,
+            },
+        )
         if (updateError) {
-            console.error('generate-profile-summary update error:', updateError)
+            console.error('generate-profile-summary set_profile_summary_cas error:', updateError)
             throw new Error('Falha ao salvar o resumo')
+        }
+        if (casResult === 'stale') {
+            // Edição manual concorrente venceu; não sobrescrevemos. O app
+            // recarrega o perfil e vê o estado real; devolvemos a sugestão.
+            console.warn('[generate-profile-summary] CAS stale — mantida a edição manual')
         }
 
         return new Response(

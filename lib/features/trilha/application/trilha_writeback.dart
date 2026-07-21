@@ -9,7 +9,11 @@
 import '../../profile/domain/entities/entities.dart';
 import '../../profile/domain/profile_title.dart';
 import '../../profile/domain/repositories/profile_repository.dart';
+import '../data/guided_language_writer_supabase.dart';
+import '../data/guided_skills_writer_supabase.dart';
 import '../domain/conversation_step.dart';
+import '../domain/guided_language_write.dart';
+import '../domain/guided_skills_write.dart';
 import 'area_canonical.dart';
 import 'linkedin_url.dart';
 import 'trilha_draft.dart';
@@ -17,6 +21,14 @@ import 'trilha_draft.dart';
 class TrilhaWriteback {
   final ProfileRepository _repo;
   final String userId;
+
+  /// Writer aditivo/idempotente das skills da coleta guiada (Gate 3.0C).
+  /// Substitui o antigo `get → replaceSkills` por `merge_guided_profile_list`.
+  final GuidedSkillsWriter _guidedSkillsWriter;
+
+  /// Writers de idioma da coleta guiada (Gate 3.0F): add (merge aditivo) e
+  /// nível (CAS; manual recente vence).
+  final GuidedLanguageWriter _guidedLanguageWriter;
 
   /// Persistência do RASCUNHO de item em construção (resumabilidade por passo).
   /// Nulo ⇒ sem rascunho (testes/uso sem retomada).
@@ -30,8 +42,17 @@ class TrilhaWriteback {
   final Map<int, _AwardBuffer> _awardBuffers = {};
   _EduBuffer? _eduBuffer;
 
-  TrilhaWriteback(this._repo, this.userId, {TrilhaDraftStore? draftStore})
-      : _draftStore = draftStore;
+  TrilhaWriteback(
+    this._repo,
+    this.userId, {
+    GuidedSkillsWriter? guidedSkillsWriter,
+    GuidedLanguageWriter? guidedLanguageWriter,
+    TrilhaDraftStore? draftStore,
+  })  : _guidedSkillsWriter =
+            guidedSkillsWriter ?? GuidedSkillsWriterSupabase(),
+        _guidedLanguageWriter =
+            guidedLanguageWriter ?? GuidedLanguageWriterSupabase(),
+        _draftStore = draftStore;
 
   /// Reidrata os buffers a partir dos rascunhos salvos (chamado na abertura,
   /// ANTES de criar o controller) — pra o save terminal ver TODOS os campos.
@@ -292,17 +313,23 @@ class TrilhaWriteback {
   Future<void> _saveCertification(int n, _CertBuffer buf) async {
     final name = buf.name?.trim() ?? '';
     if (name.isEmpty) {
-      _certBuffers.remove(n);
-      return;
+      throw StateError('invalid_guided_certification');
     }
     final issuer = buf.issuer?.trim();
-    await _repo.addCertification(Certification(
+    final desired = Certification(
       id: '',
       userId: userId,
       name: name,
       issuer: (issuer != null && issuer.isNotEmpty) ? issuer : null,
       date: buf.date,
-    ));
+    );
+    final existing = await _repo.getCertifications(userId);
+    if (!existing.any((certification) =>
+        _sameText(certification.name, desired.name) &&
+        _sameText(certification.issuer, desired.issuer) &&
+        _sameMonth(certification.date, desired.date))) {
+      await _repo.addCertification(desired);
+    }
     _certBuffers.remove(n);
   }
 
@@ -328,10 +355,15 @@ class TrilhaWriteback {
   Future<void> _saveAward(int n, _AwardBuffer buf) async {
     final name = normalizeProfileTitle(buf.name ?? '');
     if (name.isEmpty) {
-      _awardBuffers.remove(n);
-      return;
+      throw StateError('invalid_guided_award');
     }
-    await _repo.addAward(Award(id: '', userId: userId, name: name, date: buf.date));
+    final desired = Award(id: '', userId: userId, name: name, date: buf.date);
+    final existing = await _repo.getAwards(userId);
+    if (!existing.any((award) =>
+        _sameText(award.name, desired.name) &&
+        _sameMonth(award.date, desired.date))) {
+      await _repo.addAward(desired);
+    }
     _awardBuffers.remove(n);
   }
 
@@ -370,19 +402,17 @@ class TrilhaWriteback {
     ));
   }
 
-  // ── Habilidades → profile_skills (merge dedup) ───────────────────────────
+  // ── Habilidades → profile_skills (merge ADITIVO server-side, Gate 3.0C) ──
+  // Sem pré-leitura: manda a seleção guiada ao contrato aditivo/idempotente
+  // `merge_guided_profile_list(section='skills')`, que dedup e insere só o que
+  // falta sob o advisory lock por usuário. Elimina o TOCTOU do antigo
+  // `get → replaceSkills` e nunca apaga skill editada manualmente. Uma falha
+  // (recibo malformado, payload inválido ou estouro do limite de 12) propaga e
+  // o ConversationController mantém o passo aberto para retry (fail-closed).
   Future<void> _saveSkills(List<String> names) async {
     final clean = names.where((n) => n.trim().isNotEmpty).toList();
     if (clean.isEmpty) return;
-    final existing = await _repo.getSkills(userId);
-    final have = existing.map((s) => s.name.toLowerCase().trim()).toSet();
-    final toAdd =
-        clean.where((n) => !have.contains(n.toLowerCase().trim())).toList();
-    if (toAdd.isEmpty) return;
-    await _repo.replaceSkills(userId, [
-      ...existing.map((s) => s.name),
-      ...toAdd.map((n) => n.trim()),
-    ]);
+    await _guidedSkillsWriter.mergeSkills(userId: userId, names: clean);
   }
 
   // ── Interesses → profile_interests (merge dedup) ─────────────────────────
@@ -401,40 +431,37 @@ class TrilhaWriteback {
     ]);
   }
 
-  // ── Idiomas → profile_languages (insere os novos; 'none' = pular) ────────
+  // ── Idiomas → profile_languages (merge ADITIVO server-side, Gate 3.0F) ───
+  // Sem pré-leitura: manda os idiomas escolhidos ao merge aditivo (insere só os
+  // novos, com nível null; o passo lang.level.X preenche depois). 'none' pula.
   Future<void> _saveLanguages(List<String> names) async {
     final clean =
         names.where((n) => n.trim().isNotEmpty && n != 'none').toList();
     if (clean.isEmpty) return;
-    final existing = await _repo.getLanguages(userId);
-    final have = existing.map((l) => l.name.toLowerCase().trim()).toSet();
-    for (final name in clean) {
-      if (have.contains(name.toLowerCase().trim())) continue;
-      // O nível de CADA idioma (inclusive português) vem no passo seguinte
-      // (lang.level.X) — insere sem proficiência e o passo de nível preenche.
-      await _repo.addLanguage(
-          Language(id: '', userId: userId, name: name.trim()));
-    }
+    await _guidedLanguageWriter.mergeLanguages(userId: userId, names: clean);
   }
 
-  // ── Nível de idioma → profile_languages.proficiency (atualiza o existente) ──
+  // ── Nível de idioma → CAS server-side (Gate 3.0F; manual recente vence) ──
+  // Lê o nível observado do idioma e faz CAS: se mudou entre a leitura e a
+  // escrita (edição manual concorrente), volta stale e não sobrescreve.
   Future<void> _saveLanguageLevel(String name, List<String> ids) async {
     final id = ids.isNotEmpty ? ids.first : '';
-    LanguageProficiency? prof;
-    for (final p in LanguageProficiency.values) {
-      if (p.name == id) {
-        prof = p;
+    if (!kLanguageLevels.contains(id)) return; // nível inválido → no-op
+    final langs = await _repo.getLanguages(userId);
+    Language? match;
+    for (final l in langs) {
+      if (l.name.toLowerCase() == name.toLowerCase()) {
+        match = l;
         break;
       }
     }
-    if (prof == null) return;
-    final langs = await _repo.getLanguages(userId);
-    for (final l in langs) {
-      if (l.name.toLowerCase() == name.toLowerCase()) {
-        await _repo.updateLanguage(l.copyWith(proficiency: prof));
-        return;
-      }
-    }
+    if (match == null) return; // o passo de add roda antes; sem idioma, no-op
+    await _guidedLanguageWriter.setLevel(
+      userId: userId,
+      name: match.name,
+      expectedLevel: match.proficiency?.name, // CAS contra o nível observado
+      newLevel: id,
+    );
   }
 
   WorkMode? _workModeFromId(String id) {
@@ -514,9 +541,14 @@ class TrilhaWriteback {
   Future<void> _saveExperience(int n, _ExpBuffer buf) async {
     final company = buf.company?.trim() ?? '';
     final role = buf.role?.trim() ?? '';
-    if (company.isEmpty || role.isEmpty || buf.start == null) {
-      _expBuffers.remove(n);
-      return;
+    final raw = buf.ofazia?.trim() ?? '';
+    if (company.isEmpty ||
+        role.isEmpty ||
+        buf.start == null ||
+        buf.isCurrent == null ||
+        (buf.isCurrent == false && buf.end == null) ||
+        raw.isEmpty) {
+      throw StateError('invalid_guided_experience');
     }
     final exp = Experience(
       id: '',
@@ -528,11 +560,27 @@ class TrilhaWriteback {
       endDate: buf.isCurrent == true ? null : buf.end,
       isCurrent: buf.isCurrent == true,
       needsReview: true, // veio da trilha; refino do bullet pela IA vem depois
+      bullets: [Bullet(id: '', experienceId: '', text: raw)],
     );
-    final saved = await _repo.addExperience(exp);
-    final raw = buf.ofazia?.trim() ?? '';
-    if (raw.isNotEmpty) {
-      await _repo.addBullet(Bullet(id: '', experienceId: saved.id, text: raw));
+    final existing = await _repo.getExperiences(userId);
+    Experience? match;
+    for (final candidate in existing) {
+      if (_sameGuidedExperience(candidate, exp)) {
+        match = candidate;
+        break;
+      }
+    }
+    if (match == null) {
+      // Envia o bullet junto do pai. O repositório concreto reconcilia ambos
+      // antes de confirmar sucesso; se a operação ficar ambígua, o retry
+      // reencontra o pai e completa somente o que estiver faltando.
+      await _repo.addExperience(exp);
+    } else if (!match.bullets.any((bullet) => _sameText(bullet.text, raw))) {
+      await _repo.addBullet(Bullet(
+        id: '',
+        experienceId: match.id,
+        text: raw,
+      ));
     }
     _expBuffers.remove(n);
   }
@@ -585,25 +633,45 @@ class TrilhaWriteback {
   Future<void> _saveProject(int n, _ProjBuffer buf) async {
     final name = normalizeProfileTitle(buf.name ?? '');
     if (name.isEmpty) {
-      _projBuffers.remove(n);
-      return;
+      throw StateError('invalid_guided_project');
     }
     final what = buf.what?.trim();
     final link = buf.link?.trim();
-    final saved = await _repo.addProject(Project(
+    final did = buf.did?.trim();
+    if (what == null ||
+        what.isEmpty ||
+        did == null ||
+        did.isEmpty ||
+        buf.isCurrent == null) {
+      throw StateError('invalid_guided_project');
+    }
+    final project = Project(
       id: '',
       userId: userId,
       name: name,
-      context: (what != null && what.isNotEmpty) ? what : null,
+      context: what,
       website: (link != null && link.isNotEmpty) ? link : null,
       startDate: buf.start,
       endDate: buf.isCurrent == true ? null : buf.end,
       isCurrent: buf.isCurrent == true,
-    ));
-    final did = buf.did?.trim();
-    if (did != null && did.isNotEmpty) {
-      await _repo.addProjectBullet(
-          ProjectBullet(id: '', projectId: saved.id, text: did));
+      bullets: [ProjectBullet(id: '', projectId: '', text: did)],
+    );
+    final existing = await _repo.getProjects(userId);
+    Project? match;
+    for (final candidate in existing) {
+      if (_sameGuidedProject(candidate, project)) {
+        match = candidate;
+        break;
+      }
+    }
+    if (match == null) {
+      await _repo.addProject(project);
+    } else if (!match.bullets.any((bullet) => _sameText(bullet.text, did))) {
+      await _repo.addProjectBullet(ProjectBullet(
+        id: '',
+        projectId: match.id,
+        text: did,
+      ));
     }
     _projBuffers.remove(n);
   }
@@ -663,8 +731,16 @@ class TrilhaWriteback {
 
   Future<void> _saveEducation(_EduBuffer buf) async {
     final inst = buf.institution?.trim() ?? '';
-    if (inst.isEmpty) return;
     final isSchool = buf.moment == 'in_school';
+    final isCollege =
+        buf.moment == 'in_college' || buf.moment == 'college_paused';
+    final course = buf.course?.trim() ?? '';
+    if (inst.isEmpty ||
+        (!isSchool && !isCollege) ||
+        (isSchool && buf.schoolYear == null) ||
+        (isCollege && (course.isEmpty || buf.semester == null))) {
+      throw StateError('invalid_guided_education');
+    }
     final level = isSchool ? 'school' : 'college';
     final status = buf.moment == 'college_paused' ? 'paused' : 'studying';
 
@@ -677,7 +753,6 @@ class TrilhaWriteback {
         break;
       }
     }
-    final course = buf.course?.trim();
     final edu = Education(
       id: match?.id ?? '',
       userId: userId,
@@ -701,13 +776,16 @@ class TrilhaWriteback {
       maxGpa: match?.maxGpa,
       orderIndex: match?.orderIndex ?? 0,
       confidence: match?.confidence,
-      majors: (!isSchool && course != null && course.isNotEmpty)
+      majors: (!isSchool && course.isNotEmpty)
           ? [EducationMajor(id: '', educationId: match?.id ?? '', name: course)]
           : (match?.majors ?? const []),
       minors: match?.minors ?? const [],
       activities: match?.activities ?? const [],
     );
-    if (match == null) {
+    if (match != null && _sameGuidedEducation(match, edu)) {
+      // Um write anterior pode ter sido confirmado no servidor e falhado na
+      // resposta ao cliente. Reconhecer o estado vivo evita um segundo write.
+    } else if (match == null) {
       await _repo.addEducation(edu);
     } else {
       await _repo.updateEducation(edu);
@@ -734,6 +812,59 @@ class TrilhaWriteback {
 
   bool _yes(StepAnswer a) =>
       a.value is List && (a.value as List).contains('yes');
+
+  bool _sameGuidedExperience(Experience current, Experience desired) =>
+      _sameText(current.company, desired.company) &&
+      _sameText(current.title, desired.title) &&
+      _sameText(current.kind, desired.kind) &&
+      _sameMonth(current.startDate, desired.startDate) &&
+      current.isCurrent == desired.isCurrent &&
+      _sameMonth(current.endDate, desired.endDate);
+
+  bool _sameGuidedProject(Project current, Project desired) =>
+      _sameText(current.name, desired.name) &&
+      _sameText(current.context, desired.context) &&
+      _sameText(current.website, desired.website) &&
+      _sameMonth(current.startDate, desired.startDate) &&
+      current.isCurrent == desired.isCurrent &&
+      _sameMonth(current.endDate, desired.endDate);
+
+  bool _sameGuidedEducation(Education current, Education desired) {
+    if (!_sameText(current.institution, desired.institution) ||
+        current.institutionId != desired.institutionId ||
+        current.educationLevel != desired.educationLevel ||
+        current.educationStatus != desired.educationStatus ||
+        !_sameText(current.degree, desired.degree) ||
+        current.currentSemester != desired.currentSemester ||
+        current.currentSchoolYear != desired.currentSchoolYear ||
+        !_sameMonth(current.endDate, desired.endDate)) {
+      return false;
+    }
+    final currentMajors = current.majors.map((major) => _textKey(major.name));
+    final desiredMajors = desired.majors.map((major) => _textKey(major.name));
+    return _sameOrderedValues(currentMajors, desiredMajors);
+  }
+
+  bool _sameOrderedValues(Iterable<String> left, Iterable<String> right) {
+    final a = left.toList(growable: false);
+    final b = right.toList(growable: false);
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+}
+
+String _textKey(String? value) =>
+    (value ?? '').trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+
+bool _sameText(String? left, String? right) =>
+    _textKey(left) == _textKey(right);
+
+bool _sameMonth(DateTime? left, DateTime? right) {
+  if (left == null || right == null) return left == right;
+  return left.year == right.year && left.month == right.month;
 }
 
 String? _iso(DateTime? d) => d?.toIso8601String();

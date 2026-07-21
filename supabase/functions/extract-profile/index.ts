@@ -697,6 +697,51 @@ serve(withEdgeAnalytics('extract-profile', async (req) => {
     }
     const updatedGd = { ...gd, imported_resume: updatedImported }
 
+    // ──────────────────────────────────────────────────────────────────────
+    // FLUXO DE REVISÃO (opt-in, Gate 3.0I) — quando o cliente já reservou uma
+    // candidata via begin_import_source e passa candidate_id + attempt_id,
+    // persistimos o payload extraído NA CANDIDATA (extraction_status → 'ready')
+    // via complete_import_extraction, SEM tocar o perfil (o merge acontece
+    // depois, quando o usuário revisa e aplica as escolhas). É ADITIVO: sem
+    // esses ids nada aqui roda, e todos os chamadores de hoje (onboarding,
+    // importar CV, adaptação) seguem byte-a-byte idênticos. O fluxo de revisão
+    // chama com save:false (o perfil NÃO é escrito aqui).
+    // CO-DEPLOY (3.0J): complete_import_extraction só existe nas migrations
+    // locais 20260714120000/130000 → este Edge NÃO pode subir sem elas.
+    const reviewCandidateId =
+      typeof body?.candidate_id === 'string' ? body.candidate_id.trim() : ''
+    const reviewAttemptId =
+      typeof body?.attempt_id === 'string' ? body.attempt_id.trim() : ''
+    if (reviewCandidateId && reviewAttemptId) {
+      const importMeta = {
+        parser_version: CURRENT_EXTRACTOR_VERSION,
+        parsed_at: new Date().toISOString(),
+        confidence_global: confidenceGlobal,
+        low_confidence_fields: inv.lowConfidenceFields,
+        extractor_version: CURRENT_EXTRACTOR_VERSION,
+      }
+      const { error: completeErr } = await supabaseAdmin.rpc(
+        'complete_import_extraction',
+        {
+          p_candidate_id: reviewCandidateId,
+          p_attempt_id: reviewAttemptId,
+          p_payload: profileData,
+          p_raw_text: rawTextFallback,
+          p_legacy_parsed: legacyResume,
+          p_meta: importMeta,
+        },
+      )
+      if (completeErr) {
+        console.error(
+          `[extract-profile] complete_import_extraction failed candidate=${reviewCandidateId}: ${completeErr.message}`,
+        )
+        return jsonResponse(
+          { error: 'candidate_persist_failed', detail: completeErr.message },
+          500,
+        )
+      }
+    }
+
     // DRY-RUN: pula TODA a persistência (JSONB + relacional). Só parseia e devolve.
     if (save) {
       const updateR = await supabaseAdmin

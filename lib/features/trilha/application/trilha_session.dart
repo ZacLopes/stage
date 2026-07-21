@@ -30,6 +30,10 @@ import '../../profile/domain/entities/simple_lists.dart'
     show Language, Certification, Award, Project, languageProficiencyFromId;
 import '../../profile/domain/profile_title.dart';
 import '../../profile/domain/repositories/profile_repository.dart';
+import '../../profile/domain/skill_name_normalizer.dart';
+import '../domain/assist_skills_write.dart';
+import '../domain/guided_language_write.dart';
+import '../domain/guided_skills_write.dart';
 import 'cv_conflict.dart';
 import '../domain/conversation_step.dart'
     show PickSuggestion, StepAnswer, StepOption, ConversationStep;
@@ -504,8 +508,8 @@ Future<Map<String, dynamic>> buildAssistContext(
         for (final l in snapshot.languages)
           {'name': l.name, 'level': l.proficiencyLabel}
       ],
-      // Nomes dos interesses atuais — pro assistente escolher edit_interests
-      // (ver/editar) vs start_section (coletar do zero).
+      // Nomes dos interesses atuais — dão contexto para respostas e permitem
+      // orientar a edição para Perfil → Dados sem inventar uma ação no chat.
       'interests': [for (final i in snapshot.interests.take(30)) i.name],
       // Seções multi-campo — só os rótulos, pro assistente SABER que existem
       // (ver/remover/referenciar). O app resolve o item real pelo rótulo.
@@ -525,19 +529,15 @@ Future<Map<String, dynamic>> buildAssistContext(
   }
 }
 
-/// Editor visual de skills — nomes das skills atuais (pra mostrar em chips).
-/// Failure-safe: vazio ⇒ o assistente cai na coleta.
+/// Editor visual de skills — leitura ESTRITA usada como baseline e recibo de
+/// persistência. Erro precisa propagar: lista vazia é um estado real e nunca
+/// pode mascarar falha de rede como confirmação de "removeu tudo".
 Future<List<String>> loadAssistSkills(
   String userId, {
-  ProfileSnapshotService? snapshotService,
+  ProfileRepository? repository,
 }) async {
-  try {
-    final snap =
-        await (snapshotService ?? ProfileSnapshotService()).loadSnapshot(userId);
-    return [for (final s in snap.skills) s.name];
-  } catch (_) {
-    return const [];
-  }
+  final repo = repository ?? ProfileRepositorySupabase();
+  return [for (final skill in await repo.getSkills(userId)) skill.name];
 }
 
 /// Editor visual de skills — sugestões de skills pela ÁREA desejada (pra propor
@@ -555,19 +555,18 @@ Future<List<String>> assistSkillSuggestionsFor(
   }
 }
 
-/// Editor visual de IDIOMAS — pares (nome, nível-canônico) atuais. O nível é o
-/// id do banco ('basic'..'native') ou null. Failure-safe: vazio ⇒ cai na coleta.
+/// Editor visual de IDIOMAS — leitura ESTRITA usada como baseline e recibo.
+/// O nível é o id do banco ('basic'..'native') ou null. Falha propaga para
+/// nunca transformar erro de leitura em uma lista vazia confirmada.
 Future<List<(String, String?)>> loadAssistLanguages(
   String userId, {
-  ProfileSnapshotService? snapshotService,
+  ProfileRepository? repository,
 }) async {
-  try {
-    final snap =
-        await (snapshotService ?? ProfileSnapshotService()).loadSnapshot(userId);
-    return [for (final l in snap.languages) (l.name, l.proficiency?.name)];
-  } catch (_) {
-    return const [];
-  }
+  final repo = repository ?? ProfileRepositorySupabase();
+  return [
+    for (final language in await repo.getLanguages(userId))
+      (language.name, language.proficiency?.name)
+  ];
 }
 
 /// Editor visual de IDIOMAS — upsert de um idioma pelo nome (case-insensitive):
@@ -739,13 +738,45 @@ Future<Map<String, String>?> assistReadFieldMap(
 /// Fase B — GRAVADOR: aplica um valor a um campo (reusa o write-back; savers
 /// idempotentes). value '' ⇒ limpa (pro undo de um set-a-partir-de-vazio, que o
 /// saver sozinho ignoraria).
+/// [expected] (Gate 3.0H app-side) = valor OBSERVADO no propose. Quando presente,
+/// grava pelo CAS atômico server-side (manual-recente-vence): campos de
+/// `profile_personal` → `cas_write_personal_field_v1`; Objetivos
+/// (desired_position/work_mode) → `cas_write_job_pref_field_v1`. Ausente ⇒
+/// caminho legado (read-modify-write) — usado pelos testes diretos e callers legados.
 Future<void> assistWriteFieldValue(
   String userId,
   String field,
   String value, {
+  String? expected,
   ProfileRepository? repository,
 }) async {
   final repo = repository ?? ProfileRepositorySupabase();
+  // Objetivos (job_preferences): CAS próprio (desired_position escalar,
+  // work_mode conjunto de ids).
+  const jobPrefCasFields = {'desired_position', 'work_mode'};
+  if (expected != null && jobPrefCasFields.contains(field)) {
+    await repo.casWriteJobPrefField(userId, field, expected, value);
+    return;
+  }
+  const personalCasFields = {
+    'summary', 'name', 'linkedin', 'website', 'city', 'phone',
+  };
+  if (expected != null && personalCasFields.contains(field)) {
+    // phone é composto (número+DDI): o DDI não é editado por este fluxo, então
+    // lê o atual e passa como esperado/novo (o CAS valida o número; se o DDI
+    // mudou concorrentemente, volta 'stale' — fail-closed).
+    String? cc;
+    if (field == 'phone') {
+      cc = (await repo.getPersonal(userId))?.phoneCountryCode;
+    }
+    // 'stale' ⇒ o vivo mudou desde o propose: não grava (manual vence). O
+    // controller relê e reflete honestamente (não finge sucesso).
+    await repo.casWritePersonalField(
+      userId, field, expected, value,
+      expectedCountryCode: cc, newCountryCode: cc,
+    );
+    return;
+  }
   switch (field) {
     case 'desired_position':
       final v = value.trim();
@@ -865,7 +896,8 @@ Future<Map<String, String>?> assistReadItemField(
   switch (kind) {
     case 'experience':
       final list = await repo.getExperiences(userId);
-      final e = _pickByName(list, (x) => _expLabelOf(x.title, x.company), query) ??
+      final e = _firstById(list, (x) => x.id, query) ??
+          _pickByName(list, (x) => _expLabelOf(x.title, x.company), query) ??
           _pickByName(list, (x) => x.company, query) ??
           _pickByName(list, (x) => x.title, query);
       if (e == null) return null;
@@ -878,7 +910,8 @@ Future<Map<String, String>?> assistReadItemField(
       return null;
     case 'education':
       final list = await repo.getEducation(userId);
-      final ed = _pickByName(list, eduLabel, query) ??
+      final ed = _firstById(list, (x) => x.id, query) ??
+          _pickByName(list, eduLabel, query) ??
           _pickByName(list, (x) => x.institution, query);
       if (ed == null) return null;
       final tag = eduLabel(ed);
@@ -893,7 +926,8 @@ Future<Map<String, String>?> assistReadItemField(
       return null;
     case 'certification':
       final list = await repo.getCertifications(userId);
-      final c = _pickByName(list, (x) => x.name, query);
+      final c = _firstById(list, (x) => x.id, query) ??
+          _pickByName(list, (x) => x.name, query);
       if (c == null) return null;
       switch (field) {
         case 'name':
@@ -913,9 +947,16 @@ Future<void> assistWriteItemField(
   String id,
   String field,
   String value, {
+  String? expected,
   ProfileRepository? repository,
 }) async {
   final repo = repository ?? ProfileRepositorySupabase();
+  // Gate 3.0H app-side — CAS atômico por ref_id quando temos o observado.
+  // Ausente ⇒ legado (testes diretos / callers legados).
+  if (expected != null) {
+    await repo.casWriteItemField(userId, kind, id, field, expected, value);
+    return;
+  }
   final v = value.trim();
   switch (kind) {
     case 'experience':
@@ -970,11 +1011,13 @@ Future<void> assistAddItem(
   String kind,
   String value, {
   ProfileRepository? repository,
+  GuidedSkillsWriter? guidedSkillsWriter,
 }) async {
   final repo = repository ?? ProfileRepositorySupabase();
   final v = value.trim();
   if (v.isEmpty) return;
-  final wb = TrilhaWriteback(repo, userId);
+  final wb =
+      TrilhaWriteback(repo, userId, guidedSkillsWriter: guidedSkillsWriter);
   switch (kind) {
     case 'skill':
       await wb.save(
@@ -1115,9 +1158,15 @@ Future<void> assistBulletWrite(
   String userId,
   String bulletId,
   String text, {
+  String? expected,
   ProfileRepository? repository,
 }) async {
   final repo = repository ?? ProfileRepositorySupabase();
+  // Gate 3.0H app-side — CAS do texto do bullet por id quando temos o observado.
+  if (expected != null) {
+    await repo.casWriteItemField(userId, 'bullet', bulletId, 'text', expected, text);
+    return;
+  }
   final t = text.trim();
   if (t.isEmpty) return;
   for (final e in await repo.getExperiences(userId)) {
@@ -1139,17 +1188,146 @@ String _expLabelOf(String title, String company) {
   return '$t · $co';
 }
 
+/// Se o request de delete falhar depois de o banco confirmar a escrita, uma
+/// releitura permite tratar o resultado como sucesso e manter o undo. Se o
+/// item ainda existir (ou a verificação também falhar), preserva o erro
+/// original para nunca declarar uma remoção incerta como concluída.
+Future<void> _deleteWithCommitVerification({
+  required Future<void> Function() delete,
+  required Future<bool> Function() stillExists,
+}) async {
+  Object? deleteError;
+  StackTrace? deleteStackTrace;
+  try {
+    await delete();
+  } catch (error, stackTrace) {
+    deleteError = error;
+    deleteStackTrace = stackTrace;
+  }
+
+  try {
+    if (!await stillExists()) return;
+  } catch (_) {
+    if (deleteError != null) {
+      Error.throwWithStackTrace(deleteError, deleteStackTrace!);
+    }
+    throw StateError('delete_verification_failed');
+  }
+
+  if (deleteError != null) {
+    Error.throwWithStackTrace(deleteError, deleteStackTrace!);
+  }
+  throw StateError('delete_not_confirmed');
+}
+
+/// Gate 3.0E — remove uma skill pelo contrato CAS/recibo durável 3.0B.
+/// `open` reserva o baseline autoritativo; `apply` da lista reduzida faz CAS da
+/// linha completa contra esse baseline; só `applied` devolve um undo que
+/// restaura o baseline exato via `undo`. `noop`/`stale`/ausente ⇒ null (sem
+/// falso sucesso). Sem writer (flag OFF) ⇒ null. Nunca remove por nome.
+Future<Future<void> Function()?> _reversibleRemoveSkill(
+  String userId,
+  String value,
+  AssistSkillsWriter? writer,
+) async {
+  if (writer == null) return null;
+  final key = foldSkillName(value);
+  if (key.isEmpty) return null;
+  final operationId = newAssistSkillsOperationId();
+  final opened = await writer.open(userId: userId, operationId: operationId);
+  final baseline = opened.baseline;
+  final desired = [
+    for (final name in baseline)
+      if (foldSkillName(name) != key) name,
+  ];
+  if (desired.length == baseline.length) return null; // skill não está lá
+  final receipt = await writer.apply(
+    userId: userId,
+    operationId: operationId,
+    expected: baseline,
+    desired: desired,
+  );
+  if (receipt.outcome != AssistSkillsApplyOutcome.applied) {
+    return null; // noop/stale → não removeu; sem falso sucesso
+  }
+  return () async {
+    await writer.undo(
+      userId: userId,
+      operationId: operationId,
+      expectedRestored: baseline,
+    );
+  };
+}
+
+/// Gate 3.0F — remove um idioma pelo contrato CAS `remove_guided_language_cas`.
+/// Lê o nível observado (expected); só `applied` devolve um undo que re-adiciona
+/// e restaura o nível. `stale`/`not_found`/ausente ⇒ null (sem falso sucesso).
+/// Sem writer (flag OFF) ⇒ null. Nunca remove por nome ambíguo.
+Future<Future<void> Function()?> _reversibleRemoveLanguage(
+  String userId,
+  String value,
+  ProfileRepository repo,
+  GuidedLanguageWriter? writer,
+) async {
+  if (writer == null) return null;
+  final v = value.trim();
+  if (v.isEmpty) return null;
+  Language? match;
+  for (final l in await repo.getLanguages(userId)) {
+    if (l.name.trim().toLowerCase() == v.toLowerCase()) {
+      match = l;
+      break;
+    }
+  }
+  if (match == null) return null; // idioma não está lá
+  final removedName = match.name;
+  final receipt = await writer.removeLanguage(
+    userId: userId,
+    name: removedName,
+    expectedLevel: match.proficiency?.name, // CAS contra o nível observado
+  );
+  if (receipt.outcome != GuidedLanguageRemoveOutcome.applied) {
+    return null; // stale/not_found → não removeu; sem falso sucesso
+  }
+  final removedLevel = receipt.removedLevel;
+  return () async {
+    await writer.mergeLanguages(userId: userId, names: [removedName]);
+    if (removedLevel != null) {
+      await writer.setLevel(
+        userId: userId,
+        name: removedName,
+        expectedLevel: null, // re-adicionado sem nível → esperado null
+        newLevel: removedLevel,
+      );
+    }
+  };
+}
+
 /// Fase B — remoção REVERSÍVEL de item multi-campo. Captura o registro, deleta,
 /// e devolve um restore (que re-insere com id novo — o item volta, íntegro).
-/// null ⇒ kind não tratado aqui (skill/idioma seguem no remover simples).
+/// null ⇒ kind não tratado aqui (interesse segue no remover simples).
 Future<Future<void> Function()?> assistReversibleRemove(
   String userId,
   String kind,
   String value, {
   ProfileRepository? repository,
+  AssistSkillsWriter? skillsWriter,
+  GuidedLanguageWriter? languageWriter,
 }) async {
+  // Gate 3.0E — remoção avulsa de skill pelo contrato CAS/recibo durável 3.0B
+  // (open baseline → apply lista reduzida → undo). Sem deleteSkill por nome
+  // ambíguo; stale/noop não fingem sucesso. Fica ANTES de instanciar o repo
+  // (o caminho de skill não usa `repo`).
+  if (kind == 'skill') {
+    return _reversibleRemoveSkill(userId, value, skillsWriter);
+  }
   final repo = repository ?? ProfileRepositorySupabase();
   switch (kind) {
+    case 'language':
+      // Gate 3.0F — remoção de idioma com CAS contra o nível observado
+      // (remove_guided_language_cas). Sem deleteLanguage por nome; stale não
+      // finge sucesso; undo re-adiciona e restaura o nível.
+      return _reversibleRemoveLanguage(userId, value, repo, languageWriter);
     case 'experience':
       for (final e in await repo.getExperiences(userId)) {
         final label = _expLabelOf(e.title, e.company);
@@ -1157,13 +1335,15 @@ Future<Future<void> Function()?> assistReversibleRemove(
             e.company.trim() == value.trim() ||
             e.title.trim() == value.trim()) {
           final captured = e; // com bullets
-          await repo.deleteExperience(e.id);
+          await _deleteWithCommitVerification(
+            delete: () => repo.deleteExperience(e.id),
+            stillExists: () async =>
+                (await repo.getExperiences(userId))
+                    .any((item) => item.id == e.id),
+          );
           return () async {
             final r = repository ?? ProfileRepositorySupabase();
-            final saved = await r.addExperience(captured.copyWith(id: ''));
-            for (final b in captured.bullets) {
-              await r.addBullet(b.copyWith(id: '', experienceId: saved.id));
-            }
+            await r.addExperience(captured.copyWith(id: ''));
           };
         }
       }
@@ -1171,19 +1351,32 @@ Future<Future<void> Function()?> assistReversibleRemove(
     case 'certification':
       final c = _pickByName(await repo.getCertifications(userId), (x) => x.name, value);
       if (c == null) return null;
-      await repo.deleteCertification(c.id);
+      await _deleteWithCommitVerification(
+        delete: () => repo.deleteCertification(c.id),
+        stillExists: () async =>
+            (await repo.getCertifications(userId))
+                .any((item) => item.id == c.id),
+      );
       return () async => (repository ?? ProfileRepositorySupabase())
           .addCertification(c.copyWith(id: ''));
     case 'award':
       final a = _pickByName(await repo.getAwards(userId), (x) => x.name, value);
       if (a == null) return null;
-      await repo.deleteAward(a.id);
+      await _deleteWithCommitVerification(
+        delete: () => repo.deleteAward(a.id),
+        stillExists: () async =>
+            (await repo.getAwards(userId)).any((item) => item.id == a.id),
+      );
       return () async => (repository ?? ProfileRepositorySupabase())
           .addAward(a.copyWith(id: ''));
     case 'project':
       final p = _pickByName(await repo.getProjects(userId), (x) => x.name, value);
       if (p == null) return null;
-      await repo.deleteProject(p.id);
+      await _deleteWithCommitVerification(
+        delete: () => repo.deleteProject(p.id),
+        stillExists: () async =>
+            (await repo.getProjects(userId)).any((item) => item.id == p.id),
+      );
       return () async => (repository ?? ProfileRepositorySupabase())
           .addProject(p.copyWith(id: ''));
     case 'education':
@@ -1193,7 +1386,11 @@ Future<Future<void> Function()?> assistReversibleRemove(
       final ed = _pickByName(list, eduLabel, value) ??
           _pickByName(list, (x) => x.institution, value);
       if (ed == null) return null;
-      await repo.deleteEducation(ed.id);
+      await _deleteWithCommitVerification(
+        delete: () => repo.deleteEducation(ed.id),
+        stillExists: () async =>
+            (await repo.getEducation(userId)).any((item) => item.id == ed.id),
+      );
       // Undo re-insere o registro (nível superior; sub-itens raros).
       return () async => (repository ?? ProfileRepositorySupabase())
           .addEducation(ed.copyWith(id: ''));

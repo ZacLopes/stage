@@ -19,6 +19,7 @@ class ImportConflictCard extends StatefulWidget {
     required this.onApply,
     required this.onCancel,
     required this.onUndo,
+    this.canUndo = false,
   });
 
   final ImportConflictItem item;
@@ -27,6 +28,10 @@ class ImportConflictCard extends StatefulWidget {
   final VoidCallback onApply;
   final VoidCallback onCancel;
   final VoidCallback onUndo;
+
+  /// Só mostra "Desfazer" quando há reversão real fiada (Gate 3.0I) — sem ela,
+  /// nada de falso affordance.
+  final bool canUndo;
 
   @override
   State<ImportConflictCard> createState() => _ImportConflictCardState();
@@ -82,13 +87,14 @@ class _ImportConflictCardState extends State<ImportConflictCard> {
                 size: 18, color: AppColors.success),
             const SizedBox(width: AppSpacing.sm),
             Expanded(
-                child: Text(
-                    item.appliedCount == 0
-                        ? 'Nada aplicado.'
-                        : 'Trouxe ${item.appliedCount} ${item.appliedCount == 1 ? "item" : "itens"} do seu CV ✓',
+                child: Text(_appliedMessage(item),
                     style: AppTextStyles.bodyMd)),
-            TextButton(
-                onPressed: widget.onUndo, child: const Text('Desfazer')),
+            // Só oferece Desfazer quando há reversão real fiada (senão seria um
+            // botão que mente — o servidor não desfaz item-a-item).
+            if (widget.canUndo)
+              TextButton(
+                  onPressed: item.applying ? null : widget.onUndo,
+                  child: const Text('Desfazer')),
           ]),
         );
       case AssistEditStatus.pending:
@@ -114,6 +120,20 @@ class _ImportConflictCardState extends State<ImportConflictCard> {
           Text('Escolhe o que trazer pro seu perfil 👇',
               style: AppTextStyles.bodySm
                   .copyWith(color: AppColors.textTertiary)),
+          // Falha dura na última tentativa (rollback global): nada foi aplicado
+          // e o card seguiu pendente. Fala a verdade e convida a tentar de novo.
+          if (item.outcome?.isHardFailure ?? false) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Row(children: [
+              const Icon(Icons.error_outline_rounded,
+                  size: 15, color: AppColors.error),
+              const SizedBox(width: 6),
+              Flexible(
+                  child: Text('Não consegui aplicar agora. Tenta de novo.',
+                      style: AppTextStyles.bodySm
+                          .copyWith(color: AppColors.error))),
+            ]),
+          ],
           const SizedBox(height: AppSpacing.sm),
           for (final c in item.choices) _row(c),
           const SizedBox(height: AppSpacing.sm),
@@ -242,6 +262,22 @@ class _ImportConflictCardState extends State<ImportConflictCard> {
         ],
       ),
     );
+  }
+
+  // Mensagem HONESTA do resultado: além do que entrou, diz o que foi mantido
+  // (você já tinha editado) e o que não deu — nunca só um "aplicado" cego.
+  String _appliedMessage(ImportConflictItem item) {
+    final n = item.appliedCount;
+    final base = n == 0
+        ? 'Nada novo trazido'
+        : 'Trouxe $n ${n == 1 ? "item" : "itens"} do seu CV';
+    final o = item.outcome;
+    if (o == null) return '$base ✓';
+    final extras = <String>[
+      if (o.staleCount > 0) '${o.staleCount} você já tinha',
+      if (o.rejectedCount > 0) '${o.rejectedCount} não deu pra trazer',
+    ];
+    return extras.isEmpty ? '$base ✓' : '$base · ${extras.join(' · ')}';
   }
 
   Widget _valLine(String who, String val, Color color) {

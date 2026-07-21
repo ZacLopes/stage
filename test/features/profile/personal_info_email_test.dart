@@ -95,4 +95,58 @@ void main() {
       reason: 'autosave deve preservar o último contato válido',
     );
   });
+
+  testWidgets('Fase 3: headline/LinkedIn/site/disponibilidade populam e emitem',
+      (tester) async {
+    PersonalInfo? latest;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: PersonalInfoForm(
+              initial: const PersonalInfo(
+                userId: 'u',
+                firstName: 'A',
+                lastName: 'B',
+                headline: 'Head inicial',
+                linkedinUrl: 'lk/inicial',
+                website: 'site.inicial',
+                availability: 'Imediata',
+              ),
+              onChanged: (draft) => latest = draft,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // Populam a partir do initial.
+    expect(find.text('Head inicial'), findsOneWidget);
+    expect(find.text('lk/inicial'), findsOneWidget);
+    expect(find.text('site.inicial'), findsOneWidget);
+    expect(find.text('Imediata'), findsOneWidget);
+    expect(find.text('Título profissional'), findsOneWidget);
+    expect(find.text('Disponibilidade'), findsOneWidget);
+
+    // Editar cada um emite o valor no draft (via o label, robusto à ordem).
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Head inicial'), 'Novo título');
+    await tester.pump();
+    expect(latest?.headline, 'Novo título');
+
+    await tester.enterText(
+        find.widgetWithText(TextField, 'lk/inicial'), 'lk/novo');
+    await tester.pump();
+    expect(latest?.linkedinUrl, 'lk/novo');
+
+    await tester.enterText(
+        find.widgetWithText(TextField, 'site.inicial'), 'novo.site');
+    await tester.pump();
+    expect(latest?.website, 'novo.site');
+
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Imediata'), 'Em março');
+    await tester.pump();
+    expect(latest?.availability, 'Em março');
+  });
 }

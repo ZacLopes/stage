@@ -14,6 +14,7 @@ import '../../../core/widgets/widgets.dart';
 import '../../../services/cv_import_service.dart';
 import '../application/trilha_hub_status.dart';
 import '../application/trilha_section.dart';
+import '../domain/conversation_step.dart';
 import 'trilha_chat_controller.dart';
 import 'widgets/chat_bubbles.dart';
 import 'widgets/import_conflict_card.dart';
@@ -324,6 +325,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
               // ignore: unawaited_futures
               _c.undoConflicts(item.id);
             },
+            canUndo: _c.canRevertConflicts,
           ),
         ));
       } else if (item is AssistActionCardItem) {
@@ -361,8 +363,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
             key: ValueKey('ans-$i'),
             child: TrilhaAnswerCard(
               exchange: item.exchange,
-              onEdit: item.exchange.step.reversible
-                  ? () => c.beginEdit(item)
+              onEdit: c.canEditAnswer(item) ? () => c.beginEdit(item)
                   : null,
             ),
           ));
@@ -387,7 +388,19 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
       children.add(Padding(
         key: ValueKey('current-${c.activeStep!.id}'),
         padding: const EdgeInsets.only(bottom: AppSpacing.md),
-        child: InlineStepInput(step: c.activeStep!, onSubmit: c.submit),
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (c.retryAnswer != null) ...[
+                _retryAnswerCard(c.retryAnswer!),
+                const SizedBox(height: AppSpacing.sm)
+              ],
+              InlineStepInput(step: c.activeStep!,
+                initialAnswer: c.retryAnswer,
+                onSubmit: c.submit
+              )
+            ]
+          ),
       ));
     }
 
@@ -407,6 +420,31 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
       children: children,
     );
   }
+
+  Widget _retryAnswerCard(StepAnswer answer) => Container(
+        padding: AppSpacing.allBase,
+        decoration: BoxDecoration(
+          color: AppColors.error.withValues(alpha: 0.08),
+          borderRadius: AppRadius.brMd,
+          border: Border.all(color: AppColors.error.withValues(alpha: 0.25))
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.refresh_rounded, size: 18, color: AppColors.error),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(
+                'Sua resposta ficou aqui. Tente salvar novamente.',
+                style: AppTextStyles.bodySm.copyWith(color: AppColors.textPrimary)
+              )
+            ),
+            TextButton(
+              onPressed: () => _c.submit(answer),
+              child: const Text('Tentar')
+            )
+          ]
+        )
+      );
 
   // ── Gate de import ──────────────────────────────────────────────────────────
 
@@ -505,7 +543,8 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
   Widget _jobsCard(JobsCardItem item) {
     final outOfProfile = item.outOfProfileArea.isNotEmpty;
     final sub = outOfProfile
-        ? 'Fora das suas áreas — toca numa pra ver, ou salva 👇'
+        ? 'Fora das suas áreas. Para incluir essa busca, ajuste em '
+            'Perfil → Objetivos.'
         : (item.hasResume
             ? 'Toca numa vaga pra ver ou salvar 👇'
             : 'Complete seu perfil pra eu calcular o match 👇');
@@ -529,24 +568,6 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
                   AppTextStyles.bodySm.copyWith(color: AppColors.textTertiary)),
           const SizedBox(height: AppSpacing.sm),
           for (final j in item.jobs) _jobRow(item, j),
-          if (outOfProfile) ...[
-            const SizedBox(height: AppSpacing.xs),
-            SecondaryButton(
-              // Toggle: adiciona a área OU remove (se adicionou por engano). O
-              // label é curto de propósito — a área já está no header ("Vagas de
-              // X") e o completo estourava a borda no device-test.
-              label: item.areaAdded
-                  ? 'Remover das minhas áreas'
-                  : 'Adicionar às minhas áreas',
-              icon: item.areaAdded
-                  ? Icons.close_rounded
-                  : Icons.add_rounded,
-              onPressed: () {
-                // ignore: unawaited_futures
-                _c.addAreaFromCard(item.id, item.outOfProfileArea);
-              },
-            ),
-          ],
         ],
       ),
     );
@@ -1123,14 +1144,21 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
                     )),
               ],
             ),
+          if (item.resultMessage.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              item.resultMessage,
+              style: AppTextStyles.bodySm.copyWith(color: AppColors.error)
+            )
+          ],
           const SizedBox(height: AppSpacing.md),
           if (applied)
             Align(
               alignment: Alignment.centerLeft,
               child: _editPill(
                 icon: Icons.undo_rounded,
-                label: 'Desfazer',
-                onTap: () => _c.undoAssistEdit(item.id),
+                label: item.undoing ? 'Desfazendo…' : 'Desfazer',
+                onTap: item.undoing ? null : () => _c.undoAssistEdit(item.id),
               ),
             )
           else
@@ -1138,15 +1166,21 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
               children: [
                 Expanded(
                   child: _confirmButton(
-                    label: isRemove ? 'Remover' : 'Aplicar',
+                    label: item.applying
+                        ? 'Salvando…'
+                        : (isRemove ? 'Remover' : 'Aplicar'),
                     color: isRemove ? AppColors.error : AppColors.primary,
-                    onTap: () => _c.confirmAssistEdit(item.id),
+                    onTap: item.applying
+                        ? null
+                        : () => _c.confirmAssistEdit(item.id),
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 _editPill(
                   label: 'Cancelar',
-                  onTap: () => _c.cancelAssistEdit(item.id),
+                  onTap: item.applying
+                      ? null
+                      : () => _c.cancelAssistEdit(item.id),
                 ),
               ],
             ),
@@ -1182,7 +1216,25 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
     }
 
     final applied = item.status == AssistEditStatus.applied;
+    final partial = item.isPartial;
+    final failed = item.failedIndexes.isNotEmpty;
     final accent = AppColors.primary;
+    var title = 'Peguei isto 👇';
+    if (applied) {
+      title = item.madeChanges
+          ? 'Adicionei ao seu perfil'
+          : 'Seu perfil já estava atualizado';
+    } else if (item.applying) {
+      title = 'Salvando no seu perfil…';
+    } else if (item.undoing) {
+      title = 'Desfazendo o que foi salvo…';
+    } else if (partial) {
+      title = item.madeChanges
+          ? 'Salvei uma parte'
+          : 'Parte já estava no seu perfil';
+    } else if (failed) {
+      title = 'Não consegui salvar';
+    }
 
     return Container(
       margin: margin,
@@ -1201,21 +1253,32 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
               Icon(applied ? Icons.check_circle_rounded : Icons.auto_awesome_rounded,
                   size: 15, color: applied ? AppColors.success : accent),
               const SizedBox(width: 6),
-              Text(applied ? 'Adicionei ao seu perfil' : 'Peguei isto 👇',
+              Text(
+                title,
                   style: AppTextStyles.overline
                       .copyWith(color: applied ? AppColors.success : accent)),
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
-          for (final e in item.entries) ...[
+          for (final indexed in item.entries.indexed) ...[
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(_extractIcon(e.kind),
-                    size: 15, color: AppColors.textTertiary),
+                Icon(
+                  item.appliedIndexes.contains(indexed.$1)
+                      ? Icons.check_circle_outline_rounded
+                      : item.failedIndexes.contains(indexed.$1)
+                      ? Icons.error_outline_rounded
+                      : _extractIcon(indexed.$2.kind),
+                    size: 15, color: item.appliedIndexes.contains(indexed.$1)
+                      ? AppColors.success
+                      : item.failedIndexes.contains(indexed.$1)
+                      ? AppColors.error
+                      : AppColors.textTertiary),
                 const SizedBox(width: 6),
                 Expanded(
-                  child: Text(e.label,
+                  child: Text(
+                    indexed.$2.label,
                       style: AppTextStyles.bodyMd
                           .copyWith(color: AppColors.textPrimary)),
                 ),
@@ -1223,31 +1286,67 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
             ),
             const SizedBox(height: 6),
           ],
+          if (item.resultMessage.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              item.resultMessage,
+              style: AppTextStyles.bodySm.copyWith(
+                color: item.undoFailed || failed
+                    ? AppColors.error
+                    : AppColors.textSecondary
+              )
+            )
+          ],
           const SizedBox(height: AppSpacing.xs),
-          if (applied)
+          if (applied) ...[
+            if (item.madeChanges)
             Align(
               alignment: Alignment.centerLeft,
               child: _editPill(
                 icon: Icons.undo_rounded,
-                label: 'Desfazer',
-                onTap: () => _c.undoExtract(item.id),
+                label: item.undoing ? 'Desfazendo…' : 'Desfazer',
+                onTap: item.undoing ? null : () => _c.undoExtract(item.id),
               ),
             )
+          ]
           else
             Row(
               children: [
                 Expanded(
                   child: _confirmButton(
-                    label: 'Aplicar tudo',
+                    label: item.applying
+                        ? 'Salvando…'
+                        : partial || failed
+                        ? 'Tentar de novo'
+                        : 'Aplicar tudo',
                     color: AppColors.primary,
-                    onTap: () => _c.confirmExtract(item.id),
+                    onTap: item.undoing || item.undoFailed
+                        ? null
+                        : () => _c.confirmExtract(item.id),
                   ),
                 ),
-                const SizedBox(width: AppSpacing.sm),
+                if (partial && item.madeChanges) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  _editPill(
+                    icon: Icons.undo_rounded,
+                    label: item.undoing
+                        ? 'Desfazendo…'
+                        : item.undoFailed
+                        ? 'Tentar desfazer'
+                        : 'Desfazer salvos',
+                    onTap: item.undoing || item.applying
+                        ? null
+                        : () => _c.undoExtract(item.id)
+                  )
+                ] else ...[
+                  const SizedBox(width: AppSpacing.sm),
                 _editPill(
                   label: 'Cancelar',
-                  onTap: () => _c.cancelExtract(item.id),
-                ),
+                  onTap: item.applying
+                        ? null
+                        : () => _c.cancelExtract(item.id),
+                )
+                ],
               ],
             ),
         ],
@@ -1300,9 +1399,9 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
   Widget _confirmButton(
       {required String label,
       required Color color,
-      required VoidCallback onTap}) {
+      required VoidCallback? onTap}) {
     return Material(
-      color: color,
+      color: onTap == null ? color.withValues(alpha: 0.45) : color,
       borderRadius: AppRadius.brMd,
       child: InkWell(
         onTap: onTap,
@@ -1318,7 +1417,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
     );
   }
 
-  Widget _editPill({IconData? icon, required String label, required VoidCallback onTap}) {
+  Widget _editPill({IconData? icon, required String label, required VoidCallback? onTap}) {
     return Material(
       color: AppColors.surface,
       borderRadius: AppRadius.brPill,
@@ -1457,6 +1556,14 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
                       focusNode: _inputFocus,
                       minLines: 1,
                       maxLines: 4,
+                      maxLength: 2000,
+                      maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                      buildCounter: (
+                        _, {
+                        required currentLength,
+                        required isFocused,
+                        required maxLength
+                      }) => null,
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _sendText(),
                       style: AppTextStyles.bodyMd
@@ -1610,7 +1717,7 @@ class _CapabilitiesSheetState extends State<_CapabilitiesSheet>
       title: 'Perfil e currículo',
       desc: 'Completo seu perfil e preparo seu currículo',
       examples: [
-        'Importa meu CV (PDF)',
+        'O que falta no meu perfil?',
         'Melhora meu resumo',
         'Adiciona Python nas skills',
         'Exporta em PDF',
