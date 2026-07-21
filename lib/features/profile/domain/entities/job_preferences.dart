@@ -122,6 +122,12 @@ class JobPreferences {
     String? companyStage,
     String? workEnvironment,
     String? workStyle,
+    // Flags de LIMPAR (copyWith(null) mantém o antigo): editor manual precisa
+    // conseguir zerar estes campos opcionais.
+    bool clearDesiredPosition = false,
+    bool clearCompanyStage = false,
+    bool clearWorkEnvironment = false,
+    bool clearWorkStyle = false,
   }) =>
       JobPreferences(
         userId: userId ?? this.userId,
@@ -135,10 +141,12 @@ class JobPreferences {
         experienceLevel: experienceLevel ?? this.experienceLevel,
         workMode: workMode ?? this.workMode,
         jobTypes: jobTypes ?? this.jobTypes,
-        desiredPosition: desiredPosition ?? this.desiredPosition,
-        companyStage: companyStage ?? this.companyStage,
-        workEnvironment: workEnvironment ?? this.workEnvironment,
-        workStyle: workStyle ?? this.workStyle,
+        desiredPosition:
+            clearDesiredPosition ? null : (desiredPosition ?? this.desiredPosition),
+        companyStage: clearCompanyStage ? null : (companyStage ?? this.companyStage),
+        workEnvironment:
+            clearWorkEnvironment ? null : (workEnvironment ?? this.workEnvironment),
+        workStyle: clearWorkStyle ? null : (workStyle ?? this.workStyle),
       );
 }
 
