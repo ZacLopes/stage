@@ -7,6 +7,9 @@ import '../../services/analytics_service.dart';
 import 'profile_viewmodel.dart';
 import 'profile_tab_prefs.dart';
 import 'application/profile_editor_view_model.dart';
+import 'application/preferences_view_model.dart';
+import 'application/profile_gaps.dart';
+import '../../services/profile_snapshot_service.dart' show ProfileSnapshot;
 import '../home/home_viewmodel.dart';
 import '../resume/widgets/general_resume_card.dart';
 import '../../services/feature_flags_service.dart';
@@ -705,8 +708,21 @@ class _InfoTabState extends State<_InfoTab> {
   bool _personalExpanded = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Fase 3 F2 — a completude exibida aqui usa o MESMO cálculo de Currículos/
+    // chat (ProfileGaps), que depende das preferências. Garante que as prefs
+    // estejam carregadas mesmo se o usuário abrir "Dados" primeiro (load é
+    // idempotente; PreferencesViewModel é singleton no provider).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<PreferencesViewModel>().load();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final vm = context.watch<ProfileEditorViewModel>();
+    final prefsVm = context.watch<PreferencesViewModel>();
     return vm.isLoading
         ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
         : RefreshIndicator(
@@ -715,7 +731,7 @@ class _InfoTabState extends State<_InfoTab> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
               children: [
-                _header(vm),
+                _header(vm, prefsVm),
                 const SizedBox(height: 16),
                 _personalCard(vm),
                 const SizedBox(height: 12),
@@ -727,13 +743,31 @@ class _InfoTabState extends State<_InfoTab> {
           );
   }
 
-  Widget _header(ProfileEditorViewModel vm) {
+  Widget _header(ProfileEditorViewModel vm, PreferencesViewModel prefsVm) {
     final p = vm.personal;
     final name = p?.fullName ?? '';
     final headline = p?.headline ?? '';
     final location = p?.formattedLocation ?? '';
     final summary = p?.summary?.trim() ?? '';
-    final score = vm.completenessScore;
+    // Fase 3 F2 — MESMA medida de completude de Currículos/chat (ProfileGaps),
+    // montada do que o editor já carregou + as preferências. Um número só pro
+    // usuário. (O completeness_score do banco segue existindo pro admin B2B.)
+    final score = profileGapsFromData(
+      snapshot: ProfileSnapshot(
+        personal: vm.personal,
+        experiences: vm.experiences,
+        education: vm.education,
+        skills: vm.skills,
+        languages: vm.languages,
+        certifications: vm.certifications,
+        projects: vm.projects,
+        interests: vm.interests,
+        awards: vm.awards,
+        coursework: vm.coursework,
+      ),
+      prefs: prefsVm.prefs,
+      desiredTitles: prefsVm.desiredTitles,
+    ).completionPercent;
 
     return Container(
       padding: const EdgeInsets.all(16),
