@@ -204,9 +204,9 @@ class AIService {
         print('[AIService.adaptResume] parse failed: $parseErr');
         print('[AIService.adaptResume] stack: $parseStack');
         print('[AIService.adaptResume] payload keys: ${mapped.keys.toList()}');
-        throw ResumeAdaptationException(
+        throw const ResumeAdaptationException(
           'ai_response_invalid',
-          'Resposta veio em formato inesperado: $parseErr',
+          'A resposta veio num formato que não consegui ler. Tente de novo.',
         );
       }
     } on ResumeAdaptationException {
@@ -225,9 +225,12 @@ class AIService {
       }
       throw ResumeAdaptationException(code, detail ?? _humanizeError(code));
     } on FormatException catch (e) {
-      throw ResumeAdaptationException(
+      // Mesma política do catch geral: detalhe técnico no log, não na tela.
+      // ignore: avoid_print
+      print('[AIService.adaptResume] format failure: ${e.message}');
+      throw const ResumeAdaptationException(
         'ai_response_invalid',
-        'Não consegui ler a resposta: ${e.message}',
+        'A resposta veio num formato que não consegui ler. Tente de novo.',
       );
     } catch (e) {
       // Timeout, conectividade, etc.
@@ -238,7 +241,17 @@ class AIService {
           'A adaptação demorou demais. Tente de novo.',
         );
       }
-      throw ResumeAdaptationException('network', msg);
+      // A3 do device-test: `message` é renderizado LITERALMENTE na sheet, então
+      // `e.toString()` aqui punha na tela `ClientException: Connection closed
+      // before full header was received, uri=https://<project>.supabase.co/...`
+      // — jargão em inglês para usuário pt-BR E vazamento da URL/ref do projeto
+      // Supabase. O detalhe técnico continua no log; a UI recebe texto humano.
+      // ignore: avoid_print
+      print('[AIService.adaptResume] network failure: $msg');
+      throw const ResumeAdaptationException(
+        'network',
+        'Não consegui falar com o servidor agora. Verifique sua conexão e tente de novo.',
+      );
     }
   }
 

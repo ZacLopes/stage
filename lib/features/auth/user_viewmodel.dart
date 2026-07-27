@@ -127,6 +127,15 @@ class UserViewModel extends ChangeNotifier {
   /// ou CV importado. Carregado junto com [_hasProfileData].
   bool _canAdaptCv = false;
 
+  /// Quantas skills o perfil tem. Alimenta o gate da adaptação (F6) — ver
+  /// `features/jobs/utils/adapt_gate.dart`.
+  int _skillCount = 0;
+
+  /// False quando a última carga do snapshot teve falha parcial — aí
+  /// [_skillCount] pode ser 0 por erro de consulta, não por ausência real.
+  /// O gate NÃO pode bloquear nesse estado (code-review 27/07).
+  bool _skillCountIsReliable = true;
+
   /// Verdadeiro quando o user tem algum "perfil profissional" no app — seja
   /// dados nas tabelas relacionais `profile_*` (CV importado via
   /// extract-profile ou perfil preenchido via Profile Editor) seja trilha
@@ -182,6 +191,8 @@ class UserViewModel extends ChangeNotifier {
   /// Usado pelo `ResumeAdaptationSheet` no pre-check (evita chamar a IA
   /// e esperar 15s pra ela falhar com `profile_incomplete`).
   bool get canAdaptCv => _canAdaptCv;
+  int get skillCount => _skillCount;
+  bool get skillCountIsReliable => _skillCountIsReliable;
 
   /// Re-checa se o user tem dados nas tabelas `profile_*` e notifica
   /// listeners se mudou. Útil pra UI invalidar caches de match score após
@@ -203,16 +214,25 @@ class UserViewModel extends ChangeNotifier {
     if (uid == null) {
       _hasProfileData = false;
       _canAdaptCv = false;
+      _skillCount = 0;
+      _skillCountIsReliable = false;
       return;
     }
     try {
       final snapshot = await ProfileSnapshotService().loadSnapshot(uid);
       _hasProfileData = !snapshot.isEmpty;
       _canAdaptCv = snapshot.canAdaptCv;
+      // F6: o gate da adaptação passou a exigir skills (Bloqueador C) — o
+      // validador anti-invenção rejeita determinado quando a entrada é vazia.
+      _skillCount = snapshot.skills.length;
+      // Uma consulta que falhou vira lista vazia — não confunda com "tem 0".
+      _skillCountIsReliable = !snapshot.partialFailure;
     } catch (_) {
       // Falha silenciosa — caímos no fallback whoIAm.derived no getter.
       _hasProfileData = false;
       _canAdaptCv = false;
+      _skillCount = 0;
+      _skillCountIsReliable = false;
     }
   }
 
@@ -485,6 +505,7 @@ class UserViewModel extends ChangeNotifier {
         _onboardingCompletedAt = null;
         _hasProfileData = false;
         _canAdaptCv = false;
+        _skillCount = 0;
       }
     } catch (e) {
       print('Error loading user: $e');

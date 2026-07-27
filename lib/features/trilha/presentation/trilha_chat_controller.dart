@@ -561,6 +561,7 @@ class TrilhaChatController extends ChangeNotifier {
     this.assistSaveJob,
     this.assistUnsaveJob,
     this.onProfileEdited,
+    this.onDocumentsChanged,
     this.pollInterval = const Duration(milliseconds: 1500),
     this.maxPolls = 40,
   });
@@ -769,6 +770,22 @@ class TrilhaChatController extends ChangeNotifier {
   /// preview da aba Currículo recarregar. As edições do assistente já recarregam
   /// pelos próprios writers; isto cobre o lápis (que grava via saveAnswer).
   final VoidCallback? onProfileEdited;
+
+  /// Avisa o host que a BIBLIOTECA DE DOCUMENTOS mudou (`saved_resumes`) — não
+  /// os fatos do perfil.
+  ///
+  /// E1 do device-test (24/07), 3ª instância do Bloqueador A: no fluxo novo de
+  /// import a linha nasce SERVER-SIDE (`begin_import_source`, via
+  /// `import_review_coordinator.dart:95`), e o card "Fonte importada" em
+  /// Perfil → Dados lê `ProfileViewModel.savedResumes` — que ninguém
+  /// recarregava. O card seguia dizendo "Nenhum currículo importado" com a
+  /// linha já no banco. O caminho de REMOÇÃO recarregava; o de import, não.
+  ///
+  /// Canal separado de [onProfileEdited] de propósito: são invalidações de
+  /// coisas diferentes (documentos × fatos) e com frequências muito diferentes
+  /// — a coleta guiada dispara `onProfileEdited` a cada passo, e recarregar a
+  /// biblioteca junto seria fetch desnecessário.
+  final VoidCallback? onDocumentsChanged;
 
   /// Cadência do poll da extração (injetável p/ teste encurtar). ~60s = 40×1.5s.
   final Duration pollInterval;
@@ -1229,6 +1246,20 @@ class TrilhaChatController extends ChangeNotifier {
       _notify();
       return;
     }
+    // Bloqueador A do device-test (24/07): a COLETA GUIADA grava em profile_*
+    // via TrilhaWriteback, fora do ProfileEditorViewModel — e nada invalidava
+    // quem a UI lê. O usuário via "✓ Adicionei ao seu perfil" e, em Perfil →
+    // Dados, "Experiência profissional (0)" até o cold start.
+    //
+    // Aqui os dois guards acima já passaram: a escrita NÃO falhou (:1217) e a
+    // conversa realmente avançou (:1227). Só então avisamos — falha nunca vira
+    // invalidação, e invalidação nunca vira falso sucesso (regra 5 do handoff).
+    //
+    // Sem gate de flag (decisão 3 do fundador, 26/07): `trilha_coleta_v1` está
+    // ON/100 em prod e a trilha roda sem `trilha_assist_v1`, então gatear
+    // deixaria o defeito vivo para quem já usa hoje. Mesmo padrão do lápis
+    // (:1204) e do host, que já chama `_scheduleProfileReload` sem condição.
+    onProfileEdited?.call();
     thread.add(AnsweredItem(conv.history.last));
     _notify();
 
@@ -1716,6 +1747,21 @@ class TrilhaChatController extends ChangeNotifier {
     _notify();
   }
 
+  /// F5.4 — entrada EXTERNA de import (card "Fonte importada" em Perfil →
+  /// Dados). Empurra o MESMO cartão de ação de import que o assistente já usa,
+  /// para o usuário seguir pelo fluxo provado (revisar conflitos + desfazer).
+  /// Não duplica o motor nem cria um segundo caminho de escrita. Idempotente
+  /// por construção: se já houver um cartão de import pendente, não empilha
+  /// outro (evita dois cartões após uma troca de aba com rebuild).
+  void pushCvImportCard() {
+    final hasPending = _pendingActions.values.any(
+      (a) => a.kind == 'import' && a.status == AssistEditStatus.pending,
+    );
+    if (hasPending) return;
+    _pushActionCard('import');
+    _notify();
+  }
+
   void _pushActionCard(String kind) {
     final id = 'act_${_editSeq++}';
     final item = AssistActionCardItem(id: id, kind: kind);
@@ -1780,6 +1826,11 @@ class TrilhaChatController extends ChangeNotifier {
         // O PDF foi salvo na biblioteca (aba Perfil) em qualquer import ok —
         // oferece o atalho pra ver lá.
         item.showCvLibraryLink = true;
+        // E1: a linha de saved_resumes já existe (nasceu server-side). Sem
+        // este aviso, o card "Fonte importada" em Perfil → Dados continua
+        // dizendo "Nenhum currículo importado" — e o atalho acima levaria a
+        // uma tela que contradiz o recibo que acabamos de mostrar.
+        onDocumentsChanged?.call();
         // Fail-closed (Gate 3.0I): só monta o card de revisão quando há uma
         // candidata reservada — sem candidate_id/attempt_id não há como aplicar
         // as escolhas depois (o RPC exige os dois). Sem eles, o import ok já

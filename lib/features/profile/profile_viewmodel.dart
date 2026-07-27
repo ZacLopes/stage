@@ -6,6 +6,7 @@ import '../../data/models/models.dart';
 import '../../data/supabase_repository.dart';
 import '../../services/ai_service.dart';
 import '../../data/local_storage_repository.dart';
+import '../../services/profile_events.dart';
 
 class ProfileViewModel extends ChangeNotifier {
   final SupabaseRepository _repository;
@@ -73,6 +74,33 @@ class ProfileViewModel extends ChangeNotifier {
       print('Error deleting resume: $e');
       _error = 'Erro ao excluir currículo';
       notifyListeners();
+    }
+  }
+
+  /// F5.2 — remove a FONTE importada pelo RPC atômico (preserva os fatos já
+  /// incorporados ao perfil). Fail-closed: se o RPC falhar, NÃO remove da lista
+  /// local e retorna false (o card mostra o erro). true no sucesso.
+  Future<bool> removeImportedSource(SavedResume resume) async {
+    try {
+      await _repository.removeImportedSource(resume.id, resume.filePath);
+      _savedResumes.removeWhere((r) => r.id == resume.id);
+      notifyListeners();
+      // Code-review 27/07 — mesma classe do Bloqueador A, na direção inversa:
+      // o caminho de IMPORT emite `ProfileEvents` (cv_import_service.dart:201)
+      // e o de REMOÇÃO não emitia. Sem este sinal, quem depende da presença de
+      // material (UserViewModel.canAdaptCv / skillCount, caches de match do
+      // JobsViewModel) continuava com os valores de ANTES da remoção — o botão
+      // de adaptar seguia liberado sobre um CV que não existe mais, até o
+      // próximo cold start.
+      //
+      // O RPC garante que `profile_*` não é tocado (§8.4 do handoff); o que
+      // muda é a FONTE, e é exatamente isso que os caches precisam saber.
+      ProfileEvents.instance.notifyChanged();
+      return true;
+    } catch (_) {
+      _error = 'Erro ao remover a fonte importada';
+      notifyListeners();
+      return false;
     }
   }
 

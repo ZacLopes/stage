@@ -445,6 +445,11 @@ const String evOnboardingStepReached = 'onboarding_step_reached';
 /// Distinto de `evAdaptPdfDownloaded` (B.15) que é CV adaptado.
 const String evCvExported = 'cv_exported';
 
+/// Versão persistida do Currículo geral salva no export (F4.3). `status`:
+/// applied (versão nova), noop (perfil+template iguais à última) ou failed
+/// (upload/RPC/recibo falhou; o PDF ainda foi compartilhado).
+const String evGeneralResumeVersionSaved = 'general_resume_version_saved';
+
 /// Template do CV base trocado (resume tab). Distinto de
 /// `evAdaptTemplateChanged` que é template no fluxo de adapt.
 const String evCvTemplateChanged = 'cv_template_changed';
@@ -800,7 +805,8 @@ const Set<String> kAllowedEventNames = {
   evFeatureFlagEvaluated, evExperimentExposed,
   evCrashDetectedNextSession, evAppTerminatedClean,
   // B.21 — domain extras
-  evOnboardingStepReached, evCvExported, evCvTemplateChanged,
+  evOnboardingStepReached, evCvExported, evGeneralResumeVersionSaved,
+  evCvTemplateChanged,
   evCvTemplateSelectorOpened, evCvLibrarySaveFailed,
   evAdaptSkillsConfirmationCompleted, evAdaptSkillsConfirmationAutoSkipped,
   evAuthPasswordChanged, evAuthPasswordChangeFailed,

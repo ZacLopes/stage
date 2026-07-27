@@ -15,6 +15,7 @@ import '../resume/widgets/general_resume_card.dart';
 import '../../services/feature_flags_service.dart';
 import '../settings/settings_screen.dart';
 import 'resume_detail_screen.dart';
+import 'presentation/widgets/imported_source_card.dart';
 import 'presentation/widgets/personal_info_form.dart';
 import 'presentation/widgets/preferences_tab.dart';
 import 'presentation/widgets/profile_section_list.dart';
@@ -51,6 +52,22 @@ class _SourceMeta {
   const _SourceMeta(this.label, this.color, this.icon);
 }
 
+/// Filtro da biblioteca de currículos (Perfil → Currículos) — só documentos de
+/// SAÍDA. Puro/testável. Exclui `general` sempre (F4.5: vive no card do topo) e
+/// `imported` quando [outputsOnly] (F5.3: com o Assistente ON, a fonte importada
+/// é proveniência e vive no card "Fonte importada" em Dados). Flag OFF preserva
+/// o comportamento anterior (importado na lista).
+List<SavedResume> filterLibraryResumes(
+  List<SavedResume> all, {
+  required bool outputsOnly,
+}) {
+  return all.where((r) {
+    if (r.source == SavedResumeSource.general) return false;
+    if (outputsOnly && r.source == SavedResumeSource.imported) return false;
+    return true;
+  }).toList();
+}
+
 const Map<SavedResumeSource, _SourceMeta> _kSourceMeta = {
   SavedResumeSource.manual: _SourceMeta(
     'Editado',
@@ -66,6 +83,20 @@ const Map<SavedResumeSource, _SourceMeta> _kSourceMeta = {
     'Adaptado (IA)',
     AppColors.success, // emerald — diferencia o badge "feito por IA"
     Icons.auto_awesome_rounded,
+  ),
+  // F4.5: trail é visualmente = manual ("Editado"); só o source distingue
+  // (dirige o modo editável no detalhe). A legenda deduplica por rótulo.
+  SavedResumeSource.trail: _SourceMeta(
+    'Editado',
+    AppColors.primary,
+    Icons.edit_rounded,
+  ),
+  // general normalmente não aparece na lista (vive no card do topo), mas o
+  // mapa precisa cobrir todos os sources pro `_kSourceMeta[...]!` nunca estourar.
+  SavedResumeSource.general: _SourceMeta(
+    'Currículo geral',
+    AppColors.primary,
+    Icons.description_rounded,
   ),
 };
 
@@ -254,6 +285,15 @@ class _ResumesTab extends StatefulWidget {
 class _ResumesTabState extends State<_ResumesTab> {
   _ResumeSort _sort = _ResumeSort.newest;
 
+  /// Documentos da biblioteca (Perfil → Currículos). Aplica [filterLibraryResumes]
+  /// com a flag do Assistente (mesma flag/userId do resto do IA/Perfil).
+  List<SavedResume> _libraryResumes(ProfileViewModel vm) => filterLibraryResumes(
+        vm.savedResumes,
+        outputsOnly: FeatureFlagsService.instance.isTrilhaAssistEnabledForUser(
+          Supabase.instance.client.auth.currentUser?.id,
+        ),
+      );
+
   /// Aplica a ordenação selecionada à lista bruta do view model.
   /// Retorna uma cópia ordenada — não muta o estado do view model.
   List<SavedResume> _sortedResumes(List<SavedResume> input) {
@@ -272,6 +312,8 @@ class _ResumesTabState extends State<_ResumesTab> {
           SavedResumeSource.adapted: 0,
           SavedResumeSource.imported: 1,
           SavedResumeSource.manual: 2,
+          SavedResumeSource.trail: 2, // = manual (mesmo grupo "Editado")
+          SavedResumeSource.general: 3, // não aparece na lista, mas por completude
         };
         list.sort((a, b) {
           final byType = (order[a.source] ?? 99).compareTo(order[b.source] ?? 99);
@@ -336,17 +378,17 @@ class _ResumesTabState extends State<_ResumesTab> {
                         ),
                       ),
                     ),
-                    if (viewModel.savedResumes.isNotEmpty)
+                    if (_libraryResumes(viewModel).isNotEmpty)
                       _buildSortButton(),
                   ],
                 ),
                 const SizedBox(height: 12),
-                if (viewModel.savedResumes.isNotEmpty) ...[
+                if (_libraryResumes(viewModel).isNotEmpty) ...[
                   _buildSourceLegend(viewModel),
                   const SizedBox(height: 16),
                 ],
-                if (viewModel.savedResumes.isEmpty)
-                  _buildEmptyState()
+                if (_libraryResumes(viewModel).isEmpty)
+                  _buildEmptyState(assistEnabled)
                 else
                   _buildResumeList(viewModel, highlightId),
                 const SizedBox(height: 40),
@@ -358,7 +400,7 @@ class _ResumesTabState extends State<_ResumesTab> {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(bool outputsOnly) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(32),
@@ -387,10 +429,14 @@ class _ResumesTabState extends State<_ResumesTab> {
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Os arquivos que você importar e os currículos adaptados para vagas aparecerão aqui.',
+          Text(
+            // F5.3: com o Assistente ON, esta lista é só de SAÍDAS (a fonte
+            // importada vive na aba Dados) — a copy não cita "importar".
+            outputsOnly
+                ? 'Seus currículos gerados e adaptados para vagas aparecerão aqui.'
+                : 'Os arquivos que você importar e os currículos adaptados para vagas aparecerão aqui.',
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 14,
               color: AppColors.textTertiary,
               height: 1.5,
@@ -402,7 +448,7 @@ class _ResumesTabState extends State<_ResumesTab> {
   }
 
   Widget _buildResumeList(ProfileViewModel viewModel, String? highlightId) {
-    final sorted = _sortedResumes(viewModel.savedResumes);
+    final sorted = _sortedResumes(_libraryResumes(viewModel));
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -528,9 +574,12 @@ class _ResumesTabState extends State<_ResumesTab> {
   /// Legenda visual dos 3 tipos de currículo. Mostra só os tipos
   /// presentes na biblioteca pra evitar poluir.
   Widget _buildSourceLegend(ProfileViewModel viewModel) {
-    final present = viewModel.savedResumes.map((r) => r.source).toSet();
+    final present = _libraryResumes(viewModel).map((r) => r.source).toSet();
+    // Dedup por rótulo: trail e manual mostram ambos "Editado" — um só chip.
+    final seenLabels = <String>{};
     final entries = SavedResumeSource.values
         .where((s) => present.contains(s))
+        .where((s) => seenLabels.add(_kSourceMeta[s]!.label))
         .toList();
     if (entries.length < 2) {
       return const SizedBox.shrink();
@@ -738,6 +787,9 @@ class _InfoTabState extends State<_InfoTab> {
                 const ProfileSectionList(
                   showLowConfidenceBadges: false,
                 ),
+                // F5.2: card "Fonte importada" — auto-oculto com a flag OFF ou
+                // sem CV importado (traz sua própria margem quando renderiza).
+                const ImportedSourceCard(),
               ],
             ),
           );

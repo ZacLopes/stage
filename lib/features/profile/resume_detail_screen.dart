@@ -6,6 +6,8 @@ import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/analytics/screen_tracking.dart';
+import '../../core/utils/trail_resume.dart';
+import '../../core/utils/resume_filename.dart';
 
 import '../../data/models/models.dart';
 import '../../services/analytics_service.dart';
@@ -111,8 +113,18 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
   late String _selectedTemplateId; // template aplicado no PDF visível
   bool _isChangingTemplate = false; // disable UI enquanto re-render+upload
 
-  bool get _isEditable =>
-      widget.resume.title.startsWith(ResumeViewModel.kTrailResumeBaseTitle);
+  // F4.5: tipo ESTRUTURAL por source, não mais pelo prefixo do título
+  // ('Currículo Stage'). A migration 125 tipa os CVs legados da trilha como
+  // 'trail'; os novos já nascem 'trail'.
+  //
+  // Predicado TOLERANTE (decisão 1 de 26/07): a migration sobe DEPOIS do app
+  // (caminho A), então até lá nenhuma linha é 'trail' e o teste estrutural
+  // sozinho seria constante-falso. Ver `isTrailResume` para a medição e o
+  // gatilho de remoção do ramo legado.
+  bool get _isEditable => isTrailResume(
+        source: widget.resume.source,
+        title: widget.resume.title,
+      );
 
   /// True quando o CV salvo tem `resume_data` estruturado e veio da
   /// adaptação (source=adapted). Habilita o seletor de template inline
@@ -369,10 +381,12 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
         fallbackResume: resume,
         templateId: vm.selectedTemplateId,
       );
-      final safeName = user?.name ?? 'profissional';
       await Printing.sharePdf(
         bytes: rendered.bytes,
-        filename: 'curriculo_${safeName.replaceAll(' ', '_')}.pdf',
+        filename: ResumeFilename.build(
+          preferredName: resume.fullName,
+          accountName: user?.name,
+        ),
       );
       Analytics.shared.cvExported(templateId: vm.selectedTemplateId);
       // Ciclo completo de export — limpa o banner pendente (F2.5).
@@ -474,11 +488,16 @@ class _ResumeDetailScreenState extends State<ResumeDetailScreen>
           ),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.delete_outline_rounded, size: 22),
-            tooltip: 'Excluir',
-            onPressed: _confirmDelete,
-          ),
+          // F5.2: fonte importada NÃO é excluída por aqui — a remoção canônica
+          // é o card "Fonte importada" em Perfil → Dados (RPC atômico que
+          // preserva o perfil). Evita um 2º caminho de delete com semântica e
+          // copy divergentes ("Excluir currículo?") sobre uma FONTE.
+          if (widget.resume.source != SavedResumeSource.imported)
+            IconButton(
+              icon: const Icon(Icons.delete_outline_rounded, size: 22),
+              tooltip: 'Excluir',
+              onPressed: _confirmDelete,
+            ),
         ],
       ),
       body: _isEditable ? _buildEditableBody() : _buildViewOnlyBody(),

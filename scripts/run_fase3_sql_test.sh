@@ -256,4 +256,27 @@ else
   echo "FALHOU 2-sessões: ncur=$NCUR cur='$CURTITLE' skills='$SKILLS'"; exit 1
 fi
 
-echo "ALL_SQL_TESTS_OK (combined 14→17; update/delete/upsert/fill×guided/service/janela/inversão/2-sessões, sem deadlock)"
+# 8. F4.1 — duas sessões salvam versão do Currículo geral: serializam no
+#    advisory (mesma ordem universal), sem deadlock e SEM versão duplicada —
+#    exatamente v1 e v2, uma por sessão (fingerprints distintos).
+UG='000000f4-0000-0000-0000-0000000000c1'
+AS_AUTHG="SET ROLE authenticated; SELECT set_config('request.jwt.claims','{\"sub\":\"$UG\"}',false);"
+$PSQL -c "INSERT INTO auth.users(id) VALUES('$UG') ON CONFLICT DO NOTHING; INSERT INTO public.user_profiles(id) VALUES('$UG') ON CONFLICT DO NOTHING; DELETE FROM public.saved_resumes WHERE user_id='$UG';" >/dev/null
+GA="$TMP/gen1.$$"; GB="$TMP/gen2.$$"
+$PSQL -c "$AS_AUTHG BEGIN; SELECT public.save_general_resume_version_v1('Currículo geral','$UG/general/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.pdf','{\"n\":\"1\"}'::jsonb,'harvard_ats',repeat('1',64)); SELECT pg_sleep(4); COMMIT;" >"$GA" 2>&1 &
+GAP=$!
+wait_for "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND granted;" "f4-geral: holder segurar o lock"
+$PSQL -c "$AS_AUTHG SELECT public.save_general_resume_version_v1('Currículo geral','$UG/general/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb.pdf','{\"n\":\"2\"}'::jsonb,'harvard_ats',repeat('2',64));" >"$GB" 2>&1 &
+GBP=$!
+wait_for "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND NOT granted;" "f4-geral: contender bloquear"
+wait "$GAP"; wait "$GBP"
+no_deadlock "$GA" "f4-geral"; no_deadlock "$GB" "f4-geral"
+GCNT=$($PSQL -c "SELECT count(*) FROM public.saved_resumes WHERE user_id='$UG' AND source='general';")
+GVERS=$($PSQL -c "SELECT COALESCE(string_agg(version::text, ',' ORDER BY version), '') FROM public.saved_resumes WHERE user_id='$UG' AND source='general';")
+if [ "$GCNT" = "2" ] && [ "$GVERS" = "1,2" ]; then
+  echo "NOTICE:  T-CONC[f4-geral] OK: 2 versões (1,2), sem duplicata, sem deadlock"
+else
+  echo "FALHOU f4-geral: cnt=$GCNT versions='$GVERS'"; exit 1
+fi
+
+echo "ALL_SQL_TESTS_OK (combined 14→21; update/delete/upsert/fill×guided/service/janela/inversão/2-sessões/f4-geral, sem deadlock)"

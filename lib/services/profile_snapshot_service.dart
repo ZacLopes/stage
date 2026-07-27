@@ -35,6 +35,19 @@ class ProfileSnapshot {
   final List<Award> awards;
   final List<Coursework> coursework;
 
+  /// True quando ao menos uma das consultas do snapshot FALHOU e caiu no
+  /// fallback vazio.
+  ///
+  /// [loadSnapshot] é best-effort POR TABELA: uma consulta que falha vira
+  /// lista vazia e o resto carrega normalmente. Isso é bom para renderizar
+  /// tela (mostra o que deu), e perigoso para DECIDIR — uma lista vazia por
+  /// falha é indistinguível de uma lista vazia de verdade.
+  ///
+  /// Quem usa o snapshot para BLOQUEAR o usuário (ex.: o gate da adaptação)
+  /// precisa saber a diferença: barrar alguém que tem 7 habilidades porque a
+  /// consulta tropeçou é pior do que deixar passar. Ver `adapt_gate.dart`.
+  final bool partialFailure;
+
   const ProfileSnapshot({
     this.personal,
     this.experiences = const [],
@@ -46,6 +59,7 @@ class ProfileSnapshot {
     this.interests = const [],
     this.awards = const [],
     this.coursework = const [],
+    this.partialFailure = false,
   });
 
   /// True quando o user não tem nenhum conteúdo PROFISSIONAL real — só
@@ -296,10 +310,14 @@ class ProfileSnapshotService {
   /// caem pra lista vazia em vez de quebrar tudo — feature deve renderizar
   /// o que conseguiu.
   Future<ProfileSnapshot> loadSnapshot(String userId) async {
+    // Registra se ALGUMA consulta caiu no fallback — quem decide bloqueio
+    // precisa distinguir "lista vazia de verdade" de "não consegui ler".
+    var partialFailure = false;
     Future<T> safe<T>(Future<T> future, T fallback) async {
       try {
         return await future;
       } catch (_) {
+        partialFailure = true;
         return fallback;
       }
     }
@@ -328,6 +346,7 @@ class ProfileSnapshotService {
       interests: (results[7] as List).cast<Interest>(),
       awards: (results[8] as List).cast<Award>(),
       coursework: (results[9] as List).cast<Coursework>(),
+      partialFailure: partialFailure,
     );
   }
 
