@@ -266,10 +266,29 @@ class _PhaseCompletionWidgetState extends State<PhaseCompletionWidget>
       // Passa profileVM.saveResume como callback pra atualizar a lista
       // local (`savedResumes`) — sem isso a aba Perfil mostra stale até
       // pull-to-refresh.
+      // F4.5 queria gravar source='trail' aqui (tipo estrutural em vez do
+      // prefixo do título). NÃO DÁ AINDA — e o motivo é ordem de deploy:
+      //
+      // O CHECK `saved_resumes_source_check` em produção só aceita
+      // manual/imported/adapted (medido em 26/07). Quem alarga o CHECK é a
+      // migration `20260721120000`, e a ordem de release decidida (caminho A,
+      // 26/07) sobe o APP ANTES das migrations. Gravar 'trail' nessa janela
+      // viola o CHECK, o INSERT estoura 23514, o catch abaixo engole, e o
+      // usuário termina a trilha sem o currículo que a tela prometeu — depois
+      // de a IA ter rodado e o PDF já ter subido ao Storage.
+      //
+      // Então seguimos gravando `manual` (o que produção já faz hoje). A
+      // LEITURA continua correta porque `isTrailResume` é tolerante e casa
+      // `manual` + prefixo do título — ver core/utils/trail_resume.dart.
+      //
+      // TROCAR PARA `SavedResumeSource.trail` SOMENTE quando a
+      // `20260721120000` estiver aplicada em produção. Enquanto isso não
+      // acontecer, o ramo legado de `isTrailResume` é a única coisa que mantém
+      // estes CVs editáveis — não remover.
       saved = await resumeVM.autoSaveTrailResume(
         userVM.user,
         profileVM.resolveUniqueTitle,
-        profileVM.saveResume,
+        (title, bytes) => profileVM.saveResume(title, bytes),
       );
     } catch (e) {
       debugPrint('Trail completion CV pipeline failed: $e');

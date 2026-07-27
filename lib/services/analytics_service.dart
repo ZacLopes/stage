@@ -877,6 +877,15 @@ class AnalyticsService {
   Future<void> cvExported({required String templateId}) =>
       track(evCvExported, props: {'template_id': templateId});
 
+  /// Versão persistida do Currículo geral salva no export (F4.3). [status] =
+  /// 'applied' | 'noop' | 'failed'.
+  Future<void> generalResumeVersionSaved({
+    required String status,
+    required String templateId,
+  }) =>
+      track(evGeneralResumeVersionSaved,
+          props: {'status': status, 'template_id': templateId});
+
   /// Template trocado na resume tab (CV base).
   Future<void> cvTemplateChanged({required String templateId}) =>
       track(evCvTemplateChanged, props: {'template_id': templateId});

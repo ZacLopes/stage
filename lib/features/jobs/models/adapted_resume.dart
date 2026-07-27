@@ -1,4 +1,10 @@
-import '../../../data/models/models.dart' show ResumeCourse, ResumeLanguage;
+import '../../../data/models/models.dart'
+    show
+        ResumeAward,
+        ResumeCourse,
+        ResumeLanguage,
+        ResumeLeadership,
+        ResumeProject;
 import '../../resume/resume_viewmodel.dart'
     show ResumeData, ExperienceItem, EducationItem, ToolWithLevel;
 
@@ -204,10 +210,19 @@ class AdaptedResume {
   /// espera (roundtrip preservado). Usado pra persistir o `resume_data` em
   /// `saved_resumes` — permite re-render com template diferente depois.
   ///
-  /// Nota: education sai como `details` legacy (não restaura majors/minors
-  /// separados — a IA constrói detail line a partir deles, e nosso
-  /// `EducationItem` só guarda o detail final). Activities preservadas.
-  /// Tools sai como lista de nomes (sem `level` — schema atual não persiste).
+  /// F4.2: o serializer é COMPLETO o suficiente para o Currículo geral
+  /// round-tripar sem perda — `awards`, `academicProjects` e `leadership`
+  /// (seções que o formato adaptado antigo não tinha) e `certifications` com
+  /// `institution`/`period` (issuer/ano). `tools` sai como `{name, level}` e
+  /// há `toolsText`. Retrocompatível: o parser ainda lê o formato legado
+  /// (`tools`/`certifications` como `string[]`) — ausência de uma seção nova
+  /// vira lista vazia.
+  ///
+  /// Fronteira consciente (inalterada): education sai como `details` já
+  /// montado (não restaura majors/minors separados — a projeção constrói a
+  /// detail line a partir deles e o `EducationItem` guarda só o detail final);
+  /// `honors`/`repRole`/`coursework` são derivados no parse e ficam vazios na
+  /// projeção geral. Activities preservadas.
   static Map<String, dynamic> serializeResumeData(ResumeData r) {
     return <String, dynamic>{
       'fullName': r.fullName,
@@ -219,7 +234,14 @@ class AdaptedResume {
       'language': r.language,
       'summary': r.summary,
       'skills': r.skills,
-      'tools': r.tools.map((t) => t.name).where((s) => s.isNotEmpty).toList(),
+      // tools: {name, level} (level preservado). O parser ainda aceita o
+      // formato legado/servidor `string[]`. toolsText = string Harvard
+      // pré-formatada da IA (sobrepõe `tools` quando não-vazia no template).
+      'tools': r.tools
+          .where((t) => t.name.isNotEmpty)
+          .map((t) => {'name': t.name, 'level': t.level})
+          .toList(),
+      'toolsText': r.toolsText,
       'experiences': r.experiences.map((e) => {
             'role': e.role,
             'company': e.company,
@@ -242,7 +264,47 @@ class AdaptedResume {
           }).toList(),
       'achievements': r.achievements,
       'interests': r.interests,
-      'certifications': r.courses.map((c) => c.title).toList(),
+      // certifications: {title, institution, period} — issuer/ano preservados.
+      // O parser ainda aceita `string[]` legado (só título).
+      'certifications': r.courses
+          .map((c) => {
+                'title': c.title,
+                'institution': c.institution,
+                'period': c.period,
+              })
+          .toList(),
+      // Seções que o Currículo geral popula e o formato adaptado antigo não
+      // tinha. Ausência no parse (rows antigas) vira lista vazia.
+      'academicProjects': r.academicProjects
+          .map((p) => {
+                'title': p.title,
+                'role': p.role,
+                'period': p.period,
+                'description': p.description,
+                'location': p.location,
+                'relevantWork': p.relevantWork,
+                'experiencePhaseId': p.experiencePhaseId,
+              })
+          .toList(),
+      'awards': r.awards
+          .map((a) => {
+                'title': a.title,
+                'institution': a.institution,
+                'date': a.date,
+                'description': a.description,
+              })
+          .toList(),
+      'leadership': r.leadership
+          .map((l) => {
+                'role': l.role,
+                'organization': l.organization,
+                'period': l.period,
+                'location': l.location,
+                'description': l.description,
+                'relevantWork': l.relevantWork,
+                'experiencePhaseId': l.experiencePhaseId,
+              })
+          .toList(),
     };
   }
 
@@ -251,6 +313,15 @@ class AdaptedResume {
       if (v is! List) return const [];
       return v.map((e) => e?.toString() ?? '').where((s) => s.isNotEmpty).toList();
     }
+
+    /// Leitura tolerante de lista heterogênea (itens String OU Map).
+    ///
+    /// A F4.2 trocou `certifications`/`tools` de `string[]` para lista de
+    /// objetos e, junto, trocou o `stringList` tolerante por `as List?` — um
+    /// cast duro que LANÇA quando a row legada guardou outra coisa, derrubando
+    /// a tela de detalhe em vez de degradar para vazio. Achado do code-review
+    /// de 27/07: restaura a tolerância mantendo o formato novo.
+    List<dynamic> anyList(dynamic v) => v is List ? v : const [];
 
     final experiencesRaw = (json['experiences'] as List?) ?? const [];
     final experiences = experiencesRaw.map((e) {
@@ -368,20 +439,92 @@ class AdaptedResume {
       );
     }).toList();
 
-    // Certificações: a IA retorna como `certifications: string[]` —
-    // mapeamos cada item pra ResumeCourse(title=string completa). O
-    // template Harvard já renderiza resume.courses como seção
-    // "Certificações" dentro de habilidades. F+ futura: parsear "Nome -
-    // Instituição - Ano" em 3 campos.
-    final certifications = stringList(json['certifications'])
-        .map((s) => ResumeCourse(title: s, institution: '', period: ''))
+    // Helper: só os itens Map de uma lista, cada um como Map<String,dynamic>.
+    List<Map<String, dynamic>> mapList(dynamic v) {
+      if (v is! List) return const [];
+      return v
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    }
+
+    // Certificações: o servidor (adapt) e as rows legadas mandam
+    // `certifications: string[]` (só título); a persistência F4.2 manda
+    // `[{title, institution, period}]` (issuer/ano preservados). Aceita os
+    // DOIS — item String vira título só; item Map preserva os 3 campos.
+    final certificationsRaw = anyList(json['certifications']);
+    final certifications = certificationsRaw
+        .map((c) {
+          if (c is Map) {
+            final m = Map<String, dynamic>.from(c);
+            return ResumeCourse(
+              title: m['title']?.toString() ?? '',
+              institution: m['institution']?.toString() ?? '',
+              period: m['period']?.toString() ?? '',
+            );
+          }
+          return ResumeCourse(
+              title: c?.toString() ?? '', institution: '', period: '');
+        })
+        .where((c) => c.title.isNotEmpty)
         .toList();
 
-    // Tools v2 (Tier 1.5): GPT retorna `tools: string[]` — separados de
-    // skills técnicas. Mapeamos pra ToolWithLevel sem level (não há
-    // proficiência associada no schema relacional ainda).
-    final tools = stringList(json['tools'])
-        .map((t) => ToolWithLevel(t, ''))
+    // Tools: servidor/legado mandam `string[]` (sem level); a persistência
+    // F4.2 manda `[{name, level}]`. Aceita os dois.
+    final toolsRaw = anyList(json['tools']);
+    final tools = toolsRaw
+        .map((t) {
+          if (t is Map) {
+            final m = Map<String, dynamic>.from(t);
+            return ToolWithLevel(
+              m['name']?.toString() ?? '',
+              m['level']?.toString() ?? '',
+            );
+          }
+          return ToolWithLevel(t?.toString() ?? '', '');
+        })
+        .where((t) => t.name.isNotEmpty)
+        .toList();
+
+    // Seções que o Currículo geral popula (F4.2). Rows legadas não têm essas
+    // chaves → lista vazia. Filtro conservador dropa só entradas sem âncora.
+    final academicProjects = mapList(json['academicProjects'])
+        .map((m) => ResumeProject(
+              title: m['title']?.toString() ?? '',
+              role: m['role']?.toString() ?? '',
+              period: m['period']?.toString() ?? '',
+              description: m['description']?.toString() ?? '',
+              location: m['location']?.toString() ?? '',
+              relevantWork: m['relevantWork']?.toString() ?? '',
+              experiencePhaseId: m['experiencePhaseId']?.toString() ?? '',
+            ))
+        .where((p) =>
+            p.title.isNotEmpty ||
+            p.role.isNotEmpty ||
+            p.description.isNotEmpty)
+        .toList();
+
+    final awards = mapList(json['awards'])
+        .map((m) => ResumeAward(
+              title: m['title']?.toString() ?? '',
+              institution: m['institution']?.toString() ?? '',
+              date: m['date']?.toString() ?? '',
+              description: m['description']?.toString() ?? '',
+            ))
+        .where((a) => a.title.isNotEmpty)
+        .toList();
+
+    final leadership = mapList(json['leadership'])
+        .map((m) => ResumeLeadership(
+              role: m['role']?.toString() ?? '',
+              organization: m['organization']?.toString() ?? '',
+              period: m['period']?.toString() ?? '',
+              location: m['location']?.toString() ?? '',
+              description: m['description']?.toString() ?? '',
+              relevantWork: m['relevantWork']?.toString() ?? '',
+              experiencePhaseId: m['experiencePhaseId']?.toString() ?? '',
+            ))
+        .where((l) => l.role.isNotEmpty || l.organization.isNotEmpty)
         .toList();
 
     // Languages v2 (Tier 1.5): GPT retorna [{name, proficiency}]. Antes
@@ -413,12 +556,16 @@ class AdaptedResume {
       summary: json['summary']?.toString() ?? '',
       skills: stringList(json['skills']),
       tools: tools,
+      toolsText: json['toolsText']?.toString() ?? '',
       experiences: experiences,
       education: education,
       languages: languages,
+      academicProjects: academicProjects,
+      leadership: leadership,
       achievements: stringList(json['achievements']),
       interests: stringList(json['interests']),
       courses: certifications,
+      awards: awards,
     );
   }
 }

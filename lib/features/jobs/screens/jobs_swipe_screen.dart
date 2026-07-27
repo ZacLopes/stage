@@ -35,6 +35,7 @@ import 'job_details_sheet.dart';
 import 'job_preferences_screen.dart';
 import 'jobs_list_screen.dart';
 import '../../../core/theme/theme.dart';
+import '../utils/adapt_gate.dart';
 
 class JobsSwipeScreen extends StatefulWidget {
   const JobsSwipeScreen({super.key});
@@ -176,7 +177,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     // Re-carrega pseudo-texto sempre que o user edita o perfil
     // (ProfileEditorViewModel emite via ProfileEvents). Sem isso,
     // adicionar skill nova não reflete no match até hot-restart.
-    _profileEventsSub = ProfileEvents.instance.changes.listen((_) {
+    _profileEventsSub = ProfileEvents.instance.matchInputsChanged.listen((_) {
       if (!mounted) return;
       _profileText = null;
       _matchCache.clear();
@@ -414,7 +415,18 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     final hasResume = userVm.hasResume;
     List<String> extraSkills = const [];
 
-    if (hasResume) {
+    // F6 (§5 do device-test): o gate rodava DEPOIS desta folha — o usuário
+    // escolhia habilidades, clicava "Adaptar como está" e só então descobria
+    // que não dava, com o app já sabendo antes de abrir a folha. Avaliamos
+    // antes: se está barrado, pula a folha e vai direto pra sheet, que renderiza
+    // o erro honesto com a saída certa.
+    final gate = evaluateAdaptGate(
+      hasNarrativeMaterial: userVm.canAdaptCv,
+      skillCount: userVm.skillCount,
+      skillCountIsReliable: userVm.skillCountIsReliable,
+    );
+
+    if (gate == AdaptGateResult.allowed && hasResume) {
       final result = await showModalBottomSheet<List<String>?>(
         context: context,
         isScrollControlled: true,
@@ -431,7 +443,7 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
     } else {
       Analytics.shared.skillsConfirmationAutoSkipped(
         jobId: job.id,
-        reason: 'no_cv',
+        reason: gate != AdaptGateResult.allowed ? 'gate_blocked' : 'no_cv',
       );
     }
 

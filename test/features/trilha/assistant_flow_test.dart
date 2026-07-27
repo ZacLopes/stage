@@ -287,6 +287,7 @@ void main() {
     List<ConversationStep>? plan,
     Future<void> Function(StepAnswer)? saveAnswer,
     void Function()? onProfileEdited,
+    void Function()? onDocumentsChanged,
   }) {
     final save = saveAnswer ?? (StepAnswer a) async {};
     final session = TrilhaSession(
@@ -333,6 +334,7 @@ void main() {
       assistReviewedConflictApplier: reviewedApplier,
       assistReviewedConflictReverter: reviewedReverter,
       onProfileEdited: onProfileEdited,
+      onDocumentsChanged: onDocumentsChanged,
       pollInterval: const Duration(milliseconds: 1),
       maxPolls: 2,
     );
@@ -3483,4 +3485,174 @@ void main() {
       expect(c.currentStep?.id, 'gap.skills');
     },
   );
+
+  // ── F3 — Bloqueador A: a coleta guiada invalida o perfil ──────────────
+  //
+  // A escrita guiada grava em profile_* via TrilhaWriteback, FORA do
+  // ProfileEditorViewModel, e nada avisava a UI. O usuário lia "✓ Adicionei ao
+  // seu perfil" e via "Experiência profissional (0)" até o cold start.
+  group('F3 — invalidação da coleta guiada', () {
+    List<ConversationStep> doisPassosDeTexto() => [
+          ConversationStep.single(
+            id: 'q.text',
+            aiMessage: 'Empresa?',
+            input: const GuidedTextInput(example: 'Ardis'),
+          ),
+          ConversationStep.single(
+            id: 'q.text2',
+            aiMessage: 'Cargo?',
+            input: const GuidedTextInput(example: 'Estagiário'),
+          ),
+        ];
+
+    test('passo respondido com sucesso avisa o host UMA vez', () async {
+      var reloads = 0;
+      final c = build(
+        assistEnabled: false,
+        assistantTurn: _nullTurn(),
+        onProfileEdited: () => reloads++,
+      );
+      addTearDown(c.dispose);
+      await c.start();
+
+      expect(reloads, 0, reason: 'nada foi respondido ainda');
+
+      await c.submitFreeText('Ardis Consultoria');
+
+      expect(reloads, 1);
+    });
+
+    test('write-back que FALHA não invalida (falha ≠ falso sucesso)', () async {
+      // Regra 5 do handoff: falha de persistência nunca pode avançar a conversa
+      // nem aparecer como sucesso. Se invalidássemos aqui, a UI recarregaria
+      // como se algo tivesse sido gravado — exatamente o falso sucesso que o
+      // Bloqueador A produzia ao contrário.
+      var reloads = 0;
+      final c = build(
+        assistEnabled: false,
+        assistantTurn: _nullTurn(),
+        plan: doisPassosDeTexto(),
+        saveAnswer: (_) async => throw Exception('network'),
+        onProfileEdited: () => reloads++,
+      );
+      addTearDown(c.dispose);
+      await c.start();
+
+      await c.submitFreeText('Ardis Consultoria');
+
+      expect(reloads, 0);
+    });
+
+    test('dois passos respondidos avisam duas vezes', () async {
+      var reloads = 0;
+      final c = build(
+        assistEnabled: false,
+        assistantTurn: _nullTurn(),
+        plan: doisPassosDeTexto(),
+        onProfileEdited: () => reloads++,
+      );
+      addTearDown(c.dispose);
+      await c.start();
+
+      await c.submitFreeText('Ardis Consultoria');
+      await c.submitFreeText('Estagiário de Dados');
+
+      expect(reloads, 2);
+    });
+  });
+
+  // ── F4 — E1: o card "Fonte importada" enxerga o import ────────────────
+  group('F4 — invalidação da biblioteca de documentos', () {
+    // Fluxo real do import: turno com tool `import_cv` → action card →
+    // runActionCard dispara o `importCv` injetado.
+    TrilhaChatController buildImport({
+      required AssistImportResult resultado,
+      required void Function() onDocs,
+    }) =>
+        build(
+          assistantTurn: _fixed(
+            const AssistantTurn(
+              tool: 'import_cv',
+              args: {},
+              reply: '',
+              promptVersion: 'assistant_v11',
+            ),
+          ),
+          importCv: () async => resultado,
+          onDocumentsChanged: onDocs,
+        );
+
+    test('import bem-sucedido avisa que os DOCUMENTOS mudaram', () async {
+      var docs = 0;
+      final c = buildImport(
+        resultado: const AssistImportResult(AssistImportOutcome.ok),
+        onDocs: () => docs++,
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('importa meu cv');
+      final action = c.thread.whereType<AssistActionCardItem>().single;
+
+      await c.runActionCard(action.id);
+
+      // A linha de saved_resumes já existe (nasceu server-side em
+      // begin_import_source) — sem este aviso o card "Fonte importada" segue
+      // dizendo "Nenhum currículo importado".
+      expect(docs, 1);
+    });
+
+    test('import que FALHA não avisa', () async {
+      var docs = 0;
+      final c = buildImport(
+        resultado: const AssistImportResult(AssistImportOutcome.failed),
+        onDocs: () => docs++,
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('importa meu cv');
+      final action = c.thread.whereType<AssistActionCardItem>().single;
+
+      await c.runActionCard(action.id);
+
+      expect(docs, 0);
+    });
+
+    test('import cancelado não avisa', () async {
+      var docs = 0;
+      final c = buildImport(
+        resultado: const AssistImportResult(AssistImportOutcome.cancelled),
+        onDocs: () => docs++,
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.submitFreeText('importa meu cv');
+      final action = c.thread.whereType<AssistActionCardItem>().single;
+
+      await c.runActionCard(action.id);
+
+      expect(docs, 0);
+    });
+
+    test('responder um passo NÃO recarrega a biblioteca (canais separados)',
+        () async {
+      // Documentos e fatos do perfil invalidam em frequências diferentes: a
+      // coleta guiada dispara a cada passo e não muda saved_resumes. Se os dois
+      // usassem o mesmo canal, cada resposta viraria um fetch desnecessário.
+      var docs = 0;
+      var profile = 0;
+      final c = build(
+        assistEnabled: false,
+        assistantTurn: _nullTurn(),
+        onDocumentsChanged: () => docs++,
+        onProfileEdited: () => profile++,
+      );
+      addTearDown(c.dispose);
+      await c.start();
+
+      await c.submitFreeText('Ardis Consultoria');
+
+      expect(profile, 1);
+      expect(docs, 0);
+    });
+  });
 }

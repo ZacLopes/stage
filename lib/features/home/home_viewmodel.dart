@@ -182,6 +182,26 @@ class HomeViewModel extends ChangeNotifier {
     // No notifyListeners() to avoid rebuild loops
   }
 
+  // ── Pedido de IMPORTAR CV (F5.4) ──────────────────────────────────────────
+  /// O card "Fonte importada" (Perfil → Dados) é a casa da fonte, mas a REVISÃO
+  /// do import ("CV diz X × você tem Y" + desfazer) vive no Assistente, que é o
+  /// agente transversal de documentos. Ao tocar Substituir/Importar, o card pede
+  /// a troca pra aba do Assistente E este flag; a ResumeTab consome num
+  /// post-frame e empurra o MESMO cartão de import que o assistente já usa —
+  /// sem duplicar o motor de revisão.
+  bool _pendingCvImport = false;
+  bool get pendingCvImport => _pendingCvImport;
+
+  void requestCvImport() {
+    _pendingCvImport = true;
+    notifyListeners();
+  }
+
+  void clearCvImport() {
+    _pendingCvImport = false;
+    // No notifyListeners() to avoid rebuild loops
+  }
+
   // ── Bottom-nav Profile icon key (target for the landing animation) ────────
   /// HomeScreen sets this key on the Profile bottom-nav item so other
   /// screens can compute its position on-screen and animate towards it.

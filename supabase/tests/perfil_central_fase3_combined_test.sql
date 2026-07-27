@@ -104,6 +104,9 @@ WHERE p.oid = 'public.save_profile_from_json(uuid,jsonb)'::regprocedure;
 \ir ../migrations/20260717160000_guided_language_remove_cas.sql
 \ir ../migrations/20260719120000_import_revert_snapshot.sql
 \ir ../migrations/20260720120000_appside_cas_contracts.sql
+\ir ../migrations/20260721120000_general_resume_versions.sql
+\ir ../migrations/20260722120000_backfill_trail_source.sql
+\ir ../migrations/20260724120000_import_cache_cleanup_tautological.sql
 
 -- C1 — cadeia/ACL/trigger: as duas fundações coexistem sem wrapper órfão,
 -- reabertura de helper ou perda de fencing nas tabelas anteriores.
@@ -489,5 +492,11 @@ CREATE TRIGGER zzzz_test_hold_profile_write
 
 -- Gate 3.0H (app-side) — contratos CAS de escalar + item-field.
 \ir perfil_central_fase3_appside_cas_test.sql
+
+-- Fase 4 F4.1 — versões do Currículo geral (source='general' + RPC + recibo).
+\ir perfil_central_fase4_general_versions_test.sql
+
+-- Fase 5 — predicado tautológico de limpeza do cache legado de import.
+\ir perfil_central_fase5_import_cache_test.sql
 
 SELECT 'ALL_COMBINED_SQL_TESTS_OK' AS result;

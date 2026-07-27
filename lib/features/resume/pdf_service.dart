@@ -8,6 +8,7 @@ import 'package:syncfusion_flutter_pdf/pdf.dart' as sf;
 import '../../core/utils/contact_email.dart';
 import '../../data/models/models.dart';
 import 'resume_viewmodel.dart';
+import '../../core/utils/resume_filename.dart';
 
 /// Tier de renderização do Harvard MCS. Cada tier define um conjunto
 /// específico de CSS (font-size, line-height, margins) e content
@@ -36,12 +37,12 @@ class PdfService {
     try {
       final bytes = await generateResumeBytes(user, resume, templateId);
       
-      final safeName = user?.name ?? 'profissional';
-      final filename = 'curriculo_${safeName.replaceAll(' ', '_')}.pdf';
-      
       await Printing.sharePdf(
         bytes: bytes,
-        filename: filename,
+        filename: ResumeFilename.build(
+          preferredName: resume.fullName,
+          accountName: user?.name,
+        ),
       );
     } catch (e) {
       print('Error in generateResume: $e');

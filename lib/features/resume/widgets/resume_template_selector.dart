@@ -8,6 +8,17 @@ import '../../../core/theme/theme.dart';
 class ResumeTemplateSelector extends StatefulWidget {
   const ResumeTemplateSelector({super.key});
 
+  /// Nome de exibição de um template por id (fonte única = o catálogo abaixo).
+  /// Usado por superfícies fora do seletor (ex.: chip de modelo do Currículo
+  /// geral). Fallback pro primeiro template pra id desconhecido.
+  static String displayName(String id) {
+    final meta = _ResumeTemplateSelectorState._templates.firstWhere(
+      (t) => t.id == id,
+      orElse: () => _ResumeTemplateSelectorState._templates.first,
+    );
+    return meta.name;
+  }
+
   @override
   State<ResumeTemplateSelector> createState() => _ResumeTemplateSelectorState();
 }

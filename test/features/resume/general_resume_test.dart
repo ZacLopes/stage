@@ -866,6 +866,105 @@ void main() {
         expect(find.text('Exportar PDF'), findsOneWidget);
       });
     }
+
+    // F4.4 — documento real: versão + staleness + modelo.
+    testWidgets('sem versão: copy "gerado a partir dos dados", sem modelo', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(body: GeneralResumeCardView(hasContent: true)),
+        ),
+      );
+      expect(
+        find.text('Gerado a partir dos dados atuais do seu perfil.'),
+        findsOneWidget,
+      );
+      expect(find.text('Gerado do perfil'), findsOneWidget);
+      expect(find.textContaining('Perfil mudou'), findsNothing);
+      expect(find.text('Trocar'), findsNothing);
+    });
+
+    testWidgets('com versão + modelo: mostra data e chip de modelo', (
+      tester,
+    ) async {
+      var picked = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: GeneralResumeCardView(
+              hasContent: true,
+              versionLabel: 'Última versão salva em 22/07/2026',
+              templateName: 'Harvard ATS Brasil',
+              onPickTemplate: () => picked = true,
+            ),
+          ),
+        ),
+      );
+      expect(find.text('Última versão salva em 22/07/2026'), findsOneWidget);
+      expect(find.text('Modelo: Harvard ATS Brasil'), findsOneWidget);
+      expect(find.text('Trocar'), findsOneWidget);
+      await tester.tap(find.text('Trocar'));
+      expect(picked, isTrue);
+    });
+
+    testWidgets('stale: badge "Perfil mudou" + linha, sem "Gerado do perfil"', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: GeneralResumeCardView(
+              hasContent: true,
+              versionLabel: 'Última versão salva em 20/07/2026',
+              templateName: 'Cobalt Modern',
+            ),
+          ),
+        ),
+      );
+      // O selo "Perfil mudou" foi REMOVIDO em 27/07: ele acendia sozinho na
+      // virada do mês (o fingerprint era tirado do texto formatado, que inclui
+      // o sufixo "(previsto)" derivado do relógio). O card mostra a versão e o
+      // modelo; o badge do header é sempre o azul "Gerado do perfil".
+      expect(find.text('Perfil mudou'), findsNothing);
+      expect(find.text('Gerado do perfil'), findsOneWidget);
+      expect(
+        find.textContaining('Você editou seu perfil desde esta versão'),
+        findsNothing,
+      );
+      expect(
+        find.text('Última versão salva em 20/07/2026'),
+        findsOneWidget,
+      );
+    });
+
+    // Linhas novas (versão + stale + modelo com nome longo) não estouram em
+    // largura estreita — Expanded+ellipsis protege.
+    for (final w in [320.0, 360.0]) {
+      testWidgets('F4.4 completo ${w.toInt()}dp: sem overflow', (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: w,
+                  child: const GeneralResumeCardView(
+                    hasContent: true,
+                    versionLabel: 'Última versão salva em 22/07/2026',
+                    templateName: 'Harvard ATS Brasil (modelo bem comprido)',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        expect(tester.takeException(), isNull);
+        // O selo "Perfil mudou" saiu em 27/07 — o header mostra sempre o badge
+        // azul. O que este teste protege é o OVERFLOW das linhas longas.
+        expect(find.text('Gerado do perfil'), findsOneWidget);
+        expect(find.text('Trocar'), findsOneWidget);
+      });
+    }
   });
 
   group('GeneralResumePreviewBody — coerência com o PDF', () {

@@ -10,6 +10,10 @@ import '../../../services/ai_service.dart';
 import '../../../services/analytics_service.dart';
 import '../../../services/profile_snapshot_service.dart';
 import '../../auth/user_viewmodel.dart';
+import '../../../core/utils/resume_filename.dart';
+import '../../home/home_viewmodel.dart';
+import '../utils/adaptation_error_copy.dart';
+import '../utils/adapt_gate.dart';
 import 'package:printing/printing.dart';
 import '../../resume/services/resume_renderer.dart';
 import '../../resume/resume_viewmodel.dart';
@@ -161,17 +165,31 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
     // esperando o server retornar 422 após ~15-25s.
     if (!force) {
       final userVM = context.read<UserViewModel>();
-      if (!userVM.canAdaptCv) {
+      // F6 (Bloqueador C): o gate agora exige material narrativo E skills. Antes
+      // ele ignorava skills, e o validador anti-invenção da Edge as exigia — o
+      // gate deixava entrar 745 de 1.530 usuários que o validador ia expulsar
+      // depois de ~25 s, com "Tente novamente" numa falha determinística.
+      final gate = evaluateAdaptGate(
+        hasNarrativeMaterial: userVM.canAdaptCv,
+        skillCount: userVM.skillCount,
+        skillCountIsReliable: userVM.skillCountIsReliable,
+      );
+      if (gate != AdaptGateResult.allowed) {
         Analytics.shared.cvAdaptationStarted(jobId: widget.job.id);
         Analytics.shared.cvAdaptationFailed(
           jobId: widget.job.id,
-          code: 'profile_incomplete',
+          code: gate.errorCode,
         );
         setState(() {
-          _error = const ResumeAdaptationException(
-            'profile_incomplete',
-            'Pra eu adaptar seu currículo, preciso de pelo menos uma experiência, projeto ou formação completa — ou um CV importado em PDF. Só com habilidades não dá pra reescrever os bullets.',
-          );
+          _error = gate == AdaptGateResult.missingSkills
+              ? ResumeAdaptationException(
+                  gate.errorCode,
+                  missingSkillsMessage(userVM.skillCount),
+                )
+              : const ResumeAdaptationException(
+                  'profile_incomplete',
+                  'Pra eu adaptar seu currículo, preciso de pelo menos uma experiência, projeto ou formação completa — ou um CV importado em PDF.',
+                );
           _isLoading = false;
           _retrying = false;
         });
@@ -358,10 +376,13 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
         // Download de CV adaptado pra vaga (compartilhamento direto).
         purpose: 'adapt_share',
       );
-      final safeName = user?.name ?? 'profissional';
       await Printing.sharePdf(
         bytes: rendered.bytes,
-        filename: 'curriculo_${safeName.replaceAll(' ', '_')}.pdf',
+        filename: ResumeFilename.build(
+          preferredName: adapted.effectiveResumeData.fullName,
+          accountName: user?.name,
+          suffix: widget.job.id.substring(0, 6),
+        ),
       );
       Analytics.shared.cvAdaptationPdfDownloaded(jobId: widget.job.id);
       // Fix QA Dia 8 (Bug 1): marca essa vaga como "user já adaptou CV"
@@ -614,16 +635,17 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
 
   // ── Error ──────────────────────────────────────────────────────────
   Widget _buildError(ScrollController scrollController) {
+    // F5: título, mensagem e affordances saem de uma função PURA. Ela também
+    // é a última barreira contra texto técnico do servidor chegar à tela
+    // (A3 do device-test: URL do projeto Supabase apareceu na UI).
     final err = _error;
+    final copy = resolveAdaptationErrorCopy(err);
     final isProfileIncomplete = err is ResumeAdaptationException &&
         err.code == 'profile_incomplete';
     final isRateLimited = err is ResumeAdaptationException &&
         err.code == 'rate_limited';
-    final canRetry = !isProfileIncomplete && !isRateLimited;
-
-    final message = err is ResumeAdaptationException
-        ? err.message
-        : 'Não consegui adaptar seu currículo agora.';
+    final canRetry = copy.canRetry;
+    final message = copy.message;
 
     return ListView(
       controller: scrollController,
@@ -652,11 +674,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
         ),
         const SizedBox(height: 24),
         Text(
-          isProfileIncomplete
-              ? 'Complete seu perfil primeiro'
-              : isRateLimited
-                  ? 'Limite diário atingido'
-                  : 'Algo deu errado',
+          copy.title,
           textAlign: TextAlign.center,
           style: const TextStyle(
             fontSize: 18,
@@ -687,14 +705,50 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
         // CTA contextual: se o erro é "perfil incompleto", oferece importar
         // CV em PDF direto daqui. Sem precisar sair da sheet e ir na aba
         // Currículo. Após importar com sucesso, re-tenta a adaptação.
-        if (isProfileIncomplete) ...[
+        if (copy.showImportCv) ...[
           const SizedBox(height: 8),
           ImportCvButton(
-            onImported: (_) {
-              // Limpa cache da chamada anterior e re-tenta.
+            onImported: (_) async {
+              // Limpa o cache da chamada anterior.
               _aiService.clearAdaptedCache(widget.job.id);
-              _adapt(force: true);
+              // Code-review 27/07: aqui era `_adapt(force: true)`, e `force`
+              // pula o gate INTEIRO — inclusive o ramo de skills da F6. O
+              // usuário importava um CV sem skills estruturadas e caía de novo
+              // na falha determinística de ~25 s que a F6 existe pra evitar.
+              //
+              // O cache já foi limpo acima, então `force` não é necessário
+              // para refazer a chamada. Recarregamos a presença de perfil
+              // primeiro (o import mudou os fatos) e deixamos o gate decidir
+              // com dados frescos: se o CV trouxe skills, passa; se não,
+              // o usuário recebe a saída honesta em vez de esperar 25 s.
+              await context.read<UserViewModel>().refreshHasResume();
+              if (!mounted) return;
+              _adapt();
             },
+          ),
+        ],
+        // A2: a falha por falta de habilidades precisa de uma SAÍDA, não só de
+        // uma explicação. Leva pro editor de habilidades do perfil. Mesmo
+        // padrão de navegação já usado em resume_tab.dart:291/678.
+        if (copy.showAddSkills) ...[
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: () {
+              final home = context.read<HomeViewModel>();
+              Navigator.of(context).pop();
+              home.requestTabChange(HomeTabs.profile);
+              // Code-review 27/07: sem isto o app restaura a ÚLTIMA sub-aba
+              // usada (às vezes Currículos ou Objetivos) e o usuário aterrissa
+              // numa tela sem editor de habilidades — a saída existia mas não
+              // chegava no lugar. 0 = Dados.
+              home.requestProfileSubTab(0);
+            },
+            icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+            label: const Text('Adicionar habilidades ao perfil'),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              minimumSize: const Size.fromHeight(48),
+            ),
           ),
         ],
       ],

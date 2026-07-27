@@ -121,3 +121,6 @@
 20260717160000_guided_language_remove_cas.sql
 20260719120000_import_revert_snapshot.sql
 20260720120000_appside_cas_contracts.sql
+20260721120000_general_resume_versions.sql
+20260722120000_backfill_trail_source.sql
+20260724120000_import_cache_cleanup_tautological.sql

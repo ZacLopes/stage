@@ -58,7 +58,7 @@ class JobsViewModel extends ChangeNotifier {
     // perfil — sem isso, adicionar skill via Profile Editor ou mudar
     // preferências via tab Perfil não reflete no match score determinístico
     // até hot-restart.
-    _profileEventsSub = ProfileEvents.instance.changes.listen((_) {
+    _profileEventsSub = ProfileEvents.instance.matchInputsChanged.listen((_) {
       _profileTextLoaded = false;
       _cachedProfileText = null;
       _profilePrefsLoaded = false;

@@ -764,12 +764,17 @@ class ResumeContent {
 /// Origem de um SavedResume na biblioteca. Adicionado em F8 da reformulação
 /// pra UI poder distinguir visualmente (cor/legenda) entre os 3 fluxos.
 enum SavedResumeSource {
-  manual,    // editor manual / trilha (default histórico)
+  manual,    // editor manual (default histórico)
   imported,  // PDF importado via cv_import_service
-  adapted;   // gerado pela adaptação por IA pra uma vaga específica
+  adapted,   // gerado pela adaptação por IA pra uma vaga específica
+  general,   // F4: versão persistida do Currículo geral (source de saída)
+  trail;     // F4.5: CV gerado pela trilha (era manual + título 'Currículo Stage')
 
   String get dbValue => name;
 
+  // Build antigo NÃO conhece general/trail: fromDb cai em `manual` (fallback).
+  // Aceito (decisão de produto F4): general vira item comum e trail continua
+  // editável pelo prefixo de título no binário velho — mesmo comportamento.
   static SavedResumeSource fromDb(String? value) {
     if (value == null) return SavedResumeSource.manual;
     return SavedResumeSource.values.firstWhere(
@@ -796,6 +801,25 @@ class SavedResume {
   /// cada troca de template. Null em CVs antigos.
   final String? templateId;
 
+  // ── Metadados de FONTE importada (F5) ──────────────────────────────────────
+  // Colunas de integridade em saved_resumes, gravadas server-side (RPCs). O
+  // client só as LÊ (grant por-coluna não permite escrever). Preenchidas no
+  // fluxo NOVO de import; nulas/false em rows legadas e nos outros sources.
+
+  /// Nome original do arquivo importado (fluxo novo). Null em imports legados
+  /// e sources não-importados → a UI cai no `title`.
+  final String? originalFilename;
+
+  /// Status da extração da fonte importada: pending/extracting/ready/failed.
+  /// Null = legado/indisponível.
+  final String? extractionStatus;
+
+  /// True quando esta é a fonte importada ATUAL do usuário (no máximo uma).
+  final bool isCurrentSource;
+
+  /// Token de idempotência do import (fluxo novo). Null em legado/outros.
+  final String? clientImportId;
+
   SavedResume({
     required this.id,
     required this.title,
@@ -804,6 +828,10 @@ class SavedResume {
     this.source = SavedResumeSource.manual,
     this.resumeData,
     this.templateId,
+    this.originalFilename,
+    this.extractionStatus,
+    this.isCurrentSource = false,
+    this.clientImportId,
   });
 
   Map<String, dynamic> toMap() {
@@ -830,6 +858,10 @@ class SavedResume {
           ? Map<String, dynamic>.from(rawResumeData)
           : null,
       templateId: map['template_id'] as String?,
+      originalFilename: map['original_filename'] as String?,
+      extractionStatus: map['extraction_status'] as String?,
+      isCurrentSource: (map['is_current_source'] as bool?) ?? false,
+      clientImportId: map['client_import_id']?.toString(),
     );
   }
 
@@ -847,6 +879,11 @@ class SavedResume {
       source: source,
       resumeData: resumeData ?? this.resumeData,
       templateId: templateId ?? this.templateId,
+      // Metadados de import preservados (copyWith não os altera).
+      originalFilename: originalFilename,
+      extractionStatus: extractionStatus,
+      isCurrentSource: isCurrentSource,
+      clientImportId: clientImportId,
     );
   }
 }

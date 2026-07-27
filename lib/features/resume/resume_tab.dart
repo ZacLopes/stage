@@ -31,6 +31,7 @@ import '../jobs/models/job.dart';
 import '../jobs/models/user_preferences.dart';
 import '../jobs/screens/job_details_sheet.dart';
 import '../jobs/utils/filter_helpers.dart';
+import '../profile/profile_viewmodel.dart';
 import '../profile/application/profile_editor_view_model.dart';
 import '../../services/cv_import_service.dart';
 import '../trilha/application/assistant_context_store.dart';
@@ -90,7 +91,12 @@ class _ResumeTabState extends State<ResumeTab>
   @override
   bool get wantKeepAlive => true;
 
-  late final Future<TrilhaChatController> _future;
+  // NÃO pode ser `late final`: o botão "Tentar de novo" do estado de erro
+  // (:586) REATRIBUI este campo, e a segunda escrita num `late final` já
+  // inicializado lança LateInitializationError — derrubando exatamente o
+  // caminho de recuperação. O analyzer não acusa porque a atribuição está num
+  // callback. Achado do code-review de 27/07.
+  late Future<TrilhaChatController> _future;
   TrilhaChatController? _orch;
   bool _completionHandled = false;
   bool _importReloadHandled = false;
@@ -141,7 +147,7 @@ class _ResumeTabState extends State<ResumeTab>
   /// idioma, campo, bullet, experiência…), recarrega o preview (a aba Currículo
   /// e o stepper leem do ProfileEditorViewModel in-memory) + a força honesta.
   /// Sem isso o preview mostra dados velhos mesmo com o banco já atualizado.
-  void _scheduleProfileReload() {
+  void _scheduleProfileReload({bool affectsMatch = true}) {
     _reloadDebounce?.cancel();
     _reloadDebounce = Timer(const Duration(milliseconds: 250), () {
       if (!mounted) return;
@@ -156,8 +162,31 @@ class _ResumeTabState extends State<ResumeTab>
       // Fase 3 F3 — escrita do assistente muta o perfil FORA do editor VM; sem
       // este sinal os caches de match (JobsViewModel/UserViewModel) ficavam
       // velhos (só o editor manual disparava). Agora chat também invalida.
-      ProfileEvents.instance.notifyChanged();
+      //
+      // `affectsMatch: false` na COLETA GUIADA (27/07): ela dispara a cada
+      // passo respondido, e o canal caro chega a refazer o fetch do feed
+      // inteiro. A UI relê a cada passo; o match é invalidado UMA vez, quando a
+      // seção/trilha termina (ver `_onOrch`).
+      ProfileEvents.instance.notifyChanged(affectsMatch: affectsMatch);
     });
+  }
+
+  /// E1 (3ª instância do Bloqueador A): recarrega a BIBLIOTECA de documentos.
+  ///
+  /// Distinto de [_scheduleProfileReload], que recarrega os FATOS do perfil
+  /// (`ProfileEditorViewModel`). O card "Fonte importada" em Perfil → Dados lê
+  /// `ProfileViewModel.savedResumes`, e no fluxo novo de import a linha nasce
+  /// server-side — sem este reload o card afirma "Nenhum currículo importado"
+  /// com o arquivo já salvo. O caminho de remoção já recarregava; o de import
+  /// não. Sem debounce: dispara em evento raro (import), não a cada passo.
+  void _scheduleDocumentsReload() {
+    if (!mounted) return;
+    try {
+      // ignore: unawaited_futures
+      context.read<ProfileViewModel>().loadSavedResumes();
+    } catch (_) {
+      /* sem provider (teste): ignora */
+    }
   }
 
   Future<TrilhaChatController> _load() async {
@@ -396,7 +425,8 @@ class _ResumeTabState extends State<ResumeTab>
       assistSaveJob: _saveJobFromAssistant,
       assistUnsaveJob: _unsaveJobFromAssistant,
       // Edição in-place de card (✏️) grava fora dos writers → recarrega o preview.
-      onProfileEdited: _scheduleProfileReload,
+      onProfileEdited: () => _scheduleProfileReload(affectsMatch: false),
+      onDocumentsChanged: _scheduleDocumentsReload,
       // Abertura adaptativa: se o perfil já tem seções, a trilha reconhece e vai
       // direto completar o que falta (pula o gate "começar do zero"). Vazio ⇒ gate.
       preFilledLoader: () async {
@@ -465,6 +495,10 @@ class _ResumeTabState extends State<ResumeTab>
     } catch (_) {
       /* sem provider: ignora */
     }
+    // A coleta guiada emitiu só o canal BARATO a cada passo (para não refazer o
+    // fetch do feed oito vezes numa sessão). Aqui, no fim, emitimos o canal CARO
+    // UMA vez: é o momento em que o match precisa refletir o perfil novo.
+    ProfileEvents.instance.notifyChanged();
     // A trilha terminou de gravar → a força honesta reflete o perfil final.
     // ignore: unawaited_futures
     _refreshHubStatus();
@@ -474,6 +508,23 @@ class _ResumeTabState extends State<ResumeTab>
   @override
   Widget build(BuildContext context) {
     super.build(context); // AutomaticKeepAliveClientMixin (mantém a aba viva)
+    // F5.4 — pedido vindo do card "Fonte importada" (Perfil → Dados): empurra o
+    // cartão de import DESTE assistente (a revisão de conflitos vive aqui).
+    // Post-frame + clear pra não repetir a cada rebuild; o push é idempotente.
+    final wantsCvImport = context.watch<HomeViewModel>().pendingCvImport;
+    if (wantsCvImport) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        context.read<HomeViewModel>().clearCvImport();
+        try {
+          final controller = await _future;
+          if (!mounted) return;
+          controller.pushCvImportCard();
+        } catch (_) {
+          /* controller indisponível: o pedido é best-effort, nunca trava a aba */
+        }
+      });
+    }
     // SEM Scaffold próprio: a aba vive dentro do Scaffold da HomeScreen, que é a
     // ÚNICA autoridade do inset do teclado (Scaffold aninhado dobrava o inset e
     // bagunçava o dock). ColoredBox só pinta o fundo.

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/utils/trail_resume.dart';
 import '../../data/supabase_repository.dart';
 import '../../services/ai_service.dart';
 import '../../data/models/models.dart';
@@ -1954,7 +1955,10 @@ class ResumeViewModel extends ChangeNotifier {
   /// Default title used for auto-saved trail-generated resumes. Suffix
   /// "(2)", "(3)", ... appended when the title already exists in the
   /// user's library (resolved via ProfileViewModel.resolveUniqueTitle).
-  static const String kTrailResumeBaseTitle = 'Currículo Stage';
+  ///
+  /// Fonte única em `core/utils/trail_resume.dart` — o mesmo literal é lido
+  /// pelo predicado `isTrailResume` (ponte legada da F4.5).
+  static const String kTrailResumeBaseTitle = kTrailResumeTitlePrefix;
 
   /// Auto-saves the current trail-generated resume to the library. Called
   /// from the Curriculum Ready dialog (Track 5 completion). Returns the

@@ -983,6 +983,21 @@ class SupabaseRepository {
     }
   }
 
+  /// F5.2 — remove a FONTE importada pelo RPC atômico `remove_imported_source`
+  /// (sob lock, preserva `profile_*`, limpa o cache legado se era a fonte
+  /// atual). Banco PRIMEIRO (autoridade); só depois apaga o blob — ordem que
+  /// evita "sucesso" com estado inconsistente. Blob órfão é o modo de falha
+  /// aceito (Storage↔Postgres não são transacionais). Propaga erro do RPC.
+  Future<void> removeImportedSource(String resumeId, String filePath) async {
+    await _client
+        .rpc('remove_imported_source', params: {'p_candidate_id': resumeId});
+    try {
+      await _client.storage.from('resumes').remove([filePath]);
+    } catch (_) {
+      // órfão aceito — o banco já está consistente.
+    }
+  }
+
   Future<Uint8List> downloadResume(String filePath) async {
     try {
       return await _client.storage.from('resumes').download(filePath);

@@ -5,7 +5,8 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../../data/models/models.dart' show ResumeCourse, SavedResumeSource;
+import '../../../data/models/models.dart'
+    show ResumeCourse, SavedResume, SavedResumeSource;
 import '../../../services/analytics_service.dart';
 import '../../auth/user_viewmodel.dart';
 import '../../profile/profile_viewmodel.dart';
@@ -15,8 +16,10 @@ import '../job_swipe_context.dart';
 import '../models/adapted_resume.dart';
 import '../models/job.dart';
 import '../pending_adapted_cv_tracker.dart';
+import '../utils/original_source.dart';
 import 'resume_block_editor.dart';
 import '../../../core/theme/theme.dart';
+import '../../../core/utils/resume_filename.dart';
 
 /// Tela full-screen de preview do CV adaptado pela IA (F1 da reformulação).
 ///
@@ -292,18 +295,23 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
         _originalPdfFetchAttempted = true;
         return;
       }
-      // Busca o saved_resume mais recente com source='imported' ou 'manual'.
-      // Mesma query usada por backfill_extract_profile.ts.
+      // F6.0: traz os candidatos e delega a ESCOLHA a `resolveOriginalSource`
+      // (função pura, testada). Antes era `inFilter(['imported','manual'])` +
+      // `limit(1)` por recência — lista literal que desconhecia `trail`/`general`
+      // e ignorava `is_current_source`. Não seleciona `resume_data` (jsonb
+      // grande e inútil aqui); `SavedResume.fromMap` deixa o campo nulo.
       final rows = await Supabase.instance.client
           .from('saved_resumes')
-          .select('file_path')
+          .select('id, title, file_path, created_at, source, is_current_source')
           .eq('user_id', userId)
-          .inFilter('source', ['imported', 'manual'])
-          .order('created_at', ascending: false)
-          .limit(1);
-      if (rows.isNotEmpty) {
-        final filePath = (rows.first as Map)['file_path'] as String?;
-        if (filePath != null && filePath.isNotEmpty) {
+          .order('created_at', ascending: false);
+      final candidates = (rows as List)
+          .map((r) => SavedResume.fromMap(Map<String, dynamic>.from(r as Map)))
+          .toList();
+      final original = resolveOriginalSource(candidates);
+      if (original != null) {
+        final filePath = original.filePath;
+        if (filePath.isNotEmpty) {
           final bytes = await Supabase.instance.client.storage
               .from('resumes')
               .download(filePath);
@@ -474,10 +482,17 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
 
       // Compartilha o PDF via share sheet nativo. Mesmo se o save falhar,
       // o usuário ainda recebe o arquivo.
-      final safeName = (user?.name ?? 'profissional').replaceAll(' ', '_');
+      // D1: saía `curriculo__1eee2f.pdf` (underscore duplo) quando o nome era
+      // vazio. `build` junta só os pedaços não-vazios — e nunca deriva de
+      // e-mail, senão os 109 usuários de login por telefone teriam o próprio
+      // número no nome do arquivo que anexam numa vaga.
       await Printing.sharePdf(
         bytes: bytes,
-        filename: 'curriculo_${safeName}_${widget.job.id.substring(0, 6)}.pdf',
+        filename: ResumeFilename.build(
+          preferredName: _current.fullName,
+          accountName: user?.name,
+          suffix: widget.job.id.substring(0, 6),
+        ),
       );
 
       // ignore: unawaited_futures

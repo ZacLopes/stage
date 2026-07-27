@@ -1,8 +1,15 @@
 // Fase 2 (casa única do perfil): exportação COMPARTILHADA do currículo geral.
 //
-// O currículo geral é uma projeção VIRTUAL e EXCLUSIVA do perfil canônico
-// (profile_*, via ProfileSnapshot) — não é uma cópia persistida em
-// saved_resumes, e NÃO considera o resumeData legado (gamificação desligada).
+// O CONTEÚDO do currículo geral é uma projeção VIRTUAL e EXCLUSIVA do perfil
+// canônico (profile_*, via ProfileSnapshot) — o render sai sempre do snapshot,
+// e NÃO considera o resumeData legado (gamificação desligada).
+//
+// F4.3: com a flag `trilha_assist_v1` ON, o export TAMBÉM persiste uma VERSÃO
+// do documento em saved_resumes (source='general', via GeneralResumeVersionWriter
+// → RPC `save_general_resume_version_v1`, com noop honesto). Isso não muda o
+// render (que segue virtual): é um snapshot de saída versionado. Flag OFF
+// (rollback) → nada é persistido, comportamento idêntico ao histórico. A falha
+// do save NUNCA quebra o share do PDF (fail-closed, aviso honesto).
 // Fonte única usada por:
 //   1. Botão "Exportar PDF" do card "Currículo geral" em Perfil → Currículos.
 //   2. Botão da tela de prévia (GeneralResumePreviewScreen).
@@ -39,15 +46,20 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/theme/theme.dart';
+import '../../../core/utils/resume_filename.dart';
+import '../../../core/utils/safe_error_text.dart';
 import '../../../services/analytics_service.dart';
+import '../../../services/feature_flags_service.dart';
 import '../../../services/profile_snapshot_service.dart';
 import '../../auth/user_viewmodel.dart';
+import '../../jobs/models/adapted_resume.dart' show AdaptedResume;
 import '../../profile/application/profile_editor_view_model.dart';
 import '../../profile/domain/entities/entities.dart';
 import '../../trilha/presentation/trilha_chat_controller.dart'
     show AssistExportOutcome;
 import '../data/profile_pdf_data_loader.dart' show ProfilePdfData;
 import '../resume_viewmodel.dart';
+import 'general_resume_version_writer.dart';
 import 'resume_renderer.dart';
 
 class GeneralResumeExport {
@@ -187,14 +199,33 @@ class GeneralResumeExport {
     BuildContext context, {
     void Function(bool)? onBusyChanged,
     Future<ProfileSnapshot> Function(String uid)? loadSnapshot,
+    GeneralResumeVersionWriter? versionWriter,
+    /// Template do Currículo geral, explícito.
+    ///
+    /// Antes o export lia SEMPRE o `selectedTemplateId` global — o mesmo
+    /// singleton do CV adaptado e do CV da trilha —, e o card escrevia nele ao
+    /// montar. Passar explícito mantém a escolha do Currículo geral contida
+    /// nele (code-review 27/07). Null ⇒ mantém o comportamento anterior.
+    String? templateId,
   }) async {
     final userVM = context.read<UserViewModel>();
     final resumeVM = context.read<ResumeViewModel>();
     final user = userVM.user;
     final uid = user?.id ?? Supabase.instance.client.auth.currentUser?.id;
-    final templateId = resumeVM.selectedTemplateId; // padrão: harvard_ats
+    final effectiveTemplateId =
+        templateId ?? resumeVM.selectedTemplateId; // padrão: harvard_ats
 
-    return runExport(
+    // F4.3: com a flag ON, o export também persiste uma versão. Flag OFF
+    // (rollback) → não instancia writer nem salva (comportamento idêntico ao
+    // histórico). A falha do save nunca quebra o share.
+    final saveEnabled =
+        FeatureFlagsService.instance.isTrilhaAssistEnabledForUser(uid);
+    final writer = saveEnabled
+        ? (versionWriter ?? GeneralResumeVersionWriter.production())
+        : null;
+    GeneralResumeSaveStatus? saveStatus;
+
+    final outcome = await runExport(
       uid: uid,
       loadSnapshot:
           loadSnapshot ??
@@ -208,22 +239,52 @@ class GeneralResumeExport {
           userId: uid,
           user: user,
           fallbackResume: resume,
-          templateId: templateId,
+          templateId: effectiveTemplateId,
           purpose: 'export',
           forceFallback: true,
         );
-        final safeName = (user?.name ?? 'profissional').replaceAll(' ', '_');
+        // Auto-save da versão ANTES do share (flag ON). O writer nunca lança:
+        // falha vira status.failed e o share segue normal.
+        if (writer != null && uid != null) {
+          final receipt = await writer.save(
+            uid: uid,
+            resumeData: AdaptedResume.serializeResumeData(resume),
+            templateId: effectiveTemplateId,
+            pdfBytes: rendered.bytes,
+            title: 'Currículo geral',
+          );
+          saveStatus = receipt.status;
+          Analytics.shared.generalResumeVersionSaved(
+            status: receipt.status.name,
+            templateId: effectiveTemplateId,
+          );
+        }
+        // B1: `user.name` é '' (não NULL) para 110 usuários em prod — o `??`
+        // não disparava e o arquivo saía `curriculo_.pdf`. A política agora é
+        // única e cai no nome impresso NO documento antes do nome da conta.
         await Printing.sharePdf(
           bytes: rendered.bytes,
-          filename: 'curriculo_$safeName.pdf',
+          filename: ResumeFilename.build(
+            preferredName: resume.fullName,
+            accountName: user?.name,
+          ),
         );
       },
-      onExported: () => Analytics.shared.cvExported(templateId: templateId),
+      onExported: () => Analytics.shared.cvExported(templateId: effectiveTemplateId),
       onError: (e) {
+        // A3 (device-test §9) reaberto pelo code-review de 27/07: interpolar
+        // `$e` aqui punha `ClientException … uri=https://<projeto>.supabase.co`
+        // na tela. O detalhe técnico fica no log; a UI recebe texto humano.
+        debugPrint('[GeneralResumeExport] falha no export: $e');
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Erro ao gerar PDF: $e'),
+              content: Text(
+                SafeErrorText.orFallback(
+                  e,
+                  'Não consegui gerar o PDF agora. Tente de novo.',
+                ),
+              ),
               backgroundColor: AppColors.error,
             ),
           );
@@ -231,5 +292,20 @@ class GeneralResumeExport {
       },
       onBusyChanged: onBusyChanged,
     );
+
+    // Save falhou mas o PDF foi compartilhado (outcome ok): fala a verdade sem
+    // quebrar o fluxo — o share aconteceu.
+    if (outcome == AssistExportOutcome.ok &&
+        saveStatus == GeneralResumeSaveStatus.failed &&
+        context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'PDF exportado, mas não consegui salvar esta versão no seu perfil.',
+          ),
+        ),
+      );
+    }
+    return outcome;
   }
 }
