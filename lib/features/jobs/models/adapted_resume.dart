@@ -234,10 +234,14 @@ class AdaptedResume {
       'language': r.language,
       'summary': r.summary,
       'skills': r.skills,
-      // tools: {name, level} (level preservado). O parser ainda aceita o
-      // formato legado/servidor `string[]`. toolsText = string Harvard
-      // pré-formatada da IA (sobrepõe `tools` quando não-vazia no template).
+      // tools: chave LEGADA mantida como `string[]` de propósito — é o que
+      // binários já publicados sabem ler. O nível vai em `tools_v2`, que só o
+      // parser novo procura. Ver a nota de compatibilidade em `_parseResumeData`.
       'tools': r.tools
+          .where((t) => t.name.isNotEmpty)
+          .map((t) => t.name)
+          .toList(),
+      'tools_v2': r.tools
           .where((t) => t.name.isNotEmpty)
           .map((t) => {'name': t.name, 'level': t.level})
           .toList(),
@@ -264,9 +268,11 @@ class AdaptedResume {
           }).toList(),
       'achievements': r.achievements,
       'interests': r.interests,
-      // certifications: {title, institution, period} — issuer/ano preservados.
-      // O parser ainda aceita `string[]` legado (só título).
-      'certifications': r.courses
+      // certifications: chave LEGADA mantida como `string[]` (só o título) —
+      // é o que binários já publicados sabem ler. Instituição e ano vão em
+      // `certifications_v2`. Ver a nota de compatibilidade em `_parseResumeData`.
+      'certifications': r.courses.map((c) => c.title).toList(),
+      'certifications_v2': r.courses
           .map((c) => {
                 'title': c.title,
                 'institution': c.institution,
@@ -448,11 +454,21 @@ class AdaptedResume {
           .toList();
     }
 
-    // Certificações: o servidor (adapt) e as rows legadas mandam
-    // `certifications: string[]` (só título); a persistência F4.2 manda
-    // `[{title, institution, period}]` (issuer/ano preservados). Aceita os
-    // DOIS — item String vira título só; item Map preserva os 3 campos.
-    final certificationsRaw = anyList(json['certifications']);
+    // ── COMPATIBILIDADE ENTRE VERSÕES DO APP (27/07) ───────────────────────
+    //
+    // A F4.2 enriqueceu certificações/tools, mas gravou o formato novo NA
+    // CHAVE ANTIGA. Binários já publicados leem essa chave esperando
+    // `string[]`: ao encontrar objetos, o `toString()` deles ia parar no PDF
+    // como `{title: X, institution: Y}` — num documento que o candidato anexa
+    // numa vaga.
+    //
+    // Agora a escrita é DUPLA: a chave antiga volta a ser `string[]` (binário
+    // velho lê e fica feliz) e o detalhe rico mora em `*_v2`. A leitura prefere
+    // `_v2`; sem ele, cai na antiga — que segue aceitando String E Map, porque
+    // rows gravadas na janela entre a F4.2 e hoje têm objetos ali.
+    final certificationsRaw = anyList(json['certifications_v2']).isNotEmpty
+        ? anyList(json['certifications_v2'])
+        : anyList(json['certifications']);
     final certifications = certificationsRaw
         .map((c) {
           if (c is Map) {
@@ -469,9 +485,10 @@ class AdaptedResume {
         .where((c) => c.title.isNotEmpty)
         .toList();
 
-    // Tools: servidor/legado mandam `string[]` (sem level); a persistência
-    // F4.2 manda `[{name, level}]`. Aceita os dois.
-    final toolsRaw = anyList(json['tools']);
+    // Mesma política de escrita dupla das certificações (ver acima).
+    final toolsRaw = anyList(json['tools_v2']).isNotEmpty
+        ? anyList(json['tools_v2'])
+        : anyList(json['tools']);
     final tools = toolsRaw
         .map((t) {
           if (t is Map) {

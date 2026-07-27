@@ -218,4 +218,106 @@ void main() {
       expect(parsed.courses.map((c) => c.title).toList(), ['C1', 'C2 string']);
     });
   });
+
+  // ── Compatibilidade entre versões do app (27/07) ────────────────────────
+  //
+  // A F4.2 gravou o formato rico NA CHAVE ANTIGA. Binário já publicado lê essa
+  // chave esperando `string[]` e, ao achar objetos, imprimia
+  // `{title: X, institution: Y}` dentro do PDF que o candidato anexa numa vaga.
+  // Agora escrevemos nos DOIS formatos.
+  group('escrita dupla: binário antigo continua lendo', () {
+    ResumeData sample() => ResumeData(
+          fullName: 'Zac',
+          email: 'z@x.com',
+          phone: '',
+          location: '',
+          summary: '',
+          skills: [],
+          tools: const [ToolWithLevel('Power BI', 'Avançado')],
+          experiences: [],
+          education: [],
+          languages: [],
+          courses: [
+            ResumeCourse(
+                title: 'Google Data Analytics',
+                institution: 'Coursera',
+                period: '2025'),
+          ],
+        );
+
+    test('a chave ANTIGA volta a ser string[] — nada de objeto cru no PDF', () {
+      final json = AdaptedResume.serializeResumeData(sample());
+
+      // É exatamente o que o binário antigo espera: lista de strings.
+      expect(json['certifications'], isA<List>());
+      expect(json['certifications'], ['Google Data Analytics']);
+      expect(json['tools'], ['Power BI']);
+
+      // Nenhum item da chave legada pode ser Map — era esse o vazamento.
+      for (final key in ['certifications', 'tools']) {
+        for (final item in (json[key] as List)) {
+          expect(item, isA<String>(), reason: '$key trouxe objeto cru');
+        }
+      }
+    });
+
+    test('a chave NOVA carrega o detalhe rico', () {
+      final json = AdaptedResume.serializeResumeData(sample());
+      final cert = (json['certifications_v2'] as List).first as Map;
+      expect(cert['title'], 'Google Data Analytics');
+      expect(cert['institution'], 'Coursera');
+      expect(cert['period'], '2025');
+      final tool = (json['tools_v2'] as List).first as Map;
+      expect(tool['name'], 'Power BI');
+      expect(tool['level'], 'Avançado');
+    });
+
+    test('round-trip completo: nada se perde pelo caminho novo', () {
+      final parsed = AdaptedResume.parseResumeData(
+        AdaptedResume.serializeResumeData(sample()),
+      );
+      expect(parsed.courses.first.title, 'Google Data Analytics');
+      expect(parsed.courses.first.institution, 'Coursera');
+      expect(parsed.courses.first.period, '2025');
+      expect(parsed.tools.first.name, 'Power BI');
+      expect(parsed.tools.first.level, 'Avançado');
+    });
+
+    test('sem _v2 (row legada) cai na chave antiga, aceitando String e Map', () {
+      // Row escrita ANTES da F4.2: string pura.
+      final legado = AdaptedResume.parseResumeData({
+        'fullName': 'Z',
+        'certifications': ['Só o título'],
+        'tools': ['Excel'],
+      });
+      expect(legado.courses.first.title, 'Só o título');
+      expect(legado.courses.first.institution, '');
+      expect(legado.tools.first.name, 'Excel');
+
+      // Row escrita NA JANELA entre a F4.2 e hoje: objetos na chave antiga.
+      final janela = AdaptedResume.parseResumeData({
+        'fullName': 'Z',
+        'certifications': [
+          {'title': 'C', 'institution': 'I', 'period': '2024'}
+        ],
+        'tools': [
+          {'name': 'T', 'level': 'L'}
+        ],
+      });
+      expect(janela.courses.first.institution, 'I');
+      expect(janela.tools.first.level, 'L');
+    });
+
+    test('_v2 vence a chave antiga quando os dois existem', () {
+      final parsed = AdaptedResume.parseResumeData({
+        'fullName': 'Z',
+        'certifications': ['antigo'],
+        'certifications_v2': [
+          {'title': 'novo', 'institution': 'I', 'period': '2026'}
+        ],
+      });
+      expect(parsed.courses.first.title, 'novo');
+      expect(parsed.courses.first.institution, 'I');
+    });
+  });
 }

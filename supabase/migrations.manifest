@@ -124,3 +124,4 @@
 20260721120000_general_resume_versions.sql
 20260722120000_backfill_trail_source.sql
 20260724120000_import_cache_cleanup_tautological.sql
+20260727120000_sync_display_name.sql
