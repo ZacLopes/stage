@@ -4,6 +4,21 @@ import 'package:flutter/services.dart';
 import '../../../services/cv_import_service.dart';
 import '../../../core/theme/theme.dart';
 
+/// Mensagem de sucesso da importação.
+///
+/// Contrato de linguagem (§2 do handoff): "Currículo" é o documento GERADO
+/// pelo Stage — versionável e exportável. O arquivo que a pessoa envia é uma
+/// "fonte importada", usada para propor/preencher/validar o perfil. Dizer
+/// "Currículo importado!" trocava os dois papéis logo no primeiro contato com
+/// o conceito.
+///
+/// "CV" continua permitido: é como a pessoa chama o arquivo dela, e o contrato
+/// não reserva esse termo. Quem muda é o predicado — o arquivo é fonte, não
+/// currículo.
+String importCvSuccessMessage({required bool textWasUsable}) => textWasUsable
+    ? '✓ CV importado como fonte do seu perfil'
+    : '✓ CV salvo como fonte, mas não consegui ler o texto. Match score pode ficar limitado.';
+
 /// Botão "Importar CV em PDF" reutilizável. Usa o [CvImportService] e mostra
 /// feedback via SnackBar. Em sucesso, chama [onImported] (caller decide se
 /// quer recarregar lista, navegar, fechar sheet, etc).
@@ -46,9 +61,7 @@ class _ImportCvButtonState extends State<ImportCvButton> {
 
     if (result.success) {
       _showSnack(
-        result.textWasUsable
-            ? '✓ Currículo importado!'
-            : '✓ Currículo salvo, mas não consegui ler o texto. Match score pode ficar limitado.',
+        importCvSuccessMessage(textWasUsable: result.textWasUsable),
         success: true,
       );
       widget.onImported?.call(result.savedResumeId);

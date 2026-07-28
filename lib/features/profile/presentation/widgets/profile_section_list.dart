@@ -10,6 +10,7 @@ import '../../../auth/auth_session.dart';
 import '../../application/profile_editor_view_model.dart';
 import '../../domain/award_editor_reconciliation.dart';
 import '../../domain/entities/entities.dart';
+import '../../domain/optional_sections_visibility.dart';
 import '../../domain/skill_name_normalizer.dart';
 import '../../../resume/data/profile_resume_mapper.dart';
 import 'add_edit_certification_modal.dart';
@@ -57,17 +58,22 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
     'interests': false,
     'awards': false,
   };
-  late bool _showOptional;
-
-  @override
-  void initState() {
-    super.initState();
-    _showOptional = widget.showOptionalSections;
-  }
+  /// A pessoa tocou "Adicionar outras seções" nesta sessão. A visibilidade
+  /// final combina isto com o pedido do call site e com o conteúdo existente —
+  /// ver [optionalSectionsVisible].
+  bool _userOpened = false;
 
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<ProfileEditorViewModel>();
+    // Seções opcionais aparecem sozinhas quando já têm o que mostrar: quem
+    // preencheu prêmio ou disciplina não deve precisar caçar o próprio dado
+    // atrás de um botão que não diz o nome dele.
+    final showOptional = optionalSectionsVisible(
+      callSiteDefault: widget.showOptionalSections,
+      userOpened: _userOpened,
+      hasOptionalContent: vm.awards.isNotEmpty || vm.coursework.isNotEmpty,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -79,7 +85,7 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
         _sectionCertifications(vm),
         _sectionInterests(vm),
         _sectionProjects(vm),
-        if (_showOptional) ...[
+        if (showOptional) ...[
           _sectionAwards(vm),
           _sectionCoursework(vm),
         ] else
@@ -91,7 +97,7 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
                 'Adicionar outras seções',
                 style: TextStyle(color: _kAccent, fontWeight: FontWeight.w600),
               ),
-              onPressed: () => setState(() => _showOptional = true),
+              onPressed: () => setState(() => _userOpened = true),
             ),
           ),
       ],
