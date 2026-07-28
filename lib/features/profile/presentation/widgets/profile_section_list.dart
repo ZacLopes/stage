@@ -12,6 +12,7 @@ import '../../domain/award_editor_reconciliation.dart';
 import '../../domain/entities/entities.dart';
 import '../../domain/skill_name_normalizer.dart';
 import '../../../resume/data/profile_resume_mapper.dart';
+import 'add_edit_certification_modal.dart';
 import 'add_edit_experience_modal.dart';
 import 'add_edit_education_modal.dart';
 import 'add_edit_language_modal.dart';
@@ -227,45 +228,31 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
     );
   }
 
+  /// Certificações — item a item, com campos estruturados.
+  ///
+  /// Era a única lista do editor sem modal próprio: usava o `EditListModal`
+  /// genérico, que só entende texto solto. Ele exibia "Nome - Instituição - Ano"
+  /// numa linha e, ao salvar, apagava TODAS as certificações e regravava cada
+  /// linha inteira no campo `name`, com `issuer` e `date` nulos — abrir e salvar
+  /// sem mudar nada já destruía a estrutura e poluía o nome com a concatenação.
+  /// Medido em produção em 27/07: 392 certificações de 126 pessoas com
+  /// instituição ou data a perder, e 19 linhas de 13 pessoas já destruídas.
   Widget _sectionCertifications(ProfileEditorViewModel vm) {
-    final asText = vm.certifications.map((c) {
-      final parts = <String>[c.name];
-      if (c.issuer != null) parts.add(c.issuer!);
-      if (c.date != null) parts.add('${c.date!.year}');
-      return parts.join(' - ');
-    }).toList();
     return _sectionShell(
       key: 'certifications',
       title: 'Certificações',
-      count: asText.length,
-      onEdit: () => EditListModal.show(
-        context: context,
-        title: 'Editar certificações',
-        inputLabel: 'Certificação (formato: Nome - Instituição - Ano)',
-        initialItems: asText,
-        onSave: (items) async {
-          final userId = currentUserIdOrNull();
-          if (userId == null) {
-            // ignore: unawaited_futures
-            handleSessionLost(context);
-            return;
-          }
-          for (final c in vm.certifications) {
-            await vm.deleteCertification(c.id);
-          }
-          for (var i = 0; i < items.length; i++) {
-            await vm.addCertification(
-              Certification(
-                id: '',
-                userId: userId,
-                name: items[i],
-                orderIndex: i,
-              ),
-            );
-          }
-        },
-      ),
-      children: asText.isEmpty ? const [] : [_ChipList(items: asText)],
+      count: vm.certifications.length,
+      onAdd: () => _showCertificationModal(context, vm),
+      children: vm.certifications.map((c) {
+        return _ItemCard(
+          avatarText: c.issuer ?? c.name,
+          title: c.name,
+          subtitle: (c.issuer != null && c.issuer!.isNotEmpty) ? c.issuer : null,
+          period: c.date == null ? null : _formatCertificationDate(c.date!),
+          onTap: () => _showCertificationModal(context, vm, initial: c),
+          onDelete: () => vm.deleteCertification(c.id),
+        );
+      }).toList(),
     );
   }
 
@@ -334,6 +321,11 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
       );
     }).toList(),
   );
+
+  /// Mês/ano da certificação. Só mês e ano porque é o que o picker coleta —
+  /// mostrar dia daria uma precisão que o dado não tem.
+  String _formatCertificationDate(DateTime d) =>
+      '${d.month.toString().padLeft(2, '0')}/${d.year}';
 
   String _formatProjectPeriod(Project p) {
     const months = [
@@ -505,6 +497,26 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
         }
       },
       onDelete: initial == null ? null : () => vm.deleteLanguage(initial.id),
+    );
+  }
+
+  Future<void> _showCertificationModal(
+    BuildContext ctx,
+    ProfileEditorViewModel vm, {
+    Certification? initial,
+  }) {
+    return AddEditCertificationModal.show(
+      context: ctx,
+      initial: initial,
+      onSave: (c) async {
+        if (initial == null) {
+          await vm.addCertification(c);
+        } else {
+          await vm.updateCertification(c);
+        }
+      },
+      onDelete:
+          initial == null ? null : () => vm.deleteCertification(initial.id),
     );
   }
 
