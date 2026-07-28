@@ -18,6 +18,7 @@ import '../../profile/application/profile_editor_view_model.dart';
 import '../data/swipe_repository.dart';
 import '../job_swipe_context.dart';
 import '../models/job.dart';
+import '../utils/tracker_navigation.dart';
 import '../utils/url_utils.dart';
 import '../utils/apply_email.dart';
 import '../widgets/expired_job_badge.dart';
@@ -43,6 +44,17 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
 
   /// FASE 3 (T3.1 redesign): segmento selecionado na aba Candidaturas.
   ApplicationSegment _selectedSegment = ApplicationSegment.salvas;
+
+  /// ID da candidatura que a pessoa acabou de cadastrar, se houver.
+  ///
+  /// No agrupamento, as manuais entram DEPOIS de todos os cards de vaga
+  /// (`_trackerBySegment`), então num segmento com vários itens a candidatura
+  /// nova nascia fora da área visível: o app levava a pessoa até o segmento
+  /// certo e ela não via nada de novo ali. Enquanto este ID está setado, o item
+  /// correspondente é içado para o topo do segmento e a lista é remontada do
+  /// começo. Some no próximo toque de pílula ou no próximo refresh — é destaque
+  /// momentâneo, não uma regra de ordenação nova.
+  String? _justCreatedId;
 
   /// Mostra banner explicativo de "como aplicar" na primeira visita pós-
   /// celebração de "primeira vaga salva". Persiste o estado em
@@ -82,6 +94,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
   }
 
   Future<void> _refresh() async {
+    if (mounted) setState(() => _justCreatedId = null);
     await context.read<JobsViewModel>().loadLikedJobs(silent: true);
   }
 
@@ -344,7 +357,26 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
         child: CircularProgressIndicator(color: AppColors.brandBlue),
       );
     }
-    if (isEmpty) {
+    final trackerOn = FeatureFlagsService.instance
+        .isEnabledForUser(FeatureFlagKeys.applicationsTrackerV1, vm.userId);
+
+    // C3 do device-test: o early-return do empty-state vinha ANTES desta
+    // checagem, então quem não tinha nada nunca via os 4 segmentos — eles só
+    // apareciam depois do primeiro registro, justo quando entender a estrutura
+    // ajudaria menos. Com o tracker ligado, a própria view já trata o vazio por
+    // segmento (`_segmentEmpty`), com a copy certa.
+    //
+    // Isso também resolve o C2: o `_EmptyState` abaixo fala a língua da aba
+    // ANTIGA ("Nenhuma vaga salva ainda" + "arraste pra direita"), que continua
+    // CORRETA no caminho legado — lá o header é mesmo "Vagas Salvas". Ele só não
+    // podia aparecer numa aba chamada "Candidaturas".
+    if (trackerOn) return _buildTrackerView(vm);
+
+    // No caminho legado o empty-state depende só de `likedJobs`: `_buildLegacyItems`
+    // não enxerga candidaturas manuais, então exigir que AMBAS estejam vazias
+    // deixava quem só tem manuais numa lista de 0 itens — tela em branco, sem
+    // nem o convite a salvar vagas.
+    if (vm.likedJobs.isEmpty) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: const [
@@ -353,10 +385,6 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
         ],
       );
     }
-
-    final trackerOn = FeatureFlagsService.instance
-        .isEnabledForUser(FeatureFlagKeys.applicationsTrackerV1, vm.userId);
-    if (trackerOn) return _buildTrackerView(vm);
 
     // Legacy (flag OFF): 3 buckets pending/applied/expired num único ListView.
     final items = _buildLegacyItems(vm);
@@ -405,12 +433,9 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
   Map<ApplicationSegment, List<_ListItem>> _trackerBySegment(JobsViewModel vm) {
     final now = DateTime.now();
     final map = {for (final s in ApplicationSegment.values) s: <_ListItem>[]};
-    ApplicationSegment segOf(ApplicationStatus s) {
-      final seg = segmentForStatus(s);
-      return seg == ApplicationSegment.salvas
-          ? ApplicationSegment.enviadas
-          : seg;
-    }
+    // Agrupamento e navegação usam a MESMA regra (`segmentForApplication`, em
+    // utils/tracker_navigation.dart). Antes era um closure local aqui, e os
+    // dois podiam divergir sem ninguém notar.
 
     for (final liked in vm.likedJobs) {
       final app = vm.applicationForJob(liked.job.id);
@@ -418,11 +443,21 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
       final isExpired = !liked.job.isActive ||
           (deadlineAt != null && deadlineAt.isBefore(now));
       final item = _JobCardItem(liked, isExpired: isExpired, application: app);
-      map[app == null ? ApplicationSegment.salvas : segOf(app.status)]!
+      map[app == null
+              ? ApplicationSegment.salvas
+              : segmentForApplication(app.status)]!
           .add(item);
     }
     for (final app in vm.manualApplications) {
-      map[segOf(app.status)]!.add(_ManualCardItem(app));
+      map[segmentForApplication(app.status)]!.add(_ManualCardItem(app));
+    }
+    // Iça a recém-criada para o topo do seu segmento (ver [_justCreatedId]).
+    final destaque = _justCreatedId;
+    if (destaque != null) {
+      for (final lista in map.values) {
+        hoistToTop(lista,
+            (i) => i is _ManualCardItem && i.application.id == destaque);
+      }
     }
     return map;
   }
@@ -439,7 +474,11 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
         TrackerSegmentBar(
           selected: selected,
           counts: counts,
-          onSelected: (s) => setState(() => _selectedSegment = s),
+          onSelected: (s) => setState(() {
+            _selectedSegment = s;
+            // Navegou com a mão: o destaque da recém-criada já cumpriu o papel.
+            _justCreatedId = null;
+          }),
         ),
         const SizedBox(height: 10),
         Expanded(
@@ -459,7 +498,12 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
             child: items.isEmpty
                 ? _segmentEmpty(selected)
                 : ListView.separated(
-                    key: ValueKey(selected),
+                    // `_justCreatedId` entra na chave DE PROPÓSITO: quando a
+                    // criação cai no segmento em que a pessoa já está, a lista
+                    // não seria remontada e ela continuaria na posição de rolagem
+                    // anterior — içar o item ao topo não adiantaria nada. Com a
+                    // chave mudando, a ListView nasce de novo no começo.
+                    key: ValueKey('$selected|$_justCreatedId'),
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
                     physics: const AlwaysScrollableScrollPhysics(),
                     itemCount: items.length,
@@ -471,6 +515,51 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
         ),
       ],
     );
+  }
+
+  /// Anuncia o movimento — mas SÓ quando o item realmente troca de segmento.
+  ///
+  /// Transições dentro do mesmo segmento (ex.: "Em análise" → "Entrevista",
+  /// ambas em Em processo) não movem nada; anunciar "Movida para Em processo"
+  /// ali seria afirmar um movimento que não aconteceu.
+  void _announceMove(ApplicationSegment dest) {
+    if (dest == _selectedSegment) return;
+    if (!mounted) return;
+    final m = ScaffoldMessenger.of(context);
+    // Evita empilhar: uma ação, uma mensagem.
+    m.hideCurrentSnackBar();
+    m.showSnackBar(SnackBar(content: Text('Movida para ${dest.label}')));
+  }
+
+  /// C1 do device-test: reposiciona a aba depois de uma ação que MOVE ou CRIA
+  /// um item, para o usuário nunca terminar olhando uma tela vazia com o item
+  /// a um toque de distância.
+  ///
+  /// A decisão de pular (ou não) mora numa função pura testável —
+  /// `nextSegmentAfterAction`. Aqui só medimos o estado real depois da ação:
+  /// quantos itens sobraram no segmento em que a pessoa está.
+  ///
+  /// [startedAt] é o segmento em que a pessoa estava quando disparou a ação.
+  /// Se ela tocou outra pílula enquanto o request estava no ar, a escolha dela
+  /// vence: reposicionar aqui seria arrancá-la de onde ela acabou de decidir
+  /// ficar, sem que nada na tela explicasse o pulo.
+  void _focusSegmentAfterAction(
+    ApplicationSegment destination, {
+    required bool isCreation,
+    required ApplicationSegment startedAt,
+  }) {
+    if (!mounted) return;
+    final vm = context.read<JobsViewModel>();
+    final bySeg = _trackerBySegment(vm);
+    final next = nextSegmentAfterAction(
+      current: _selectedSegment,
+      destination: destination,
+      currentBecomesEmpty: (bySeg[_selectedSegment] ?? const []).isEmpty,
+      isCreation: isCreation,
+      startedAt: startedAt,
+    );
+    if (next == null) return;
+    setState(() => _selectedSegment = next);
   }
 
   Widget _segmentEmpty(ApplicationSegment seg) {
@@ -566,11 +655,24 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
 
   Future<void> _markAppliedManually(LikedJob liked) async {
     HapticFeedback.lightImpact();
-    await context.read<JobsViewModel>().setApplied(liked.job.id, true);
+    final startedAt = _selectedSegment;
+    final ok = await context.read<JobsViewModel>().setApplied(liked.job.id, true);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Movida para Enviadas')),
-    );
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não consegui marcar como aplicada.')),
+      );
+      return;
+    }
+    // Destino derivado do estado REAL pós-ação, não chutado: a application
+    // pode ter sido REABERTA com outro status (applications_repository:41
+    // devolve a existente quando ela já contava como aplicada).
+    final app = context.read<JobsViewModel>().applicationForJob(liked.job.id);
+    final dest = app == null
+        ? ApplicationSegment.enviadas
+        : segmentForApplication(app.status);
+    _announceMove(dest);
+    _focusSegmentAfterAction(dest, isCreation: false, startedAt: startedAt);
   }
 
   /// Legacy (flag OFF): 3 buckets pending/applied/expired (E5 / Fase 1 T1.4).
@@ -614,28 +716,40 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
   /// T3.1: aplica a transição de status escolhida no chip/menu da aba.
   Future<void> _changeStatus(LikedJob liked, ApplicationStatus newStatus) async {
     HapticFeedback.selectionClick();
+    final startedAt = _selectedSegment;
     final ok = await context
         .read<JobsViewModel>()
         .updateApplicationStatus(jobId: liked.job.id, newStatus: newStatus);
-    if (!ok && mounted) {
+    if (!mounted) return;
+    if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Não consegui atualizar o status.')),
       );
+      return;
     }
+    final dest = segmentForApplication(newStatus);
+    _announceMove(dest);
+    _focusSegmentAfterAction(dest, isCreation: false, startedAt: startedAt);
   }
 
   /// T3.3: status de uma candidatura MANUAL.
   Future<void> _changeManualStatus(
       Application app, ApplicationStatus newStatus) async {
     HapticFeedback.selectionClick();
+    final startedAt = _selectedSegment;
     final ok = await context
         .read<JobsViewModel>()
         .updateManualApplicationStatus(app: app, newStatus: newStatus);
-    if (!ok && mounted) {
+    if (!mounted) return;
+    if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Não consegui atualizar o status.')),
       );
+      return;
     }
+    final dest = segmentForApplication(newStatus);
+    _announceMove(dest);
+    _focusSegmentAfterAction(dest, isCreation: false, startedAt: startedAt);
   }
 
   /// T3.3: abre o link (opcional) de uma candidatura manual, com UTM.
@@ -654,20 +768,36 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
     HapticFeedback.lightImpact();
     final input = await showManualApplicationSheet(context);
     if (input == null || !mounted) return;
-    final ok = await context.read<JobsViewModel>().createManualApplication(
+    // Capturado DEPOIS da sheet: com o modal aberto ninguém troca de pílula, e
+    // o que interessa é o segmento em que a pessoa estava ao confirmar.
+    final startedAt = _selectedSegment;
+    final criada = await context.read<JobsViewModel>().createManualApplication(
           company: input.company,
           title: input.title,
           url: input.url,
           status: input.status,
         );
+    final ok = criada != null;
     if (!mounted) return;
+    // Iça a nova para o topo do segmento de destino e remonta a lista do começo
+    // — senão ela nasce depois de todos os cards de vaga, possivelmente fora da
+    // área visível, e o pulo de segmento levaria a pessoa a uma tela que parece
+    // não ter mudado.
+    if (criada != null) setState(() => _justCreatedId = criada.id);
+    final dest = segmentForApplication(input.status);
+    // Sem preposição colada ao rótulo: "Em processo" e "Enviadas" já são
+    // sintagmas prontos, e "adicionada em Em processo" saía duplicado.
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(ok
-            ? 'Candidatura adicionada'
+            ? 'Candidatura adicionada · ${dest.label}'
             : 'Não consegui adicionar. Tente de novo.'),
       ),
     );
+    // Criação SEMPRE segue: quem acabou de cadastrar quer ver o que cadastrou.
+    if (ok) {
+      _focusSegmentAfterAction(dest, isCreation: true, startedAt: startedAt);
+    }
   }
 
   /// Resolve como o user vai aplicar pra essa vaga:

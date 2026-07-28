@@ -1511,11 +1511,17 @@ class JobsViewModel extends ChangeNotifier {
   /// pra `withdrawn`) — NÃO escreve mais `swipe_actions.applied` (legacy;
   /// builds antigas continuam via bridge do banco). Re-marcar uma vaga cuja
   /// application estava withdrawn/rejected REABRE a row existente.
-  Future<void> setApplied(String jobId, bool applied) async {
-    if (userId == null) return;
+  /// Marca/desmarca a vaga como aplicada.
+  ///
+  /// Devolve `true` só quando a escrita REALMENTE persistiu. Antes era
+  /// `Future<void>` e engolia a exceção fazendo rollback interno, então a
+  /// tela mostrava "Movida para Enviadas" mesmo com a rede fora — e, pior,
+  /// podia reposicionar a aba para um segmento vazio. Achado do review de 27/07.
+  Future<bool> setApplied(String jobId, bool applied) async {
+    if (userId == null) return false;
 
     final idx = _likedJobs.indexWhere((l) => l.job.id == jobId);
-    if (idx == -1) return;
+    if (idx == -1) return false;
 
     final old = _likedJobs[idx];
     _likedJobs[idx] = LikedJob(
@@ -1569,11 +1575,28 @@ class JobsViewModel extends ChangeNotifier {
           );
         }
       }
-    } catch (e) {
-      // Rollback otimista
-      print('Error setting applied: $e');
-      _likedJobs[idx] = old;
+      // O `notifyListeners()` de cima roda ANTES do await, quando
+      // `_applicationsByJob[jobId]` ainda é null — ou seja, o frame publicado
+      // mostra o card ainda em "Salvas", com o CTA de aplicar. Sem este segundo
+      // notify a UI nunca via a application criada: o card ficava no segmento
+      // errado e as contagens desatualizadas até um refresh não relacionado.
       notifyListeners();
+      return true;
+    } catch (e) {
+      // Rollback otimista, por ID e nunca pelo índice capturado antes do await
+      // — mesma razão de `updateManualApplicationStatus`: `loadLikedJobs`
+      // SUBSTITUI `_likedJobs` inteira e `removeLikedJob` faz `removeAt`
+      // síncrono, ambos alcançáveis nesta tela enquanto o request está no ar
+      // (pull-to-refresh e "Remover" do menu "···"). Com o índice velho, o
+      // rollback escrevia em cima da vaga errada ou estourava RangeError DE
+      // DENTRO do catch — a exceção escapava do `Future<bool>`, o chamador
+      // nunca recebia `false` e o card seguia exibido como aplicado sem nada
+      // ter persistido.
+      print('Error setting applied: $e');
+      final at = _likedJobs.indexWhere((l) => l.job.id == jobId);
+      if (at != -1) _likedJobs[at] = old;
+      notifyListeners();
+      return false;
     }
   }
 
@@ -1617,13 +1640,19 @@ class JobsViewModel extends ChangeNotifier {
 
   /// Fase 3 (T3.3): cria uma candidatura manual (FAB da aba). Retorna false se
   /// falhou. Emite application_created (application_type='manual', R7).
-  Future<bool> createManualApplication({
+  /// Devolve a application criada, ou `null` se falhou.
+  ///
+  /// Devolvia só `bool`. A tela precisa do ID para conseguir MOSTRAR o que a
+  /// pessoa acabou de cadastrar: no agrupamento por segmento as manuais entram
+  /// depois de todos os cards de vaga, então num segmento cheio a candidatura
+  /// nova nascia fora da área visível.
+  Future<Application?> createManualApplication({
     required String company,
     required String title,
     String? url,
     ApplicationStatus status = ApplicationStatus.submitted,
   }) async {
-    if (userId == null) return false;
+    if (userId == null) return null;
     try {
       final app = await _applicationsRepository.createManual(
         userId: userId!,
@@ -1639,10 +1668,10 @@ class JobsViewModel extends ChangeNotifier {
         applicationType: app.type.db,
       );
       notifyListeners();
-      return true;
+      return app;
     } catch (e) {
       print('Error createManualApplication: $e');
-      return false;
+      return null;
     }
   }
 
@@ -1663,7 +1692,12 @@ class JobsViewModel extends ChangeNotifier {
         applicationId: app.id,
         status: newStatus,
       );
-      _manualApplications[idx] = updated;
+      // Re-localiza por ID: `loadLikedJobs` e `createManualApplication`
+      // SUBSTITUEM a lista inteira, então o índice capturado antes do await
+      // pode apontar para outra candidatura — escrever por ele sobrescreveria
+      // a errada. Achado do review de 27/07.
+      final at = _manualApplications.indexWhere((a) => a.id == app.id);
+      if (at != -1) _manualApplications[at] = updated;
       // ignore: unawaited_futures
       Analytics.shared.applicationStateChanged(
         applicationId: updated.id,
@@ -1675,7 +1709,9 @@ class JobsViewModel extends ChangeNotifier {
       return true;
     } catch (e) {
       print('Error updateManualApplicationStatus: $e');
-      _manualApplications[idx] = prev;
+      // Mesma razão: rollback por ID, nunca por índice velho.
+      final at = _manualApplications.indexWhere((a) => a.id == app.id);
+      if (at != -1) _manualApplications[at] = prev;
       notifyListeners();
       return false;
     }

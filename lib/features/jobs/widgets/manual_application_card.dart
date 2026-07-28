@@ -76,23 +76,36 @@ class ManualApplicationCard extends StatelessWidget {
                             color: AppColors.textTertiary),
                       ),
                     ],
+                    const SizedBox(height: 6),
+                    // Selo de origem. Lê o rótulo em pt-BR do próprio tipo —
+                    // antes era o literal `'manual'`, jargão de banco exposto
+                    // ao usuário (C5 do device-test).
+                    //
+                    // Mora DENTRO da coluna do título, e não como terceiro
+                    // filho rígido da Row: o rótulo em pt-BR é ~70px mais largo
+                    // que o `'manual'` antigo e, disputando a linha do título,
+                    // tirava essa largura do dado que a própria pessoa digitou.
+                    // Pior, por ser rígido ele estourava a Row em Dynamic Type
+                    // grande — MEDIDO: 216px de overflow em 390pt a 2,5x, que
+                    // com `'manual'` não acontecia.
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.background,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(application.type.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textTertiary)),
+                    ),
                   ],
                 ),
-              ),
-              // selo "manual"
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.background,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text('manual',
-                    style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textTertiary)),
               ),
             ],
           ),

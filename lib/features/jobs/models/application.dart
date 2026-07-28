@@ -112,6 +112,17 @@ enum ApplicationType {
         manual => 'manual',
       };
 
+  /// Rótulo em pt-BR para exibir ao usuário.
+  ///
+  /// O card de candidatura manual mostrava o literal `'manual'` — minúsculo,
+  /// em jargão de banco, na cara de quem usa (C5 do device-test). O valor
+  /// técnico continua em [db]; o que a pessoa lê vem daqui.
+  String get label => switch (this) {
+        stage => 'Pelo Stage',
+        externalConfirmed => 'Confirmada por você',
+        manual => 'Adicionada por você',
+      };
+
   /// O usuário move o próprio pipeline só em manual/external_confirmed; `stage`
   /// é read-only pra ele (quem move é a empresa/ops na F4). Espelha a matriz
   /// da F1 — a UI só não oferece os controles.
