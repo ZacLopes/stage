@@ -19,6 +19,18 @@ ApplicationSegment segmentForApplication(
   return seg == ApplicationSegment.salvas ? ApplicationSegment.enviadas : seg;
 }
 
+/// Iça para o topo o primeiro item que satisfaz [ehOAlvo]. No-op se ele já
+/// estiver no topo ou não estiver na lista.
+///
+/// Serve à candidatura recém-criada: no agrupamento por segmento as manuais
+/// entram DEPOIS de todos os cards de vaga, então num segmento com vários itens
+/// a nova nascia fora da área visível — o app levava a pessoa até o segmento
+/// certo e ela não via nada de novo ali. A ordem relativa do resto é preservada.
+void hoistToTop<T>(List<T> items, bool Function(T) ehOAlvo) {
+  final at = items.indexWhere(ehOAlvo);
+  if (at > 0) items.insert(0, items.removeAt(at));
+}
+
 /// Decide se a aba Candidaturas deve PULAR para outro segmento depois de uma
 /// ação do usuário. Devolve o segmento de destino, ou `null` para ficar onde
 /// está.

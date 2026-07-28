@@ -43,6 +43,17 @@ class TrackerSegmentBar extends StatefulWidget {
 class _TrackerSegmentBarState extends State<TrackerSegmentBar> {
   final ScrollController _controller = ScrollController();
 
+  /// Uma chave por pílula, para conseguir MEDIR onde ela está.
+  final Map<ApplicationSegment, GlobalKey> _pillKeys = {
+    for (final s in ApplicationSegment.values) s: GlobalKey(),
+  };
+
+  /// Respiro nas bordas ao trazer uma pílula à vista — igual ao padding
+  /// horizontal da régua, para ela não ficar colada no limite da viewport.
+  static const double _margem = 16;
+
+  static const Duration _duracao = Duration(milliseconds: 260);
+
   /// True quando ainda há pílula à direita fora da viewport.
   ///
   /// C4 do device-test: em telas estreitas a última pílula aparecia cortada
@@ -70,28 +81,63 @@ class _TrackerSegmentBarState extends State<TrackerSegmentBar> {
     }
   }
 
-  /// Rola a régua até a pílula selecionada ficar visível.
+  /// Rola o MÍNIMO necessário para a pílula selecionada ficar inteira à vista.
   ///
-  /// Usa a fração do índice sobre o extent total — não precisa medir cada
-  /// pílula, e erra para o lado seguro (mostra a região certa). Não faz nada
-  /// quando tudo já cabe na tela.
+  /// Devolve `false` quando não deu para medir: a ListView é preguiçosa e, além
+  /// do cacheExtent, a pílula sequer existe na árvore.
+  ///
+  /// A versão anterior mirava uma fração fixa do extent (`max * idx/(n-1)`), o
+  /// que sempre movia a régua — inclusive quando a pílula tocada já estava
+  /// inteiramente visível, fazendo a barra "pular" a cada toque sem motivo.
+  bool _scrollMinimo() {
+    if (!mounted || !_controller.hasClients) return false;
+    final pos = _controller.position;
+    if (pos.maxScrollExtent <= 0) return true; // cabe tudo: nada a rolar
+    final pillBox =
+        _pillKeys[widget.selected]?.currentContext?.findRenderObject()
+            as RenderBox?;
+    final barBox = context.findRenderObject() as RenderBox?;
+    if (pillBox == null ||
+        barBox == null ||
+        !pillBox.hasSize ||
+        !barBox.hasSize) {
+      return false;
+    }
+
+    final esquerda = pillBox.localToGlobal(Offset.zero, ancestor: barBox).dx;
+    final direita = esquerda + pillBox.size.width;
+    double delta = 0;
+    if (esquerda < _margem) {
+      delta = esquerda - _margem; // negativo: volta para a esquerda
+    } else if (direita > barBox.size.width - _margem) {
+      delta = direita - (barBox.size.width - _margem);
+    }
+    // Já está inteira à vista: NÃO mexe.
+    if (delta == 0) return true;
+
+    final alvo = (pos.pixels + delta).clamp(0.0, pos.maxScrollExtent);
+    if ((alvo - pos.pixels).abs() < 0.5) return true;
+    _controller.animateTo(alvo,
+        duration: _duracao, curve: Curves.easeOutCubic);
+    return true;
+  }
+
+  /// Traz a pílula selecionada à vista depois de uma troca de segmento.
   void _revealSelected() {
+    if (_scrollMinimo()) return;
+    // Não deu para medir — a pílula está fora do cacheExtent. Aproxima pela
+    // fração do índice (que a coloca dentro da viewport) e refina quando ela
+    // já existir na árvore.
     if (!mounted || !_controller.hasClients) return;
     final pos = _controller.position;
-    if (pos.maxScrollExtent <= 0) return;
     final segments = ApplicationSegment.values;
     final idx = segments.indexOf(widget.selected);
-    if (idx < 0) return;
-    final target =
-        (pos.maxScrollExtent * (idx / (segments.length - 1))).clamp(
-      0.0,
-      pos.maxScrollExtent,
-    );
-    _controller.animateTo(
-      target,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-    );
+    if (idx < 0 || segments.length < 2) return;
+    final alvo = (pos.maxScrollExtent * (idx / (segments.length - 1)))
+        .clamp(0.0, pos.maxScrollExtent);
+    _controller
+        .animateTo(alvo, duration: _duracao, curve: Curves.easeOutCubic)
+        .whenComplete(_scrollMinimo);
   }
 
   @override
@@ -122,6 +168,7 @@ class _TrackerSegmentBarState extends State<TrackerSegmentBar> {
       children: [
         for (final seg in ApplicationSegment.values) ...[
           _SegmentPill(
+            key: _pillKeys[seg],
             label: seg.label,
             count: widget.counts[seg] ?? 0,
             isSelected: seg == widget.selected,
@@ -163,6 +210,7 @@ class _SegmentPill extends StatelessWidget {
   final VoidCallback onTap;
 
   const _SegmentPill({
+    super.key,
     required this.label,
     required this.count,
     required this.isSelected,

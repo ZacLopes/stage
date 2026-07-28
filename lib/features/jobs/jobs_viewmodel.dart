@@ -1640,13 +1640,19 @@ class JobsViewModel extends ChangeNotifier {
 
   /// Fase 3 (T3.3): cria uma candidatura manual (FAB da aba). Retorna false se
   /// falhou. Emite application_created (application_type='manual', R7).
-  Future<bool> createManualApplication({
+  /// Devolve a application criada, ou `null` se falhou.
+  ///
+  /// Devolvia só `bool`. A tela precisa do ID para conseguir MOSTRAR o que a
+  /// pessoa acabou de cadastrar: no agrupamento por segmento as manuais entram
+  /// depois de todos os cards de vaga, então num segmento cheio a candidatura
+  /// nova nascia fora da área visível.
+  Future<Application?> createManualApplication({
     required String company,
     required String title,
     String? url,
     ApplicationStatus status = ApplicationStatus.submitted,
   }) async {
-    if (userId == null) return false;
+    if (userId == null) return null;
     try {
       final app = await _applicationsRepository.createManual(
         userId: userId!,
@@ -1662,10 +1668,10 @@ class JobsViewModel extends ChangeNotifier {
         applicationType: app.type.db,
       );
       notifyListeners();
-      return true;
+      return app;
     } catch (e) {
       print('Error createManualApplication: $e');
-      return false;
+      return null;
     }
   }
 

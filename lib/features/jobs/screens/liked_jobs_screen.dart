@@ -45,6 +45,17 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
   /// FASE 3 (T3.1 redesign): segmento selecionado na aba Candidaturas.
   ApplicationSegment _selectedSegment = ApplicationSegment.salvas;
 
+  /// ID da candidatura que a pessoa acabou de cadastrar, se houver.
+  ///
+  /// No agrupamento, as manuais entram DEPOIS de todos os cards de vaga
+  /// (`_trackerBySegment`), então num segmento com vários itens a candidatura
+  /// nova nascia fora da área visível: o app levava a pessoa até o segmento
+  /// certo e ela não via nada de novo ali. Enquanto este ID está setado, o item
+  /// correspondente é içado para o topo do segmento e a lista é remontada do
+  /// começo. Some no próximo toque de pílula ou no próximo refresh — é destaque
+  /// momentâneo, não uma regra de ordenação nova.
+  String? _justCreatedId;
+
   /// Mostra banner explicativo de "como aplicar" na primeira visita pós-
   /// celebração de "primeira vaga salva". Persiste o estado em
   /// SharedPreferences (`first_save_banner_dismissed_<userId>`).
@@ -83,6 +94,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
   }
 
   Future<void> _refresh() async {
+    if (mounted) setState(() => _justCreatedId = null);
     await context.read<JobsViewModel>().loadLikedJobs(silent: true);
   }
 
@@ -439,6 +451,14 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
     for (final app in vm.manualApplications) {
       map[segmentForApplication(app.status)]!.add(_ManualCardItem(app));
     }
+    // Iça a recém-criada para o topo do seu segmento (ver [_justCreatedId]).
+    final destaque = _justCreatedId;
+    if (destaque != null) {
+      for (final lista in map.values) {
+        hoistToTop(lista,
+            (i) => i is _ManualCardItem && i.application.id == destaque);
+      }
+    }
     return map;
   }
 
@@ -454,7 +474,11 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
         TrackerSegmentBar(
           selected: selected,
           counts: counts,
-          onSelected: (s) => setState(() => _selectedSegment = s),
+          onSelected: (s) => setState(() {
+            _selectedSegment = s;
+            // Navegou com a mão: o destaque da recém-criada já cumpriu o papel.
+            _justCreatedId = null;
+          }),
         ),
         const SizedBox(height: 10),
         Expanded(
@@ -474,7 +498,12 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
             child: items.isEmpty
                 ? _segmentEmpty(selected)
                 : ListView.separated(
-                    key: ValueKey(selected),
+                    // `_justCreatedId` entra na chave DE PROPÓSITO: quando a
+                    // criação cai no segmento em que a pessoa já está, a lista
+                    // não seria remontada e ela continuaria na posição de rolagem
+                    // anterior — içar o item ao topo não adiantaria nada. Com a
+                    // chave mudando, a ListView nasce de novo no começo.
+                    key: ValueKey('$selected|$_justCreatedId'),
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
                     physics: const AlwaysScrollableScrollPhysics(),
                     itemCount: items.length,
@@ -742,13 +771,19 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
     // Capturado DEPOIS da sheet: com o modal aberto ninguém troca de pílula, e
     // o que interessa é o segmento em que a pessoa estava ao confirmar.
     final startedAt = _selectedSegment;
-    final ok = await context.read<JobsViewModel>().createManualApplication(
+    final criada = await context.read<JobsViewModel>().createManualApplication(
           company: input.company,
           title: input.title,
           url: input.url,
           status: input.status,
         );
+    final ok = criada != null;
     if (!mounted) return;
+    // Iça a nova para o topo do segmento de destino e remonta a lista do começo
+    // — senão ela nasce depois de todos os cards de vaga, possivelmente fora da
+    // área visível, e o pulo de segmento levaria a pessoa a uma tela que parece
+    // não ter mudado.
+    if (criada != null) setState(() => _justCreatedId = criada.id);
     final dest = segmentForApplication(input.status);
     // Sem preposição colada ao rótulo: "Em processo" e "Enviadas" já são
     // sintagmas prontos, e "adicionada em Em processo" saía duplicado.

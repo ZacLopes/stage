@@ -256,6 +256,48 @@ void main() {
     });
   });
 
+  group('hoistToTop — a recém-criada não nasce fora da tela', () {
+    test('traz do meio para o topo', () {
+      final l = ['a', 'b', 'alvo', 'c'];
+      hoistToTop(l, (x) => x == 'alvo');
+      expect(l, ['alvo', 'a', 'b', 'c']);
+    });
+
+    test('traz do FIM para o topo — o caso real da candidatura nova', () {
+      // As manuais entram depois de todos os cards de vaga; num segmento cheio
+      // a nova é literalmente a última.
+      final l = ['vaga1', 'vaga2', 'vaga3', 'nova'];
+      hoistToTop(l, (x) => x == 'nova');
+      expect(l.first, 'nova');
+      expect(l, ['nova', 'vaga1', 'vaga2', 'vaga3'],
+          reason: 'a ordem relativa do resto tem que ser preservada');
+    });
+
+    test('já no topo: não mexe (nem reordena o resto)', () {
+      final l = ['alvo', 'a', 'b'];
+      hoistToTop(l, (x) => x == 'alvo');
+      expect(l, ['alvo', 'a', 'b']);
+    });
+
+    test('alvo ausente: lista intacta', () {
+      final l = ['a', 'b', 'c'];
+      hoistToTop(l, (x) => x == 'nao-existe');
+      expect(l, ['a', 'b', 'c']);
+    });
+
+    test('lista vazia não estoura', () {
+      final l = <String>[];
+      hoistToTop(l, (x) => true);
+      expect(l, isEmpty);
+    });
+
+    test('com alvos repetidos, iça o primeiro e só ele', () {
+      final l = ['a', 'alvo', 'b', 'alvo'];
+      hoistToTop(l, (x) => x == 'alvo');
+      expect(l, ['alvo', 'a', 'b', 'alvo']);
+    });
+  });
+
   group('C5 — rótulo do tipo, não o valor de banco', () {
     test('nenhum rótulo expõe o valor técnico', () {
       for (final t in ApplicationType.values) {

@@ -40,6 +40,16 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
   }
 
+  /// A PÍLULA inteira, não só o texto dentro dela.
+  ///
+  /// O widget mede a pílula para decidir o quanto rolar; medir o `Text` erra
+  /// por ~55px (o padding lateral mais o badge de contagem à direita do
+  /// rótulo), o que dá falso negativo em qualquer asserção de borda.
+  Finder pilula(String rotulo) => find.ancestor(
+        of: find.text(rotulo),
+        matching: find.byType(AnimatedContainer),
+      );
+
   testWidgets('em tela estreita a régua É rolável (o ramo com fade existe)',
       (tester) async {
     await narrow(tester);
@@ -121,7 +131,7 @@ void main() {
     // preguiçosa, então além do cacheExtent a pílula sequer existe na árvore;
     // logo depois dele ela existe mas transborda à direita. As duas contam.
     final viewport = tester.getRect(find.byType(TrackerSegmentBar));
-    final alvo = find.text('Finalizadas');
+    final alvo = pilula('Finalizadas');
     final foraDaVista = alvo.evaluate().isEmpty ||
         tester.getRect(alvo).right > viewport.right + 0.5;
     expect(foraDaVista, isTrue,
@@ -141,6 +151,80 @@ void main() {
         reason: 'a pílula selecionada ficou cortada à esquerda');
     expect(pill.right, lessThanOrEqualTo(viewport.right + 0.5),
         reason: 'a pílula selecionada continuou fora da viewport à direita');
+  });
+
+  testWidgets('pílula JÁ visível não faz a régua se mexer', (tester) async {
+    // A régua mirava uma fração fixa do extent, então TODA troca de segmento a
+    // movia — inclusive um toque numa pílula que já estava inteira na tela. Da
+    // perspectiva de quem usa, a barra pulava sozinha sem motivo.
+    //
+    // A pílula testada é a do MEIO, de propósito: com a ÚLTIMA, o alvo do
+    // cálculo por fração (`max * idx/(n-1)`) coincide com o fim da barra, então
+    // a versão antiga TAMBÉM ficaria parada e o teste não provaria nada.
+    // Medido: com a última pílula, este teste passava com o bug reintroduzido.
+    await tester.binding.setSurfaceSize(const Size(500, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(host(ApplicationSegment.salvas));
+    await tester.pumpAndSettle();
+
+    final controller =
+        tester.widget<Scrollable>(find.byType(Scrollable).first).controller!;
+    expect(controller.position.maxScrollExtent, greaterThan(0),
+        reason: 'a superfície precisa gerar overflow');
+    controller.jumpTo(controller.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    final antes = controller.position.pixels;
+
+    final viewport = tester.getRect(find.byType(TrackerSegmentBar));
+    final alvo = pilula('Em processo');
+    expect(alvo, findsOneWidget);
+    final r = tester.getRect(alvo);
+    expect(r.left, greaterThanOrEqualTo(viewport.left - 0.5),
+        reason: 'a pílula do meio precisa estar INTEIRA à vista');
+    expect(r.right, lessThanOrEqualTo(viewport.right + 0.5),
+        reason: 'a pílula do meio precisa estar INTEIRA à vista');
+
+    // Seleciona justamente essa pílula visível.
+    await tester.pumpWidget(host(ApplicationSegment.emProcesso));
+    await tester.pumpAndSettle();
+
+    expect(controller.position.pixels, moreOrLessEquals(antes, epsilon: 0.5),
+        reason: 'a régua se mexeu para revelar algo que já estava visível');
+  });
+
+  testWidgets('pílula MEDÍVEL: rola exatamente o mínimo, sem passar do ponto',
+      (tester) async {
+    // Quando a pílula já está na árvore (visível em parte), o alvo do mínimo
+    // tem uma posição EXATA: a borda direita dela encostada na borda direita da
+    // régua, menos o respiro. Parar em qualquer outro lugar é fração
+    // arbitrária, não mínimo.
+    //
+    // Superfície de 500 de propósito: a 320 a pílula do meio nem chega a ser
+    // construída (fica além do cacheExtent) e o widget cai no ramo de
+    // aproximação — que não promete posição exata, só visibilidade. Esse outro
+    // ramo é coberto pelo teste "traz a pílula à vista".
+    await tester.binding.setSurfaceSize(const Size(500, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(host(ApplicationSegment.salvas));
+    await tester.pumpAndSettle();
+    final controller =
+        tester.widget<Scrollable>(find.byType(Scrollable).first).controller!;
+    expect(controller.position.pixels, 0);
+
+    final viewport = tester.getRect(find.byType(TrackerSegmentBar));
+    final alvo = pilula('Em processo');
+    expect(alvo, findsOneWidget, reason: 'o ramo medível exige ela na árvore');
+    expect(tester.getRect(alvo).right, greaterThan(viewport.right - 16),
+        reason: 'precisa estar cortada, senão não há o que rolar');
+
+    await tester.pumpWidget(host(ApplicationSegment.emProcesso));
+    await tester.pumpAndSettle();
+
+    final pos = controller.position;
+    expect(pos.pixels, greaterThan(0), reason: 'precisava rolar algo');
+    expect(tester.getRect(alvo).right,
+        moreOrLessEquals(viewport.right - 16, epsilon: 1.0),
+        reason: 'não parou no mínimo necessário');
   });
 
   testWidgets('dispose realmente descarta o ScrollController', (tester) async {
