@@ -874,25 +874,30 @@ class ProfileRepositorySupabase implements ProfileRepository {
         .toList();
   }
 
+  /// Substitui as disciplinas relevantes numa transação só.
+  ///
+  /// Era DELETE-all seguido de INSERT-all em DUAS requisições HTTP, sem
+  /// transação: se a segunda falhasse (rede caindo, sessão expirando, 4xx do
+  /// PostgREST) a pessoa terminava com a lista VAZIA — o apagar já tinha
+  /// acontecido e não havia rollback. A janela é pequena, mas o custo dela é
+  /// perder dado que a pessoa digitou.
+  ///
+  /// `replace_profile_coursework` já existia em produção desde a migration
+  /// 20260714130000, com GRANT para `authenticated` e delegando para
+  /// `_replace_simple_list`, que roda sob `pg_advisory_xact_lock` — ou seja,
+  /// atômica E serializada contra as outras escritas do mesmo perfil. Não
+  /// precisou de migration nova: o contrato estava lá, sem caller.
+  ///
+  /// Diferença de comportamento assumida: o servidor faz trim, descarta
+  /// strings vazias e deduplica sem diferenciar maiúsculas — o caminho antigo
+  /// gravava tudo cru. É a mesma normalização que skills, interesses e áreas
+  /// já recebem pelos respectivos RPCs.
   @override
   Future<void> replaceCoursework(String userId, List<String> names) async {
-    await _client.from('profile_coursework').delete().eq('user_id', userId);
-    if (names.isEmpty) return;
-    await _client
-        .from('profile_coursework')
-        .insert(
-          names
-              .asMap()
-              .entries
-              .map(
-                (e) => {
-                  'user_id': userId,
-                  'name': e.value,
-                  'order_index': e.key,
-                },
-              )
-              .toList(),
-        );
+    await _client.rpc(
+      'replace_profile_coursework',
+      params: {'p_user_id': userId, 'p_names': names},
+    );
   }
 
   // ──────────────────────────────────────────────────────────────────────
