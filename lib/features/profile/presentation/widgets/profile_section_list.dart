@@ -213,7 +213,14 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
           (e.confidence != null && e.confidence! < 0.7);
       final subtitle = ProfileResumeMapper.formatEducationQualification(e);
       final details = <_DetailLine>[
-        if (_educationStatusDetail(e) != null)
+        // O `period` do card já imprime "Em andamento" quando o curso está em
+        // curso sem data de fim (`Education.formattedPeriodAt`), então a linha
+        // "Situação: Faculdade em andamento" logo abaixo dizia a mesma coisa
+        // duas vezes. Mantida nos demais estados (concluída, pausada), onde o
+        // período mostra datas e não a situação.
+        // Revisão UX 28/07, achado P3-43.
+        if (_educationStatusDetail(e) != null &&
+            !(e.educationStatus == 'studying' && e.endDate == null))
           _DetailLine(label: 'Situação', value: _educationStatusDetail(e)!),
         if (e.currentSemester != null)
           _DetailLine(
@@ -769,10 +776,24 @@ class _SectionHeader extends StatelessWidget {
             ),
           ),
         ),
+        // Seção que ADICIONA um item por vez: "+" sempre — é o que a ação faz,
+        // com a lista cheia ou vazia.
         if (onAdd != null)
           _SquareIconButton(icon: Icons.add_rounded, onTap: onAdd!)
+        // Seção que edita a LISTA inteira (`EditListModal`): lápis só faz
+        // sentido quando há o que editar. Vazia, a ação é adicionar — e o
+        // ícone precisa dizer isso.
+        //
+        // Antes a divisão era puramente técnica (tipo de editor), então
+        // "Habilidades (0)" mostrava lápis ao lado de "Idiomas (0)" com "+",
+        // e o lápis aparecia onde não havia nada pra editar — confuso
+        // justamente pra quem foi mandado ali adicionar habilidades.
+        // Revisão UX 28/07, achado P3-34 (D6 no backlog).
         else if (onEdit != null)
-          _SquareIconButton(icon: Icons.edit_outlined, onTap: onEdit!),
+          _SquareIconButton(
+            icon: count == 0 ? Icons.add_rounded : Icons.edit_outlined,
+            onTap: onEdit!,
+          ),
       ],
     );
   }
