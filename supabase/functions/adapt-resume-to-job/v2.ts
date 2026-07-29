@@ -1770,6 +1770,59 @@ export function validateAdaptationV2(
       )
     }
   }
+
+  // 8. Summary — não pode ALEGAR experiência profissional que o perfil não tem.
+  assertSummaryDoesNotClaimExperience(input, r)
+}
+
+/**
+ * Revisão UX 28/07 (P0). Com `input.experiences` VAZIO, o modelo devolveu:
+ *
+ *   "Estudante de Engenharia de Produção COM EXPERIÊNCIA EM elaboração de
+ *    relatórios e cotações com fornecedores."
+ *
+ * As duas coisas vieram de checkboxes de `extra_skills` — a folha pergunta o que
+ * a pessoa SABE ("Marque o que você tem mas não escreveu no CV"), não onde ela
+ * já trabalhou. O rodapé da tela promete "Nenhuma informação foi inventada" e o
+ * texto vai para o PDF que o recrutador lê.
+ *
+ * As checagens 1–7 cobrem LISTAS (skills, tools, experiences, majors…); a prosa
+ * do `summary` passava livre. Aqui fechamos só o caso inequívoco: zero
+ * experiências no input + afirmação de experiência no output.
+ *
+ * Frases de BUSCA continuam passando ("buscando experiência em Suprimentos",
+ * "primeira experiência", "sem experiência prévia") — são legítimas e são
+ * exatamente o que um CV de estudante deve dizer.
+ */
+function assertSummaryDoesNotClaimExperience(input: InputResumeV2, r: any): void {
+  if (input.experiences.length > 0) return
+
+  const flat = String(r?.summary ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // tira acentos: "experiência" → "experiencia"
+    .toLowerCase()
+  if (flat.length === 0) return
+
+  // Afirmações de experiência, PT e EN (o output pode sair nas duas línguas).
+  const claimRe =
+    /\bexperiencias?\s+(?:em|com|na|no|de)\b|\bexperience\s+(?:in|with|at)\b|\bexperienced\s+in\b|\banos?\s+de\s+experiencia\b|\byears?\s+of\s+experience\b|\batuacao\s+(?:em|como|na|no)\b|\bvivencia\s+(?:em|com|na|no)\b/g
+
+  // Contexto imediatamente antes que torna a menção legítima (busca/ausência).
+  const mitigatorRe =
+    /(?:buscando|busco|buscar|em busca de|procurando|procuro|ganhar|adquirir|conquistar|primeira|sem|nenhuma|oportunidade de|seeking|looking for|to gain|gain|first|without|no prior|opportunity to)\s*$/
+
+  for (const m of flat.matchAll(claimRe)) {
+    const idx = m.index ?? 0
+    const before = flat.slice(Math.max(0, idx - 40), idx)
+    if (mitigatorRe.test(before)) continue
+    throw new ValidationErrorV2(
+      'summary',
+      `summary alega experiência profissional inexistente ("${m[0].trim()}") ` +
+        `mas o perfil tem 0 experiences. Reescreva como conhecimento/formação ` +
+        `(ex.: "com conhecimento em", "familiaridade com") ou como objetivo ` +
+        `("buscando experiência em"), nunca como experiência já vivida.`,
+    )
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
