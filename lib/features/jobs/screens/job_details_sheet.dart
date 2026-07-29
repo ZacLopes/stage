@@ -215,7 +215,13 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                             // About Company
                             if (widget.job.aboutCompany.isNotEmpty) ...[
                               _buildSection(
-                                title: 'Sobre a ${widget.job.companyName}',
+                                // Cabeçalho fixo: interpolar o nome produzia
+                                // concordância errada em boa parte do
+                                // catálogo ("Sobre a Estágio M. Dias Branco",
+                                // "Sobre a Itaú"). O nome da empresa já
+                                // aparece no topo da sheet.
+                                // Revisão UX 28/07, achado P2-18.
+                                title: 'Sobre a empresa',
                                 icon: Icons.business_rounded,
                                 color: AppColors.textTertiary,
                                 child: _buildJobHtml(
