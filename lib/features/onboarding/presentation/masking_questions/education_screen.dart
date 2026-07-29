@@ -781,13 +781,13 @@ class _MomentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(12),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
         curve: Curves.easeOut,
         decoration: BoxDecoration(
           color: selected ? AppColors.primarySoft : Colors.white,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: selected ? _kAccent : _kBorderColor,
             width: selected ? 1.5 : 1,
@@ -935,8 +935,13 @@ class _StepSliderBlock extends StatelessWidget {
           children: [
             Row(
               children: [
+                // Só o NÚMERO nas pontas: a unidade fica na bolha do valor.
+                // Antes as pontas usavam o mesmo `labelBuilder` da bolha e, no
+                // valor inicial (1) — que é o que toda pessoa vê ao chegar —
+                // a tela mostrava "1º semestre … 1º semestre … 12º semestre".
+                // Lia-se como defeito. Revisão UX 28/07, achado P3-36.
                 Text(
-                  labelBuilder(min),
+                  '$min',
                   style: const TextStyle(
                     color: _kLabelColor,
                     fontSize: 12,
@@ -964,7 +969,7 @@ class _StepSliderBlock extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  labelBuilder(max),
+                  '$max',
                   style: const TextStyle(
                     color: _kLabelColor,
                     fontSize: 12,

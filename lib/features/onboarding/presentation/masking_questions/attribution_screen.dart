@@ -2,7 +2,6 @@
 // mascarando a latência da extração do CV.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:provider/provider.dart';
 import '../../../auth/auth_session.dart';
 import '../../../../services/analytics_service.dart';
@@ -10,6 +9,7 @@ import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
 import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
+import '../widgets/onboarding_choice_tile.dart';
 import 'first_name_screen.dart';
 import '../../../../core/theme/theme.dart';
 
@@ -91,42 +91,12 @@ class _AttributionScreenState extends State<AttributionScreen> {
       onContinue: (_selected == null || _saving) ? null : _continue,
       child: Column(
         children: _options.map((opt) {
-          final isSelected = _selected == opt;
           return Padding(
             padding: const EdgeInsets.only(bottom: 10),
-            child: InkWell(
-              onTap: () {
-                HapticFeedback.selectionClick();
-                setState(() => _selected = opt);
-              },
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? AppColors.brandCyan.withValues(alpha: 0.08)
-                      : Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: isSelected ? AppColors.brandCyan : AppColors.border,
-                    width: isSelected ? 1.5 : 1,
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        opt,
-                        style: TextStyle(
-                          fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                          color: isSelected ? AppColors.brandCyan : Colors.black87,
-                        ),
-                      ),
-                    ),
-                    if (isSelected) const Icon(Icons.check_circle, color: AppColors.brandCyan),
-                  ],
-                ),
-              ),
+            child: OnboardingChoiceTile(
+              label: opt,
+              selected: _selected == opt,
+              onTap: () => setState(() => _selected = opt),
             ),
           );
         }).toList(),

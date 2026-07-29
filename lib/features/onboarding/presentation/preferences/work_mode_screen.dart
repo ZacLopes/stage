@@ -91,23 +91,23 @@ class _WorkModeScreenState extends State<WorkModeScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
-                  color: isSelected ? AppColors.brandCyan.withValues(alpha: 0.08) : Colors.white,
+                  color: isSelected ? AppColors.primarySoft : Colors.white,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: isSelected ? AppColors.brandCyan : AppColors.border,
+                    color: isSelected ? AppColors.primary : AppColors.border,
                     width: isSelected ? 1.5 : 1,
                   ),
                 ),
                 child: Row(
                   children: [
-                    Icon(icon, color: isSelected ? AppColors.brandCyan : AppColors.textTertiary),
+                    Icon(icon, color: isSelected ? AppColors.primary : AppColors.textTertiary),
                     const SizedBox(width: 14),
                     Expanded(
                       child: Text(
                         label,
                         style: TextStyle(
                           fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                          color: isSelected ? AppColors.brandCyan : Colors.black87,
+                          color: isSelected ? AppColors.primary : AppColors.textPrimary,
                         ),
                       ),
                     ),
@@ -134,9 +134,9 @@ class _Checkbox extends StatelessWidget {
     return Container(
       width: 22, height: 22,
       decoration: BoxDecoration(
-        color: selected ? AppColors.brandCyan : Colors.white,
+        color: selected ? AppColors.primary : Colors.white,
         border: Border.all(
-          color: selected ? AppColors.brandCyan : AppColors.borderStrong,
+          color: selected ? AppColors.primary : AppColors.borderStrong,
           width: 1.5,
         ),
         borderRadius: BorderRadius.circular(6),

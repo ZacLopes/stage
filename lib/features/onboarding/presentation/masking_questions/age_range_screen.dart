@@ -198,7 +198,7 @@ class _AgeRangeScreenState extends State<AgeRangeScreen> {
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
-                  color: _error != null ? AppColors.error : AppColors.brandCyan,
+                  color: _error != null ? AppColors.error : AppColors.primary,
                   width: 1.5,
                 ),
               ),
