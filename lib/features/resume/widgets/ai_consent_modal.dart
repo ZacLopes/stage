@@ -6,10 +6,15 @@ class AIConsentModal extends StatefulWidget {
   final VoidCallback onAccept;
   final VoidCallback onCancel;
 
+  /// Fecha SEM registrar decisão. Passe só quando a tela for aberta pra
+  /// consulta (Configurações). Nulo nos gates, onde responder é obrigatório.
+  final VoidCallback? onDismiss;
+
   const AIConsentModal({
     super.key,
     required this.onAccept,
     required this.onCancel,
+    this.onDismiss,
   });
 
   @override
@@ -50,6 +55,25 @@ class _AIConsentModalState extends State<AIConsentModal> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Saída neutra, só quando a tela é aberta pra CONSULTA (o call
+              // site de Configurações). Sem isto, quem entrava só pra ler o
+              // que é enviado à OpenAI era obrigado a emitir uma declaração de
+              // vontade — aceitar ou recusar — pra conseguir sair: não havia
+              // botão de voltar nem swipe-back (o dialog usa
+              // barrierDismissible:false). Revisão UX 28/07, achado P2-16.
+              //
+              // Nos call sites de GATE (antes de gerar com IA) o parâmetro fica
+              // nulo e a decisão continua obrigatória, como deve ser.
+              if (widget.onDismiss != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: IconButton(
+                    icon: const Icon(Icons.close_rounded,
+                        color: AppColors.textSecondary),
+                    tooltip: 'Fechar',
+                    onPressed: widget.onDismiss,
+                  ),
+                ),
               const SizedBox(height: 20),
               Text(
                 'Uso de Inteligência Artificial',
