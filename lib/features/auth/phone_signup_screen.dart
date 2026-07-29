@@ -19,6 +19,7 @@ import '../../core/analytics/screen_tracking.dart';
 import '../../core/theme/theme.dart';
 import '../../core/utils/auth_error_formatter.dart';
 import '../../core/utils/brazil_phone_formatter.dart';
+import '../../core/widgets/country_code_field.dart';
 import '../../core/widgets/pii_mask.dart';
 import '../../services/analytics_service.dart';
 import '../splash/splash_screen.dart' show AuthGate;
@@ -40,17 +41,13 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
   final _formKey = GlobalKey<FormState>();
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
-  // DDI editável — default '55' (Brasil), mas user pode digitar qualquer
-  // código (ex: '1', '351', '44'). O prefixo '+' é renderizado fixo pelo
-  // InputDecoration.prefixText, então o controller só guarda os dígitos.
-  final _countryController = TextEditingController(text: '55');
+  /// DDI selecionado. Antes era caixa de texto livre; virou o MESMO seletor
+  /// com bandeira que o onboarding usa duas telas depois (revisão UX 28/07,
+  /// achado P3-42) — ver `CountryCodeField`.
+  String _countryCode = '+55';
 
   bool _obscurePassword = true;
   String? _errorMessage;
-
-  /// Código completo (com '+') usado pra autenticação e pra detectar se
-  /// o user é BR (e ativar a máscara de telefone brasileira).
-  String get _countryCode => '+${_countryController.text}';
 
   @override
   void initState() {
@@ -62,7 +59,6 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
   void dispose() {
     _phoneController.dispose();
     _passwordController.dispose();
-    _countryController.dispose();
     _termsTap.dispose();
     _privacyTap.dispose();
     super.dispose();
@@ -199,32 +195,10 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                         Row(
                           children: [
                             SizedBox(
-                              width: 110,
-                              // DDI editável — qualquer código numérico. Prefix
-                              // '+' renderizado fixo pelo InputDecoration (não
-                              // entra no controller). Quando muda pra/de '+55',
-                              // limpa o número porque a máscara BR muda.
-                              child: TextFormField(
-                                controller: _countryController,
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontFamily: 'Inter',
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly,
-                                  LengthLimitingTextInputFormatter(4),
-                                ],
+                              width: 130,
+                              child: CountryCodeField(
+                                value: _countryCode,
                                 decoration: InputDecoration(
-                                  prefixText: '+',
-                                  prefixStyle: const TextStyle(
-                                    fontFamily: 'Inter',
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.textPrimary,
-                                  ),
                                   labelText: 'DDI',
                                   labelStyle: const TextStyle(
                                     fontFamily: 'Inter',
@@ -253,10 +227,8 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                                         color: AppColors.brandBlue, width: 2),
                                   ),
                                 ),
-                                validator: (v) => (v == null || v.isEmpty)
-                                    ? 'DDI'
-                                    : null,
-                                onChanged: (_) => setState(() {
+                                onChanged: (v) => setState(() {
+                                  _countryCode = v;
                                   // Limpa o número quando o DDI muda — máscara
                                   // BR só vale pra +55, e outros países podem
                                   // ter formatos incompatíveis com o que já
