@@ -401,7 +401,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
       context: context,
       barrierDismissible: true,
       barrierColor: Colors.black.withOpacity(0.55),
-      builder: (ctx) => _SavedConfirmationDialog(jobTitle: widget.job.title),
+      builder: (ctx) => SavedConfirmationDialog(jobTitle: widget.job.title),
     );
   }
 
@@ -1801,7 +1801,11 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
             child: ElevatedButton(
               onPressed: _isExporting ? null : _approveAndDownload,
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.brandCyan,
+                // Primário do app é o azul Stage; este era o único CTA
+                // principal em ciano (D4 no backlog / achado P3-33). O ciano
+                // segue sendo cor de MARCA (selo "Editado", ícones), não de
+                // ação.
+                backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
@@ -1849,16 +1853,19 @@ enum _ViewMode { adapted, original }
 ///   3. Textos fade-in.
 ///   4. CTAs aparecem por último.
 /// Auto-close em 4s caso o usuário não interaja.
-class _SavedConfirmationDialog extends StatefulWidget {
+/// Confirmação pós-save do CV adaptado. Público só para o teste de widget que
+/// trava o achado P3-44 (texto sem ancestral `Material` ganha o duplo
+/// sublinhado amarelo do Flutter).
+class SavedConfirmationDialog extends StatefulWidget {
   final String jobTitle;
-  const _SavedConfirmationDialog({required this.jobTitle});
+  const SavedConfirmationDialog({super.key, required this.jobTitle});
 
   @override
-  State<_SavedConfirmationDialog> createState() =>
-      _SavedConfirmationDialogState();
+  State<SavedConfirmationDialog> createState() =>
+      SavedConfirmationDialogState();
 }
 
-class _SavedConfirmationDialogState extends State<_SavedConfirmationDialog>
+class SavedConfirmationDialogState extends State<SavedConfirmationDialog>
     with TickerProviderStateMixin {
   late final AnimationController _cardCtrl;
   late final AnimationController _checkCtrl;
@@ -1916,102 +1923,111 @@ class _SavedConfirmationDialogState extends State<_SavedConfirmationDialog>
             scale: 0.85 + 0.15 * _cardScale.value,
             child: Opacity(
               opacity: _cardCtrl.value.clamp(0.0, 1.0),
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 32),
-                padding: const EdgeInsets.fromLTRB(24, 32, 24, 20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(28),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.12),
-                      blurRadius: 32,
-                      offset: const Offset(0, 16),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Transform.scale(
-                      scale: _checkScale.value,
-                      child: Container(
-                        width: 72,
-                        height: 72,
-                        decoration: const BoxDecoration(
-                          color: AppColors.success, // emerald (mesmo do brand adapted)
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Color(0x4010B981),
-                              blurRadius: 24,
-                              spreadRadius: 4,
+              // `showDialog` entrega o builder direto no overlay: sem um
+              // `Material` acima, o Flutter marca TODO texto com o duplo
+              // sublinhado amarelo de diagnóstico — que cortava os
+              // descendentes (g, p, ç) das palavras (revisão UX 28/07,
+              // achado P3-44). O card já pinta o próprio fundo e sombra,
+              // então o Material entra só como ancestral transparente.
+              child: Material(
+                type: MaterialType.transparency,
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 32),
+                  padding: const EdgeInsets.fromLTRB(24, 32, 24, 20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(28),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.12),
+                        blurRadius: 32,
+                        offset: const Offset(0, 16),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Transform.scale(
+                        scale: _checkScale.value,
+                        child: Container(
+                          width: 72,
+                          height: 72,
+                          decoration: const BoxDecoration(
+                            color: AppColors.success, // emerald (mesmo do brand adapted)
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Color(0x4010B981),
+                                blurRadius: 24,
+                                spreadRadius: 4,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.check_rounded,
+                            color: Colors.white,
+                            size: 42,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Opacity(
+                        opacity: _textOpacity.value,
+                        child: Column(
+                          children: [
+                            const Text(
+                              'CV salvo!',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.textPrimary,
+                                letterSpacing: -0.4,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Sua versão adaptada para ${widget.jobTitle.length > 38 ? '${widget.jobTitle.substring(0, 35)}…' : widget.jobTitle} ficou em Perfil → Currículos.',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: AppColors.textTertiary,
+                                height: 1.45,
+                              ),
                             ),
                           ],
                         ),
-                        child: const Icon(
-                          Icons.check_rounded,
-                          color: Colors.white,
-                          size: 42,
-                        ),
                       ),
-                    ),
-                    const SizedBox(height: 20),
-                    Opacity(
-                      opacity: _textOpacity.value,
-                      child: Column(
-                        children: [
-                          const Text(
-                            'CV salvo!',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w900,
-                              color: AppColors.textPrimary,
-                              letterSpacing: -0.4,
+                      const SizedBox(height: 24),
+                      Opacity(
+                        opacity: _textOpacity.value,
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              elevation: 0,
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Sua versão adaptada para ${widget.jobTitle.length > 38 ? '${widget.jobTitle.substring(0, 35)}…' : widget.jobTitle} ficou em Perfil → Currículos.',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppColors.textTertiary,
-                              height: 1.45,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Opacity(
-                      opacity: _textOpacity.value,
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.brandCyan,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            elevation: 0,
-                          ),
-                          child: const Text(
-                            'Entendi',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -0.2,
+                            child: const Text(
+                              'Entendi',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.2,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
