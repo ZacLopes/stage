@@ -28,12 +28,28 @@ Future<ManualApplicationInput?> showManualApplicationSheet(BuildContext context)
   );
 }
 
-/// Status iniciais oferecidos (subset razoável; o resto move-se pelo chip).
+/// Status iniciais oferecidos na adição manual.
+///
+/// Antes eram só 4, enquanto o menu de um card já existente oferecia 7 — quem
+/// queria registrar uma candidatura ANTIGA, já recusada, tinha de criá-la como
+/// "Enviada" e depois editar. Adição manual existe justamente pra registrar o
+/// que aconteceu fora do app, e o desfecho já é conhecido.
+/// Revisão UX 28/07, achado P2-20.
+///
+/// Seguro no banco: a matriz de transições valida UPDATE
+/// (`trg_applications_validate` é BEFORE UPDATE); o INSERT só é logado.
+///
+/// `withdrawn` e `expired` ficam de fora de propósito: não fazem sentido como
+/// estado de ENTRADA — a pessoa desistir ou o prazo vencer são eventos
+/// posteriores, alcançáveis pelo chip.
 const _kInitialStatuses = <ApplicationStatus>[
   ApplicationStatus.submitted,
   ApplicationStatus.inReview,
+  ApplicationStatus.shortlisted,
   ApplicationStatus.interview,
   ApplicationStatus.offer,
+  ApplicationStatus.hired,
+  ApplicationStatus.rejected,
 ];
 
 class _ManualApplicationSheet extends StatefulWidget {
@@ -86,7 +102,13 @@ class _ManualApplicationSheetState extends State<_ManualApplicationSheet> {
         20,
         20 + MediaQuery.of(context).viewInsets.bottom,
       ),
-      child: Column(
+      // Rolável: com 7 status (antes 4) o conteúdo passa a altura disponível
+      // em tela pequena / teclado aberto — e um `Column` fixo estourava
+      // (`RenderFlex overflowed by 7.0 pixels`, pego pelo widget test ao
+      // ampliar a lista). `mainAxisSize.min` mantém o sheet do tamanho do
+      // conteúdo quando ele cabe.
+      child: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -112,7 +134,7 @@ class _ManualApplicationSheetState extends State<_ManualApplicationSheet> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Pra acompanhar o que aconteceu fora da Stage.',
+            'Pra acompanhar o que aconteceu fora do Stage.',
             style: TextStyle(
                 fontFamily: 'Inter', fontSize: 13, color: AppColors.textSecondary),
           ),
@@ -166,6 +188,7 @@ class _ManualApplicationSheetState extends State<_ManualApplicationSheet> {
             ),
           ),
         ],
+        ),
       ),
     );
   }

@@ -69,7 +69,9 @@ void main() {
       options: const [],
       onSelected: (_) {},
     );
-    expect(find.text('Contratado'), findsOneWidget);
+    // Rótulos concordam com A CANDIDATURA (feminino), não com o candidato —
+    // `hired` virou "Aprovada". Revisão UX 28/07, achado P2-21.
+    expect(find.text('Aprovada'), findsOneWidget);
     expect(find.byType(PopupMenuButton<ApplicationStatus>), findsNothing);
   });
 }

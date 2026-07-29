@@ -43,13 +43,23 @@ enum ApplicationStatus {
   bool get isTerminal => this == hired || this == expired;
 
   /// Rótulo pt-BR pra UI (aba Candidaturas, chip de status).
+  ///
+  /// Todos concordam com **a candidatura** (feminino), que é o que a aba
+  /// acompanha. Antes a lista misturava os dois sujeitos: "Pré-selecionado" e
+  /// "Contratado" concordavam com o CANDIDATO, no meio de "Enviada",
+  /// "Recusada" e "Retirada". Além de inconsistente, exibia o masculino pra
+  /// quem informou gênero feminino. Revisão UX 28/07, achado P2-21.
+  ///
+  /// `hired` vira "Aprovada" porque "candidatura contratada" não existe em
+  /// português — e o estado anterior já é "Proposta", então "Aprovada" lê como
+  /// o desfecho positivo final sem ambiguidade.
   String get label => switch (this) {
         submitted => 'Enviada',
         inReview => 'Em análise',
-        shortlisted => 'Pré-selecionado',
+        shortlisted => 'Pré-selecionada',
         interview => 'Entrevista',
         offer => 'Proposta',
-        hired => 'Contratado',
+        hired => 'Aprovada',
         rejected => 'Recusada',
         withdrawn => 'Retirada',
         expired => 'Expirada',
