@@ -1454,7 +1454,7 @@ class TrilhaChatController extends ChangeNotifier {
       if (step != null) {
         inputVisible = true;
         _pushAi(
-          'Não peguei bem 🤔 Toca numa opção aí em cima, ou tenta de outro jeito.',
+          'Não peguei bem 🤔 Toca numa opção aqui embaixo 👇 ou tenta de outro jeito.',
         );
       } else {
         _pushAi('Não consegui agora 🤔 Tenta de novo daqui a pouco.');
@@ -2022,7 +2022,7 @@ class TrilhaChatController extends ChangeNotifier {
       final matched = input.options.where((o) => ids.contains(o.id)).toList();
       if (matched.isEmpty) {
         _replyAndKeepStep(
-          'Não tenho certeza 🤔 Toca numa opção aí em cima.',
+          'Não tenho certeza 🤔 Toca numa opção aqui embaixo 👇',
           step,
         );
         return;
@@ -2032,7 +2032,7 @@ class TrilhaChatController extends ChangeNotifier {
       return;
     }
     // Mês/ano e typeahead precisam do widget.
-    _replyAndKeepStep('Pra essa aqui, toca na opção acima 🙂', step);
+    _replyAndKeepStep('Pra essa aqui, toca na opção aqui embaixo 👇', step);
   }
 
   /// `start_section`: injeta os passos reais da seção no fio (o app fornece via
@@ -4589,8 +4589,13 @@ class TrilhaChatController extends ChangeNotifier {
     final lowConf = r == null || r.confidence == 'low';
     if (matched.isEmpty || lowConf) {
       inputVisible = true; // mantém o widget pra tocar
+      // Não engolir a mensagem: sem o eco, a pessoa digita, o texto some e só
+      // sobra "não entendi" — parece que o envio falhou. No caminho de SUCESSO
+      // o `AnsweredItem` já mostra o que foi entendido, então o eco fica só
+      // aqui, onde não há nenhum outro vestígio do que ela escreveu.
+      thread.add(UserMsgItem(text));
       _pushAi(
-        'Não tenho certeza do que você quis dizer 🤔 Toca numa opção aí em cima.',
+        'Não tenho certeza do que você quis dizer 🤔 Toca numa opção aqui embaixo 👇',
       );
       return;
     }
