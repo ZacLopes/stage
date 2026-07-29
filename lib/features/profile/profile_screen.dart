@@ -22,6 +22,7 @@ import 'presentation/widgets/profile_section_list.dart';
 import '../../data/models/models.dart';
 import '../../core/widgets/pii_mask.dart';
 import '../../core/theme/theme.dart';
+import '../../core/utils/resume_title.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -1256,8 +1257,11 @@ class _ResumeCardState extends State<_ResumeCard>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.resume.title,
-                    maxLines: 1,
+                    // Tira o prefixo constante "CV adaptado - " e deixa 2
+                    // linhas: sem isso, todos os CVs por vaga apareciam como
+                    // "CV adaptado - Est…" e viravam itens indistinguíveis.
+                    displayResumeTitle(widget.resume.title),
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontFamily: 'Inter',
                       fontWeight: FontWeight.bold,

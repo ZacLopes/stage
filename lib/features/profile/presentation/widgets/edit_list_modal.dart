@@ -423,10 +423,15 @@ class _ListGuidance extends StatelessWidget {
     final color = overLimit
         ? AppColors.error
         : (belowRecommended ? AppColors.warning : _kAccent);
+    // "Você pode adicionar mais 6" ao lado de "0/12" lia como TETO — dois
+    // números contando pra alvos diferentes (o mínimo recomendado e o
+    // máximo), sem dizer isso. Agora o texto nomeia o alvo.
+    // Revisão UX 28/07, achado P2-28.
     final status = overLimit
         ? 'Remova ${count - max!} para salvar.'
         : (belowRecommended
-            ? 'Você pode adicionar mais ${recommendedMin! - count}.'
+            ? 'Faltam ${recommendedMin! - count} pra chegar nas '
+                '$recommendedMin recomendadas.'
             : null);
 
     return Container(

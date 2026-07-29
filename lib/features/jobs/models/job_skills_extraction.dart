@@ -43,6 +43,40 @@ class JobSkillsExtraction {
     );
   }
 
+  /// Reclassifica como "já tenho" as skills que batem com [ownedNames].
+  ///
+  /// `in_cv` chega do servidor cruzando só as fontes LEGADAS; o que está em
+  /// `profile_skills` não conta. Sem isto, a folha reoferecia à pessoa
+  /// exatamente as habilidades que ela tinha acabado de cadastrar.
+  /// Revisão UX 28/07, achado P2-19 (D2).
+  ///
+  /// Comparação normalizada (minúsculas, sem acento e sem pontuação) pra
+  /// "Power BI", "power bi" e "Power-BI" contarem como a mesma coisa.
+  JobSkillsExtraction markingAsInCv(Iterable<String> ownedNames) {
+    final owned = ownedNames.map(_normalizeForMatch).where((s) => s.isNotEmpty).toSet();
+    if (owned.isEmpty) return this;
+    final updated = skills
+        .map((s) => s.inCv || !owned.contains(_normalizeForMatch(s.name))
+            ? s
+            : s.asInCv())
+        .toList();
+    return JobSkillsExtraction(
+      skills: updated,
+      total: total,
+      inCvCount: updated.where((s) => s.inCv).length,
+    );
+  }
+
+  static String _normalizeForMatch(String raw) {
+    const from = 'áàâãäéèêëíìîïóòôõöúùûüçñ';
+    const to = 'aaaaaeeeeiiiiooooouuuucn';
+    var s = raw.trim().toLowerCase();
+    for (var i = 0; i < from.length; i++) {
+      s = s.replaceAll(from[i], to[i]);
+    }
+    return s.replaceAll(RegExp(r'[^a-z0-9]'), '');
+  }
+
   /// Resultado vazio (usado em fallbacks silenciosos quando a extração falha).
   static const JobSkillsExtraction empty =
       JobSkillsExtraction(skills: [], total: 0, inCvCount: 0);
@@ -65,6 +99,15 @@ class JobSkill {
   /// 'description' (mencionada na descrição livre). Não é mostrado na UI
   /// hoje, mas é útil pra debug/analytics.
   final String source;
+
+  /// Cópia marcada como já presente no perfil. Ver
+  /// [JobSkillsExtraction.markingAsInCv].
+  JobSkill asInCv() => JobSkill(
+        name: name,
+        inCv: true,
+        preConfirmed: preConfirmed,
+        source: source,
+      );
 
   const JobSkill({
     required this.name,

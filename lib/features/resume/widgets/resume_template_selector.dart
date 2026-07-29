@@ -45,7 +45,7 @@ class _ResumeTemplateSelectorState extends State<ResumeTemplateSelector> {
       name: "Jake's Resume",
       thumbnail: 'assets/images/templates/jakes_resume.png',
       description:
-          'Padrão de tech e engenharia inspirado no clássico LaTeX. Aprovado em Big Techs, FAANG e startups.',
+          'Padrão de tecnologia e engenharia. Enxuto, direto, sem enfeite.',
       ats: 'Alta',
       style: 'Serif clássico, denso e elegante',
       color: AppColors.textPrimary,

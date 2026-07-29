@@ -130,6 +130,10 @@ class UserViewModel extends ChangeNotifier {
   /// Quantas skills o perfil tem. Alimenta o gate da adaptação (F6) — ver
   /// `features/jobs/utils/adapt_gate.dart`.
   int _skillCount = 0;
+  /// Nomes das skills já declaradas no perfil. Usado pra não reoferecer,
+  /// na folha de extras da adaptação, o que a pessoa acabou de cadastrar
+  /// (revisão UX 28/07, achado P2-19).
+  List<String> _profileSkillNames = const [];
 
   /// False quando a última carga do snapshot teve falha parcial — aí
   /// [_skillCount] pode ser 0 por erro de consulta, não por ausência real.
@@ -192,6 +196,7 @@ class UserViewModel extends ChangeNotifier {
   /// e esperar 15s pra ela falhar com `profile_incomplete`).
   bool get canAdaptCv => _canAdaptCv;
   int get skillCount => _skillCount;
+  List<String> get profileSkillNames => _profileSkillNames;
   bool get skillCountIsReliable => _skillCountIsReliable;
 
   /// Re-checa se o user tem dados nas tabelas `profile_*` e notifica
@@ -215,6 +220,7 @@ class UserViewModel extends ChangeNotifier {
       _hasProfileData = false;
       _canAdaptCv = false;
       _skillCount = 0;
+      _profileSkillNames = const [];
       _skillCountIsReliable = false;
       return;
     }
@@ -225,6 +231,7 @@ class UserViewModel extends ChangeNotifier {
       // F6: o gate da adaptação passou a exigir skills (Bloqueador C) — o
       // validador anti-invenção rejeita determinado quando a entrada é vazia.
       _skillCount = snapshot.skills.length;
+      _profileSkillNames = snapshot.skills.map((e) => e.name).toList();
       // Uma consulta que falhou vira lista vazia — não confunda com "tem 0".
       _skillCountIsReliable = !snapshot.partialFailure;
     } catch (_) {
@@ -232,6 +239,7 @@ class UserViewModel extends ChangeNotifier {
       _hasProfileData = false;
       _canAdaptCv = false;
       _skillCount = 0;
+      _profileSkillNames = const [];
       _skillCountIsReliable = false;
     }
   }

@@ -108,7 +108,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
     'Lendo a descrição da vaga…',
     'Identificando palavras-chave…',
     'Reordenando suas habilidades…',
-    'Reformulando bullets pro fit…',
+    'Reescrevendo suas experiências pra vaga…',
     'Validando que nada foi inventado…',
     'Quase lá, finalizando…',
   ];

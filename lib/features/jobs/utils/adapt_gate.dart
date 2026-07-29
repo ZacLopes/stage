@@ -25,6 +25,10 @@
 /// 745 usuários com 0 skills, apenas **72** na faixa 1–2, e 713 com 3+ —, então
 /// exigir 3 em vez de 1 barra só 72 pessoas a mais e garante uma seção de
 /// habilidades apresentável no PDF.
+library;
+
+import '../../profile/domain/skill_name_normalizer.dart';
+
 const int kMinSkillsToAdapt = 3;
 
 /// Resultado do gate. Cada valor mapeia para uma copy e uma saída próprias
@@ -90,9 +94,15 @@ int missingSkillsToAdapt(int skillCount) {
 String missingSkillsMessage(int skillCount) {
   final missing = missingSkillsToAdapt(skillCount);
   if (skillCount <= 0) {
+    // O "(o ideal é de 6 a 12)" existe pra casar com o texto do editor de
+    // habilidades, que recomenda essa faixa. Sem isso, a pessoa lia "pelo
+    // menos 3" aqui e "priorize de 6 a 12" na tela seguinte, em menos de um
+    // minuto — dois limiares diferentes pra mesma tarefa.
+    // Revisão UX 28/07, achado P2-28.
     return 'Pra adaptar seu currículo pra uma vaga, preciso saber o que você '
         'sabe fazer. Adicione pelo menos $kMinSkillsToAdapt habilidades ao seu '
-        'perfil e eu cuido do resto.';
+        'perfil (o ideal é de $kRecommendedMinProfileSkills a '
+        '$kMaxProfileSkills) e eu cuido do resto.';
   }
   final plural = missing == 1 ? 'habilidade' : 'habilidades';
   return 'Você já tem $skillCount. Adicione mais $missing $plural ao seu perfil '

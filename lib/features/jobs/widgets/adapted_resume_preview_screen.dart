@@ -67,31 +67,31 @@ const List<_AdaptedTemplateOption> _kAdaptedTemplates = [
   _AdaptedTemplateOption(
     id: 'harvard_ats',
     label: 'Harvard ATS',
-    description: 'Clássico, ideal pra IB/Consulting/Corporate',
+    description: 'Clássico e sóbrio. Vai bem em qualquer área.',
     thumbnail: 'assets/images/templates/harvard_ats.png',
   ),
   _AdaptedTemplateOption(
     id: 'jakes_resume',
     label: "Jake's Resume",
-    description: 'Tech/dev, FAANG-friendly',
+    description: 'Enxuto e técnico. Bom pra tecnologia e engenharia.',
     thumbnail: 'assets/images/templates/jakes_resume.png',
   ),
   _AdaptedTemplateOption(
     id: 'forte_foundation',
     label: 'Forte Foundation',
-    description: 'Banking/MBA, conservador',
+    description: 'Formal e conservador. Bancos, consultorias e afins.',
     thumbnail: 'assets/images/templates/forte_foundation.png',
   ),
   _AdaptedTemplateOption(
     id: 'one_page_compact',
     label: 'One-Page Compact',
-    description: 'Estudante early-career, sans-serif moderno',
+    description: 'Uma página garantida. Bom pra quem está começando.',
     thumbnail: 'assets/images/templates/one_page_compact.png',
   ),
   _AdaptedTemplateOption(
     id: 'cobalt_modern',
     label: 'Cobalt Modern',
-    description: '2 colunas com sidebar, sans-serif moderno, accent azul cobalt',
+    description: 'Duas colunas, com destaque azul. Visual mais moderno.',
     thumbnail: 'assets/images/templates/cobalt_modern.png',
   ),
 ];
@@ -480,8 +480,38 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
         );
       }
 
-      // Compartilha o PDF via share sheet nativo. Mesmo se o save falhar,
-      // o usuário ainda recebe o arquivo.
+      // ORDEM IMPORTA (revisão UX 28/07, achado P2-24).
+      //
+      // Antes o share sheet nativo subia PRIMEIRO e o diálogo "CV salvo! …
+      // ficou em Perfil → Currículos" abria POR BAIXO dele: `sharePdf`
+      // resolve quando a folha é APRESENTADA, não quando é fechada. A
+      // confirmação ficava cortada no meio da frase e a pessoa não descobria
+      // onde o arquivo tinha ido parar.
+      //
+      // Agora: primeiro conta o que aconteceu (salvou ou não), depois oferece
+      // compartilhar. O share continua acontecendo mesmo se o save falhar —
+      // o arquivo é da pessoa de qualquer jeito.
+      if (savedToLibrary) {
+        // F8: confirmação animada. Feedback explícito de que o CV ficou
+        // salvo na biblioteca (substitui o antigo banner persistente).
+        await _showSavedConfirmation();
+      } else {
+        // Save falhou: user recebe o PDF mas não terá o CV na biblioteca —
+        // precisa saber pra não esperar achar depois.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'PDF gerado, mas não consegui guardar uma cópia em Currículos.',
+            ),
+            backgroundColor: Colors.orange.shade700,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
+      if (!mounted) return;
+
+      // Compartilha o PDF via share sheet nativo.
       // D1: saía `curriculo__1eee2f.pdf` (underscore duplo) quando o nome era
       // vazio. `build` junta só os pedaços não-vazios — e nunca deriva de
       // e-mail, senão os 109 usuários de login por telefone teriam o próprio
@@ -504,31 +534,6 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
       JobSwipeContext.shared.markAdapted(widget.job.id);
       // ignore: unawaited_futures
       PendingAdaptedCvTracker.shared.clear();
-      if (!mounted) return;
-
-      // Se save falhou, mostra toast informativo. User recebeu o PDF mas
-      // não terá o CV na biblioteca — precisa saber pra não esperar achar
-      // depois.
-      if (!savedToLibrary) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'PDF gerado, mas não consegui guardar uma cópia em Currículos.',
-            ),
-            backgroundColor: Colors.orange.shade700,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 6),
-          ),
-        );
-        // ignore: unawaited_futures
-        Navigator.of(context).pop(true);
-        return;
-      }
-
-      // F8: confirmação animada antes do pop. Dá feedback explícito
-      // que o CV ficou salvo permanente na biblioteca (sinal que
-      // substitui o antigo banner persistente).
-      await _showSavedConfirmation();
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
