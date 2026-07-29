@@ -743,6 +743,29 @@ serve(async (req) => {
   // B.7 do plano v2 — timer pra trackEdgeFunctionInvoked emitido no
   // success path e no catch outer.
   const fnStart = Date.now()
+
+  // Antes, das 6 saídas de erro só DUAS emitiam telemetria (sucesso e catch
+  // outer). Como o catch outer só classifica timeout vs internal, o painel era
+  // fisicamente incapaz de mostrar qualquer outra falha — e "100% dos erros
+  // são timeout" virava conclusão circular. O 429 é o caso que mais doía:
+  // usuário batendo no teto diário de análises não aparecia em lugar nenhum.
+  const failWith = (
+    errorCode: string,
+    status: number,
+    body: Record<string, unknown>,
+    distinctId = `edge_function:analyze-match`,
+  ) => {
+    trackEdgeFunctionInvoked({
+      functionName: 'analyze-match',
+      distinctId,
+      durationMs: Date.now() - fnStart,
+      status: 'error',
+      errorCode,
+      extra: { http_status: status },
+    }).catch(() => {})
+    return jsonResponse(body, status)
+  }
+
   try {
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -752,13 +775,13 @@ serve(async (req) => {
 
     // 1. Auth
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
-    if (authError || !user) return jsonResponse({ error: 'Unauthorized' }, 401)
+    if (authError || !user) return failWith('unauthorized', 401, { error: 'Unauthorized' })
 
     // 2. Parse input
     const body = await req.json().catch(() => ({}))
     const jobId: string | undefined = body?.job_id
     if (!jobId || typeof jobId !== 'string') {
-      return jsonResponse({ error: 'job_id required' }, 400)
+      return failWith('bad_request', 400, { error: 'job_id required' }, user.id)
     }
 
     // 3. Rate limit (cache hits NÃO contam — só calls de IA reais)
@@ -772,7 +795,12 @@ serve(async (req) => {
       .gte('created_at', today.toISOString())
 
     if (rlCount && rlCount >= RATE_LIMIT_PER_DAY) {
-      return jsonResponse({ error: `Rate limit exceeded. Maximum ${RATE_LIMIT_PER_DAY} match analyses per day.` }, 429)
+      return failWith(
+        'rate_limited',
+        429,
+        { error: `Rate limit exceeded. Maximum ${RATE_LIMIT_PER_DAY} match analyses per day.` },
+        user.id,
+      )
     }
 
     // 4. Fetch em paralelo: job, profile (legacy), prefs unificadas, profile_*
@@ -787,7 +815,7 @@ serve(async (req) => {
       buildProfileText(supabaseClient, user.id),
     ])
 
-    if (jobR.error || !jobR.data) return jsonResponse({ error: 'job_not_found' }, 404)
+    if (jobR.error || !jobR.data) return failWith('job_not_found', 404, { error: 'job_not_found' }, user.id)
     const job = jobR.data
     const gamificationData = profileR.data?.gamification_data ?? {}
 
@@ -923,7 +951,12 @@ serve(async (req) => {
       payload = parseAndValidate(ai.content, job, prefs)
     } catch (e) {
       console.error('Failed to parse AI output:', ai.content)
-      return jsonResponse({ error: 'ai_response_invalid', detail: (e as Error).message }, 502)
+      return failWith(
+        'ai_response_invalid',
+        502,
+        { error: 'ai_response_invalid', detail: (e as Error).message },
+        user.id,
+      )
     }
 
     // 7. Persist cache (upsert) + log
