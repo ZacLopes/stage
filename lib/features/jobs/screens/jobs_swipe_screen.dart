@@ -1489,8 +1489,15 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Undo
-          _buildActionButton(
+          // Undo — esmaecido e inerte quando não há swipe a desfazer (é o
+          // estado do PRIMEIRO card, que todo mundo vê ao abrir o app).
+          // Antes ele tinha aparência ativa e não produzia reação nenhuma.
+          // Revisão UX 28/07, achado P3-38.
+          Opacity(
+            opacity: context.watch<JobsViewModel>().canUndo ? 1.0 : 0.4,
+            child: IgnorePointer(
+              ignoring: !context.watch<JobsViewModel>().canUndo,
+              child: _buildActionButton(
             key: 'undo',
             icon: Icons.undo_rounded,
             size: 50,
@@ -1505,6 +1512,8 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                 _swiperController.undo();
               } catch (_) {}
             },
+              ),
+            ),
           ),
 
           // Reject

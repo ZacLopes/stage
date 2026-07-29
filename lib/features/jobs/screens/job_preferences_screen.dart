@@ -266,7 +266,7 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
                   title: 'Modelo de trabalho',
                   subtitle: _selectedWorkModels.isEmpty
                       ? 'Todos os modelos'
-                      : '${_selectedWorkModels.length} selecionado(s)',
+                      : '${_selectedWorkModels.length} ${_selectedWorkModels.length == 1 ? "selecionado" : "selecionados"}',
                   child: _buildPairChips(_workModels, _selectedWorkModels, _toggleWorkModel),
                 ),
                 const SizedBox(height: 16),
@@ -275,7 +275,7 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
                   title: 'Tipo de vaga',
                   subtitle: _selectedJobTypes.isEmpty
                       ? 'Todos os tipos'
-                      : '${_selectedJobTypes.length} selecionado(s)',
+                      : '${_selectedJobTypes.length} ${_selectedJobTypes.length == 1 ? "selecionado" : "selecionados"}',
                   child: _buildPairChips(_jobTypes, _selectedJobTypes, _toggleJobType),
                 ),
                 const SizedBox(height: 16),
@@ -563,11 +563,11 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
                 child: const Icon(Icons.auto_awesome_rounded, size: 18, color: _indigo),
               ),
               const SizedBox(width: 10),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'Match score mínimo',
                       style: TextStyle(
                         fontSize: 15,
@@ -576,10 +576,16 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
                         letterSpacing: -0.2,
                       ),
                     ),
-                    SizedBox(height: 2),
+                    const SizedBox(height: 2),
+                    // Descrevia o efeito como se estivesse SEMPRE ligado,
+                    // inclusive com o controle em "Qualquer" — a frase era
+                    // falsa no estado padrão. Agora acompanha o estado.
+                    // Revisão UX 28/07, achado P3-39.
                     Text(
-                      'Só mostra vagas com afinidade alta com você',
-                      style: TextStyle(
+                      hasValue
+                          ? 'Escondendo vagas abaixo de $_minMatchScore%'
+                          : 'Mostrando todas — arraste pra exigir mais afinidade',
+                      style: const TextStyle(
                         fontSize: 12,
                         color: _textMuted,
                         fontWeight: FontWeight.w500,

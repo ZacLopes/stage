@@ -927,7 +927,8 @@ class _Header extends StatelessWidget {
           ),
           if (liked > 0)
             _StatChip(
-              label: 'Pendentes',
+              // Concordância: "1 Pendentes" aparecia sempre que restava uma.
+              label: (liked - applied) == 1 ? 'Pendente' : 'Pendentes',
               value: '${liked - applied}',
               color: AppColors.brandBlue,
             ),
