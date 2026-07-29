@@ -11,6 +11,7 @@ import '../../utils/onboarding_input_decoration.dart';
 import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'email_screen.dart';
+import '../../utils/name_validation.dart';
 
 class LastNameScreen extends StatefulWidget {
   const LastNameScreen({super.key});
@@ -70,7 +71,7 @@ class _LastNameScreenState extends State<LastNameScreen> {
       title: 'E seu sobrenome?',
       progress: 0.25,
       continueLabel: _saving ? 'Salvando…' : 'Continuar',
-      onContinue: (_ctrl.text.trim().isEmpty || _saving) ? null : _continue,
+      onContinue: (!isValidOnboardingName(_ctrl.text) || _saving) ? null : _continue,
       child: TextField(
         controller: _ctrl,
         autofocus: true,

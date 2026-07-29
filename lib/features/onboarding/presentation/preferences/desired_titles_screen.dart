@@ -156,7 +156,7 @@ class _DesiredTitlesScreenState extends State<DesiredTitlesScreen> {
   Widget build(BuildContext context) {
     return OnboardingScaffold(
       title: 'Em quais áreas você quer atuar?',
-      subtitle: 'Toca nas que combinam com você.',
+      subtitle: 'Toque nas que combinam com você.',
       progress: 0.69,
       continueLabel: _saving ? 'Salvando…' : 'Continuar',
       onContinue: (_selected.isEmpty || _saving) ? null : _continue,
