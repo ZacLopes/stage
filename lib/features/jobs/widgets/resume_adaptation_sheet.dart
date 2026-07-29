@@ -920,7 +920,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8, left: 2),
                       child: Text(
-                        '/100',
+                        '%',
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.55),
                           fontSize: 14,
@@ -959,7 +959,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8, left: 2),
                   child: Text(
-                    '/100',
+                    '%',
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.55),
                       fontSize: 14,

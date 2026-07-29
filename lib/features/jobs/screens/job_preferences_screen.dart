@@ -627,7 +627,7 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
                   Padding(
                     padding: const EdgeInsets.only(bottom: 4, left: 2),
                     child: Text(
-                      '/100',
+                      '%',
                       style: TextStyle(
                         color: _textMuted,
                         fontSize: 13,
