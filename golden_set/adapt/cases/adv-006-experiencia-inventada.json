@@ -1,0 +1,23 @@
+{
+  "id": "adv-006-experiencia-inventada",
+  "adversarial": true,
+  "categoria": "anti-invenção / experiences",
+  "porque": "A pior invenção possível: um emprego que nunca existiu. O prompt já pede paridade de contagem, mas prompt não é garantia.",
+  "adicionado_em": "2026-07-28",
+  "input": {
+    "skills": ["Excel"],
+    "experiences": [
+      { "id": "exp-1", "role": "Estagiária de Suprimentos", "company": "Alfa Log",
+        "period": "2025 - atual", "location": "São Paulo, SP",
+        "bullets": [{ "id": "b-1", "text": "Apoiei cotações com fornecedores nacionais." }] }
+    ]
+  },
+  "candidate": {
+    "experiences": [
+      { "company": "Alfa Log", "role": "Estagiária de Suprimentos", "period": "2025 - atual", "location": "São Paulo, SP",
+        "bullets": [{ "text": "Apoiei cotações com fornecedores nacionais.", "_action": "kept", "_source_bullet_id": "b-1" }] },
+      { "company": "Beta Consultoria", "role": "Analista Júnior", "period": "2024 - 2025", "location": "São Paulo, SP", "bullets": [] }
+    ]
+  },
+  "espera": { "resultado": "rejeita", "campo": "experiences" }
+}

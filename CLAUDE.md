@@ -56,6 +56,7 @@ bash scripts/check_env_safety.sh
 bash scripts/check_migrations_manifest.sh
 bash scripts/check_functions_drift.sh      # release checklist (baixa deployado e difa)
 bash scripts/check_functions_types.sh      # deno check (parse + tipos grossos)
+bash scripts/run_golden_set_adapt.sh       # R5: bateria do pipeline adapt (offline, roda em CI)
 supabase db push            # migrations (CLI linkado; R2)
 supabase functions deploy <slug>           # webhooks pegam verify_jwt do config.toml
 ```

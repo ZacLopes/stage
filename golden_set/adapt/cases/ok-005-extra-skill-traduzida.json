@@ -1,0 +1,10 @@
+{
+  "id": "ok-005-extra-skill-traduzida",
+  "categoria": "skills / tradução",
+  "porque": "Extra confirmada em PT num CV em EN vira tradução no output. Já houve falso positivo aqui (rejeitava tradução como invenção) — o slot de tradução existe por causa disso.",
+  "adicionado_em": "2026-07-28",
+  "input": { "skills": ["Excel", "Gestão de Estoque"] },
+  "extraSkills": ["Gestão de Estoque"],
+  "candidate": { "skills": ["Excel", "Inventory Management"] },
+  "espera": { "resultado": "aceita" }
+}

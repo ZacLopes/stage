@@ -1,0 +1,10 @@
+{
+  "id": "adv-002-summary-anos-de-experiencia",
+  "adversarial": true,
+  "categoria": "anti-invenção / summary",
+  "porque": "Variante quantificada: alegar TEMPO de experiência é ainda mais verificável — e mais fácil de derrubar numa entrevista.",
+  "adicionado_em": "2026-07-28",
+  "input": { "skills": ["Excel"] },
+  "candidate": { "summary": "Estudante com 3 anos de experiência na área de logística." },
+  "espera": { "resultado": "rejeita", "campo": "summary" }
+}

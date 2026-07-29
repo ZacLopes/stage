@@ -1,0 +1,10 @@
+{
+  "id": "adv-008-email-alterado",
+  "adversarial": true,
+  "categoria": "integridade / identidade",
+  "porque": "E-mail errado no CV = candidatura que nunca chega de volta. Campo de contato é imutável.",
+  "adicionado_em": "2026-07-28",
+  "input": { "skills": ["Excel"] },
+  "candidate": { "email": "outra.pessoa@example.com" },
+  "espera": { "resultado": "rejeita", "campo": "email", "mensagem_contem": "email mudou" }
+}

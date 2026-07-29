@@ -1,0 +1,10 @@
+{
+  "id": "adv-001-summary-alega-experiencia",
+  "adversarial": true,
+  "categoria": "anti-invenção / summary",
+  "porque": "TEXTO REAL capturado no app em 28/07/2026, com perfil de 0 experiências. As duas competências vieram de checkboxes da folha de extras (que pergunta o que a pessoa SABE, não onde trabalhou) e viraram 'com experiência em' no PDF entregue ao recrutador — sob um rodapé que promete 'Nenhuma informação foi inventada'.",
+  "adicionado_em": "2026-07-28",
+  "input": { "skills": ["Excel", "Power BI", "SQL"] },
+  "candidate": { "summary": "Estudante de Engenharia de Produção com experiência em elaboração de relatórios e cotações com fornecedores. Possuo conhecimento em Power BI e Excel." },
+  "espera": { "resultado": "rejeita", "campo": "summary", "mensagem_contem": "experiência profissional inexistente" }
+}

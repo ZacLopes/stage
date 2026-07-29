@@ -1,0 +1,10 @@
+{
+  "id": "adv-003-summary-experience-in-en",
+  "adversarial": true,
+  "categoria": "anti-invenção / summary",
+  "porque": "O output do adapt sai em PT ou EN. Se a checagem só olhar português, metade dos casos escapa.",
+  "adicionado_em": "2026-07-28",
+  "input": { "language": "en", "skills": ["Excel"] },
+  "candidate": { "summary": "Production Engineering student with experience in supplier management and reporting." },
+  "espera": { "resultado": "rejeita", "campo": "summary" }
+}

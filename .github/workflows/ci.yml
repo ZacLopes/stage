@@ -92,3 +92,18 @@ jobs:
         with:
           deno-version: v2.x
       - run: bash scripts/check_functions_types.sh
+
+  # Bateria reguladora do pipeline adapt (R5). Existe porque a regra mandava
+  # rodar `golden_set/` ao encostar no adapt, mas NADA o invocava — e o corpus
+  # do extract-profile está vazio, então "golden_set limpo" não distinguia
+  # "passou" de "não havia o que rodar". Esta bateria é determinística e
+  # offline (não chama OpenAI): roda em todo push, de graça.
+  # Caso [ADV] falhando = invenção escapando pro PDF do recrutador.
+  golden-set-adapt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: bash scripts/run_golden_set_adapt.sh

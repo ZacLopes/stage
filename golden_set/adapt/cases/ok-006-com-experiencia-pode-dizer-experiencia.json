@@ -1,0 +1,16 @@
+{
+  "id": "ok-006-com-experiencia-pode-dizer-experiencia",
+  "categoria": "anti-invenção / summary",
+  "porque": "A checagem 8 só vale para perfil SEM experiência. Quem tem experiência real pode e deve dizer isso — este caso garante que o conserto não vazou para todo mundo.",
+  "adicionado_em": "2026-07-28",
+  "input": {
+    "skills": ["Excel"],
+    "experiences": [
+      { "id": "exp-1", "role": "Estagiária de Suprimentos", "company": "Alfa Log",
+        "period": "2025 - atual", "location": "São Paulo, SP",
+        "bullets": [{ "id": "b-1", "text": "Apoiei cotações com fornecedores nacionais." }] }
+    ]
+  },
+  "candidate": { "summary": "Estagiária com experiência em cotações e relacionamento com fornecedores." },
+  "espera": { "resultado": "aceita" }
+}

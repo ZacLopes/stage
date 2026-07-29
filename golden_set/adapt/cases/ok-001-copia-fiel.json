@@ -1,0 +1,28 @@
+{
+  "id": "ok-001-copia-fiel",
+  "categoria": "linha de base",
+  "porque": "Resposta idêntica ao input tem de passar em TODAS as checagens. Se este caso quebrar, alguma checagem virou estrita demais e vai deixar gente legítima sem currículo.",
+  "adicionado_em": "2026-07-28",
+  "input": {
+    "linkedin": "linkedin.com/in/ana-ribeiro",
+    "headline": "Estudante de Engenharia de Produção",
+    "summary": "Estudante de Engenharia de Produção, 7º semestre.",
+    "skills": ["Excel", "Power BI"],
+    "tools": ["SAP"],
+    "experiences": [
+      { "id": "exp-1", "role": "Estagiária de Suprimentos", "company": "Alfa Log",
+        "period": "2025 - atual", "location": "São Paulo, SP",
+        "bullets": [{ "id": "b-1", "text": "Apoiei cotações com fornecedores nacionais." }] }
+    ],
+    "education": [
+      { "id": "edu-1", "degree": "Graduação em Engenharia de Produção", "institution": "USP",
+        "period": "2022 - 2026", "location": "São Paulo, SP",
+        "majors": ["Engenharia de Produção"], "minors": [], "activities": [], "gpa": "" }
+    ],
+    "languages": [
+      { "name": "Português", "proficiency": "Nativo" },
+      { "name": "Inglês", "proficiency": "Avançado" }
+    ]
+  },
+  "espera": { "resultado": "aceita" }
+}

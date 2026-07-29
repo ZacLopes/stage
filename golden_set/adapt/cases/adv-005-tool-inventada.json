@@ -1,0 +1,10 @@
+{
+  "id": "adv-005-tool-inventada",
+  "adversarial": true,
+  "categoria": "anti-invenção / tools",
+  "porque": "Tools passaram muito tempo SEM nenhuma checagem. Este caso impede a volta desse buraco.",
+  "adicionado_em": "2026-07-28",
+  "input": { "skills": ["Excel"], "tools": ["SAP"] },
+  "candidate": { "tools": ["SAP", "Salesforce"] },
+  "espera": { "resultado": "rejeita", "campo": "tools", "mensagem_contem": "tool inventada" }
+}

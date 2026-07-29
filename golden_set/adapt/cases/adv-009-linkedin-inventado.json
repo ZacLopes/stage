@@ -1,0 +1,10 @@
+{
+  "id": "adv-009-linkedin-inventado",
+  "adversarial": true,
+  "categoria": "anti-invenção / contato",
+  "porque": "Input sem LinkedIn e output com URL = link fabricado no currículo. Recrutador clica e cai em perfil de outra pessoa.",
+  "adicionado_em": "2026-07-28",
+  "input": { "skills": ["Excel"], "linkedin": "" },
+  "candidate": { "linkedin": "linkedin.com/in/ana-ribeiro-fake" },
+  "espera": { "resultado": "rejeita", "campo": "linkedin", "mensagem_contem": "inventado" }
+}
