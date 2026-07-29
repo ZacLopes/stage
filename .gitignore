@@ -55,3 +55,6 @@ admin_dashboard/vite.config.d.ts
 
 # Add this line to .gitignore
 .env
+
+# Evidências de revisão de UX (screenshots) — pesadas, ficam locais
+revisao-ux-*-evidencias/
