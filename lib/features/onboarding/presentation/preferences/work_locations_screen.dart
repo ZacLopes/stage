@@ -163,16 +163,28 @@ class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
   Widget build(BuildContext context) {
     return OnboardingScaffold(
       title: 'Onde você quer trabalhar?',
-      subtitle: 'Adicione cidades específicas — ou pule se topa qualquer lugar.',
+      subtitle:
+          'Adicione cidades específicas — ou toque em "Aceito qualquer lugar".',
       progress: 0.78,
       continueLabel: _saving ? 'Salvando…' : 'Continuar',
       onContinue: (_locations.isEmpty || _saving) ? null : _continue,
-      skipButton: (_locations.isNotEmpty || _saving)
+      // O botão só aparecia com a lista VAZIA — e o app já adiciona a cidade
+      // de residência automaticamente, então na prática ninguém via a saída
+      // que o subtítulo prometia ("ou pule"). Pra "pular" era preciso primeiro
+      // deletar uma cidade que a pessoa não tinha colocado, o que não é óbvio.
+      // Consequência: todo mundo saía do onboarding com um filtro geográfico
+      // que não escolheu, encolhendo o próprio feed em silêncio.
+      //
+      // `_skip` grava lista vazia (`replaceOtherLocations([])`), que é
+      // exatamente "aceito qualquer lugar" — então oferecer sempre é correto,
+      // e o rótulo agora diz o que a ação faz.
+      // Revisão UX 28/07, achado P2-23.
+      skipButton: _saving
           ? null
           : TextButton(
               onPressed: _skip,
               style: TextButton.styleFrom(foregroundColor: _kLabelColor),
-              child: const Text('Pular etapa'),
+              child: const Text('Aceito qualquer lugar'),
             ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

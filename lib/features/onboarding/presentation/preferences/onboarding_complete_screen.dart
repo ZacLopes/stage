@@ -160,19 +160,26 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
         progress: 1.0,
         showBack: false,
         onContinue: null,
-        customFooter: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            PrimaryButton(
-              label: _finishing ? 'Carregando…' : 'Completar com a IA',
-              onPressed: _finishing ? null : _handleCompleteWithAI,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            GhostButton(
-              label: 'Agora não',
-              onPressed: _finishing ? null : _handleFinish,
-            ),
-          ],
+        // O padding é do CHAMADOR (ver o contrato em OnboardingScaffold).
+        // Faltava aqui: "Completar com a IA" era o único botão do onboarding
+        // colado nas bordas da tela, cortado à esquerda, enquanto todas as
+        // demais telas respeitam 20pt. Revisão UX 28/07, achado P3-30.
+        customFooter: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              PrimaryButton(
+                label: _finishing ? 'Carregando…' : 'Completar com a IA',
+                onPressed: _finishing ? null : _handleCompleteWithAI,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              GhostButton(
+                label: 'Agora não',
+                onPressed: _finishing ? null : _handleFinish,
+              ),
+            ],
+          ),
         ),
         child: _body(
           context,
