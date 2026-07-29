@@ -19,6 +19,8 @@ import {
   trackAIGeneration,
   trackEdgeFunctionInvoked,
 } from '../_shared/posthog.ts'
+import { reconcileRemoteReasons, normalizeWorkMode } from './reasons.ts'
+import type { MatchReason } from './reasons.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -36,12 +38,6 @@ const CACHE_TTL_DAYS = 30
 const RATE_LIMIT_PER_DAY = 300
 const OPENAI_TIMEOUT_MS = 8000
 
-interface MatchReason {
-  label: string
-  matched: boolean
-  weight: number
-  detail?: string
-}
 
 interface MatchPayload {
   score: number
@@ -162,23 +158,6 @@ async function pickPrefsForHash(
  * Retorna o mesmo shape que `user_preferences` pra não mudar o resto
  * da edge function.
  */
-/**
- * Normaliza work_mode do schema relacional (EN: `remote`/`hybrid`/`in_person`)
- * pro vocabulário que `jobs.work_model` usa (PT: `remoto`/`hibrido`/`presencial`).
- * Sem isso, a IA tentava casar "in_person" com "presencial" textualmente e
- * marcava matched=false mesmo o user tendo presencial nas prefs.
- *
- * Valores legacy (PT) passam intactos — `user_preferences.work_models`
- * sempre foi PT.
- */
-function normalizeWorkMode(s: string): string {
-  switch (s) {
-    case 'remote': return 'remoto'
-    case 'hybrid': return 'hibrido'
-    case 'in_person': return 'presencial'
-    default: return s // já PT ou desconhecido — passa intacto
-  }
-}
 
 async function loadPrefs(client: any, userId: string): Promise<any> {
   try {
@@ -680,7 +659,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<{
   }
 }
 
-function parseAndValidate(raw: string): MatchPayload {
+function parseAndValidate(raw: string, job?: any, prefs?: any): MatchPayload {
   // Strip ```json``` fences se existirem
   let text = raw.trim()
   if (text.startsWith('```json')) text = text.slice(7)
@@ -701,12 +680,18 @@ function parseAndValidate(raw: string): MatchPayload {
   const keptReasons = cargoReason
     ? [...baseReasons.slice(0, 5), cargoReason]
     : baseReasons.slice(0, 6)
-  const reasons: MatchReason[] = keptReasons.map((r: any) => ({
+  const parsedReasons: MatchReason[] = keptReasons.map((r: any) => ({
     label: String(r?.label ?? ''),
     matched: r?.matched === true,
     weight: Number.isFinite(Number(r?.weight)) ? Number(r.weight) : 0,
     detail: r?.detail ? String(r.detail).slice(0, 200) : undefined,
   }))
+
+  // Correção determinística ANTES de derivar o score: razão e score precisam
+  // contar a mesma história (há inclusive um alerta de divergência abaixo).
+  const reasons = job
+    ? reconcileRemoteReasons(parsedReasons, job, prefs)
+    : parsedReasons
 
   // Detecta o "Cenário C" canônico (1 reason com label "Sem perfil") — o
   // prompt manda retornar score=50 explicitamente nesse caso, então
@@ -744,6 +729,7 @@ function parseAndValidate(raw: string): MatchPayload {
 
   return { score: clampedScore, reasons, divergence }
 }
+
 
 // ────────────────────────────────────────────────────────────────────────────
 // Main handler
@@ -934,7 +920,7 @@ serve(async (req) => {
 
     let payload: MatchPayload
     try {
-      payload = parseAndValidate(ai.content)
+      payload = parseAndValidate(ai.content, job, prefs)
     } catch (e) {
       console.error('Failed to parse AI output:', ai.content)
       return jsonResponse({ error: 'ai_response_invalid', detail: (e as Error).message }, 502)
