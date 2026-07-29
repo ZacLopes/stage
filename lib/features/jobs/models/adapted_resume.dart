@@ -382,8 +382,15 @@ class AdaptedResume {
         final majorRedundantWithDegree = majorsTokens.isNotEmpty &&
             majorsTokens.every((t) => degreeTokens.contains(t));
 
-        final majorWord = isEn ? 'Major' : 'Major';
-        final minorWord = isEn ? 'Minor' : 'Minor';
+        // PT-BR não tem "Major": aqui o curso É a graduação. O ternário
+        // original (`isEn ? 'Major' : 'Major'`) tinha os DOIS ramos iguais — o
+        // caminho PT nunca foi escrito —, então o sufixo em inglês vazava
+        // direto pro PDF do recrutador: "Engenharia de Produção Major".
+        // O caminho do currículo GERAL já tratava disso
+        // (profile_resume_mapper.dart:20 — "nunca injeta os sufixos
+        // artificiais ingleses 'Major'/'Minor'"); só o ADAPTADO ficou para
+        // trás. "Minor" segue como estrangeirismo em PT (decisão anterior,
+        // ver o comentário do ramo redundante logo abaixo).
 
         if (majorRedundantWithDegree && minors.isNotEmpty) {
           // Só minor: "Minor in Finance" / "Minors in Finance, Entrepreneurship".
@@ -396,11 +403,17 @@ class AdaptedResume {
         } else if (majorRedundantWithDegree) {
           // Major redundante + sem minors → sem detail line
           detailLine = '';
-        } else {
-          // Format original: "Major X with Minor Y"
-          detailLine = '${majors.join(', ')} $majorWord';
+        } else if (isEn) {
+          // "Business Administration Major with Finance Minor"
+          detailLine = '${majors.join(', ')} Major';
           if (minors.isNotEmpty) {
-            detailLine += ' ${isEn ? "with" : "com"} ${minors.join(', ')} $minorWord';
+            detailLine += ' with ${minors.join(', ')} Minor';
+          }
+        } else {
+          // PT: só o curso. "Engenharia de Produção" — sem sufixo.
+          detailLine = majors.join(', ');
+          if (minors.isNotEmpty) {
+            detailLine += ' com Minor em ${minors.join(', ')}';
           }
         }
       }

@@ -320,4 +320,72 @@ void main() {
       expect(parsed.courses.first.institution, 'I');
     });
   });
+
+  // Revisão de UX 28/07: `isEn ? 'Major' : 'Major'` — ternário com os dois
+  // ramos iguais — vazava o sufixo em inglês pro PDF que o recrutador lê
+  // ("Graduação · Engenharia de Produção Major"). No Brasil o curso É a
+  // graduação; "Major" não existe.
+  group('detail line da educação (Major é só do inglês)', () {
+    Map<String, dynamic> edu({
+      required String lang,
+      required List<String> majors,
+      List<String> minors = const [],
+      String degree = 'Graduação',
+    }) =>
+        {
+          'fullName': 'Ana',
+          'language': lang,
+          'education': [
+            {
+              'degree': degree,
+              'institution': 'USP',
+              'period': '2022 – 2026',
+              'majors': majors,
+              'minors': minors,
+              'activities': <String>[],
+              'gpa': '',
+            }
+          ],
+        };
+
+    String detailFor(Map<String, dynamic> json) =>
+        AdaptedResume.parseResumeData(json).education.single.details;
+
+    test('PT: só o curso, sem sufixo em inglês', () {
+      expect(
+        detailFor(edu(lang: 'pt', majors: ['Engenharia de Produção'])),
+        'Engenharia de Produção',
+      );
+    });
+
+    test('PT: com minor usa "com Minor em" (estrangeirismo mantido)', () {
+      expect(
+        detailFor(edu(lang: 'pt', majors: ['Administração'], minors: ['Finanças'])),
+        'Administração com Minor em Finanças',
+      );
+    });
+
+    test('EN: mantém o formato Major/Minor', () {
+      expect(
+        detailFor(edu(
+          lang: 'en',
+          degree: "Bachelor's degree",
+          majors: ['Business Administration'],
+          minors: ['Finance'],
+        )),
+        'Business Administration Major with Finance Minor',
+      );
+    });
+
+    test('major redundante com o degree não vira detail line', () {
+      expect(
+        detailFor(edu(
+          lang: 'pt',
+          degree: 'Graduação em Engenharia de Produção',
+          majors: ['Engenharia de Produção'],
+        )),
+        '',
+      );
+    });
+  });
 }
