@@ -786,6 +786,9 @@ class _InfoTabState extends State<_InfoTab> {
                 const SizedBox(height: 12),
                 const ProfileSectionList(
                   showLowConfidenceBadges: false,
+                  // Atende o deep-link "falta X no seu perfil" (ex.: o gate de
+                  // habilidades do adapt): rola até a seção e abre o editor.
+                  consumeSectionRequest: true,
                 ),
                 // F5.2: card "Fonte importada" — auto-oculto com a flag OFF ou
                 // sem CV importado (traz sua própria margem quando renderiza).

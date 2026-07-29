@@ -13,6 +13,7 @@ import '../../domain/entities/entities.dart';
 import '../../domain/optional_sections_visibility.dart';
 import '../../domain/skill_name_normalizer.dart';
 import '../../../resume/data/profile_resume_mapper.dart';
+import '../../../home/home_viewmodel.dart';
 import 'add_edit_certification_modal.dart';
 import 'add_edit_experience_modal.dart';
 import 'add_edit_education_modal.dart';
@@ -37,10 +38,16 @@ class ProfileSectionList extends StatefulWidget {
   /// Se false, esconde atrás de "Adicionar outras seções".
   final bool showOptionalSections;
 
+  /// Se true, atende `HomeViewModel.pendingProfileSectionKey` — rola até a
+  /// seção pedida, expande e abre o editor dela. Só a aba Perfil liga isto; a
+  /// revisão pós-import (onboarding) não deve abrir modal sozinha.
+  final bool consumeSectionRequest;
+
   const ProfileSectionList({
     super.key,
     this.showLowConfidenceBadges = false,
     this.showOptionalSections = false,
+    this.consumeSectionRequest = false,
   });
 
   @override
@@ -62,6 +69,70 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
   /// final combina isto com o pedido do call site e com o conteúdo existente —
   /// ver [optionalSectionsVisible].
   bool _userOpened = false;
+
+  /// Âncoras para `Scrollable.ensureVisible` no deep-link de seção.
+  final Map<String, GlobalKey> _sectionKeys = {};
+
+  /// Guarda contra reentrada: o pedido é consumido uma vez só, mesmo que o
+  /// build rode de novo antes do `clearProfileSection` propagar.
+  bool _handlingSectionRequest = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.consumeSectionRequest) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOpenRequestedSection());
+    }
+  }
+
+  /// Rola até a seção pedida, expande e abre o editor dela.
+  ///
+  /// Sem isto, `requestProfileSubTab(0)` deixava a pessoa no TOPO de Dados e a
+  /// seção pedida ficava abaixo da dobra — o CTA "Adicionar habilidades ao
+  /// perfil" prometia um destino que não entregava.
+  Future<void> _maybeOpenRequestedSection() async {
+    if (!mounted || _handlingSectionRequest) return;
+    final home = context.read<HomeViewModel>();
+    final key = home.pendingProfileSectionKey;
+    if (key == null) return;
+
+    _handlingSectionRequest = true;
+    home.clearProfileSection();
+
+    if (_expanded.containsKey(key)) {
+      setState(() => _expanded[key] = true);
+    }
+
+    // Espera o frame da expansão pra âncora já existir na árvore.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) {
+      _handlingSectionRequest = false;
+      return;
+    }
+
+    final anchor = _sectionKeys[key]?.currentContext;
+    if (anchor != null) {
+      await Scrollable.ensureVisible(
+        anchor,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+        alignment: 0.1,
+      );
+    }
+    if (!mounted) {
+      _handlingSectionRequest = false;
+      return;
+    }
+
+    final vm = context.read<ProfileEditorViewModel>();
+    switch (key) {
+      case 'skills':
+        _openSkillsEditor(vm);
+      case 'interests':
+        _openInterestsEditor(vm);
+    }
+    _handlingSectionRequest = false;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -211,25 +282,41 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
         .toList(),
   );
 
+  /// Editor de habilidades. Extraído do `onEdit` porque o deep-link de seção
+  /// (gate de skills do adapt) precisa abrir exatamente o mesmo modal.
+  void _openSkillsEditor(ProfileEditorViewModel vm) {
+    EditListModal.show(
+      context: context,
+      title: 'Editar habilidades',
+      inputLabel: 'Habilidade',
+      initialItems: vm.skills.map((s) => s.name).toList(),
+      suggestions: vm.skillSuggestions,
+      guidanceText:
+          'Priorize de 6 a 12 habilidades que você realmente usa e que são '
+          'relevantes para as vagas que busca.',
+      recommendedMinItems: kRecommendedMinProfileSkills,
+      maxItems: kMaxProfileSkills,
+      onSave: vm.replaceSkills,
+    );
+  }
+
+  void _openInterestsEditor(ProfileEditorViewModel vm) {
+    EditListModal.show(
+      context: context,
+      title: 'Editar Interesses',
+      inputLabel: 'Interesse',
+      initialItems: vm.interests.map((i) => i.name).toList(),
+      onSave: vm.replaceInterests,
+    );
+  }
+
   Widget _sectionSkills(ProfileEditorViewModel vm) {
     final names = vm.skills.map((s) => s.name).toList();
     return _sectionShell(
       key: 'skills',
       title: 'Habilidades',
       count: names.length,
-      onEdit: () => EditListModal.show(
-        context: context,
-        title: 'Editar habilidades',
-        inputLabel: 'Habilidade',
-        initialItems: names,
-        suggestions: vm.skillSuggestions,
-        guidanceText:
-            'Priorize de 6 a 12 habilidades que você realmente usa e que são '
-            'relevantes para as vagas que busca.',
-        recommendedMinItems: kRecommendedMinProfileSkills,
-        maxItems: kMaxProfileSkills,
-        onSave: vm.replaceSkills,
-      ),
+      onEdit: () => _openSkillsEditor(vm),
       children: names.isEmpty ? const [] : [_ChipList(items: names)],
     );
   }
@@ -268,13 +355,7 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
       key: 'interests',
       title: 'Interesses',
       count: names.length,
-      onEdit: () => EditListModal.show(
-        context: context,
-        title: 'Editar Interesses',
-        inputLabel: 'Interesse',
-        initialItems: names,
-        onSave: vm.replaceInterests,
-      ),
+      onEdit: () => _openInterestsEditor(vm),
       children: names.isEmpty ? const [] : [_ChipList(items: names)],
     );
   }
@@ -558,7 +639,9 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
     required List<Widget> children,
   }) {
     final isExpanded = _expanded[key] ?? false;
+    final anchor = _sectionKeys.putIfAbsent(key, () => GlobalKey());
     return Padding(
+      key: anchor,
       padding: const EdgeInsets.only(bottom: 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

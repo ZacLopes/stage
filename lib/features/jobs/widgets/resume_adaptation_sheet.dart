@@ -742,6 +742,11 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
               // numa tela sem editor de habilidades — a saída existia mas não
               // chegava no lugar. 0 = Dados.
               home.requestProfileSubTab(0);
+              // Revisão UX 28/07: a sub-aba certa ainda deixava a pessoa no
+              // TOPO de Dados, com "Habilidades" abaixo da dobra — o CTA
+              // prometia um destino que não entregava. Isto rola até a seção e
+              // abre o editor, que é literalmente o que o botão promete.
+              home.requestProfileSection('skills');
             },
             icon: const Icon(Icons.auto_awesome_rounded, size: 18),
             label: const Text('Adicionar habilidades ao perfil'),

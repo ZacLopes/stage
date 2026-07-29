@@ -182,6 +182,28 @@ class HomeViewModel extends ChangeNotifier {
     // No notifyListeners() to avoid rebuild loops
   }
 
+  // ── Pedido de SEÇÃO do perfil (deep-link de "falta X no seu perfil") ──────
+  /// Chave da seção de Perfil → Dados que deve ser aberta ao aterrissar
+  /// (mesmas chaves de `ProfileSectionList._expanded`: 'skills', 'languages'…).
+  ///
+  /// Existe porque `requestProfileSubTab(0)` só garante a ABA: quem vinha do
+  /// gate de habilidades do adapt caía no TOPO de Dados, com "Habilidades" uma
+  /// tela inteira abaixo — o CTA prometia um destino que não entregava. A
+  /// ProfileSectionList consome num post-frame, rola até a seção, expande e
+  /// abre o editor dela.
+  String? _pendingProfileSectionKey;
+  String? get pendingProfileSectionKey => _pendingProfileSectionKey;
+
+  void requestProfileSection(String sectionKey) {
+    _pendingProfileSectionKey = sectionKey;
+    notifyListeners();
+  }
+
+  void clearProfileSection() {
+    _pendingProfileSectionKey = null;
+    // No notifyListeners() to avoid rebuild loops
+  }
+
   // ── Pedido de IMPORTAR CV (F5.4) ──────────────────────────────────────────
   /// O card "Fonte importada" (Perfil → Dados) é a casa da fonte, mas a REVISÃO
   /// do import ("CV diz X × você tem Y" + desfazer) vive no Assistente, que é o
