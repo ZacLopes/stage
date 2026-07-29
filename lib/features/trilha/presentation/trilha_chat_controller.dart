@@ -892,7 +892,7 @@ class TrilhaChatController extends ChangeNotifier {
     _notify();
     const msg2 =
         'Eu construo seu perfil, acho vagas com a sua cara e mostro o que você '
-        'pode fortalecer. Toca numa 👇';
+        'pode fortalecer. Toque numa 👇';
     await Future.delayed(_typingFor(msg2));
     if (_disposed) return;
     typing = false;
@@ -1454,7 +1454,7 @@ class TrilhaChatController extends ChangeNotifier {
       if (step != null) {
         inputVisible = true;
         _pushAi(
-          'Não peguei bem 🤔 Toca numa opção aqui embaixo 👇 ou tenta de outro jeito.',
+          'Não peguei bem 🤔 Toque numa opção aqui embaixo 👇 ou tente de outro jeito.',
         );
       } else {
         _pushAi('Não consegui agora 🤔 Tenta de novo daqui a pouco.');
@@ -1957,7 +1957,7 @@ class TrilhaChatController extends ChangeNotifier {
   Future<void> fillGapFromCard(String section) async {
     if (section.isEmpty) return;
     final ok = await _injectSection(section, 'Boa, bora preencher! 👇');
-    if (!ok) _pushAi('Toca na seção lá em cima 👆 pra preencher.');
+    if (!ok) _pushAi('Toque na seção lá em cima 👆 pra preencher.');
   }
 
   /// `show_gaps` / `show_profile_summary`: card estruturado (barra de completude
@@ -2022,7 +2022,7 @@ class TrilhaChatController extends ChangeNotifier {
       final matched = input.options.where((o) => ids.contains(o.id)).toList();
       if (matched.isEmpty) {
         _replyAndKeepStep(
-          'Não tenho certeza 🤔 Toca numa opção aqui embaixo 👇',
+          'Não tenho certeza 🤔 Toque numa opção aqui embaixo 👇',
           step,
         );
         return;
@@ -3430,7 +3430,7 @@ class TrilhaChatController extends ChangeNotifier {
         section,
         reply.isEmpty ? 'Você ainda não tem $noun — bora adicionar? 👇' : reply,
       );
-      if (!ok) _pushAi('Bora adicionar seus $noun? Me conta um.');
+      if (!ok) _pushAi('Bora adicionar seus $noun? Me conte um.');
       return;
     }
     // Sugestões (só skills, pela área) — best-effort, tira as que já tem.
@@ -4595,7 +4595,7 @@ class TrilhaChatController extends ChangeNotifier {
       // aqui, onde não há nenhum outro vestígio do que ela escreveu.
       thread.add(UserMsgItem(text));
       _pushAi(
-        'Não tenho certeza do que você quis dizer 🤔 Toca numa opção aqui embaixo 👇',
+        'Não tenho certeza do que você quis dizer 🤔 Toque numa opção aqui embaixo 👇',
       );
       return;
     }

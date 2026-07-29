@@ -235,7 +235,7 @@ class _LanguagesEditorCardState extends State<LanguagesEditorCard> {
                 style: AppTextStyles.overline.copyWith(color: AppColors.primary)),
           ]),
           const SizedBox(height: AppSpacing.xs),
-          Text('Toca no idioma pra mudar o nível, ou no ✕ pra tirar.',
+          Text('Toque no idioma pra mudar o nível, ou no ✕ pra tirar.',
               style: AppTextStyles.bodySm.copyWith(color: AppColors.textTertiary)),
           const SizedBox(height: AppSpacing.sm),
           Wrap(

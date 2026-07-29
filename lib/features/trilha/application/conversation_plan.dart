@@ -425,7 +425,7 @@ ConversationStep _skillsBoost(
   final msg = round == 1
       ? 'Deixa eu te ajudar a lembrar de mais algumas, com base no seu perfil… '
           '(falta$plural $remaining pra deixar forte)'
-      : 'Bora completar! Falta$plural $remaining — busca ou escreve do seu '
+      : 'Bora completar! Falta$plural $remaining — busque ou escreva do seu '
           'jeito (ferramentas, idiomas técnicos, o que você usa no dia a dia).';
   return ConversationStep.single(
     id: 'gap.skills.more.$round',

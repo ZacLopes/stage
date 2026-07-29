@@ -529,7 +529,7 @@ class _AreasSheetState extends State<_AreasSheet> {
   Widget build(BuildContext context) {
     return _SheetShell(
       title: 'Áreas desejadas',
-      subtitle: 'Toca pra escolher onde você quer atuar.',
+      subtitle: 'Toque pra escolher onde você quer atuar.',
       action: _saveButton(
         enabled: _isDirty,
         loading: _saving,
