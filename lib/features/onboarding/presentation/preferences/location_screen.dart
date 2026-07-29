@@ -46,6 +46,9 @@ class _LocationScreenState extends State<LocationScreen> {
   bool _formMode = false;
 
   final _cep = TextEditingController();
+  /// Usado pra levar o cursor ao CEP quando o GPS falha/estoura o prazo —
+  /// a mensagem de erro aponta pra cá, então o foco vai junto.
+  final _cepFocus = FocusNode();
   String? _resolvedCity;
   String? _resolvedState;
 
@@ -93,6 +96,7 @@ class _LocationScreenState extends State<LocationScreen> {
   @override
   void dispose() {
     _cep.dispose();
+    _cepFocus.dispose();
     _cepDebounce?.cancel();
     super.dispose();
   }
@@ -186,11 +190,24 @@ class _LocationScreenState extends State<LocationScreen> {
         });
         return;
       }
+      // `timeLimit` é o que impede o spinner infinito: sem ele,
+      // `getCurrentPosition` simplesmente NÃO retorna quando o device não
+      // consegue fix (indoor, modo econômico, permissão só-quando-em-uso sem
+      // sinal). Nem o try nem o catch completavam, `_gpsLoading` ficava preso
+      // em true e a pessoa via um spinner girando pra sempre — sem erro, sem
+      // saída, do lado de um campo de CEP que funciona.
+      // Estourado o prazo, vira TimeoutException e cai no catch abaixo.
       final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 8),
+        ),
       );
       await geocoding.setLocaleIdentifier('pt_BR');
-      final placemarks = await geocoding.placemarkFromCoordinates(pos.latitude, pos.longitude);
+      // Reverse geocoding também é rede: mesmo tratamento.
+      final placemarks = await geocoding
+          .placemarkFromCoordinates(pos.latitude, pos.longitude)
+          .timeout(const Duration(seconds: 8));
       if (placemarks.isEmpty) {
         setState(() {
           _hint = 'Não consegui identificar sua cidade.';
@@ -217,9 +234,15 @@ class _LocationScreenState extends State<LocationScreen> {
       });
     } catch (_) {
       setState(() {
-        _hint = 'Erro ao buscar localização';
+        // Mensagem com SAÍDA: o campo de CEP logo abaixo resolve em segundos e
+        // é o caminho que de fato funciona. "Erro ao buscar localização"
+        // sozinho não dizia o que fazer.
+        _hint = 'Não consegui pegar sua localização. Digite seu CEP abaixo.';
         _gpsLoading = false;
       });
+      // Leva o cursor pro campo que resolve, em vez de deixar a pessoa
+      // procurar o próximo passo.
+      if (mounted) FocusScope.of(context).requestFocus(_cepFocus);
     }
   }
 
@@ -479,6 +502,7 @@ class _LocationScreenState extends State<LocationScreen> {
         const SizedBox(height: 6),
         TextField(
           controller: _cep,
+          focusNode: _cepFocus,
           keyboardType: TextInputType.number,
           inputFormatters: [_CepFormatter()],
           style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: _kTextColor),
@@ -556,25 +580,42 @@ class _GpsIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: onTap,
-        child: Container(
-          width: 44, height: 44,
-          decoration: BoxDecoration(
-            border: Border.all(color: _kBorderColor),
+    // Quadrado de 44pt sem texto: pro VoiceOver era um botão sem nome, e em
+    // loading virava só um spinner solto encostado na margem direita, sem
+    // dizer o que estava carregando. Semantics dá nome e estado.
+    return Semantics(
+      button: true,
+      enabled: onTap != null,
+      label: loading ? 'Buscando sua localização' : 'Usar localização atual',
+      child: Tooltip(
+        // Redundante com o Semantics pro leitor de tela, mas aparece no
+        // long-press pra quem enxerga.
+        message: 'Usar localização atual',
+        child: Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
             borderRadius: BorderRadius.circular(10),
+            onTap: onTap,
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                border: Border.all(color: _kBorderColor),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              alignment: Alignment.center,
+              child: loading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: _kAccent),
+                    )
+                  : const Icon(Icons.my_location_rounded,
+                      color: _kAccent, size: 20),
+            ),
           ),
-          alignment: Alignment.center,
-          child: loading
-              ? const SizedBox(
-                  width: 16, height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: _kAccent),
-                )
-              : const Icon(Icons.my_location_rounded, color: _kAccent, size: 20),
         ),
       ),
     );
