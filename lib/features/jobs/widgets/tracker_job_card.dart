@@ -288,7 +288,7 @@ class _OverflowMenu extends StatelessWidget {
         const PopupMenuItem(value: 'details', child: Text('Ver detalhes')),
         if (onMarkApplied != null)
           const PopupMenuItem(
-              value: 'mark', child: Text('Marcar como aplicada')),
+              value: 'mark', child: Text('Marcar como enviada')),
         if (onRemove != null)
           PopupMenuItem(
             value: 'remove',

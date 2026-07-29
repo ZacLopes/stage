@@ -660,7 +660,7 @@ class _LikedJobsScreenState extends State<LikedJobsScreen>
     if (!mounted) return;
     if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Não consegui marcar como aplicada.')),
+        const SnackBar(content: Text('Não consegui marcar como enviada.')),
       );
       return;
     }
@@ -911,7 +911,12 @@ class _Header extends StatelessWidget {
                 Text(
                   liked == 0
                       ? 'Acompanhe aqui suas candidaturas'
-                      : '$applied aplicada${applied == 1 ? '' : 's'} de $liked salva${liked == 1 ? '' : 's'}',
+                      // Vocabulário único do estado (revisão UX 28/07): a
+                      // pílula diz "Enviadas", o chip diz "Enviada" e o menu
+                      // "Marcar como enviada" — o contador tem de falar a
+                      // mesma língua. Antes dizia "aplicada" aqui e
+                      // "Já apliquei" no card de ajuda, na MESMA tela.
+                      : '$applied enviada${applied == 1 ? '' : 's'} de $liked salva${liked == 1 ? '' : 's'}',
                   style: TextStyle(fontFamily: 'Inter', 
                     fontSize: 13,
                     color: AppColors.textTertiary,
@@ -1574,7 +1579,7 @@ class _FirstSaveBanner extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Toque numa vaga abaixo pra ver os detalhes. Use "Aplicar no site" pra ir direto pro recrutador, ou "Enviar CV por email" quando a vaga aceitar candidatura por email — vai abrir seu app de email com o destinatário já preenchido. Depois, marque como "Já apliquei" pra organizar.',
+                    'Toque numa vaga abaixo pra ver os detalhes. Use "Aplicar no site" pra ir direto pro recrutador, ou "Enviar CV por email" quando a vaga aceitar candidatura por email — vai abrir seu app de email com o destinatário já preenchido. Depois, use "Marcar como enviada" pra acompanhar.',
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.92),
                       fontSize: 12.5,
