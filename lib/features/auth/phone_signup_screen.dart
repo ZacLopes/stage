@@ -9,9 +9,12 @@
 // O telefone real fica salvo em user_metadata.phone + em profile_personal
 // (via fluxo de onboarding). O email sintético nunca é exibido pro usuário.
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../../core/constants/stage_legal_links.dart';
+import '../../core/utils/open_legal_link.dart';
 import '../../core/analytics/screen_tracking.dart';
 import '../../core/theme/theme.dart';
 import '../../core/utils/auth_error_formatter.dart';
@@ -60,15 +63,40 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
     _phoneController.dispose();
     _passwordController.dispose();
     _countryController.dispose();
+    _termsTap.dispose();
+    _privacyTap.dispose();
     super.dispose();
   }
+
+  /// Recognizers dos links legais. Precisam ser campos (não criados no build)
+  /// pra poderem ser liberados no dispose.
+  late final TapGestureRecognizer _termsTap = TapGestureRecognizer()
+    ..onTap = () => openLegalLink(StageLegalLinks.termsUrl);
+  late final TapGestureRecognizer _privacyTap = TapGestureRecognizer()
+    ..onTap = () => openLegalLink(StageLegalLinks.privacyUrl);
 
   int get _phoneDigitsCount =>
       _phoneController.text.replaceAll(RegExp(r'\D'), '').length;
 
+  /// A regra que a tela ANUNCIA logo abaixo do campo: "Mínimo 8 caracteres,
+  /// uma letra e um número". Antes só o comprimento era checado — em nenhum
+  /// lugar, nem no cliente nem no servidor. Dava pra criar conta com
+  /// "abcdefgh" (revisão UX 28/07, achado P2-14). Regra anunciada e não
+  /// aplicada é pior que regra nenhuma: ensina algo falso.
+  static String? passwordRuleError(String value) {
+    if (value.length < 8) return 'A senha precisa ter no mínimo 8 caracteres';
+    if (!RegExp(r'[A-Za-zÀ-ÿ]').hasMatch(value)) {
+      return 'A senha precisa ter pelo menos uma letra';
+    }
+    if (!RegExp(r'\d').hasMatch(value)) {
+      return 'A senha precisa ter pelo menos um número';
+    }
+    return null;
+  }
+
   bool get _isFormValid {
     return _phoneDigitsCount >= 8 &&
-        _passwordController.text.length >= 8;
+        passwordRuleError(_passwordController.text) == null;
   }
 
   Future<void> _handleSignup() async {
@@ -269,9 +297,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                           obscureText: _obscurePassword,
                           textInputAction: TextInputAction.done,
                           onChanged: (_) => setState(() {}),
-                          validator: (val) => val != null && val.length >= 8
-                              ? null
-                              : 'A senha precisa ter no mínimo 8 caracteres',
+                          validator: (val) => passwordRuleError(val ?? ''),
                           suffixIcon: IconButton(
                             icon: Icon(
                                 _obscurePassword ? Icons.visibility_off : Icons.visibility,
@@ -392,24 +418,29 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                         fontSize: 12,
                         height: 1.4,
                       ),
-                      children: const [
-                        TextSpan(text: 'Ao continuar, você concorda com os '),
+                      // Estes dois eram TextSpan SEM `recognizer`: azuis,
+                      // negrito, com toda a cara de link — e não abriam nada.
+                      children: [
+                        const TextSpan(
+                            text: 'Ao continuar, você concorda com os '),
                         TextSpan(
                           text: 'Termos de Uso',
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: AppColors.brandBlue,
                             fontWeight: FontWeight.w600,
                           ),
+                          recognizer: _termsTap,
                         ),
-                        TextSpan(text: ' e '),
+                        const TextSpan(text: ' e '),
                         TextSpan(
                           text: 'Política de Privacidade',
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: AppColors.brandBlue,
                             fontWeight: FontWeight.w600,
                           ),
+                          recognizer: _privacyTap,
                         ),
-                        TextSpan(text: '.'),
+                        const TextSpan(text: '.'),
                       ],
                     ),
                   ),

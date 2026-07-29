@@ -27,6 +27,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/theme/theme.dart';
+import '../../core/constants/stage_legal_links.dart';
+import '../../core/utils/open_legal_link.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -473,6 +475,26 @@ class _SettingsScreenState extends State<SettingsScreen>
                       ? null
                       : () => _showGrantConsentModal(context, userVM),
                 ),
+                const Divider(height: 1),
+                // Depois do cadastro não havia NENHUM caminho pra reler o que
+                // se aceitou: a política só era alcançável entrando na tela de
+                // consentimento de IA, que por sua vez exigia responder pra
+                // sair. Revisão UX 28/07, achado P2-15.
+                _SettingsTile(
+                  icon: Icons.description_outlined,
+                  title: 'Termos de Uso',
+                  subtitle: 'Abre no navegador',
+                  iconColor: AppColors.textTertiary,
+                  onTap: () => openLegalLink(StageLegalLinks.termsUrl),
+                ),
+                const Divider(height: 1),
+                _SettingsTile(
+                  icon: Icons.privacy_tip_outlined,
+                  title: 'Política de Privacidade',
+                  subtitle: 'Abre no navegador',
+                  iconColor: AppColors.textTertiary,
+                  onTap: () => openLegalLink(StageLegalLinks.privacyUrl),
+                ),
               ],
             ),
           ),
@@ -680,6 +702,8 @@ class _SettingsScreenState extends State<SettingsScreen>
       context: context,
       barrierDismissible: false,
       pageBuilder: (dialogContext, _, _) => AIConsentModal(
+        // Aberta por consulta: dá pra sair sem declarar nada.
+        onDismiss: () => Navigator.pop(dialogContext),
         onAccept: () async {
           try {
             await userVM.updateAIConsent(true);
