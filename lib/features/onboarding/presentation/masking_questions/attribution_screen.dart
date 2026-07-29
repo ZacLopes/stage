@@ -34,6 +34,19 @@ class _AttributionScreenState extends State<AttributionScreen> {
   String? _selected;
   bool _saving = false;
 
+  @override
+  void initState() {
+    super.initState();
+    // Retomada do onboarding: a resposta já gravada volta selecionada, como
+    // nas demais telas de escolha. Só hidrata se o valor ainda existir em
+    // `_options` — valor desconhecido (build antiga) deixaria "Continuar"
+    // habilitado sem nada marcado na tela.
+    final saved = context.read<ProfileEditorViewModel>().personal?.attributionSource;
+    if (saved != null && _options.contains(saved)) {
+      _selected = saved;
+    }
+  }
+
   Future<void> _continue() async {
     if (_selected == null || _saving) return;
     AnalyticsService.shared.track('onboarding_masking_question_answered',
