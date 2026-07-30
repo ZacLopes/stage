@@ -12,6 +12,16 @@ export interface MatchReason {
   detail?: string
 }
 
+/** Nome do modelo de trabalho como a pessoa lê na tela. */
+function rotuloModelo(modelo: string): string {
+  switch (modelo) {
+    case 'remoto': return 'Remoto'
+    case 'hibrido': return 'Híbrido'
+    case 'presencial': return 'Presencial'
+    default: return modelo
+  }
+}
+
 /**
  * Peso de Localização e de Modelo no Cenário A do prompt (`index.ts`, seção
  * ESTRATÉGIA: Área 30, Tipo 20, Localização 15, Modelo 15, Skills 10).
@@ -74,15 +84,22 @@ export function normalizeWorkMode(s: string): string {
  * cidade. Pior: o cálculo determinístico do cliente já dava esses 15 pontos, e
  * os dois motores divergiam na mesma vaga.
  *
- * A regra agora é uma só, e vale para as duas dimensões: **se remoto serve para
- * você, onde você mora não conta contra**.
- *  - Modelo e Localização viram matched com peso cheio (15) quando a vaga é
- *    remota E o candidato aceita remoto.
- *  - Se o candidato NÃO aceita remoto, nada é mexido: a vaga é um desencontro
- *    real e o score deve dizer isso.
- *  - Localização ausente é INSERIDA nesse caso. Sem isso, duas vagas remotas
- *    pontuariam diferente só porque o modelo emitiu a linha numa e não na
- *    outra — medido: 2.343 de 3.132 análises remotas trazem a linha.
+ * REVISÃO 30/07 — a contradição não era só do remoto. Verificando o flip em
+ * produção, o app mostrou numa vaga HÍBRIDA: "Você prefere remoto ou híbrido,
+ * mas a vaga é híbrida" — a pessoa prefere híbrido, a vaga É híbrida, e isso
+ * contava como falha. Consertar só o remoto repetiria o erro que gerou esta
+ * revisão: corrigir a instância fotografada e deixar a irmã viva.
+ *
+ * Regras, então:
+ *  - MODELO vira matched com peso cheio (15) sempre que o modelo da vaga está
+ *    entre os que a pessoa aceita — remoto, híbrido ou presencial.
+ *  - LOCALIZAÇÃO só é dispensada em vaga REMOTA, e aí com peso cheio. Em
+ *    híbrida e presencial a cidade pesa de verdade e não pode ser perdoada.
+ *  - Se a pessoa NÃO aceita o modelo da vaga, nada é mexido: é desencontro real
+ *    e o score deve dizer isso.
+ *  - Localização ausente é INSERIDA em vaga remota. Sem isso, duas vagas
+ *    remotas pontuariam diferente só porque o modelo emitiu a linha numa e não
+ *    na outra — medido: 2.343 de 3.132 análises remotas trazem a dimensão.
  */
 export function reconcileRemoteReasons(
   reasons: MatchReason[],
@@ -92,15 +109,18 @@ export function reconcileRemoteReasons(
   prefs: any,
 ): MatchReason[] {
   const jobModel = normalizeWorkMode(String(job?.work_model ?? '').trim().toLowerCase())
-  if (jobModel !== 'remoto') return reasons
+  if (!jobModel) return reasons
 
   const accepted: string[] = Array.isArray(prefs?.work_models) ? prefs.work_models : []
-  const acceptsRemote = accepted
+  const aceitaEsteModelo = accepted
     .map((w: unknown) => normalizeWorkMode(String(w ?? '').trim().toLowerCase()))
-    .includes('remoto')
+    .includes(jobModel)
 
-  // Sem aceitar remoto, a vaga é desencontro real: não mexe em nada.
-  if (!acceptsRemote) return reasons
+  // O modelo da vaga não está entre os que a pessoa aceita: desencontro real,
+  // não se mexe em nada.
+  if (!aceitaEsteModelo) return reasons
+
+  const isRemoto = jobModel === 'remoto'
 
   let sawLocation = false
   const out: MatchReason[] = []
@@ -115,12 +135,12 @@ export function reconcileRemoteReasons(
         // considera a dimensão falha — herdar isso consertaria o texto e
         // deixaria o ponto para trás, que é o defeito que estamos fechando.
         weight: PESO_DIMENSAO,
-        detail: 'Remoto, que é como você prefere trabalhar.',
+        detail: `${rotuloModelo(jobModel)}, que é como você prefere trabalhar.`,
       })
       continue
     }
 
-    if (label === 'localizacao') {
+    if (isRemoto && label === 'localizacao') {
       sawLocation = true
       if (!r.matched) {
         out.push({
@@ -138,7 +158,7 @@ export function reconcileRemoteReasons(
 
   // Linha ausente é inserida, senão duas vagas remotas pontuam diferente só
   // porque o modelo emitiu a dimensão numa e não na outra.
-  if (!sawLocation) {
+  if (isRemoto && !sawLocation) {
     out.push({
       label: 'Localização',
       matched: true,
@@ -151,8 +171,8 @@ export function reconcileRemoteReasons(
   // seria confundida com regressão do modelo. Mede quanto o gpt erra aqui.
   if (out.length !== reasons.length || out.some((r, i) => r !== reasons[i])) {
     console.log(
-      `[analyze-match] remote reasons reconciled job=${job?.id ?? '?'} ` +
-        `acceptsRemote=${acceptsRemote} before=${reasons.length} after=${out.length}`,
+      `[analyze-match] work-mode reasons reconciled job=${job?.id ?? '?'} ` +
+        `model=${jobModel} before=${reasons.length} after=${out.length}`,
     )
   }
   return out

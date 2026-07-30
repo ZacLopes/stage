@@ -95,13 +95,41 @@ Deno.test('NÃO inventa acerto: quem não aceita remoto mantém o Modelo como fa
   assertEquals(out[0].detail, 'Você prefere presencial, mas a vaga é remota.')
 })
 
-Deno.test('vaga NÃO remota passa intacta (a correção não vaza)', () => {
+Deno.test('vaga NÃO remota: Localização é preservada, só o Modelo reconcilia', () => {
+  // A dispensa de Localização é EXCLUSIVA de vaga remota — em presencial e
+  // híbrida a cidade pesa de verdade e não pode ser perdoada.
   const presencial = { id: 'job-2', work_model: 'presencial' }
   const rs: MatchReason[] = [
     { label: 'Localização', matched: false, weight: 0, detail: 'São Paulo não está entre suas cidades.' },
+    { label: 'Modelo', matched: false, weight: 15, detail: 'Você prefere presencial, mas a vaga é presencial.' },
+  ]
+  const out = reconcileRemoteReasons(rs, presencial, ACEITA_REMOTO)
+  assertEquals(out[0], rs[0], 'Localização não podia ser tocada em vaga presencial')
+  assertEquals(out[1].matched, true)
+  assertEquals(out.length, 2, 'não insere Localização fora de vaga remota')
+})
+
+Deno.test('vaga HÍBRIDA: a mesma contradição do achado, noutro modelo', () => {
+  // Visto ao vivo em 30/07 verificando o flip: "Você prefere remoto ou híbrido,
+  // mas a vaga é híbrida" — a pessoa prefere híbrido, a vaga É híbrida, e isso
+  // contava como falha. Corrigir só o remoto teria deixado este vivo.
+  const hibrida = { id: 'job-3', work_model: 'hibrido' }
+  const rs: MatchReason[] = [
+    { label: 'Modelo', matched: false, weight: 0, detail: 'Você prefere remoto ou híbrido, mas a vaga é híbrida.' },
+  ]
+  const out = reconcileRemoteReasons(rs, hibrida, ACEITA_REMOTO)
+  assertEquals(out[0].matched, true)
+  assertEquals(out[0].weight, 15)
+  assertEquals(out[0].detail, 'Híbrido, que é como você prefere trabalhar.')
+})
+
+Deno.test('modelo que a pessoa NÃO aceita continua sendo falha', () => {
+  const soRemoto = { work_models: ['remoto'] }
+  const presencial = { id: 'job-4', work_model: 'presencial' }
+  const rs: MatchReason[] = [
     { label: 'Modelo', matched: false, weight: 15, detail: 'Você prefere remoto, mas a vaga é presencial.' },
   ]
-  assertEquals(reconcileRemoteReasons(rs, presencial, ACEITA_REMOTO), rs)
+  assertEquals(reconcileRemoteReasons(rs, presencial, soRemoto), rs)
 })
 
 Deno.test('Localização que BATEU é preservada mesmo em vaga remota (não reduz score)', () => {
