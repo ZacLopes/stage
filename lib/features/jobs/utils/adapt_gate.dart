@@ -104,7 +104,11 @@ String missingSkillsMessage(int skillCount) {
         'perfil (o ideal é de $kRecommendedMinProfileSkills a '
         '$kMaxProfileSkills) e eu cuido do resto.';
   }
+  // O ramo de 1-2 skills mantinha só o alvo mínimo e não citava a faixa, então
+  // quem chegava com 2 lia "adicione mais 1" e no minuto seguinte via "o ideal
+  // é de 6 a 12" — a MESMA contradição do achado, um passo adiante. P2-28.
   final plural = missing == 1 ? 'habilidade' : 'habilidades';
-  return 'Você já tem $skillCount. Adicione mais $missing $plural ao seu perfil '
-      'e eu consigo adaptar seu currículo pra esta vaga.';
+  return 'Você já tem $skillCount. Adicione mais $missing $plural pra eu '
+      'conseguir adaptar (o ideal é de $kRecommendedMinProfileSkills a '
+      '$kMaxProfileSkills).';
 }

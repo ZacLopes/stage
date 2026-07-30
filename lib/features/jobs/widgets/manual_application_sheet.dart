@@ -28,29 +28,6 @@ Future<ManualApplicationInput?> showManualApplicationSheet(BuildContext context)
   );
 }
 
-/// Status iniciais oferecidos na adição manual.
-///
-/// Antes eram só 4, enquanto o menu de um card já existente oferecia 7 — quem
-/// queria registrar uma candidatura ANTIGA, já recusada, tinha de criá-la como
-/// "Enviada" e depois editar. Adição manual existe justamente pra registrar o
-/// que aconteceu fora do app, e o desfecho já é conhecido.
-/// Revisão UX 28/07, achado P2-20.
-///
-/// Seguro no banco: a matriz de transições valida UPDATE
-/// (`trg_applications_validate` é BEFORE UPDATE); o INSERT só é logado.
-///
-/// `withdrawn` e `expired` ficam de fora de propósito: não fazem sentido como
-/// estado de ENTRADA — a pessoa desistir ou o prazo vencer são eventos
-/// posteriores, alcançáveis pelo chip.
-const _kInitialStatuses = <ApplicationStatus>[
-  ApplicationStatus.submitted,
-  ApplicationStatus.inReview,
-  ApplicationStatus.shortlisted,
-  ApplicationStatus.interview,
-  ApplicationStatus.offer,
-  ApplicationStatus.hired,
-  ApplicationStatus.rejected,
-];
 
 class _ManualApplicationSheet extends StatefulWidget {
   const _ManualApplicationSheet();
@@ -163,7 +140,7 @@ class _ManualApplicationSheetState extends State<_ManualApplicationSheet> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              for (final s in _kInitialStatuses)
+              for (final s in ApplicationStatus.initialOptions)
                 ChoiceChip(
                   label: Text(s.label),
                   selected: _status == s,
@@ -171,6 +148,22 @@ class _ManualApplicationSheetState extends State<_ManualApplicationSheet> {
                 ),
             ],
           ),
+          // "Aprovada" é FINAL no banco: `hired` não transiciona para nada
+          // (verificado em `_application_transition_allowed`). Sem este aviso,
+          // um toque errado congelava o card — o chip ficava vazio e não havia
+          // como corrigir. Achado P2-20, parte que a correção anterior criou.
+          if (_status.isTerminal) ...[
+            const SizedBox(height: 8),
+            Text(
+              '"${_status.label}" encerra o acompanhamento — depois não dá pra '
+              'mudar o status desta candidatura.',
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                color: AppColors.textTertiary,
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,

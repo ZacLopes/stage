@@ -42,6 +42,32 @@ enum ApplicationStatus {
 
   bool get isTerminal => this == hired || this == expired;
 
+  /// Status oferecidos ao CRIAR uma candidatura manual.
+  ///
+  /// Mora no modelo, não numa lista literal na tela: o menu do card já é
+  /// DERIVADO de [canTransition], e uma lista solta lá fora não acompanharia
+  /// um status novo no enum. Revisão UX 28/07, achado P2-20.
+  ///
+  /// `withdrawn` ENTRA (correção de 30/07). O argumento anterior — "desistir é
+  /// evento posterior" — vale para candidatura viva, não para registro
+  /// histórico, e adição manual existe justamente para registrar o que já
+  /// aconteceu fora do app. Quem quer lançar uma candidatura antiga que ELA
+  /// retirou tinha de criar como "Enviada" e editar depois: exatamente o
+  /// vaivém que o achado descreve. É seguro porque o banco permite
+  /// `withdrawn → submitted` (verificado em `_application_transition_allowed`).
+  ///
+  /// `expired` fica de fora: é evento do prazo, não escolha de quem registra.
+  static List<ApplicationStatus> get initialOptions => const [
+        submitted,
+        inReview,
+        shortlisted,
+        interview,
+        offer,
+        hired,
+        rejected,
+        withdrawn,
+      ];
+
   /// Rótulo pt-BR pra UI (aba Candidaturas, chip de status).
   ///
   /// Todos concordam com **a candidatura** (feminino), que é o que a aba

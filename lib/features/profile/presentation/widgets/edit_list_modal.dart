@@ -465,7 +465,9 @@ class _ListGuidance extends StatelessWidget {
                 color: color.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: Text('$count/$max', style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w800)),
+              // "6/12" cru dizia que 12 era meta, quando é TETO — a pessoa
+              // lia como se faltassem 6. Achado P2-28.
+              child: Text('$count de $max', style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w800)),
             ),
           ],
         ],
