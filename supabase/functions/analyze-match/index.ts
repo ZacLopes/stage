@@ -28,7 +28,7 @@ const corsHeaders = {
 }
 
 const MODEL = 'gpt-4o-mini'
-const PROMPT_VERSION = 'v13' // bump quando alterar SYSTEM_PROMPT (invalida cache); v11 = salário removido; v12 = skills técnicas vs soft (taxonomia P5, 2026-06-17); v13 = bônus de cargo desejado (+8, 2026-06-30)
+const PROMPT_VERSION = 'v14' // bump quando alterar SYSTEM_PROMPT ou a DERIVAÇÃO do score (invalida cache); v11 = salário removido; v12 = skills técnicas vs soft; v13 = bônus de cargo desejado (+8); v14 = vaga remota deixa de perder ponto por cidade (P1-5, 2026-07-29)
 const CACHE_TTL_DAYS = 30
 // Subido de 100 → 300 em 2026-05-26 porque PROMPT_VERSION bumps em sequência
 // (v5→v9) invalidaram cache de todos os jobs visíveis no app, forçando
@@ -859,9 +859,28 @@ serve(async (req) => {
           scenario: 'cache',
         },
       }).catch(() => {})
+      // O caminho de cache devolvia `reasons` CRU — a reconciliação só rodava
+      // na geração (§ parseAndValidate). Resultado: uma análise gravada antes
+      // da correção seguia servindo a penalidade falsa de vaga remota, de
+      // graça, por até 30 dias.
+      //
+      // Re-derivar o score junto NÃO é opcional: reconciliar as razões e
+      // devolver o score antigo faria razão e score contarem histórias
+      // diferentes — a mesma classe de bug que a derivação server-side existe
+      // para matar.
+      const cachedReasons = Array.isArray(cachedRow.reasons) ? cachedRow.reasons : []
+      const fixedReasons = job ? reconcileRemoteReasons(cachedReasons, job, prefs) : cachedReasons
+      const reasonsChanged = fixedReasons !== cachedReasons
+      const fixedScore = reasonsChanged
+        ? Math.max(0, Math.min(100, Math.round(
+          fixedReasons.filter((r: MatchReason) => r.matched)
+            .reduce((s: number, r: MatchReason) => s + Math.max(0, r.weight), 0),
+        )))
+        : cachedRow.score
+
       return jsonResponse({
-        score: cachedRow.score,
-        reasons: cachedRow.reasons,
+        score: fixedScore,
+        reasons: fixedReasons,
         cached: true,
         model_used: cachedRow.model_used,
       })

@@ -27,12 +27,53 @@ const REASONS_REAIS: MatchReason[] = [
 const somaMatched = (rs: MatchReason[]) =>
   rs.filter((r) => r.matched).reduce((s, r) => s + Math.max(0, r.weight), 0)
 
-Deno.test('linha real de prod: some a penalidade falsa de localização em vaga remota', () => {
+Deno.test('linha real de prod: vaga remota deixa de perder ponto por cidade', () => {
   const out = reconcileRemoteReasons(REASONS_REAIS, VAGA_REMOTA, ACEITA_REMOTO)
-  assertEquals(out.map((r) => r.label), ['Área', 'Tipo', 'Modelo', 'Skills'])
-  // O score derivado NÃO muda: a linha removida já contribuía 0.
-  assertEquals(somaMatched(out), somaMatched(REASONS_REAIS))
-  assertEquals(somaMatched(out), 75)
+
+  // MUDANÇA DELIBERADA (29/07). Antes a linha era REMOVIDA e o score ficava em
+  // 75 — a penalidade só tinha ficado invisível, e a vaga remota continuava
+  // tetando 15 pontos abaixo da mesma vaga na cidade da pessoa. Agora a
+  // dimensão conta como acerto, que é o "Esperado" literal do achado P1-5.
+  // 75 → 90. Se alguém "consertar" este número de volta, desfez a decisão.
+  assertEquals(out.map((r) => r.label), ['Área', 'Tipo', 'Localização', 'Modelo', 'Skills'])
+  const loc = out.find((r) => r.label === 'Localização')!
+  assertEquals(loc.matched, true)
+  assertEquals(loc.weight, 15)
+  assertEquals(loc.detail, 'Vaga remota — de onde você mora não pesa aqui.')
+  assertEquals(somaMatched(REASONS_REAIS), 75)
+  assertEquals(somaMatched(out), 90)
+})
+
+Deno.test('Modelo com weight 0 da IA recebe o peso cheio, não herda o zero', () => {
+  // A IA costuma mandar weight 0 quando considera a dimensão falha. Herdar isso
+  // consertava o texto e deixava o ponto para trás — era metade do defeito.
+  const rs: MatchReason[] = [
+    { label: 'Modelo', matched: false, weight: 0, detail: 'Você prefere remoto, mas a vaga é remoto.' },
+  ]
+  const out = reconcileRemoteReasons(rs, VAGA_REMOTA, ACEITA_REMOTO)
+  assertEquals(out[0].weight, 15)
+  assertEquals(somaMatched(out), 30) // Modelo 15 + Localização 15 inserida
+})
+
+Deno.test('Localização ausente é inserida (duas vagas remotas pontuam igual)', () => {
+  // 2.343 de 3.132 análises remotas trazem a linha; sem inserir, a mesma vaga
+  // pontuaria diferente só porque o modelo emitiu a dimensão numa e não noutra.
+  const semLocalizacao: MatchReason[] = [
+    { label: 'Área', matched: true, weight: 30, detail: 'bate.' },
+  ]
+  const out = reconcileRemoteReasons(semLocalizacao, VAGA_REMOTA, ACEITA_REMOTO)
+  assertEquals(out.map((r) => r.label), ['Área', 'Localização'])
+  assertEquals(somaMatched(out), 45)
+})
+
+Deno.test('rótulo sem acento ou em caixa alta não escapa da reconciliação', () => {
+  const rs: MatchReason[] = [
+    { label: 'LOCALIZACAO ', matched: false, weight: 0, detail: 'Eusébio, CE não está entre suas cidades.' },
+  ]
+  const out = reconcileRemoteReasons(rs, VAGA_REMOTA, ACEITA_REMOTO)
+  assertEquals(out.length, 1, 'não pode duplicar a dimensão')
+  assertEquals(out[0].matched, true)
+  assertEquals(somaMatched(out), 15)
 })
 
 Deno.test('corrige a frase que se contradiz ("prefere remoto, mas a vaga é remoto")', () => {
