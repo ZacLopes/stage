@@ -289,6 +289,26 @@ serve(withEdgeAnalytics('extract-job-skills', async (req) => {
       { global: { headers: { Authorization: req.headers.get('Authorization')! } } },
     )
 
+    // Cliente de SERVICE_ROLE só para o cache por vaga.
+    //
+    // `jobs_skill_extraction` nasceu (20260516000000) com RLS ligada e ZERO
+    // policies, e o comentário da migration diz a intenção: "acesso só via Edge
+    // Function (service_role)". Só que a function sempre usou o cliente do
+    // USUÁRIO (`authenticated`), então o SELECT nunca achava nada e o upsert
+    // falhava calado — o `.error` não era checado.
+    //
+    // Medido em 30/07: 0 linhas na tabela contra 276 extrações reais. O cache
+    // nunca funcionou desde maio, e cada abertura de vaga pagava uma chamada
+    // à OpenAI de novo.
+    //
+    // Service_role e não policy nova: a tabela é POR VAGA, não por usuário.
+    // Dar escrita ao `authenticated` deixaria qualquer um envenenar o cache de
+    // qualquer vaga.
+    const supabaseCache = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    )
+
     // 1. Auth
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
     if (authError || !user) return jsonResponse({ error: 'Unauthorized' }, 401)
@@ -338,7 +358,7 @@ serve(withEdgeAnalytics('extract-job-skills', async (req) => {
 
     // 4. Cache lookup (por job_id — skills da vaga são as mesmas pra qualquer user)
     const cacheCutoff = new Date(Date.now() - CACHE_TTL_DAYS * 86400_000).toISOString()
-    const { data: cachedRow } = await supabaseClient
+    const { data: cachedRow } = await supabaseCache
       .from('jobs_skill_extraction')
       .select('skills, computed_at, prompt_version')
       .eq('job_id', jobId)
@@ -426,13 +446,19 @@ serve(withEdgeAnalytics('extract-job-skills', async (req) => {
       extractedSkills = deduped
 
       // 6. Upsert cache + log
-      await supabaseClient.from('jobs_skill_extraction').upsert({
-        job_id: jobId,
-        skills: extractedSkills,
-        prompt_version: PROMPT_VERSION,
-        model_used: MODEL,
-        computed_at: new Date().toISOString(),
-      }, { onConflict: 'job_id' })
+      const { error: cacheErr } = await supabaseCache
+        .from('jobs_skill_extraction').upsert({
+          job_id: jobId,
+          skills: extractedSkills,
+          prompt_version: PROMPT_VERSION,
+          model_used: MODEL,
+          computed_at: new Date().toISOString(),
+        }, { onConflict: 'job_id' })
+      // Falha de cache não quebra a resposta, mas PRECISA aparecer: engolir o
+      // erro foi o que deixou 276 extrações pagas sem nenhum reaproveitamento.
+      if (cacheErr) {
+        console.error(`[extract-job-skills] cache write failed job=${jobId}: ${cacheErr.message}`)
+      }
 
       await supabaseClient.from('ai_generation_logs').insert({
         user_id: user.id,
