@@ -125,3 +125,4 @@
 20260722120000_backfill_trail_source.sql
 20260724120000_import_cache_cleanup_tautological.sql
 20260727120000_sync_display_name.sql
+20260729120000_app_config_match_prompt_version.sql
