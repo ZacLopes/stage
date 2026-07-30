@@ -22,6 +22,7 @@ import '../features/profile/domain/repositories/profile_repository.dart';
 import '../features/profile/domain/entities/entities.dart';
 import '../features/resume/resume_viewmodel.dart'
     show ResumeData, ExperienceItem, ToolWithLevel;
+import '../core/utils/brazil_phone_formatter.dart';
 
 class ProfileSnapshot {
   final PersonalInfo? personal;
@@ -217,9 +218,13 @@ class ProfileSnapshot {
     final cc = (p?.phoneCountryCode ?? '').trim();
     final number = (p?.phoneNumber ?? '').trim();
     if (cc.isNotEmpty && number.isNotEmpty) {
-      phone = '$cc $number';
+      // Formatado, não concatenado. A concatenação crua era a origem do
+      // "+55 11987650143" que aparecia na PRÉVIA do CV adaptado enquanto o
+      // PDF já saía "(11) 98765-0143" — o mesmo dado em dois formatos, e o
+      // achado P2-25 pede os dois consertados, não só o PDF.
+      phone = BrazilPhoneFormatter.formatForDocument('$cc $number');
     } else if (number.isNotEmpty) {
-      phone = number;
+      phone = BrazilPhoneFormatter.formatForDocument(number);
     }
     if (phone.trim().isEmpty) phone = (userFallbackPhone ?? '').trim();
 

@@ -20,6 +20,7 @@ import '../../utils/onboarding_input_decoration.dart';
 import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import '../preferences/desired_titles_screen.dart';
+import '../../../../core/widgets/inputs/step_slider_edge_label.dart';
 
 const _kBorderColor = AppColors.border;
 const _kLabelColor = AppColors.textTertiary;
@@ -941,7 +942,7 @@ class _StepSliderBlock extends StatelessWidget {
                 // a tela mostrava "1º semestre … 1º semestre … 12º semestre".
                 // Lia-se como defeito. Revisão UX 28/07, achado P3-36.
                 Text(
-                  '$min',
+                  stepSliderEdgeLabel(min),
                   style: const TextStyle(
                     color: _kLabelColor,
                     fontSize: 12,
@@ -969,7 +970,7 @@ class _StepSliderBlock extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  '$max',
+                  stepSliderEdgeLabel(max),
                   style: const TextStyle(
                     color: _kLabelColor,
                     fontSize: 12,

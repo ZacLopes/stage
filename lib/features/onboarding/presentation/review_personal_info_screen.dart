@@ -12,6 +12,7 @@ import '../../profile/domain/entities/entities.dart';
 import '../../profile/presentation/widgets/personal_info_form.dart';
 import 'onboarding_scaffold.dart';
 import 'review_resume_screen.dart';
+import '../utils/name_validation.dart';
 
 class ReviewPersonalInfoScreen extends StatefulWidget {
   const ReviewPersonalInfoScreen({super.key});
@@ -43,8 +44,10 @@ class _ReviewPersonalInfoScreenState extends State<ReviewPersonalInfoScreen> {
   bool get _canContinue {
     final d = _draft;
     return d != null &&
-        (d.firstName?.trim().isNotEmpty ?? false) &&
-        (d.lastName?.trim().isNotEmpty ?? false) &&
+        // Mesmo piso das telas de nome do wizard: `isNotEmpty` deixava passar
+        // uma letra, e daqui o nome vai direto pro cabeçalho do currículo.
+        isValidOnboardingName(d.firstName ?? '') &&
+        isValidOnboardingName(d.lastName ?? '') &&
         ContactEmail.isUsable(d.email) &&
         _emailFieldValid;
   }
