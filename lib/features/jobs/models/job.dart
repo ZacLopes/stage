@@ -282,11 +282,31 @@ class Job {
       r'^banco\s+de\s+talentos\b[\s\-–—:]*',
       r'^(est[áa]gio|vagas?)\s+(?=\S)',
     ];
+    var removeuPrefixo = false;
     for (final p in patterns) {
+      final antes = s;
       s = s.replaceFirst(RegExp(p, caseSensitive: false), '').trim();
+      if (s != antes) removeuPrefixo = true;
     }
     // Ano solto no fim ("… Anbima 2026") é do processo, não da empresa.
     s = s.replaceFirst(RegExp(r'[\s\-–—]*\b20\d{2}\b\s*$'), '').trim();
+
+    // Faxina do que o prefixo deixou para trás. SÓ quando um prefixo saiu —
+    // senão estropiaria nome legítimo ("de Souza Consultoria" viraria "Souza
+    // Consultoria", "- Acme" perderia um traço que é do nome).
+    //
+    // Medido em prod (30/07), a versão sem esta etapa devolvia:
+    //   "Estágio | Pif Paf Alimentos"           → "| Pif Paf Alimentos"
+    //   "Programa de Estágio 2026 - Grupo Solví" → "2026 - Grupo Solví"
+    //   "Programa de Estágio da PUCPR"           → "da PUCPR"
+    if (removeuPrefixo) {
+      // Ano no INÍCIO: o corte acima é ancorado em `$` e não pega este caso.
+      s = s.replaceFirst(RegExp(r'^[\s\-–—|:/]*\b20\d{2}\b'), '').trim();
+      // Separador órfão que ligava o prefixo ao nome.
+      s = s.replaceFirst(RegExp(r'^[\s\-–—|:/•]+'), '').trim();
+      // Conectivo que sobrou de "Programa de Estágio DA PUCPR".
+      s = s.replaceFirst(RegExp(r'^(d[aeo]s?)\s+', caseSensitive: false), '').trim();
+    }
 
     // Sobrou pouco demais? O prefixo provavelmente ERA o nome. Volta ao cru.
     if (s.length < 2) return raw.trim();

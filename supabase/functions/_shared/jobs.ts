@@ -686,6 +686,54 @@ export interface CompanyExtra {
  * (com prefixo de origem, ex: `greenhouse:inter`, `gupy:nubank`, `brz:hotmart`).
  * Retorna company_id ou null em erro.
  */
+/**
+ * Tira do nome da empresa o prefixo de TIPO DE VAGA que alguns ATSs carimbam
+ * nele — "Estágio M. Dias Branco", "Programa de Estágio - Santa Casa BH".
+ *
+ * Gêmeo em TypeScript de `Job.cleanCompanyName`
+ * (lib/features/jobs/models/job.dart). Duas implementações porque são runtimes
+ * diferentes; o CONTRATO é a tabela de casos, compartilhada byte a byte entre
+ * `jobs.test.ts` e `job_text_normalization_test.dart`. Duas implementações de
+ * uma regra só divergem quando a tabela não é a mesma.
+ *
+ * Conservador de propósito: só remove prefixo ancorado no início e devolve o
+ * cru se sobrar pouco demais. "Programa UTalent" (marca legítima) passa intacta.
+ *
+ * ONDE isso é chamado importa (medido em 30/07): a limpeza acontece no PAYLOAD,
+ * depois de o caller ter montado o slug e rodado `isCompanyNameBlacklisted`.
+ * Limpar ANTES quebraria os dois: 2 chamadores derivam o slug do nome, e a
+ * blacklist casa o nome CRU — "Programa de Estágio e Aprendiz 2026" limpo vira
+ * "e Aprendiz" e escapa de `/^programa de estagio e aprendiz \d+$/i`.
+ */
+export function cleanCompanyName(raw: string): string {
+  let s = String(raw ?? "").trim();
+  if (!s) return s;
+
+  const patterns = [
+    /^programa\s+de\s+(est[áa]gio|trainees?|talentos)\b[\s\-–—:]*/i,
+    /^banco\s+de\s+talentos\b[\s\-–—:]*/i,
+    /^(est[áa]gio|vagas?)\s+(?=\S)/i,
+  ];
+  let removeuPrefixo = false;
+  for (const p of patterns) {
+    const antes = s;
+    s = s.replace(p, "").trim();
+    if (s !== antes) removeuPrefixo = true;
+  }
+  s = s.replace(/[\s\-–—]*\b20\d{2}\b\s*$/, "").trim();
+
+  // Faxina do que o prefixo deixou para trás. SÓ quando um prefixo saiu —
+  // senão estropiaria nome legítimo ("de Souza Consultoria" perderia o "de").
+  if (removeuPrefixo) {
+    s = s.replace(/^[\s\-–—|:/]*\b20\d{2}\b/, "").trim();
+    s = s.replace(/^[\s\-–—|:/•]+/, "").trim();
+    s = s.replace(/^(d[aeo]s?)\s+/i, "").trim();
+  }
+
+  if (s.length < 2) return String(raw ?? "").trim();
+  return s;
+}
+
 export async function getOrCreateCompany(
   supabase: SupabaseClient,
   fullSlug: string,
@@ -695,7 +743,9 @@ export async function getOrCreateCompany(
 ): Promise<string | null> {
   const payload: Record<string, unknown> = {
     slug: fullSlug,
-    name: displayName,
+    // Limpo AQUI, não no caller: o slug já foi montado e a blacklist já rodou
+    // sobre o nome cru (ver doc de `cleanCompanyName`).
+    name: cleanCompanyName(displayName),
     source,
   };
   if (extra?.logo_url !== undefined) payload.logo_url = extra.logo_url;

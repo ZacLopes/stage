@@ -33,6 +33,7 @@ import {
 // perfil. Quando retorna null, fall through pro código v1 abaixo.
 import { handleAdaptV2 } from './v2.ts'
 import { experienceClaimMessage, findUnsupportedExperienceClaims } from './experience_claim.ts'
+import { cleanCompanyName } from '../_shared/jobs.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -2521,7 +2522,12 @@ serve(async (req) => {
     const jobRow = jobR.data
     const job: JobContext = {
       title: String(jobRow.title ?? ''),
-      company: String(jobRow.companies?.name ?? ''),
+      // Limpo aqui também: as linhas gravadas ANTES do conserto no ingest
+      // seguem sujas no banco, e este objeto alimenta o prompt do v1 E do v2
+      // (`Empresa: ${job.company}`). Sem isto, o modelo que escreve o CV
+      // adaptado continua lendo "Estágio M. Dias Branco". Limpar o já limpo é
+      // no-op por construção — há teste de idempotência.
+      company: cleanCompanyName(String(jobRow.companies?.name ?? '')),
       area: String(jobRow.area ?? ''),
       jobType: String(jobRow.job_type ?? ''),
       workModel: String(jobRow.work_model ?? ''),
