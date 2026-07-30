@@ -32,6 +32,7 @@ import {
 // Decisão v1/v2 acontece em handleAdaptV2 via feature flag + presença do
 // perfil. Quando retorna null, fall through pro código v1 abaixo.
 import { handleAdaptV2 } from './v2.ts'
+import { experienceClaimMessage, findUnsupportedExperienceClaims } from './experience_claim.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1651,6 +1652,26 @@ function validateAdaptation(input: InputResume, parsed: any, job?: JobContext): 
         `input tinha ${input.experiences.length} experiência(s) mas output está vazio`,
       )
     }
+  }
+  // O sentido INVERSO — perfil vazio recebendo experiência — não era checado em
+  // lugar nenhum deste caminho, e a auditoria de 29/07 mediu que foi por AQUI
+  // que saíram os currículos com cargo inventado (o v2 já barrava pela
+  // checagem 2). O v1 roda quando a flag não pega o usuário ou quando
+  // `loadProfileV2` devolve null — ou seja, justamente o perfil magro, que é a
+  // população do defeito.
+  const invented = findUnsupportedExperienceClaims(
+    Array.isArray(input.experiences) ? input.experiences.length : 0,
+    r.summary,
+    Array.isArray(r.experiences) ? r.experiences.length : 0,
+  )
+  if (invented.length > 0) {
+    throw new ValidationError(
+      invented[0].field,
+      experienceClaimMessage(
+        invented[0],
+        Array.isArray(input.experiences) ? input.experiences.length : 0,
+      ),
+    )
   }
   if (Array.isArray(input.education) && input.education.length > 0) {
     if (!Array.isArray(r.education) || r.education.length === 0) {

@@ -96,6 +96,8 @@ import { captureEvent, trackAIGeneration } from '../_shared/posthog.ts'
 // v17-v2: injeta `language` no resume_data output (fix mistura PT/EN no PDF).
 // v16-v2: prompt v2 baseline com preservação de Languages/Tools/Education
 // detalhada (gpa, majors, minors, activities, linkedin, streetAddress).
+import { experienceClaimMessage, findUnsupportedExperienceClaims } from './experience_claim.ts'
+
 export const PROMPT_VERSION_V2 = 'v27-v2'
 export const MODEL_V2_DRAFT = 'gpt-4o-mini'
 export const MODEL_V2_REFINE = 'gpt-4o'
@@ -1795,34 +1797,16 @@ export function validateAdaptationV2(
  * exatamente o que um CV de estudante deve dizer.
  */
 function assertSummaryDoesNotClaimExperience(input: InputResumeV2, r: any): void {
-  if (input.experiences.length > 0) return
-
-  const flat = String(r?.summary ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // tira acentos: "experiência" → "experiencia"
-    .toLowerCase()
-  if (flat.length === 0) return
-
-  // Afirmações de experiência, PT e EN (o output pode sair nas duas línguas).
-  const claimRe =
-    /\bexperiencias?\s+(?:em|com|na|no|de)\b|\bexperience\s+(?:in|with|at)\b|\bexperienced\s+in\b|\banos?\s+de\s+experiencia\b|\byears?\s+of\s+experience\b|\batuacao\s+(?:em|como|na|no)\b|\bvivencia\s+(?:em|com|na|no)\b/g
-
-  // Contexto imediatamente antes que torna a menção legítima (busca/ausência).
-  const mitigatorRe =
-    /(?:buscando|busco|buscar|em busca de|procurando|procuro|ganhar|adquirir|conquistar|primeira|sem|nenhuma|oportunidade de|seeking|looking for|to gain|gain|first|without|no prior|opportunity to)\s*$/
-
-  for (const m of flat.matchAll(claimRe)) {
-    const idx = m.index ?? 0
-    const before = flat.slice(Math.max(0, idx - 40), idx)
-    if (mitigatorRe.test(before)) continue
-    throw new ValidationErrorV2(
-      'summary',
-      `summary alega experiência profissional inexistente ("${m[0].trim()}") ` +
-        `mas o perfil tem 0 experiences. Reescreva como conhecimento/formação ` +
-        `(ex.: "com conhecimento em", "familiaridade com") ou como objetivo ` +
-        `("buscando experiência em"), nunca como experiência já vivida.`,
-    )
-  }
+  const claims = findUnsupportedExperienceClaims(
+    input.experiences.length,
+    r?.summary,
+    Array.isArray(r?.experiences) ? r.experiences.length : 0,
+  )
+  if (claims.length === 0) return
+  throw new ValidationErrorV2(
+    claims[0].field,
+    experienceClaimMessage(claims[0], input.experiences.length),
+  )
 }
 
 // ────────────────────────────────────────────────────────────────────────────
