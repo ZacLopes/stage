@@ -12,11 +12,11 @@ import 'application/profile_gaps.dart';
 import '../../services/profile_snapshot_service.dart' show ProfileSnapshot;
 import '../home/home_viewmodel.dart';
 import '../resume/widgets/general_resume_card.dart';
-import '../resume/widgets/import_cv_button.dart';
 import '../../services/feature_flags_service.dart';
 import '../settings/settings_screen.dart';
 import 'resume_detail_screen.dart';
 import 'presentation/widgets/imported_source_card.dart';
+import 'presentation/widgets/library_import_entry.dart';
 import 'presentation/widgets/personal_info_form.dart';
 import 'presentation/widgets/preferences_tab.dart';
 import 'presentation/widgets/profile_section_list.dart';
@@ -410,44 +410,13 @@ class _ResumesTabState extends State<_ResumesTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (showImport) _buildImportEntry(),
+        if (showImport)
+          LibraryImportEntry(
+            onImported: (id) =>
+                context.read<HomeViewModel>().requestProfileHighlight(id),
+          ),
         Expanded(child: _buildLibrary(highlightId, assistEnabled)),
       ],
-    );
-  }
-
-  /// Porta de import — o botão + a promessa honesta do que ele faz.
-  Widget _buildImportEntry() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ImportCvButton(
-            variant: ImportCvVariant.secondary,
-            analyticsSource: 'profile_resumes',
-            onImported: (id) {
-              if (id == null) return;
-              context.read<HomeViewModel>().requestProfileHighlight(id);
-            },
-          ),
-          const SizedBox(height: 8),
-          // A copy tem que dizer o que o import FAZ, senão trocamos um defeito
-          // por uma promessa falsa. `save_profile_from_json` é fill-empty por
-          // contrato (migration 20260714130000): seção que já tem dado vira
-          // `preserved`. Quem sobe um CV com o emprego novo e espera ver o
-          // perfil mudar sozinho sai frustrado. O que muda de fato é o arquivo
-          // guardado e o texto que alimenta o match.
-          Text(
-            'Guardo o arquivo e uso no seu match. O que já está preenchido no '
-            'perfil não é sobrescrito — só as seções vazias podem ser '
-            'preenchidas.',
-            style: AppTextStyles.bodySm.copyWith(
-              color: AppColors.textTertiary,
-            ),
-          ),
-        ],
-      ),
     );
   }
 

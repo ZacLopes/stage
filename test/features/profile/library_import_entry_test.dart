@@ -1,9 +1,12 @@
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:career_gamification/features/profile/presentation/widgets/library_import_entry.dart';
 import 'package:career_gamification/features/profile/profile_screen.dart'
     show shouldShowLibraryImportEntry;
+import 'package:career_gamification/features/resume/widgets/import_cv_button.dart';
 
 /// A porta de importar CV em Perfil → Currículos.
 ///
@@ -41,7 +44,54 @@ void main() {
     });
   });
 
-  group('a fiação na tela — o que a tabela-verdade sozinha não pega', () {
+  group('LibraryImportEntry — renderiza de verdade', () {
+    Future<void> pump(
+      WidgetTester tester, {
+      double largura = 402,
+      double escala = 1.0,
+    }) async {
+      tester.view.physicalSize = Size(largura, 850);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MediaQuery(
+          data: MediaQueryData(textScaler: TextScaler.linear(escala)),
+          child: const MaterialApp(
+            home: Scaffold(body: LibraryImportEntry()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('mostra o botão e a promessa', (tester) async {
+      await pump(tester);
+      expect(find.byType(ImportCvButton), findsOneWidget);
+      expect(find.text('Importar CV em PDF'), findsOneWidget);
+      expect(find.text(kLibraryImportEntryCopy), findsOneWidget);
+    });
+
+    testWidgets('a promessa diz que o import NÃO sobrescreve', (tester) async {
+      // `save_profile_from_json` é fill-empty por contrato (migration
+      // 20260714130000). Sem a frase, devolver o botão trocaria um defeito
+      // por uma promessa falsa: a pessoa sobe o CV com o emprego novo e o
+      // perfil não muda.
+      expect(kLibraryImportEntryCopy, contains('não é sobrescrito'));
+      await pump(tester);
+      expect(find.textContaining('não é sobrescrito'), findsOneWidget);
+    });
+
+    testWidgets('320pt + fonte de acessibilidade: não estoura', (tester) async {
+      // A tela mais estreita que o app suporta, com a fonte no talo — a mesma
+      // condição do achado P1-10 desta revisão, que foi justamente um título
+      // estourando por falta desse teste.
+      await pump(tester, largura: 320, escala: 2.0);
+      expect(tester.takeException(), isNull);
+      expect(find.byType(ImportCvButton), findsOneWidget);
+    });
+  });
+
+  group('a fiação na tela — o que o render sozinho não pega', () {
     late String codigo;
 
     setUpAll(() {
@@ -49,7 +99,7 @@ void main() {
           .readAsStringSync();
       // Fora TODO comentário (`//` e `///`): o texto deles cita nomes de
       // símbolo — inclusive o aviso que explica por que a porta fica fora do
-      // Consumer — e daria falso positivo em todas as asserções abaixo.
+      // Consumer — e daria falso positivo nas asserções abaixo.
       codigo = src
           .split('\n')
           .where((l) => !l.trimLeft().startsWith('//'))
@@ -57,43 +107,43 @@ void main() {
     });
 
     test('a tela monta a porta e usa o predicado', () {
-      expect(codigo, contains('ImportCvButton('),
+      expect(codigo, contains('LibraryImportEntry('),
           reason: 'a porta sumiu da tela');
       expect(codigo, contains('shouldShowLibraryImportEntry('),
           reason: 'a tela deixou de consultar o predicado');
     });
 
     test('a porta fica FORA do Consumer<ProfileViewModel>', () {
-      // ESTA é a asserção que importa, e é o motivo deste arquivo existir.
+      // ESTA é a asserção que importa, e é o motivo deste bloco existir.
       //
       // O builder do Consumer troca a subárvore por um spinner quando
       // `isLoading` — e o próprio import liga esse `isLoading` (`saveResume`
       // chama `loadSavedResumes()`, que notifica ANTES do await de rede). Com
-      // o botão lá dentro, o `_ImportCvButtonState` sofre dispose no meio do
+      // a porta lá dentro, o `_ImportCvButtonState` sofre dispose no meio do
       // fluxo que ele mesmo disparou: `context.mounted` vira false, o
       // `imported_resume.raw_text` nunca é gravado, e o analyze-match segue
       // pontuando o currículo VELHO — com o arquivo novo visível na lista.
       //
-      // Ou seja: mover a porta para dentro do builder não quebra nada
-      // visivelmente. Quebra em silêncio. Por isso o teste lê o SOURCE: o
-      // `ImportCvButton` abre file picker e o `ProfileEditorViewModel` toca
-      // Supabase no construtor, então widget test não é possível aqui.
+      // Ou seja: aninhar a porta no builder não quebra nada visivelmente.
+      // Quebra em silêncio. Por isso a asserção é sobre o SOURCE: a tela não
+      // monta em widget test (`_ResumesTab` lê `Supabase.instance.client`
+      // direto no build).
       //
       // Recorta o corpo de `_buildLibrary` — do cabeçalho até o próximo método
-      // da classe — e afirma que a porta não está lá dentro. Recortar o método
-      // em vez de comparar posições absolutas deixa o teste indiferente à
-      // ORDEM em que os métodos aparecem: reordenar não é o defeito, aninhar é.
+      // da classe — em vez de comparar posições absolutas, para o teste ficar
+      // indiferente à ORDEM dos métodos: reordenar não é o defeito, aninhar é.
       const cabecalho = 'Widget _buildLibrary(';
       final inicio = codigo.indexOf(cabecalho);
       expect(inicio, greaterThan(-1), reason: '_buildLibrary sumiu');
       final depois = codigo.indexOf('\n  Widget ', inicio + cabecalho.length);
-      final corpo =
-          depois == -1 ? codigo.substring(inicio) : codigo.substring(inicio, depois);
+      final corpo = depois == -1
+          ? codigo.substring(inicio)
+          : codigo.substring(inicio, depois);
 
       expect(corpo, contains('Consumer<ProfileViewModel>'),
           reason: 'o recorte não pegou o método certo');
       expect(
-        corpo.contains('ImportCvButton('),
+        corpo.contains('LibraryImportEntry('),
         isFalse,
         reason: 'a porta de import voltou para DENTRO do '
             'Consumer<ProfileViewModel> — ela será desmontada pelo spinner '
@@ -101,17 +151,13 @@ void main() {
       );
     });
 
-    test('a copy diz que o import NÃO sobrescreve o que já existe', () {
-      // `save_profile_from_json` é fill-empty por contrato (migration
-      // 20260714130000): seção que já tem dado vira `preserved`. Sem essa
-      // frase, restaurar o botão troca um defeito por uma promessa falsa.
-      expect(codigo, contains('não é sobrescrito'));
-    });
-
     test('o evento de import sai identificando a porta', () {
       // Sem a prop, os 4 call sites emitem o mesmo evento indistinguível e
       // não há como responder "a porta nova foi usada?".
-      expect(codigo, contains("analyticsSource: 'profile_resumes'"));
+      final entry =
+          File('lib/features/profile/presentation/widgets/library_import_entry.dart')
+              .readAsStringSync();
+      expect(entry, contains("analyticsSource: 'profile_resumes'"));
     });
   });
 }
