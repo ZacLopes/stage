@@ -47,7 +47,7 @@ class _ResumeTemplateSelectorState extends State<ResumeTemplateSelector> {
       description:
           'Padrão de tecnologia e engenharia. Enxuto, direto, sem enfeite.',
       ats: 'Alta',
-      style: 'Serif clássico, denso e elegante',
+      style: 'Com serifa, clássico e denso',
       color: AppColors.textPrimary,
     ),
     _TemplateMeta(
@@ -55,9 +55,9 @@ class _ResumeTemplateSelectorState extends State<ResumeTemplateSelector> {
       name: 'Forte Foundation',
       thumbnail: 'assets/images/templates/forte_foundation.png',
       description:
-          'Padrão internacional para banking, consultoria e MBA. Datas alinhadas à direita, GPA prominente.',
+          'Formato conservador, usado por bancos e consultorias. Datas alinhadas à direita e a nota do seu curso em destaque.',
       ats: 'Alta',
-      style: 'Times serif, conservador',
+      style: 'Times com serifa, conservador',
       color: Color(0xFF0B2A4A),
     ),
     _TemplateMeta(
@@ -65,9 +65,9 @@ class _ResumeTemplateSelectorState extends State<ResumeTemplateSelector> {
       name: 'One-Page Compact',
       thumbnail: 'assets/images/templates/one_page_compact.png',
       description:
-          'Garantido em 1 página, sans-serif moderno. Otimizado para estudantes com 1-3 experiências.',
+          'Cabe sempre em 1 página, com letra sem serifa. Feito pra quem tem de 1 a 3 experiências.',
       ats: 'Alta',
-      style: 'Sans-serif moderno, compacto',
+      style: 'Sem serifa, compacto',
       color: AppColors.textPrimary,
     ),
     _TemplateMeta(
@@ -75,9 +75,9 @@ class _ResumeTemplateSelectorState extends State<ResumeTemplateSelector> {
       name: 'Cobalt Modern',
       thumbnail: 'assets/images/templates/cobalt_modern.png',
       description:
-          'Layout 2 colunas com sidebar de contato/skills, cor de destaque azul cobalt. Ideal pra design, marketing, tech e candidatos que querem se diferenciar visualmente.',
+          'Duas colunas: contato e habilidades ficam numa faixa lateral azul. Boa pra design, marketing e tecnologia, ou pra quem quer se destacar visualmente.',
       ats: 'Média-Alta',
-      style: 'Sans-serif moderno (Inter), 2 colunas, accent azul',
+      style: 'Sem serifa (Inter), 2 colunas, destaque em azul',
       color: AppColors.primary,
     ),
   ];
@@ -302,6 +302,11 @@ class _TemplateMeta {
   final String name;
   final String thumbnail;
   final String description;
+  /// ⚠️ [ats] e [style] NÃO são renderizados por nenhum widget deste arquivo —
+  /// só `name`, `description`, `thumbnail` e `color` chegam à tela. Ficam
+  /// porque descrevem o modelo pra quem lê o código (R6: legado congela, não
+  /// se deleta), mas por isso mesmo não adianta caprichar neles achando que
+  /// alguém lê: a copy que o público vê é `description`.
   final String ats;
   final String style;
   final Color color;
