@@ -70,8 +70,27 @@ void main() {
         }).requirements;
 
     test('tira hífen digitado pelo recrutador', () {
-      expect(reqsOf(['- Lembre-se que podemos te ligar']),
-          ['Lembre-se que podemos te ligar']);
+      // A fixture era "- Lembre-se que podemos te ligar", string real de 7
+      // vagas em produção. Ela deixou de servir aqui porque agora o pipeline
+      // DESCARTA esse item — é despedida, não requisito (caso abaixo). O que
+      // este teste tem que provar é só o hífen.
+      expect(reqsOf(['- Cursando a partir do 5º semestre']),
+          ['Cursando a partir do 5º semestre']);
+    });
+
+    test('despedida do recrutador não vira requisito nem benefício', () {
+      // As duas frases são literais de produção: aparecem em 7 vagas cada,
+      // dentro do array de `benefits`, e a UI as desenhava como chip de
+      // benefício e item numerado de requisito.
+      expect(
+        reqsOf([
+          '- Lembre-se que também podemos te fazer uma ligação, podendo ser '
+              'principalmente com o DDD 85.',
+          'Desejamos uma ótima seleção para você!',
+          'Vale refeição',
+        ]),
+        ['Vale refeição'],
+      );
     });
 
     test('tira o bullet que veio de <li> e o ponto-e-vírgula final', () {

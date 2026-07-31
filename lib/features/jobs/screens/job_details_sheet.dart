@@ -5,6 +5,7 @@ import 'package:flutter_html/flutter_html.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/job.dart';
+import '../utils/job_content_sanitizer.dart';
 import '../utils/match_band.dart';
 import '../utils/match_score.dart';
 import '../jobs_viewmodel.dart';
@@ -1037,14 +1038,15 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
     s = s.replaceAll(RegExp(r"""\s+data-[a-z\-]+\s*=\s*'[^']*'""", caseSensitive: false), '');
     s = s.replaceAll(RegExp(r'''\s+on[a-z]+\s*=\s*"[^"]*"''', caseSensitive: false), '');
 
-    // 3+ <br> seguidos viram 2 (preserva separação intencional sem buraco).
-    s = s.replaceAll(RegExp(r'(\s*<br\s*/?>\s*){3,}', caseSensitive: false), '<br><br>');
-
-    // <p></p> e <span></span> vazios — colapsa.
-    s = s.replaceAll(RegExp(r'<p>\s*</p>', caseSensitive: false), '');
+    // <span></span> vazio — colapsa.
     s = s.replaceAll(RegExp(r'<span>\s*</span>', caseSensitive: false), '');
 
-    return s.trim();
+    // P2-17: a regra antiga era "3+ <br> viram 2" e "<p></p> some", e nenhuma
+    // das duas pegava o que o ATS realmente manda. O editor de texto do
+    // recrutador produz <p>&nbsp;</p>, <p><span>&nbsp;</span></p> e <p><br></p>
+    // — parágrafos COM conteúdo, invisíveis, cada um ocupando altura de linha
+    // mais margem. Seis seguidos são um buraco de tela inteira.
+    return collapseEmptyHtmlBlocks(s);
   }
 
   Widget _buildJobHtml({required String html, required String fallbackPlain}) {

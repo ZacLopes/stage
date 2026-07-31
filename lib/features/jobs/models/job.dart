@@ -1,4 +1,5 @@
 import 'company.dart';
+import '../utils/job_content_sanitizer.dart';
 
 class Job {
   final String id;
@@ -167,15 +168,18 @@ class Job {
     // Parse requirements and benefits arrays (strip HTML defensively).
     // `_stripListItemMarker` tira o marcador que veio do ATS — a UI desenha
     // o próprio ✓/número e os dois juntos viravam "✓ - item" / "✓ • item".
+    // `isClosingPleasantry` tira a despedida que o ATS empilha no MESMO array
+    // — "Desejamos uma ótima seleção para você!" saía numerado junto com os
+    // requisitos de verdade (P2-17).
     final requirements = _parseStringList(json['requirements'])
         .map(_stripHtml)
         .map(_stripListItemMarker)
-        .where((s) => s.isNotEmpty)
+        .where((s) => s.isNotEmpty && !isClosingPleasantry(s))
         .toList();
     final benefits = _parseStringList(json['benefits'])
         .map(_stripHtml)
         .map(_stripListItemMarker)
-        .where((s) => s.isNotEmpty)
+        .where((s) => s.isNotEmpty && !isClosingPleasantry(s))
         .toList();
 
     // description: texto plano (já vem stripped do backend) — usado em
