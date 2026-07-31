@@ -73,7 +73,7 @@ void main() {
     )));
 
     expect(find.textContaining('1 duplicata equivalente foi agrupada'), findsOneWidget);
-    expect(find.text('2/12'), findsOneWidget);
+    expect(find.text('2 de 12'), findsOneWidget);
     await tester.tap(find.widgetWithText(ElevatedButton, 'Salvar'));
     await tester.pump();
     expect(saved, const ['Comunicação', 'Excel']);
@@ -91,7 +91,7 @@ void main() {
       onSave: (items) => saved = items,
     )));
 
-    expect(find.text('13/12'), findsOneWidget);
+    expect(find.text('13 de 12'), findsOneWidget);
     expect(find.text('Remova 1 para salvar.'), findsOneWidget);
     expect(
       tester.widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Salvar')).onPressed,
@@ -101,7 +101,7 @@ void main() {
     // O primeiro X fecha o modal; o segundo remove "Skill 1".
     await tester.tap(find.byIcon(Icons.close_rounded).at(1));
     await tester.pump();
-    expect(find.text('12/12'), findsOneWidget);
+    expect(find.text('12 de 12'), findsOneWidget);
     await tester.tap(find.widgetWithText(ElevatedButton, 'Salvar'));
     await tester.pump();
     expect(saved, hasLength(12));
