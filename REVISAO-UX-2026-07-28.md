@@ -14,8 +14,20 @@ pelo app. ⚠️ **Pasta NÃO versionada** (21 MB de PNG; está no `.gitignore`)
 na máquina onde a revisão rodou — os nomes de arquivo citados abaixo servem para localizar a
 evidência lá, e para quem repetir a revisão saber o que capturar.
 
-**Sobre "afeta usuário hoje":** a build da App Store é `d3ee037` (2.5.0+10, 22/06). Cada achado abaixo
-diz se o código já está nessa build (**LIVE**) ou se é **PRÉ-RELEASE**.
+**Sobre "afeta usuário hoje":** cada achado abaixo diz se o código já está na build publicada
+(**LIVE**) ou se é **PRÉ-RELEASE**.
+
+> ⚠️ **Correção de 31/07/2026 — a build publicada NÃO é a 2.5.0.** Esta linha dizia
+> "a build da App Store é `d3ee037` (2.5.0+10, 22/06)". É falso, e eu nunca tinha
+> conferido. O lookup público da App Store (`itunes.apple.com/lookup?id=6755893277`)
+> devolve **versão 2.4.0, no ar desde 16/06/2026** — commit `37edebc`. A 2.5.0 (+8/+9/+10)
+> só existiu em TestFlight e no simulador: 12 usuários no total contra 346 da 2.4.0 em
+> `app_cold_start`.
+>
+> Isso **não muda a gravidade de nenhum achado**, inclusive do P0 do consentimento de IA
+> — o buraco existe igual na 2.4.0 (`AiConsentModal` na árvore, zero call sites). Muda o
+> artefato citado, não o dano. Mas quem for reproduzir um achado precisa saber contra qual
+> build.
 
 ---
 
