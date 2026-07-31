@@ -127,3 +127,4 @@
 20260727120000_sync_display_name.sql
 20260729120000_app_config_match_prompt_version.sql
 20260730210228_seed_match_prompt_version_v14.sql
+20260731120000_seed_cv_import_entry_kill_switch.sql

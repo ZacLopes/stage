@@ -823,8 +823,17 @@ class AnalyticsService {
   }
 
   // ── CV / Resume ─────────────────────────────────────────────────────
-  /// Upload de CV iniciado no onboarding (file picker confirmado).
-  Future<void> cvImportStarted() => track(evOnboardingCvUploadStarted);
+  /// Upload de CV iniciado (file picker confirmado).
+  ///
+  /// [source] diz de QUAL porta o import partiu. Sem ele os 4 call sites
+  /// emitiam o mesmo evento indistinguível, e não havia como responder "a
+  /// porta nova foi usada?" — a única medição possível seria uma query
+  /// point-in-time no banco, que atrasa o sinal. Opcional para não tocar os
+  /// call sites existentes (R6).
+  Future<void> cvImportStarted({String? source}) => track(
+        evOnboardingCvUploadStarted,
+        props: source == null ? null : {'source': source},
+      );
 
   /// Upload de CV concluído. `extractedChars` indica quanto texto foi
   /// extraído do PDF antes do parse-cv estruturado (B.7) entrar.

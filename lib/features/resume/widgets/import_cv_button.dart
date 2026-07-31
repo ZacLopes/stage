@@ -34,11 +34,17 @@ class ImportCvButton extends StatefulWidget {
   final ImportCvVariant variant;
   final String label;
 
+  /// Qual PORTA do app disparou o import ('profile_resumes', 'adapt_sheet'…).
+  /// Vai como prop do evento de telemetria. Opcional — sem ele o evento sai
+  /// como sempre saiu.
+  final String? analyticsSource;
+
   const ImportCvButton({
     super.key,
     this.onImported,
     this.variant = ImportCvVariant.primary,
     this.label = 'Importar CV em PDF',
+    this.analyticsSource,
   });
 
   @override
@@ -55,7 +61,10 @@ class _ImportCvButtonState extends State<ImportCvButton> {
     HapticFeedback.lightImpact();
     setState(() => _busy = true);
 
-    final result = await CvImportService.pickAndImport(context);
+    final result = await CvImportService.pickAndImport(
+      context,
+      analyticsSource: widget.analyticsSource,
+    );
     if (!mounted) return;
     setState(() => _busy = false);
 

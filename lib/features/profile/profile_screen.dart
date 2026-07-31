@@ -12,6 +12,7 @@ import 'application/profile_gaps.dart';
 import '../../services/profile_snapshot_service.dart' show ProfileSnapshot;
 import '../home/home_viewmodel.dart';
 import '../resume/widgets/general_resume_card.dart';
+import '../resume/widgets/import_cv_button.dart';
 import '../../services/feature_flags_service.dart';
 import '../settings/settings_screen.dart';
 import 'resume_detail_screen.dart';
@@ -69,6 +70,33 @@ List<SavedResume> filterLibraryResumes(
     return true;
   }).toList();
 }
+
+/// A porta de importar CV aparece em Perfil → Currículos?
+///
+/// Existe porque, no código de hoje, quem tem perfil preenchido ficou SEM
+/// nenhum caminho para subir um currículo. Três coisas se somaram: o card de
+/// import saiu da 3ª aba (que virou o Assistente); o clipe 📎 do chat só
+/// renderiza em `ChatPhase.gate`, e o gate só acontece com o perfil totalmente
+/// vazio (`trilha_chat_controller.dart:866-869`); e o substituto em
+/// Perfil → Dados está atrás de `trilha_assist_v1`, que está OFF em produção
+/// (`imported_source_card.dart:177`). Medido: 1.550 pessoas com perfil
+/// preenchido — 681 que já importaram e 869 que nunca conseguiram importar
+/// nem uma vez.
+///
+/// **`!assistEnabled`**: a porta se aposenta sozinha no dia em que o
+/// Assistente ligar. Aí quem passa a oferecer "Substituir" é o card "Fonte
+/// importada" em Dados, que tem a revisão de conflitos. Uma casa por vez —
+/// dois botões de import na mesma navegação é o defeito seguinte.
+///
+/// **`!killSwitchOn`**: [FeatureFlagKeys.cvImportEntryDisabled] é flag
+/// NEGATIVA de propósito. Ver o comentário dela em `feature_flags_service.dart`:
+/// aqui o estado "desligado" é a própria regressão, então o default sem rede
+/// tem que ser MOSTRAR.
+bool shouldShowLibraryImportEntry({
+  required bool assistEnabled,
+  required bool killSwitchOn,
+}) =>
+    !assistEnabled && !killSwitchOn;
 
 const Map<SavedResumeSource, _SourceMeta> _kSourceMeta = {
   SavedResumeSource.manual: _SourceMeta(
@@ -351,6 +379,79 @@ class _ResumesTabState extends State<_ResumesTab> {
           Supabase.instance.client.auth.currentUser?.id,
         );
 
+    final killSwitchOn = FeatureFlagsService.instance
+        .isGloballyEnabled(FeatureFlagKeys.cvImportEntryDisabled);
+    final showImport = shouldShowLibraryImportEntry(
+      assistEnabled: assistEnabled,
+      killSwitchOn: killSwitchOn,
+    );
+
+    // ⚠️ A PORTA DE IMPORT FICA FORA DO `Consumer<ProfileViewModel>`, E ISSO
+    // NÃO É ESTILO — é o que faz ela funcionar.
+    //
+    // O builder do Consumer troca a subárvore inteira por um spinner quando
+    // `viewModel.isLoading`. E o próprio import liga esse `isLoading`:
+    // `saveResume` chama `loadSavedResumes()`, que faz
+    // `_isLoading = true; notifyListeners()` ANTES do await de rede. Com o
+    // botão lá dentro, o `_ImportCvButtonState` sofre dispose no meio do fluxo
+    // que ele mesmo disparou — e aí `context.mounted` em
+    // `cv_import_service.dart:184` vira false: o `imported_resume.raw_text`
+    // NUNCA é gravado (o campo que o analyze-match lê), o
+    // `ProfileEvents.notifyChanged()` não roda, e a snackbar não aparece.
+    //
+    // O sintoma seria cruel: o arquivo APARECE na lista (o insert já commitou)
+    // e o perfil fica intacto (o import é fill-empty por contrato), então tudo
+    // parece certo — enquanto o match continua pontuando o currículo velho.
+    // Na 2.4.0 isso nunca acontecia porque o botão vivia em `resume_tab.dart`,
+    // arquivo sem nenhum `Consumer<ProfileViewModel>`.
+    //
+    // `_ResumesTabState.build` só observa o HomeViewModel, que não é
+    // notificado durante o import — o Element do botão sobrevive ao spinner.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (showImport) _buildImportEntry(),
+        Expanded(child: _buildLibrary(highlightId, assistEnabled)),
+      ],
+    );
+  }
+
+  /// Porta de import — o botão + a promessa honesta do que ele faz.
+  Widget _buildImportEntry() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ImportCvButton(
+            variant: ImportCvVariant.secondary,
+            analyticsSource: 'profile_resumes',
+            onImported: (id) {
+              if (id == null) return;
+              context.read<HomeViewModel>().requestProfileHighlight(id);
+            },
+          ),
+          const SizedBox(height: 8),
+          // A copy tem que dizer o que o import FAZ, senão trocamos um defeito
+          // por uma promessa falsa. `save_profile_from_json` é fill-empty por
+          // contrato (migration 20260714130000): seção que já tem dado vira
+          // `preserved`. Quem sobe um CV com o emprego novo e espera ver o
+          // perfil mudar sozinho sai frustrado. O que muda de fato é o arquivo
+          // guardado e o texto que alimenta o match.
+          Text(
+            'Guardo o arquivo e uso no seu match. O que já está preenchido no '
+            'perfil não é sobrescrito — só as seções vazias podem ser '
+            'preenchidas.',
+            style: AppTextStyles.bodySm.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLibrary(String? highlightId, bool assistEnabled) {
     return Consumer<ProfileViewModel>(
       builder: (context, viewModel, child) {
         if (viewModel.isLoading) {

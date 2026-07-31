@@ -192,4 +192,25 @@ class FeatureFlagKeys {
   /// hoje: resposta ao passo aberto). Kill-switch independente; rollout
   /// 10→50→100. Seed na migration 20260717120000.
   static const String trilhaAssistV1 = 'trilha_assist_v1';
+
+  /// ⚠️ **Flag NEGATIVA** — a única do repo. `enabled=true` + 100% ESCONDE a
+  /// porta de importar CV em Perfil → Currículos; ausente/false a MOSTRA.
+  ///
+  /// A inversão é deliberada. Toda flag daqui é failure-CLOSED: sem rede no
+  /// cold start, `refresh()` engole a exceção (main.dart:150-152), o cache
+  /// fica vazio e o recurso some. Isso é seguro para feature nova — e é
+  /// exatamente o defeito aqui, porque a porta de import não é feature nova:
+  /// a 2.4.0 publicada tinha esse botão sem flag nenhuma
+  /// (37edebc:resume_tab.dart:257-288). O estado "desligado" É a regressão.
+  /// Com semântica positiva, qualquer abertura do app sem rede recriaria o
+  /// problema que estamos consertando.
+  ///
+  /// Existe só como interruptor de emergência: se a porta der problema em
+  /// produção, uma linha no banco a apaga sem publicar build. Precedente de
+  /// leitura por [isGloballyEnabled]: `legacy_completion_screen_enabled`
+  /// (splash_screen.dart:575-576).
+  ///
+  /// Seed em `20260731120000_seed_cv_import_entry_kill_switch.sql` — o código
+  /// funciona sem a linha; ela só serve para MATAR a porta.
+  static const String cvImportEntryDisabled = 'cv_import_entry_disabled';
 }
