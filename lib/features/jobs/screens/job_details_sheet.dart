@@ -5,6 +5,7 @@ import 'package:flutter_html/flutter_html.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/job.dart';
+import '../utils/match_band.dart';
 import '../utils/match_score.dart';
 import '../jobs_viewmodel.dart';
 import '../../auth/user_viewmodel.dart';
@@ -574,24 +575,13 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
     if (_hideScore) return _buildNoProfileCard();
 
     final score = _score;
-    // #2: faixas alinhadas ao match_band.dart (70/40) + balde HONESTO pra
-    // score baixo/zero — antes tudo <70 caía em "Match razoável — vale
-    // tentar!", o que era enganoso pra match baixo.
-    String matchLabel;
-    String matchDescription;
-    if (score >= 85) {
-      matchLabel = 'Excelente match';
-      matchDescription = 'Seu perfil atende muito bem aos requisitos desta vaga.';
-    } else if (score >= 70) {
-      matchLabel = 'Bom match';
-      matchDescription = 'Você tem um bom alinhamento com o perfil buscado.';
-    } else if (score >= 40) {
-      matchLabel = 'Match parcial';
-      matchDescription = 'Algumas coisas batem; veja os pontos abaixo.';
-    } else {
-      matchLabel = 'Match baixo';
-      matchDescription = 'Esta vaga foge bastante do seu perfil.';
-    }
+    // P2-13: a escada e o vocabulário agora moram em match_band.dart, com os
+    // MESMOS limiares do anel do card. Antes esta função tinha a própria
+    // ladeira de ifs e o próprio vocabulário: a mesma vaga de score 75 era
+    // "Alta" no card e "Bom match" aqui.
+    final copy = matchDetailCopy(score);
+    final matchLabel = copy.label;
+    final matchDescription = copy.description;
 
     return AnimatedBuilder(
       animation: _slideAnim,

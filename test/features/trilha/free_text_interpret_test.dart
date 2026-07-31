@@ -202,7 +202,16 @@ void main() {
     await c.submitFreeText('janeiro de 2020');
 
     expect(saved, isEmpty);
-    expect(c.thread.whereType<AiMsgItem>().last.text, contains('opções'));
+    // Revisão UX 28/07, achado P1-4: a mensagem digitada SUMIA da thread. A
+    // pessoa escrevia, o texto desaparecia e surgia um seletor sem explicação
+    // — parecia que o app tinha engolido o que ela disse.
+    expect(
+      c.thread.whereType<UserMsgItem>().last.text,
+      'janeiro de 2020',
+    );
+    // E a resposta aponta pro seletor. O assert antigo era `contains('opções')`
+    // — a copy mudou porque "opções" não descrevia um seletor de mês/ano.
+    expect(c.thread.whereType<AiMsgItem>().last.text, contains('seletor'));
   });
 
   test('Reentrância: 2º envio é ignorado enquanto a IA do 1º está em voo',
