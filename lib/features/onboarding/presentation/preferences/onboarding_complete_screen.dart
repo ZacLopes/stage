@@ -108,7 +108,7 @@ class _OnboardingCompleteScreenState extends State<OnboardingCompleteScreen> {
       // continua false, não fecha o stack pra evitar loop. Mostra erro.
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Não foi possível finalizar. Tenta novamente.'),
+          content: Text('Não foi possível finalizar. Tente novamente.'),
           backgroundColor: AppColors.error,
         ),
       );

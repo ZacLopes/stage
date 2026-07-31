@@ -1233,7 +1233,7 @@ class TrilhaChatController extends ChangeNotifier {
     if (_disposed) return;
     if (submitResult == ConversationSubmitResult.writeFailed) {
       thread.add(
-        AiMsgItem('Não consegui salvar essa resposta agora 😕 Tenta de novo.'),
+        AiMsgItem('Não consegui salvar essa resposta agora 😕 Tente de novo.'),
       );
       inputVisible = conv.current != null;
       _notify();
@@ -1464,7 +1464,7 @@ class TrilhaChatController extends ChangeNotifier {
           'Não peguei bem 🤔 Toque numa opção aqui embaixo 👇 ou tente de outro jeito.',
         );
       } else {
-        _pushAi('Não consegui agora 🤔 Tenta de novo daqui a pouco.');
+        _pushAi('Não consegui agora 🤔 Tente de novo daqui a pouco.');
       }
       _notify();
       return;
@@ -1645,7 +1645,7 @@ class TrilhaChatController extends ChangeNotifier {
       if (_disposed) return;
       typing = false;
       _replyAndKeepStep(
-        'Não consegui puxar as vagas agora 🤔 Tenta de novo daqui a pouco.',
+        'Não consegui puxar as vagas agora 🤔 Tente de novo daqui a pouco.',
         step,
       );
       return;
@@ -1810,7 +1810,7 @@ class TrilhaChatController extends ChangeNotifier {
           item.status = AssistEditStatus.applied;
         case AssistExportOutcome.failed:
           // Mantém o botão pra tentar de novo.
-          item.resultMessage = 'Deu um erro ao gerar o PDF 😕 Tenta de novo.';
+          item.resultMessage = 'Deu um erro ao gerar o PDF 😕 Tente de novo.';
       }
       _notify();
       return;
@@ -1866,7 +1866,7 @@ class TrilhaChatController extends ChangeNotifier {
       case AssistImportOutcome.cancelled:
         // Cancelou o seletor → volta o botão (pode escolher outro arquivo).
         item.resultMessage =
-            'Beleza! Toca de novo quando quiser escolher o PDF.';
+            'Beleza! Toque de novo quando quiser escolher o PDF.';
       case AssistImportOutcome.failed:
         item.resultMessage =
             res.message ??
@@ -1921,7 +1921,7 @@ class TrilhaChatController extends ChangeNotifier {
         );
       } else {
         _pushAi(
-          'Não consegui tirar essa vaga das salvas agora 🤔 Tenta de novo.',
+          'Não consegui tirar essa vaga das salvas agora 🤔 Tente de novo.',
         );
       }
       _notify();
@@ -1944,7 +1944,7 @@ class TrilhaChatController extends ChangeNotifier {
         props: {'action': 'save_job', 'via': 'jobs_card'},
       );
     } else {
-      _pushAi('Não consegui salvar essa vaga agora 🤔 Tenta de novo.');
+      _pushAi('Não consegui salvar essa vaga agora 🤔 Tente de novo.');
     }
     _notify();
   }
@@ -2015,7 +2015,7 @@ class TrilhaChatController extends ChangeNotifier {
     if (input is GuidedTextInput) {
       final text = (turn.args['text'] as String?)?.trim() ?? '';
       if (text.isEmpty) {
-        _replyAndKeepStep('Manda o texto que eu anoto 🙂', step);
+        _replyAndKeepStep('Mande o texto que eu anoto 🙂', step);
         return;
       }
       await _doSubmit(StepAnswer.text(step.id, text));
@@ -2039,7 +2039,7 @@ class TrilhaChatController extends ChangeNotifier {
       return;
     }
     // Mês/ano e typeahead precisam do widget.
-    _replyAndKeepStep('Pra essa aqui, toca na opção aqui embaixo 👇', step);
+    _replyAndKeepStep('Pra essa aqui, toque na opção aqui embaixo 👇', step);
   }
 
   /// `start_section`: injeta os passos reais da seção no fio (o app fornece via

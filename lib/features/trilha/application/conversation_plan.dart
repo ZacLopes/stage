@@ -270,8 +270,8 @@ const List<String> _kAreaCatalog = [
 ConversationStep _area() => ConversationStep.single(
       id: 'gap.area',
       aiMessage:
-          'Em quais áreas você quer atuar? Toque nas que combinam, busca ou '
-          'escreve a sua — escolhe até 3. É o que mais pesa pra te conectar com '
+          'Em quais áreas você quer atuar? Toque nas que combinam, busque ou '
+          'escreva a sua — escolha até 3. É o que mais pesa pra te conectar com '
           'as vagas certas.',
       input: const SuggestPickInput(
         suggestions: _kAreaSuggestions,
@@ -362,8 +362,8 @@ ConversationStep _skills(
   return ConversationStep.single(
     id: 'gap.skills',
     aiMessage:
-        'Agora suas habilidades — toque nas que você manja, busca outras ou '
-        'escreve do seu jeito. Quanto mais, mais vagas te encontram.',
+        'Agora suas habilidades — toque nas que você manja, busque outras ou '
+        'escreva do seu jeito. Quanto mais, mais vagas te encontram.',
     input: SuggestPickInput(
       suggestions: chips,
       catalog: catalog,
@@ -803,9 +803,9 @@ ConversationStep _experienceGate() => ConversationStep(
       id: 'exp.gate',
       aiMessages: const [
         'Agora a parte que mais conta pras empresas: suas experiências.',
-        'O que você já fez? Toca em tudo que rolou — vale estágio, voluntariado, '
+        'O que você já fez? Toque em tudo que rolou — vale estágio, voluntariado, '
             'monitoria, atlética, freela, empresa da família… Pode marcar vários '
-            '(2 estágios? toca duas vezes).',
+            '(2 estágios? toque duas vezes).',
       ],
       input: const ExperienceTypeInput(types: _kExperienceTypes),
       expand: (a) => _experienceQueueFrom(a, 0),

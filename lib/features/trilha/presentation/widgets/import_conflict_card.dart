@@ -129,7 +129,7 @@ class _ImportConflictCardState extends State<ImportConflictCard> {
                   size: 15, color: AppColors.error),
               const SizedBox(width: 6),
               Flexible(
-                  child: Text('Não consegui aplicar agora. Tenta de novo.',
+                  child: Text('Não consegui aplicar agora. Tente de novo.',
                       style: AppTextStyles.bodySm
                           .copyWith(color: AppColors.error))),
             ]),

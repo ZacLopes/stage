@@ -9,6 +9,7 @@ import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'onboarding_complete_screen.dart';
 import '../../../../core/theme/theme.dart';
+import '../widgets/onboarding_multi_check.dart';
 
 // Audiência entry-level. Ordem: do mais comum (Estágio, alunos ativos) pro
 // menos comum (Temporário). Taxonomia alinhada com job_preferences_screen.
@@ -138,7 +139,7 @@ Widget _selectableTile(String label, String sub, IconData icon, bool isSelected,
               ),
             ),
             const SizedBox(width: 12),
-            _Checkbox(selected: isSelected),
+            OnboardingMultiCheck(selected: isSelected),
           ],
         ),
       ),
@@ -146,25 +147,3 @@ Widget _selectableTile(String label, String sub, IconData icon, bool isSelected,
   );
 }
 
-class _Checkbox extends StatelessWidget {
-  final bool selected;
-  const _Checkbox({required this.selected});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 22, height: 22,
-      decoration: BoxDecoration(
-        color: selected ? AppColors.primary : Colors.white,
-        border: Border.all(
-          color: selected ? AppColors.primary : AppColors.borderStrong,
-          width: 1.5,
-        ),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: selected
-          ? const Icon(Icons.check_rounded, color: Colors.white, size: 16)
-          : null,
-    );
-  }
-}

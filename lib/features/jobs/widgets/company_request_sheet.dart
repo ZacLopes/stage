@@ -67,7 +67,7 @@ class _CompanyRequestSheetState extends State<CompanyRequestSheet> {
     } else {
       setState(() {
         _sending = false;
-        _error = 'Não deu pra enviar agora. Tenta de novo?';
+        _error = 'Não deu pra enviar agora. Tente de novo?';
       });
     }
   }

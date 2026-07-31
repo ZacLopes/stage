@@ -1861,7 +1861,7 @@ class _CapabilitiesSheetState extends State<_CapabilitiesSheet>
                 letterSpacing: -0.3,
               )),
           const SizedBox(height: 4),
-          Text('Sou seu copiloto de carreira — toca no que precisar',
+          Text('Sou seu copiloto de carreira — toque no que precisar',
               textAlign: TextAlign.center,
               style: AppTextStyles.bodyMd
                   .copyWith(color: Colors.white.withValues(alpha: 0.92))),

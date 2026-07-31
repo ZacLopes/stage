@@ -358,7 +358,7 @@ class _ResumeTabState extends State<ResumeTab>
               );
               if (review == null) {
                 return const AssistImportResult(AssistImportOutcome.failed,
-                    message: 'Não consegui ler o CV agora 😕 Tenta de novo.');
+                    message: 'Não consegui ler o CV agora 😕 Tente de novo.');
               }
               return AssistImportResult(
                 AssistImportOutcome.ok,
@@ -588,7 +588,7 @@ class _ResumeTabState extends State<ResumeTab>
             ),
             const SizedBox(height: AppSpacing.md),
             Text(
-              'Não consegui carregar agora. Tenta de novo daqui a pouco.',
+              'Não consegui carregar agora. Tente de novo daqui a pouco.',
               textAlign: TextAlign.center,
               style: AppTextStyles.bodyMd.copyWith(
                 color: AppColors.textSecondary,

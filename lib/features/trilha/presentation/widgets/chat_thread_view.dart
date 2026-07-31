@@ -209,7 +209,7 @@ class _ChatThreadViewState extends State<ChatThreadView>
           _items.add(
             const _ChatItem(
               _ItemKind.ai,
-              'Não consegui salvar essa resposta agora 😕 Tenta de novo.',
+              'Não consegui salvar essa resposta agora 😕 Tente de novo.',
             ),
           );
         }

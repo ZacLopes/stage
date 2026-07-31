@@ -12,8 +12,14 @@ import '../../../../core/theme/theme.dart';
 /// afordância nenhuma de que aquilo é escolhível, nem de que é uma escolha só.
 ///
 /// Regra que ficou: **redondo = escolha uma; quadrado = escolha quantas
-/// quiser**, sempre visível nos dois estados. Chips seguem valendo para
-/// listas longas com busca (áreas), onde a lista de ladrilhos não cabe.
+/// quiser** ([OnboardingMultiCheck]), sempre visível nos dois estados.
+///
+/// Chips continuam sendo a exceção, e a razão anotada aqui antes era falsa:
+/// eu escrevi "listas longas com busca", mas a tela de áreas
+/// (`desired_titles_screen.dart`) é um `Wrap` de 13 chips **sem campo de
+/// busca nenhum**. O critério real é outro e é geométrico: rótulos curtos em
+/// quantidade cabem três por linha num `Wrap` e viram uma lista de treze
+/// linhas se forem ladrilhos. Chips seguem valendo aí — pelo motivo certo.
 class OnboardingChoiceTile extends StatelessWidget {
   final String label;
   final bool selected;

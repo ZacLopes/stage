@@ -9,6 +9,7 @@ import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'job_types_screen.dart';
 import '../../../../core/theme/theme.dart';
+import '../widgets/onboarding_multi_check.dart';
 
 const _options = <(WorkMode, String, IconData)>[
   (WorkMode.remote, 'Remoto', Icons.home_outlined),
@@ -111,7 +112,7 @@ class _WorkModeScreenState extends State<WorkModeScreen> {
                         ),
                       ),
                     ),
-                    _Checkbox(selected: isSelected),
+                    OnboardingMultiCheck(selected: isSelected),
                   ],
                 ),
               ),
@@ -123,27 +124,3 @@ class _WorkModeScreenState extends State<WorkModeScreen> {
   }
 }
 
-/// Checkbox quadrado sempre visível — afordância clara de multi-select
-/// (diferente de check_circle, que parece radio button).
-class _Checkbox extends StatelessWidget {
-  final bool selected;
-  const _Checkbox({required this.selected});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 22, height: 22,
-      decoration: BoxDecoration(
-        color: selected ? AppColors.primary : Colors.white,
-        border: Border.all(
-          color: selected ? AppColors.primary : AppColors.borderStrong,
-          width: 1.5,
-        ),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: selected
-          ? const Icon(Icons.check_rounded, color: Colors.white, size: 16)
-          : null,
-    );
-  }
-}

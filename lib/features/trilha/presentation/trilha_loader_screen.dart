@@ -135,7 +135,7 @@ class _TrilhaLoaderScreenState extends State<TrilhaLoaderScreen> {
                   color: AppColors.textTertiary, size: 40),
               const SizedBox(height: AppSpacing.md),
               Text(
-                'Não consegui carregar sua trilha agora. Tenta de novo daqui a pouco.',
+                'Não consegui carregar sua trilha agora. Tente de novo daqui a pouco.',
                 textAlign: TextAlign.center,
                 style: AppTextStyles.bodyMd.copyWith(color: AppColors.textSecondary),
               ),
