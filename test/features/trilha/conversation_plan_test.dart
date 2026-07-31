@@ -28,6 +28,11 @@ void main() {
     bool hasCompanyStage = true,
     bool hasWorkEnvironment = true,
     bool hasWorkStyle = true,
+    // P1-8: senioridade entrou como lacuna Tier 3. Default "presente" pela
+    // mesma razão dos outros extras — os testes do núcleo não devem mudar de
+    // tamanho a cada campo novo. Quem cobre a coleta dela é
+    // `experience_level_step_test.dart`.
+    bool hasExperienceLevel = true,
   }) =>
       analyzeProfileGaps(
         hasArea: hasArea,
@@ -49,6 +54,7 @@ void main() {
         hasCompanyStage: hasCompanyStage,
         hasWorkEnvironment: hasWorkEnvironment,
         hasWorkStyle: hasWorkStyle,
+        hasExperienceLevel: hasExperienceLevel,
       );
 
   group('buildConversationPlan', () {

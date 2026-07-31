@@ -95,6 +95,8 @@ List<ConversationStep> buildConversationPlan(
     if (wants(LacunaKey.workEnvironment, 'work_environment'))
       _workEnvironmentStep(),
     if (wants(LacunaKey.workStyle, 'work_style')) _workStyleStep(),
+    if (wants(LacunaKey.experienceLevel, 'experience_level'))
+      _experienceLevelStep(),
     if (wants(LacunaKey.availability, 'availability')) _availabilityStep(),
   ];
   if (steps.isEmpty) return const [];
@@ -155,6 +157,8 @@ List<ConversationStep> sectionSteps(
       return [_workEnvironmentStep()];
     case LacunaKey.workStyle:
       return [_workStyleStep()];
+    case LacunaKey.experienceLevel:
+      return [_experienceLevelStep()];
     case LacunaKey.summary:
       return const []; // gerado por IA, não perguntado
   }
@@ -1223,6 +1227,41 @@ ConversationStep _companyStageStep() => ConversationStep.single(
             subtitle: 'Quero explorar as opções'),
       ]),
       acknowledgement: 'Boa! Isso ajuda a te achar a cultura certa.',
+    );
+
+/// Senioridade — `profile_job_preferences.experience_level`.
+///
+/// Revisão UX 28/07, achado P1-8: o campo existia, o editor existia (Perfil →
+/// Objetivos), e ninguém preenchia porque nada nunca perguntava. O onboarding
+/// pergunta "Em que momento você está agora?", mas aquilo é situação de
+/// ESTUDO e vai pra `profile_education` — ler "Não definido" aqui depois de ter
+/// respondido lá fazia parecer que o app tinha perdido a resposta.
+///
+/// Fica na trilha, não no onboarding: são 12 etapas e alongar o funil de
+/// ativação por um campo Tier 3 custa mais do que rende.
+///
+/// Os rótulos espelham `preferences_tab.dart` — a mesma pergunta em duas
+/// superfícies não pode ter duas escalas.
+ConversationStep _experienceLevelStep() => ConversationStep.single(
+      id: 'gap.experience_level',
+      aiMessage: 'E de experiência de trabalho, onde você se coloca hoje?',
+      input: const ChoiceInput(options: [
+        StepOption(
+            id: 'entry',
+            label: 'Começando agora',
+            subtitle: 'Primeiro estágio ou primeira vaga'),
+        StepOption(
+            id: 'mid',
+            label: 'Já tenho alguma experiência',
+            subtitle: 'Já estagiei ou trabalhei antes'),
+        StepOption(
+            id: 'senior',
+            label: 'Experiente / sênior',
+            subtitle: 'Anos de carreira nas costas'),
+      ]),
+      acknowledgement:
+          'Anotado! Assim eu não te mostro vaga que pede o que você ainda '
+          'não tem — nem vaga aquém do que você já fez.',
     );
 
 ConversationStep _workEnvironmentStep() => ConversationStep.single(

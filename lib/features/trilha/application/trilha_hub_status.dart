@@ -133,6 +133,9 @@ String _gainFor(LacunaKey key) {
       return 'Conte como você curte o dia a dia — afina o fit com as empresas.';
     case LacunaKey.workStyle:
       return 'Diga seu estilo de trabalho pra melhorar o encaixe cultural.';
+    case LacunaKey.experienceLevel:
+      return 'Diga quanta experiência você já tem — assim eu paro de te '
+          'mostrar vaga que pede o que você ainda não fez.';
   }
 }
 

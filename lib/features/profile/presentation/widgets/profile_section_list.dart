@@ -235,9 +235,14 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
             value: '${e.currentSchoolYear}º ano',
           ),
         if (e.educationStatus == 'studying' && e.endDate == null)
+          // Revisão UX 28/07, achado P3-43. "Não informada" anunciava uma
+          // lacuna e parava aí: é um dado que recrutador de estágio pede
+          // (trainee e estágio filtram por ano de formatura), e a frase não
+          // dizia que dava pra preencher. O card inteiro já abre o editor,
+          // que tem o campo — só faltava o texto convidar.
           const _DetailLine(
             label: 'Previsão de conclusão',
-            value: 'Não informada',
+            value: 'Toque para informar',
           ),
         if (e.majors.length > 1)
           _DetailLine(
