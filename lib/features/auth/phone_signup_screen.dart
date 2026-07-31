@@ -23,6 +23,7 @@ import '../../core/widgets/country_code_field.dart';
 import '../../core/widgets/pii_mask.dart';
 import '../../services/analytics_service.dart';
 import '../splash/splash_screen.dart' show AuthGate;
+import 'password_rule.dart';
 import 'phone_auth_helpers.dart';
 import 'user_viewmodel.dart';
 
@@ -73,22 +74,6 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
 
   int get _phoneDigitsCount =>
       _phoneController.text.replaceAll(RegExp(r'\D'), '').length;
-
-  /// A regra que a tela ANUNCIA logo abaixo do campo: "Mínimo 8 caracteres,
-  /// uma letra e um número". Antes só o comprimento era checado — em nenhum
-  /// lugar, nem no cliente nem no servidor. Dava pra criar conta com
-  /// "abcdefgh" (revisão UX 28/07, achado P2-14). Regra anunciada e não
-  /// aplicada é pior que regra nenhuma: ensina algo falso.
-  static String? passwordRuleError(String value) {
-    if (value.length < 8) return 'A senha precisa ter no mínimo 8 caracteres';
-    if (!RegExp(r'[A-Za-zÀ-ÿ]').hasMatch(value)) {
-      return 'A senha precisa ter pelo menos uma letra';
-    }
-    if (!RegExp(r'\d').hasMatch(value)) {
-      return 'A senha precisa ter pelo menos um número';
-    }
-    return null;
-  }
 
   bool get _isFormValid {
     return _phoneDigitsCount >= 8 &&
@@ -268,7 +253,13 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                           icon: Icons.lock_outline,
                           obscureText: _obscurePassword,
                           textInputAction: TextInputAction.done,
-                          onChanged: (_) => setState(() {}),
+                          // Limpa o banner de erro assim que a pessoa começa a
+                          // corrigir. Antes ele só sumia no próximo toque em
+                          // "Continuar" — ela editava a senha com a mensagem de
+                          // falha ainda na tela, o que faz parecer que nada
+                          // mudou. O comentário do AnimatedSwitcher abaixo já
+                          // afirmava que isso acontecia; não acontecia.
+                          onChanged: (_) => setState(() => _errorMessage = null),
                           validator: (val) => passwordRuleError(val ?? ''),
                           suffixIcon: IconButton(
                             icon: Icon(
@@ -279,8 +270,11 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                         ),
                         Padding(
                           padding: const EdgeInsets.only(top: 8, left: 12),
+                          // Deriva da MESMA regra que valida. Eram duas
+                          // strings independentes: o validador checava uma
+                          // coisa e o texto anunciava outra.
                           child: Text(
-                            'Mínimo 8 caracteres, uma letra e um número',
+                            kPasswordRuleHint,
                             style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppColors.textDisabled),
                           ),
                         ),

@@ -604,21 +604,52 @@ class UserViewModel extends ChangeNotifier {
         // canais: email, apple, google — não só email).
         await _loadUser();
       }
-    } catch (e) {
-      // Check if error is "User already registered"
+    } catch (e, st) {
+      // A tela de telefone é login E cadastro na mesma porta: ela sempre chama
+      // `signUp`, e quem já tem conta depende deste fallback para entrar.
       final errorMsg = e.toString().toLowerCase();
-      if (errorMsg.contains('already registered') || errorMsg.contains('already exists')) {
-        print('⚠️ User already exists, attempting to sign in instead...');
+      final jaExiste = errorMsg.contains('already registered') ||
+          errorMsg.contains('already exists');
+
+      // ⚠️ SENHA FRACA TAMBÉM PRECISA CAIR NO FALLBACK, e isto não é zelo:
+      // é o que impede um lockout quando a política de senha do servidor for
+      // apertada.
+      //
+      // O GoTrue valida a FORÇA da senha ANTES de checar se a conta existe.
+      // Então, no dia em que a política subir, quem já tem conta digita a
+      // senha CERTA e recebe `weak_password` — não "already registered". Sem
+      // esta linha, o fallback abaixo fica inalcançável e a pessoa não entra
+      // mais, nunca: o app não tem tela de "esqueci a senha", e o e-mail do
+      // cadastro por telefone é sintético (@stage.app), então nem recuperação
+      // por e-mail existe. São ~116 contas ativas nessa situação.
+      //
+      // Hoje, com a política em "mínimo 8" (que a build já exigia), este ramo
+      // não dispara. Ele existe para que ligar a política deixe de ser um
+      // ato destrutivo.
+      final senhaFraca = e is AuthWeakPasswordException;
+
+      if (jaExiste || senhaFraca) {
         try {
           await signIn(email: email, password: password);
-          return; // Exit success if sign in works
-        } catch (signInError) {
-           print('Sign in after sign up failed: $signInError');
-           // Rethrow original error if fallback fails
-           rethrow; 
+          return; // Entrou: era conta existente.
+        } catch (_) {
+          // O `signIn` falhou. Duas causas possíveis e indistinguíveis daqui:
+          // (a) a conta existe e a senha está errada; (b) a conta não existe e
+          // a senha é fraca demais para criar.
+          //
+          // Propagamos o erro ORIGINAL, que cobre (b) — o caso sem saída. Em
+          // (a) a pessoa lê "senha fraca" em vez de "senha incorreta": impreciso,
+          // mas ela redigita e resolve. No inverso, quem está criando conta
+          // leria "senha incorreta" numa conta que não existe, e não teria o
+          // que fazer.
+          //
+          // `Error.throwWithStackTrace` e não `rethrow`: dentro deste catch,
+          // `rethrow` relançaria o erro do signIn, não o original — que é o
+          // que o código antigo fazia, apesar do comentário dizer o contrário.
+          Error.throwWithStackTrace(e, st);
         }
       }
-      
+
       print('Error signing up: $e');
       rethrow;
     } finally {
@@ -954,7 +985,6 @@ class UserViewModel extends ChangeNotifier {
     int? age,
     String? phone,
     String? email,
-    String? password,
     Map<String, dynamic>? gamificationData,
   }) async {
     if (_user == null) return;
@@ -971,9 +1001,15 @@ class UserViewModel extends ChangeNotifier {
       // velho. Sintoma: depois de salvar o ProfileSetup, a tela volta pro
       // Step 0 porque `needsProfileSetup` vira true de novo via _user stale.
       // Age já vai pro DB via `UserProfile.toMap()` no passo 2.
-      if (email != null || password != null) {
-        final attributes = UserAttributes(email: email, password: password);
-        await _supabase.auth.updateUser(attributes);
+      // ⚠️ O parâmetro `password` FOI REMOVIDO daqui. Era um terceiro caminho
+      // de escrita de senha, sem nenhuma validação de força e sem exigir a
+      // senha atual — o próprio código reconhecia o risco num comentário
+      // logo abaixo, em `changePassword`. Estava morto (o único chamador,
+      // `cv_import_service.dart:199`, só passa `gamificationData`), mas
+      // aberto: bastava alguém usar. Trocar senha passa por `changePassword`,
+      // que reautentica e valida.
+      if (email != null) {
+        await _supabase.auth.updateUser(UserAttributes(email: email));
       }
 
       // 2. Update Profile Table (Name, Age, Phone, Course, Semester, etc.)
@@ -1170,7 +1206,15 @@ class UserViewModel extends ChangeNotifier {
     } on AuthException catch (e) {
       final msg = e.message.toLowerCase();
       // ignore: unawaited_futures
-      if (msg.contains('weak') || msg.contains('too short')) {
+      // Casa pelo TIPO/código, não pela redação. A checagem antiga era
+      // `msg.contains('weak') || msg.contains('too short')` — e a mensagem do
+      // servidor para senha sem letra ou sem número não contém nenhuma das
+      // duas. Ela escaparia daqui, cairia no rethrow, e a tela mostraria a
+      // exceção crua em inglês.
+      if (e is AuthWeakPasswordException ||
+          e.code == 'weak_password' ||
+          msg.contains('weak') ||
+          msg.contains('too short')) {
         Analytics.shared.passwordChangeFailed(reason: 'weak');
         throw const PasswordChangeException('weak_password');
       }

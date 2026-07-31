@@ -68,6 +68,76 @@ void main() {
     });
   });
 
+  group('senha fraca — o motivo, não o código', () {
+    AuthWeakPasswordException fraca(List<String> reasons) =>
+        AuthWeakPasswordException(
+          // A frase do servidor vem em inglês e muda entre versões do GoTrue.
+          // O app NÃO pode depender dela — por isso casamos pelo tipo e por
+          // `.reasons`, que é contrato do SDK.
+          message: 'Password should contain at least one character of each: '
+              'abcdefghijklmnopqrstuvwxyz, 0123456789.',
+          statusCode: '422',
+          reasons: reasons,
+        );
+
+    test('curta demais → diz o tamanho', () {
+      final msg = AuthErrorFormatter.format(
+        fraca(['length']),
+        identifier: AuthIdentifier.phone,
+      );
+      expect(msg, contains('8 caracteres'));
+    });
+
+    test('sem letra ou sem número → diz o que misturar', () {
+      final msg = AuthErrorFormatter.format(
+        fraca(['characters']),
+        identifier: AuthIdentifier.phone,
+      );
+      expect(msg, contains('letras e números'));
+    });
+
+    test('senha vazada → explica por que, sem culpar a pessoa', () {
+      final msg = AuthErrorFormatter.format(
+        fraca(['pwned']),
+        identifier: AuthIdentifier.phone,
+      );
+      expect(msg, contains('vazamentos'));
+    });
+
+    test('razão desconhecida ainda diz que o problema É a senha', () {
+      // Se o servidor mandar uma razão nova, a saída não pode virar
+      // "Ocorreu um problema" — a pessoa precisa saber o que corrigir.
+      final msg = AuthErrorFormatter.format(
+        fraca(['algo_que_ainda_nao_existe']),
+        identifier: AuthIdentifier.phone,
+      );
+      expect(msg.toLowerCase(), contains('senha'));
+    });
+
+    test('NUNCA devolve a frase do servidor nem a genérica', () {
+      // Antes deste ramo, senha fraca caía no `default` → SafeErrorText.
+      // A mensagem com os símbolos permitidos contém `{` e `}`, que o filtro
+      // trata como texto técnico: a pessoa lia "Ocorreu um problema. Tente
+      // novamente." sem saber que o problema era a senha.
+      for (final r in ['length', 'characters', 'pwned']) {
+        final msg = AuthErrorFormatter.format(
+          fraca([r]),
+          identifier: AuthIdentifier.phone,
+        );
+        expect(msg, isNot(contains('Password')));
+        expect(msg, isNot('Ocorreu um problema. Tente novamente.'));
+      }
+    });
+
+    test('vale igual no login social', () {
+      final msg = AuthErrorFormatter.format(
+        fraca(['pwned']),
+        identifier: AuthIdentifier.social,
+      );
+      expect(msg, contains('vazamentos'));
+    });
+  });
+
   group('nenhum texto técnico chega à tela', () {
     test('mensagem crua do servidor com URL vira frase genérica', () {
       // Antes o `default` terminava em `return e.message` — inglês e jargão

@@ -46,6 +46,35 @@ class AuthErrorFormatter {
     };
     const generico = 'Ocorreu um problema. Tente novamente.';
 
+    // Senha recusada pela política do servidor. Vem ANTES do switch porque o
+    // que importa não é o código (`weak_password`), é o MOTIVO — e o SDK já
+    // entrega isso pronto em `.reasons` ('length', 'characters', 'pwned').
+    //
+    // Sem este ramo, senha fraca cai no `default` e termina em
+    // `SafeErrorText.orFallback`: em quase todos os casos a pessoa lê a frase
+    // do servidor em inglês num app pt-BR, e no caso de símbolos obrigatórios
+    // lê "Ocorreu um problema. Tente novamente." — sem sequer saber que o
+    // problema é a senha. Recusar sem dizer o que corrigir é um beco.
+    //
+    // Casamos pelo TIPO e pelas razões, nunca pela redação da mensagem: a
+    // frase do GoTrue muda entre versões, `.reasons` é contrato.
+    if (e is AuthWeakPasswordException) {
+      final razoes = e.reasons;
+      if (razoes.contains('pwned')) {
+        return 'Essa senha é muito comum e já apareceu em vazamentos '
+            'conhecidos. Escolha outra.';
+      }
+      if (razoes.contains('characters')) {
+        return 'A senha precisa misturar letras e números.';
+      }
+      if (razoes.contains('length')) {
+        return 'A senha está curta demais. Use pelo menos 8 caracteres.';
+      }
+      // Razão nova que o servidor passou a mandar e este código ainda não
+      // conhece: dizer o que é o problema já é melhor que a frase genérica.
+      return 'Essa senha não atende aos requisitos. Tente uma mais forte.';
+    }
+
     if (e is AuthException) {
       final msg = e.message.toLowerCase();
       bool diz(String trecho) => msg.contains(trecho);

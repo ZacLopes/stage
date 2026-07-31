@@ -18,6 +18,7 @@ import 'package:provider/provider.dart';
 import '../../core/analytics/screen_tracking.dart';
 import '../auth/user_viewmodel.dart';
 import '../../core/theme/theme.dart';
+import '../../core/utils/safe_error_text.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key});
@@ -155,7 +156,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen>
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _serverError = 'Erro inesperado: $e');
+      // Era `'Erro inesperado: $e'` — interpolação crua de exceção direto na
+      // tela, a mesma classe de vazamento que o `SafeErrorText` foi criado
+      // para fechar (o device-test de 24/07 chegou a ver a URL do projeto
+      // Supabase na UI), reaberta em outro arquivo.
+      setState(() => _serverError = SafeErrorText.orFallback(
+            e,
+            'Não consegui trocar a senha agora. Tente de novo em instantes.',
+          ));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
