@@ -133,7 +133,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
         // Banner inline com animação cobre a comunicação do erro. SnackBar
         // sobreposto criava duplicação visual (2 mensagens iguais ao mesmo
         // tempo), removido.
-        setState(() => _errorMessage = AuthErrorFormatter.format(e));
+        setState(() => _errorMessage = AuthErrorFormatter.format(e, identifier: AuthIdentifier.phone));
       }
     }
   }

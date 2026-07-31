@@ -250,7 +250,7 @@ class _AuthScreenState extends State<AuthScreen>
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   backgroundColor: AppColors.error,
-                                  content: Text(AuthErrorFormatter.format(e)),
+                                  content: Text(AuthErrorFormatter.format(e, identifier: AuthIdentifier.social)),
                                 ),
                               );
                             }
@@ -276,7 +276,7 @@ class _AuthScreenState extends State<AuthScreen>
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   backgroundColor: AppColors.error,
-                                  content: Text(AuthErrorFormatter.format(e)),
+                                  content: Text(AuthErrorFormatter.format(e, identifier: AuthIdentifier.social)),
                                 ),
                               );
                             }
