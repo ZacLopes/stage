@@ -485,15 +485,25 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
                       ),
                     ),
                     const SizedBox(width: 6),
-                    ShaderMask(
-                      shaderCallback: (b) => _gradient.createShader(b),
-                      child: const Text(
-                        'CV adaptado pela IA',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -0.4,
+                    // Revisão UX 28/07, achado P1-10: com a fonte de
+                    // acessibilidade do sistema no talo, este título estourava
+                    // a linha (as listras amarelas de overflow) — o `Row` é
+                    // `MainAxisSize.min` e o `Text` não tinha nem `Flexible`
+                    // nem `overflow`, então ele pedia a largura inteira do
+                    // texto e não cabia ao lado do ícone e do balanceador.
+                    Flexible(
+                      child: ShaderMask(
+                        shaderCallback: (b) => _gradient.createShader(b),
+                        child: const Text(
+                          'CV adaptado pela IA',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.4,
+                          ),
                         ),
                       ),
                     ),

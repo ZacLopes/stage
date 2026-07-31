@@ -23,6 +23,7 @@ import '../../data/models/models.dart';
 import '../../core/widgets/pii_mask.dart';
 import '../../core/theme/theme.dart';
 import '../../core/utils/resume_title.dart';
+import '../resume/data/template_thumbnail_asset.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -1130,35 +1131,16 @@ class _ResumeCardState extends State<_ResumeCard>
                 color: AppColors.surfaceVariant,
                 child: Stack(
                   children: [
-                    Container(
-                      width: double.infinity,
-                      height: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.border!),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(width: 40, height: 6, decoration: BoxDecoration(color: AppColors.borderStrong, borderRadius: BorderRadius.circular(2))),
-                          const SizedBox(height: 8),
-                          Container(width: double.infinity, height: 4, decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2))),
-                          const SizedBox(height: 4),
-                          Container(width: double.infinity, height: 4, decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2))),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Container(width: 12, height: 12, decoration: BoxDecoration(color: AppColors.border, shape: BoxShape.circle)),
-                              const SizedBox(width: 4),
-                              Expanded(child: Container(height: 4, decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2)))),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Container(width: 60, height: 4, decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2))),
-                        ],
-                      ),
+                    // Revisão UX 28/07, achado P2-29: aqui havia um esqueleto
+                    // cinza — barra escura em cima, barras claras embaixo —
+                    // desenhado IGUAL em todo card. É o desenho universal de
+                    // "carregando", e repetido em todos fazia a biblioteca
+                    // inteira parecer travada num loading eterno. As
+                    // miniaturas reais dos 5 modelos já existiam; faltava só
+                    // o card usá-las.
+                    _ResumeThumbnail(
+                      assetPath:
+                          templateThumbnailAsset(widget.resume.templateId),
                     ),
                     Positioned(
                       top: 4,
@@ -1293,6 +1275,54 @@ class _ResumeCardState extends State<_ResumeCard>
           ),
         );
       },
+    );
+  }
+}
+
+/// Miniatura do card de currículo.
+///
+/// Com `assetPath`, mostra a imagem real do modelo aplicado. Sem ela (CVs
+/// anteriores a 26/05/2026 e PDFs importados, que não têm `template_id`),
+/// desenha uma FOLHA — genérica, mas estática e sem cara de carregamento.
+/// Revisão UX 28/07, achado P2-29.
+class _ResumeThumbnail extends StatelessWidget {
+  final String? assetPath;
+  const _ResumeThumbnail({required this.assetPath});
+
+  @override
+  Widget build(BuildContext context) {
+    final path = assetPath;
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: path == null
+          ? Center(
+              child: Icon(
+                Icons.description_outlined,
+                size: 34,
+                color: AppColors.textDisabled,
+              ),
+            )
+          : Image.asset(
+              path,
+              fit: BoxFit.cover,
+              alignment: Alignment.topCenter,
+              // Se o PNG sumir do bundle, a folha genérica é melhor que o
+              // ícone de imagem quebrada do Flutter.
+              errorBuilder: (_, __, ___) => Center(
+                child: Icon(
+                  Icons.description_outlined,
+                  size: 34,
+                  color: AppColors.textDisabled,
+                ),
+              ),
+            ),
     );
   }
 }
