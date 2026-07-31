@@ -493,28 +493,49 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                                     color: Colors.white,
                                   ),
                                 ),
-                                Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      // T2.4 — banda em vez de número
-                                      // (Alta ≥70 / Média 40-69 / Baixa <40).
-                                      matchBandFor(_score).label,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w900,
-                                      ),
+                                // O anel tem 60×60 fixos e o traço come ~8px de
+                                // cada lado, então sobram ~44px úteis. Com a
+                                // fonte de acessibilidade do sistema (mesmo
+                                // já clampada em `_kMaxCardTextScale`),
+                                // "Médio" a 12pt w900 mede ~45px e VAZAVA por
+                                // cima do traço do anel — device-test de
+                                // 31/07, resíduo do achado P1-10.
+                                //
+                                // `scaleDown` só encolhe quando não cabe: em
+                                // fonte normal nada muda, e nenhum rótulo de
+                                // banda pode estourar de novo, hoje ou quando
+                                // alguém acrescentar uma palavra mais longa.
+                                // Padding interno mantém a folga do traço.
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          // T2.4 — banda em vez de número
+                                          // (Alta ≥70 / Média 40-69 / Baixa <40).
+                                          matchBandFor(_score).label,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                        Text(
+                                          'match',
+                                          style: TextStyle(
+                                            color: Colors.white.withOpacity(0.8),
+                                            fontSize: 8,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    Text(
-                                      'match',
-                                      style: TextStyle(
-                                        color: Colors.white.withOpacity(0.8),
-                                        fontSize: 8,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
+                                  ),
                                 ),
                               ],
                             ),
