@@ -583,37 +583,51 @@ class _GpsIconButton extends StatelessWidget {
     // Quadrado de 44pt sem texto: pro VoiceOver era um botão sem nome, e em
     // loading virava só um spinner solto encostado na margem direita, sem
     // dizer o que estava carregando. Semantics dá nome e estado.
+    // O Semantics resolvia pro VoiceOver, mas quem ENXERGA continuava diante
+    // de um quadrado de 44pt sem texto — e, durante os 8s de busca, de um
+    // spinner solto encostado na margem direita, sem dizer o que carregava.
+    // Rótulo visível resolve os dois de uma vez (achado P1-7).
     return Semantics(
       button: true,
       enabled: onTap != null,
       label: loading ? 'Buscando sua localização' : 'Usar localização atual',
-      child: Tooltip(
-        // Redundante com o Semantics pro leitor de tela, mas aparece no
-        // long-press pra quem enxerga.
-        message: 'Usar localização atual',
-        child: Material(
-          color: Colors.white,
+      excludeSemantics: true,
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
           borderRadius: BorderRadius.circular(10),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(10),
-            onTap: onTap,
-            child: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                border: Border.all(color: _kBorderColor),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              alignment: Alignment.center,
-              child: loading
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: _kAccent),
-                    )
-                  : const Icon(Icons.my_location_rounded,
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 44),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              border: Border.all(color: _kBorderColor),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (loading)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: _kAccent),
+                  )
+                else
+                  const Icon(Icons.my_location_rounded,
                       color: _kAccent, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  loading ? 'Buscando…' : 'Usar minha localização',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: _kAccent,
+                  ),
+                ),
+              ],
             ),
           ),
         ),

@@ -1398,7 +1398,14 @@ class TrilhaChatController extends ChangeNotifier {
       return;
     }
     // Mês/ano e typeahead (cidade/instituição) precisam do widget.
-    _pushAi('Pra essa aqui, toca numa das opções acima 🙂');
+    //
+    // Dois defeitos aqui, os mesmos do achado P1-4 que já foram corrigidos no
+    // ramo de baixa confiança e sobreviveram NESTE: a mensagem digitada era
+    // engolida (o campo esvaziava, o teclado baixava e nada aparecia — o botão
+    // parecia morto) e o texto mandava tocar "acima" enquanto o widget
+    // renderiza ABAIXO, no lugar do teclado.
+    thread.add(UserMsgItem(t));
+    _pushAi('Essa aqui eu preciso que você preencha no seletor logo abaixo 👇');
   }
 
   // ── Assistente: roteia a mensagem por intenção e executa a ferramenta ──────
