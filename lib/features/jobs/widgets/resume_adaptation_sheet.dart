@@ -11,7 +11,8 @@ import '../../../services/analytics_service.dart';
 import '../../../services/profile_snapshot_service.dart';
 import '../../auth/user_viewmodel.dart';
 import '../../../core/utils/resume_filename.dart';
-import '../../home/home_viewmodel.dart';
+import '../../profile/application/profile_editor_view_model.dart';
+import '../../profile/presentation/widgets/skills_editor.dart';
 import '../utils/adaptation_error_copy.dart';
 import '../utils/adapt_gate.dart';
 import 'package:printing/printing.dart';
@@ -633,6 +634,41 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
     );
   }
 
+  /// Abre o editor de habilidades POR CIMA desta sheet e, ao fechar, tenta a
+  /// adaptação de novo com os dados frescos.
+  ///
+  /// Revisão UX 28/07, achado P1-3. Antes daqui saía um deep-link: fechava a
+  /// sheet (`Navigator.pop`), trocava pra aba Perfil, pedia a sub-aba Dados e a
+  /// seção 'skills'. O destino estava certo — e era só de ida. Depois de salvar,
+  /// a pessoa estava numa aba diferente do app, com a vaga fechada, e o feed é
+  /// um baralho: reencontrar aquela vaga específica podia ser impossível. O
+  /// botão prometia destravar a adaptação e entregava um beco sem saída.
+  ///
+  /// Como `ProfileEditorViewModel` é provider global, o mesmo editor abre aqui
+  /// mesmo. Não há "caminho de volta" a construir: fechar o modal já devolve a
+  /// pessoa à vaga. O `_adapt()` no fim fecha o ciclo — mesmo padrão do
+  /// `ImportCvButton.onImported` logo acima.
+  Future<void> _openSkillsEditorInPlace() async {
+    final profileVM = context.read<ProfileEditorViewModel>();
+    await showSkillsEditor(
+      context,
+      initialSkills: profileVM.skills.map((s) => s.name).toList(),
+      suggestions: profileVM.skillSuggestions,
+      onSave: profileVM.replaceSkills,
+    );
+    if (!mounted) return;
+    // O gate lê de `UserViewModel`, não do editor: sem este refresh o
+    // `skillCount` continuaria o de antes de salvar e a adaptação seria
+    // barrada de novo pelo número velho.
+    await context.read<UserViewModel>().refreshHasResume();
+    if (!mounted) return;
+    // Sem `force`: o gate precisa rodar de novo. Se a pessoa fechou o editor
+    // sem chegar ao mínimo, ela recebe a mesma mensagem honesta — atualizada
+    // pra quantas ainda faltam — em vez de esperar ~25 s por uma falha
+    // determinística do servidor.
+    _adapt();
+  }
+
   // ── Error ──────────────────────────────────────────────────────────
   Widget _buildError(ScrollController scrollController) {
     // F5: título, mensagem e affordances saem de uma função PURA. Ela também
@@ -728,28 +764,13 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
           ),
         ],
         // A2: a falha por falta de habilidades precisa de uma SAÍDA, não só de
-        // uma explicação. Leva pro editor de habilidades do perfil. Mesmo
-        // padrão de navegação já usado em resume_tab.dart:291/678.
+        // uma explicação.
         if (copy.showAddSkills) ...[
           const SizedBox(height: 8),
           TextButton.icon(
-            onPressed: () {
-              final home = context.read<HomeViewModel>();
-              Navigator.of(context).pop();
-              home.requestTabChange(HomeTabs.profile);
-              // Code-review 27/07: sem isto o app restaura a ÚLTIMA sub-aba
-              // usada (às vezes Currículos ou Objetivos) e o usuário aterrissa
-              // numa tela sem editor de habilidades — a saída existia mas não
-              // chegava no lugar. 0 = Dados.
-              home.requestProfileSubTab(0);
-              // Revisão UX 28/07: a sub-aba certa ainda deixava a pessoa no
-              // TOPO de Dados, com "Habilidades" abaixo da dobra — o CTA
-              // prometia um destino que não entregava. Isto rola até a seção e
-              // abre o editor, que é literalmente o que o botão promete.
-              home.requestProfileSection('skills');
-            },
+            onPressed: _openSkillsEditorInPlace,
             icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-            label: const Text('Adicionar habilidades ao perfil'),
+            label: const Text('Adicionar habilidades'),
             style: TextButton.styleFrom(
               foregroundColor: AppColors.primary,
               minimumSize: const Size.fromHeight(48),

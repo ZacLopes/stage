@@ -11,7 +11,6 @@ import '../../application/profile_editor_view_model.dart';
 import '../../domain/award_editor_reconciliation.dart';
 import '../../domain/entities/entities.dart';
 import '../../domain/optional_sections_visibility.dart';
-import '../../domain/skill_name_normalizer.dart';
 import '../../../resume/data/profile_resume_mapper.dart';
 import '../../../home/home_viewmodel.dart';
 import 'add_edit_certification_modal.dart';
@@ -20,6 +19,7 @@ import 'add_edit_education_modal.dart';
 import 'add_edit_language_modal.dart';
 import 'add_edit_project_modal.dart';
 import 'edit_list_modal.dart';
+import 'skills_editor.dart';
 import '../../../../core/theme/theme.dart';
 
 const _kBorderColor = AppColors.border;
@@ -290,19 +290,14 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
   );
 
   /// Editor de habilidades. Extraído do `onEdit` porque o deep-link de seção
-  /// (gate de skills do adapt) precisa abrir exatamente o mesmo modal.
+  /// (gate de skills do adapt) precisa abrir exatamente o mesmo modal — e
+  /// desde o achado P1-3 a sheet de adaptação abre esse mesmo editor por cima
+  /// dela, sem sair da vaga. A configuração mora em `showSkillsEditor`.
   void _openSkillsEditor(ProfileEditorViewModel vm) {
-    EditListModal.show(
-      context: context,
-      title: 'Editar habilidades',
-      inputLabel: 'Habilidade',
-      initialItems: vm.skills.map((s) => s.name).toList(),
+    showSkillsEditor(
+      context,
+      initialSkills: vm.skills.map((s) => s.name).toList(),
       suggestions: vm.skillSuggestions,
-      guidanceText:
-          'Priorize de 6 a 12 habilidades que você realmente usa e que são '
-          'relevantes para as vagas que busca.',
-      recommendedMinItems: kRecommendedMinProfileSkills,
-      maxItems: kMaxProfileSkills,
       onSave: vm.replaceSkills,
     );
   }
