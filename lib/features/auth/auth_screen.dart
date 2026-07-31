@@ -213,6 +213,22 @@ class _AuthScreenState extends State<AuthScreen>
                   ),
                   child: Column(
                     children: [
+                      // O aviso legal existia SÓ na tela de telefone. Quem
+                      // criava conta por Google ou Apple — dois dos três
+                      // caminhos — nunca via referência a Termos ou
+                      // Privacidade (revisão UX 28/07, achado P2-15).
+                      //
+                      // Fica ANTES dos botões, não depois: embaixo, quem toca
+                      // em Google/Apple sem rolar não chega a ver o aviso do
+                      // que está aceitando. "Ao continuar, você concorda" só
+                      // significa alguma coisa se vier antes do continuar.
+                      _LegalNotice(
+                        onTerms: () => openLegalLink(StageLegalLinks.termsUrl),
+                        onPrivacy: () =>
+                            openLegalLink(StageLegalLinks.privacyUrl),
+                      ),
+                      const SizedBox(height: 20),
+
                       // Google — logo oficial colorida (4 cores) via SVG
                       _SocialButton(
                         leadingWidget: SvgPicture.asset(
@@ -298,17 +314,6 @@ class _AuthScreenState extends State<AuthScreen>
                         onPressed: _navigateToPhoneSignup,
                       ),
 
-                      // O aviso legal existia SÓ na tela de telefone. Quem
-                      // criava conta por Google ou Apple — dois dos três
-                      // caminhos — nunca via referência a Termos ou
-                      // Privacidade (revisão UX 28/07, achado P2-15). Aqui
-                      // cobre os três de uma vez, antes da escolha.
-                      const SizedBox(height: 24),
-                      _LegalNotice(
-                        onTerms: () => openLegalLink(StageLegalLinks.termsUrl),
-                        onPrivacy: () =>
-                            openLegalLink(StageLegalLinks.privacyUrl),
-                      ),
                     ],
                   ),
                 ),

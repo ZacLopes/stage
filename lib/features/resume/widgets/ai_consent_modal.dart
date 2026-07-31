@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/theme.dart';
+import '../../../core/constants/stage_legal_links.dart';
+import '../../../core/utils/open_legal_link.dart';
 
 class AIConsentModal extends StatefulWidget {
   final VoidCallback onAccept;
@@ -24,26 +25,17 @@ class AIConsentModal extends StatefulWidget {
 class _AIConsentModalState extends State<AIConsentModal> {
   bool _isCheckboxMarked = false;
 
-  Future<void> _launchOpenAIPrivacy() async {
-    final url = Uri.parse('https://openai.com/policies/privacy-policy');
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url);
-    }
-  }
+  // As três URLs viviam hardcoded AQUI, e este arquivo é a origem que o
+  // `StageLegalLinks` foi criado pra centralizar — a de privacidade
+  // continuava duplicada, e quebrada (`/privacy` é 404). Também abriam sem
+  // `LaunchMode.externalApplication`, então um documento pra ler com calma
+  // podia ficar preso num webview. Achado P2-15.
+  Future<void> _launchOpenAIPrivacy() =>
+      openLegalLink(StageLegalLinks.openAiPrivacyUrl);
 
-  Future<void> _launchAppPrivacy() async {
-    final url = Uri.parse('https://stageapp.lovable.app/privacy');
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url);
-    }
-  }
+  Future<void> _launchAppPrivacy() => openLegalLink(StageLegalLinks.privacyUrl);
 
-  Future<void> _launchSupport() async {
-    final url = Uri.parse('https://stageapp.lovable.app');
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url);
-    }
-  }
+  Future<void> _launchSupport() => openLegalLink(StageLegalLinks.supportUrl);
 
   @override
   Widget build(BuildContext context) {
