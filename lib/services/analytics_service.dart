@@ -571,6 +571,36 @@ class AnalyticsService {
   Future<void> signUpCompleted({required String method}) =>
       track(evAuthSignupCompleted, props: {'method': method});
 
+  /// Par que faltava de [authSignupStarted]. A constante existia desde sempre
+  /// em `analytics_events.dart` e NUNCA tinha emissor — catálogo morto, que a
+  /// R7 proíbe. Sem ela, apertar a política de senha no servidor seria mexer
+  /// no funil de entrada às cegas: um cadastro que passa a falhar não aparece
+  /// em painel nenhum, só na queda de contas criadas semanas depois.
+  ///
+  /// [errorCode] vem de `authFailureCode` — rótulo fechado, nunca a mensagem
+  /// do servidor (muda entre versões, tem cardinalidade alta e pode carregar
+  /// dado de quem tentou entrar).
+  Future<void> authSignupFailed({
+    required String method,
+    required String errorCode,
+  }) =>
+      track(evAuthSignupFailed, props: {
+        'method': method,
+        'error_code': errorCode,
+      });
+
+  /// Falha ao ENTRAR (não ao criar). Separado de [authSignupFailed] de
+  /// propósito: na tela de telefone, que é login e cadastro na mesma porta,
+  /// misturar os dois tornaria a métrica de cadastro ilegível.
+  Future<void> authLoginFailed({
+    required String method,
+    required String errorCode,
+  }) =>
+      track(evAuthLoginFailed, props: {
+        'method': method,
+        'error_code': errorCode,
+      });
+
   Future<void> loginCompleted({required String method}) =>
       track(evAuthLoginSucceeded, props: {'method': method});
 

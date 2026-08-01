@@ -14,6 +14,7 @@ import '../../services/notifications_service.dart';
 import '../../services/profile_events.dart';
 import '../../services/profile_snapshot_service.dart';
 import '../profile/application/profile_editor_view_model.dart';
+import 'auth_failure_code.dart';
 import 'password_rule.dart';
 import 'phone_auth_helpers.dart';
 
@@ -581,6 +582,16 @@ class UserViewModel extends ChangeNotifier {
     String? course,
     String? semester,
     String? university,
+    /// Quando false, "já cadastrado" sobe CRU em vez de virar uma tentativa de
+    /// login aqui dentro.
+    ///
+    /// Existe porque [signInOrSignUp] já tentou entrar no passo 1: refazer o
+    /// login aqui é redundante E destrutivo para a telemetria — o fallback
+    /// relança o erro do signIn (`invalid_credentials`), então quem chamou
+    /// nunca descobre que a conta EXISTIA e contabiliza uma falha de LOGIN
+    /// como falha de CADASTRO. Medido ao vivo em 01/08: um `auth_signup_failed`
+    /// com `error_code=invalid_credentials` que deveria ser `auth_login_failed`.
+    bool fallbackToSignIn = true,
   }) async {
     _isLoading = true;
     notifyListeners();
@@ -616,8 +627,9 @@ class UserViewModel extends ChangeNotifier {
       // em conta existente" virar "Este telefone já está cadastrado", que é
       // uma frase sem nada para a pessoa corrigir.
       final errorMsg = e.toString().toLowerCase();
-      if (errorMsg.contains('already registered') ||
-          errorMsg.contains('already exists')) {
+      if (fallbackToSignIn &&
+          (errorMsg.contains('already registered') ||
+              errorMsg.contains('already exists'))) {
         try {
           await signIn(email: email, password: password);
           return;
@@ -679,7 +691,16 @@ class UserViewModel extends ChangeNotifier {
       // Rede fora, rate limit, projeto pausado: propaga. Só seguimos para o
       // cadastro quando o servidor disse "essas credenciais não servem" — o
       // que inclui "essa conta não existe".
-      if (!credenciaisNaoConferem) rethrow;
+      if (!credenciaisNaoConferem) {
+        // Rede, rate limit, projeto pausado: a pessoa não entrou e não é
+        // credencial. Sem isto, some do painel.
+        // ignore: unawaited_futures
+        Analytics.shared.authLoginFailed(
+          method: 'phone',
+          errorCode: authFailureCode(e),
+        );
+        rethrow;
+      }
     }
 
     // 2. Criar. Não há checagem de regra aqui de propósito: a regra do app é
@@ -687,17 +708,49 @@ class UserViewModel extends ChangeNotifier {
     //    Se um dia o servidor ficar mais estrito, a recusa chega dele —
     //    tipada, com o motivo — e é traduzida em `AuthErrorFormatter`.
     try {
-      await signUp(email: email, password: password, name: name, age: age);
+      await signUp(
+        email: email,
+        password: password,
+        name: name,
+        age: age,
+        // Passo 1 já tentou entrar. Sem isto, o "já cadastrado" seria comido
+        // pelo fallback e chegaria aqui como erro de login — e o ramo abaixo,
+        // que distingue cadastro de login, nunca dispararia.
+        fallbackToSignIn: false,
+      );
     } on AuthException catch (e) {
       final msg = e.message.toLowerCase();
       if (msg.contains('already registered') || msg.contains('already exists')) {
         // A conta existe e o passo 1 já falhou com ela: a senha está errada.
+        // Isso é falha de LOGIN, não de cadastro — contabilizar como cadastro
+        // tornaria a métrica de signup ilegível justamente nesta tela, que é
+        // as duas coisas.
+        // ignore: unawaited_futures
+        Analytics.shared.authLoginFailed(
+          method: 'phone',
+          errorCode: 'invalid_credentials',
+        );
         throw const AuthException(
           'Invalid login credentials',
           statusCode: '400',
           code: 'invalid_credentials',
         );
       }
+      // Aqui o cadastro falhou de verdade. É este o sinal que faltava para
+      // apertar a política de senha do servidor sem voar às cegas.
+      // ignore: unawaited_futures
+      Analytics.shared.authSignupFailed(
+        method: 'phone',
+        errorCode: authFailureCode(e),
+      );
+      rethrow;
+    } catch (e) {
+      // Rede, timeout, qualquer coisa fora do AuthException.
+      // ignore: unawaited_futures
+      Analytics.shared.authSignupFailed(
+        method: 'phone',
+        errorCode: authFailureCode(e),
+      );
       rethrow;
     }
   }
@@ -777,6 +830,14 @@ class UserViewModel extends ChangeNotifier {
         },
       );
     } catch (e) {
+      // O Google não emitia NADA ao falhar — nem `started` (que é emitido na
+      // tela, em `authSignupMethodChosen`), nem falha. Uma quebra no OAuth
+      // aparecia só na ausência de contas novas.
+      // ignore: unawaited_futures
+      Analytics.shared.authSignupFailed(
+        method: provider.name,
+        errorCode: authFailureCode(e),
+      );
       print('Error signing in with OAuth ($provider): $e');
       rethrow;
     } finally {
@@ -907,6 +968,15 @@ class UserViewModel extends ChangeNotifier {
       }
       // ignore: unawaited_futures
       Analytics.shared.appleSigninFailed(code: code);
+      // Este método emite `authSignupStarted(method: 'apple')` lá em cima e
+      // nunca emitia o par de falha — o funil signup do Apple ficava com
+      // "iniciou" sem "falhou". Cancelamento NÃO conta: a pessoa desistiu,
+      // não deu erro, e contabilizar como falha inflaria a métrica que existe
+      // para detectar quebra.
+      if (!isCancelled) {
+        // ignore: unawaited_futures
+        Analytics.shared.authSignupFailed(method: 'apple', errorCode: code);
+      }
       print('Error signing in with Apple natively: $e');
       if (!isCancelled) rethrow;
     } finally {
