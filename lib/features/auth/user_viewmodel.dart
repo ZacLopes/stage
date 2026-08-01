@@ -646,13 +646,13 @@ class UserViewModel extends ChangeNotifier {
   /// A ordem é o conserto. Antes a tela chamava só `signUp` e dependia de um
   /// fallback no catch — desenho que produziu dois defeitos:
   ///
-  /// 1. **Lockout mudo.** A regra forte (letra + número) governava o botão
-  ///    "Continuar". A build publicada exigia só comprimento ≥ 8 enquanto a
-  ///    tela já anunciava letra e número, então existem contas reais com
-  ///    "abcdefgh". Essas pessoas digitavam a senha CERTA, o botão ficava
-  ///    cinza e inerte, e nenhuma mensagem aparecia — o validador só roda
-  ///    atrás do botão. Sem recuperação de senha no app e com e-mail
-  ///    sintético, era lockout terminal.
+  /// 1. **Lockout mudo.** Uma regra de composição (letra + número) chegou a
+  ///    governar o botão "Continuar" enquanto a build publicada exigia só
+  ///    comprimento — existem contas reais com "abcdefgh". Essas pessoas
+  ///    digitavam a senha CERTA e viam um botão cinza, sem mensagem. A regra
+  ///    foi removida (ver `password_rule.dart`), mas a ordem daqui é o que
+  ///    torna SEGURO apertar a política no servidor um dia: quem já tem conta
+  ///    entra antes de qualquer checagem de força.
   /// 2. **Mensagem sem conserto.** Senha errada em conta existente dizia
   ///    "Este telefone já está cadastrado" — uma frase que não indica nada
   ///    para a pessoa corrigir.
@@ -682,21 +682,10 @@ class UserViewModel extends ChangeNotifier {
       if (!credenciaisNaoConferem) rethrow;
     }
 
-    // 2. Não entrou: ou a conta não existe, ou a senha está errada. A regra
-    //    forte vale só para conta NOVA — e neste ponto ela é aplicável, porque
-    //    quem já tinha conta com senha fraca JÁ ENTROU no passo 1.
-    final erroDeRegra = passwordRuleError(password);
-    if (erroDeRegra != null) {
-      // A frase cobre as duas leituras porque daqui não dá para distinguir, e
-      // afirmar uma delas seria mandar a pessoa consertar a coisa errada.
-      throw NewAccountPasswordException(
-        'Não consegui entrar com essa senha. Se você está criando sua conta '
-        'agora, ela precisa ter pelo menos $kMinPasswordLength caracteres, '
-        'com uma letra e um número.',
-      );
-    }
-
-    // 3. Criar.
+    // 2. Criar. Não há checagem de regra aqui de propósito: a regra do app é
+    //    a MESMA do servidor (só comprimento, ≥ 8), e o botão já a aplicou.
+    //    Se um dia o servidor ficar mais estrito, a recusa chega dele —
+    //    tipada, com o motivo — e é traduzida em `AuthErrorFormatter`.
     try {
       await signUp(email: email, password: password, name: name, age: age);
     } on AuthException catch (e) {

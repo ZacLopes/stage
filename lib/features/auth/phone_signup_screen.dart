@@ -75,14 +75,16 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
   int get _phoneDigitsCount =>
       _phoneController.text.replaceAll(RegExp(r'\D'), '').length;
 
-  /// Habilita o botão. Usa `canAttemptSignIn` (só comprimento), NUNCA a regra
-  /// forte: esta tela também é LOGIN, e travar o botão pela regra de conta
-  /// nova deixava quem tem senha antiga sem número olhando para um botão
-  /// cinza, sem mensagem nenhuma. A regra forte é aplicada no cadastro, dentro
-  /// de `signInOrSignUp`, depois que a tentativa de entrar falha.
+  /// Habilita o botão.
+  ///
+  /// ⚠️ Esta tela é LOGIN **e** cadastro. A regra usada aqui não pode ser mais
+  /// estrita do que a que criou as contas existentes, ou quem tem senha
+  /// antiga fica olhando um botão cinza, sem mensagem — o validador só roda
+  /// atrás do botão, e não há recuperação de senha no app. Hoje `password_rule`
+  /// é só comprimento, igual ao servidor e igual à build publicada.
   bool get _isFormValid {
     return _phoneDigitsCount >= 8 &&
-        canAttemptSignIn(_passwordController.text);
+        passwordRuleError(_passwordController.text) == null;
   }
 
   Future<void> _handleSignup() async {
@@ -120,10 +122,6 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
           (route) => false,
         );
       }
-    } on NewAccountPasswordException catch (e) {
-      // Recusa da regra de conta NOVA: a frase já vem pronta e explica o que
-      // corrigir. Não passa pelo formatador, que traduz erro de servidor.
-      if (mounted) setState(() => _errorMessage = e.message);
     } catch (e) {
       if (mounted) {
         // Banner inline com animação cobre a comunicação do erro. SnackBar
@@ -277,13 +275,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                           // mudou. O comentário do AnimatedSwitcher abaixo já
                           // afirmava que isso acontecia; não acontecia.
                           onChanged: (_) => setState(() => _errorMessage = null),
-                          // Só o comprimento, pelo mesmo motivo do botão: o
-                          // validador roda no submit e não pode barrar quem
-                          // está tentando ENTRAR.
-                          validator: (val) => canAttemptSignIn(val ?? '')
-                              ? null
-                              : 'A senha precisa ter no mínimo '
-                                  '$kMinPasswordLength caracteres',
+                          validator: (val) => passwordRuleError(val ?? ''),
                           suffixIcon: IconButton(
                             icon: Icon(
                                 _obscurePassword ? Icons.visibility_off : Icons.visibility,

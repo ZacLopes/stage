@@ -1,70 +1,49 @@
-/// A regra de senha do Stage — a única.
+/// A regra de senha do Stage — a única, e deliberadamente simples.
 ///
-/// Revisão UX 28/07, achado P2-14: a regra era anunciada na tela e não era
-/// aplicada em lugar nenhum. Dava para criar conta com "abcdefgh". Regra
-/// anunciada e não cumprida é pior que regra nenhuma: ensina algo falso.
+/// **Só comprimento. Sem exigir mistura de letras, números ou símbolos.**
 ///
-/// Vive fora da tela por dois motivos concretos:
+/// ## Por que não exigir composição
 ///
-/// 1. **O texto de ajuda e a validação não podem divergir.** Eram duas coisas
-///    separadas: o `validator` checava uma regra e o texto embaixo do campo
-///    anunciava outra. [kPasswordRuleHint] e [passwordRuleError] agora saem
-///    do mesmo lugar — mudar uma sem a outra fica impossível.
-/// 2. **A política do servidor precisa espelhar isto.** Quando o Supabase Auth
-///    passar a exigir letras+dígitos, é ESTA a regra que ele tem que refletir.
-///    Se o servidor ficar mais estrito que o app, a pessoa passa pela tela e
-///    leva um erro que a tela não previu.
+/// O NIST desaconselha regras de composição desde 2017 (SP 800-63B), e o
+/// motivo é que elas não fazem o que prometem: `senha123` passa numa regra de
+/// letra+número e está em toda lista de vazamento; `meucachorrocomeuosofa`
+/// seria recusada e é ordens de magnitude mais forte. A regra empurra as
+/// pessoas para o padrão previsível (palavra + `123`), que é o primeiro que
+/// um ataque testa.
+///
+/// O que protege de verdade é o comprimento mais a checagem contra senhas
+/// vazadas (HaveIBeenPwned), que vive no painel do Supabase e é a próxima
+/// coisa a ligar.
+///
+/// ## Por que isso também elimina uma classe de defeito
+///
+/// Esta regra é IGUAL à do servidor (mínimo 8, definido no painel em 31/07) e
+/// igual à que a build publicada já exigia. Sem divergência entre app e
+/// servidor não existe o caso "a tela aceita e o servidor recusa" — nem o
+/// inverso, que chegou a ser um lockout: a regra forte governava o botão
+/// "Continuar", e quem tinha senha antiga sem número digitava a senha CERTA e
+/// via um botão cinza, sem mensagem nenhuma.
+///
+/// ## Se um dia subir a régua
+///
+/// Aperte pelo SERVIDOR (Authentication → Providers → Email), não por aqui. O
+/// fluxo [UserViewModel.signInOrSignUp] tenta entrar antes de criar, então
+/// quem já tem conta nunca esbarra na regra nova — e a recusa do servidor
+/// chega tipada, com o motivo, e é traduzida em `AuthErrorFormatter`.
 library;
 
-/// Piso de comprimento. 8 porque é o que a build publicada já exigia — subir
-/// disso trancaria quem tem senha de exatamente 8 caracteres, e a doc do
-/// Supabase desaconselha menos que 8.
+/// Piso de comprimento. 8 porque é o que a build publicada já exigia e o que o
+/// servidor exige hoje — subir disso trancaria quem tem senha de exatamente 8,
+/// e a doc do Supabase desaconselha menos que 8.
 const int kMinPasswordLength = 8;
 
-/// ⚠️ A regra forte (letra + número) vale SÓ PARA CONTA NOVA. Nunca use
-/// [passwordRuleError] para decidir se a pessoa pode TENTAR ENTRAR.
-///
-/// A build publicada exigia apenas comprimento ≥ 8 enquanto a tela já
-/// anunciava letra e número (`origin/main:phone_signup_screen.dart:71` vs
-/// `:285`). Existem, portanto, contas reais com senha "abcdefgh" ou
-/// "12345678". Se a regra forte governar o botão "Continuar", essas pessoas
-/// digitam a senha CERTA, o botão fica cinza e inerte, e nenhuma mensagem
-/// aparece — não há recuperação de senha no app e o e-mail delas é sintético.
-/// É lockout mudo. Foi assim que este arquivo nasceu errado.
-///
-/// Quem já tem conta entra no passo 1 do fluxo (`signInOrSignUp`), antes de
-/// qualquer checagem de força — exatamente como o servidor faz, que valida
-/// força no cadastro e não no login.
-bool canAttemptSignIn(String password) => password.length >= kMinPasswordLength;
-
-/// Recusa de senha ao CRIAR conta. Tipada para a tela distinguir isso de
-/// "credenciais erradas" sem ler a redação da mensagem.
-class NewAccountPasswordException implements Exception {
-  final String message;
-  const NewAccountPasswordException(this.message);
-  @override
-  String toString() => message;
-}
-
-/// O que a tela ANUNCIA embaixo do campo. Deriva da mesma regra que valida.
-const String kPasswordRuleHint =
-    'Mínimo $kMinPasswordLength caracteres, uma letra e um número';
+/// O que a tela anuncia embaixo do campo. Deriva da mesma constante que valida.
+const String kPasswordRuleHint = 'Mínimo $kMinPasswordLength caracteres';
 
 /// Null quando a senha serve; a frase do que falta quando não serve.
-///
-/// A ordem das checagens é a ordem em que a pessoa costuma errar, para a
-/// mensagem apontar o próximo passo e não o problema mais raro.
 String? passwordRuleError(String value) {
   if (value.length < kMinPasswordLength) {
     return 'A senha precisa ter no mínimo $kMinPasswordLength caracteres';
-  }
-  // Aceita acentuadas: "josé2024" é senha legítima de gente que digita em
-  // português, e recusá-la seria uma regra sobre teclado, não sobre força.
-  if (!RegExp(r'[A-Za-zÀ-ÿ]').hasMatch(value)) {
-    return 'A senha precisa ter pelo menos uma letra';
-  }
-  if (!RegExp(r'\d').hasMatch(value)) {
-    return 'A senha precisa ter pelo menos um número';
   }
   return null;
 }
