@@ -75,9 +75,14 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
   int get _phoneDigitsCount =>
       _phoneController.text.replaceAll(RegExp(r'\D'), '').length;
 
+  /// Habilita o botão. Usa `canAttemptSignIn` (só comprimento), NUNCA a regra
+  /// forte: esta tela também é LOGIN, e travar o botão pela regra de conta
+  /// nova deixava quem tem senha antiga sem número olhando para um botão
+  /// cinza, sem mensagem nenhuma. A regra forte é aplicada no cadastro, dentro
+  /// de `signInOrSignUp`, depois que a tentativa de entrar falha.
   bool get _isFormValid {
     return _phoneDigitsCount >= 8 &&
-        passwordRuleError(_passwordController.text) == null;
+        canAttemptSignIn(_passwordController.text);
   }
 
   Future<void> _handleSignup() async {
@@ -98,11 +103,13 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
       // ignore: unawaited_futures
       Analytics.shared.authSignupStarted(method: 'phone');
 
-      await vm.signUp(
+      // Entra se a conta existe, cria se não. Ver `signInOrSignUp` — a ordem
+      // é o que impede o lockout de quem tem senha antiga sem número.
+      await vm.signInOrSignUp(
         email: syntheticEmail,
         password: _passwordController.text,
         // Nome real coletado depois (first_name + last_name nas masking
-        // questions). Placeholder vazio aqui — UserViewModel.signUp aceita.
+        // questions). Placeholder vazio aqui.
         name: '',
         age: 18,
       );
@@ -113,6 +120,10 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
           (route) => false,
         );
       }
+    } on NewAccountPasswordException catch (e) {
+      // Recusa da regra de conta NOVA: a frase já vem pronta e explica o que
+      // corrigir. Não passa pelo formatador, que traduz erro de servidor.
+      if (mounted) setState(() => _errorMessage = e.message);
     } catch (e) {
       if (mounted) {
         // Banner inline com animação cobre a comunicação do erro. SnackBar
@@ -213,6 +224,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                                   ),
                                 ),
                                 onChanged: (v) => setState(() {
+                                  _errorMessage = null;
                                   _countryCode = v;
                                   // Limpa o número quando o DDI muda — máscara
                                   // BR só vale pra +55, e outros países podem
@@ -236,7 +248,12 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                                         LengthLimitingTextInputFormatter(15),
                                       ],
                                 textInputAction: TextInputAction.next,
-                                onChanged: (_) => setState(() {}),
+                                // Limpa o banner igual ao campo de senha: a
+                                // mensagem acusa o TELEFONE, então deixá-la na
+                                // tela enquanto a pessoa redigita o número faz
+                                // parecer que nada mudou.
+                                onChanged: (_) =>
+                                    setState(() => _errorMessage = null),
                                 validator: (_) => _phoneDigitsCount >= 8
                                     ? null
                                     : 'Insira um telefone válido',
@@ -260,7 +277,13 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                           // mudou. O comentário do AnimatedSwitcher abaixo já
                           // afirmava que isso acontecia; não acontecia.
                           onChanged: (_) => setState(() => _errorMessage = null),
-                          validator: (val) => passwordRuleError(val ?? ''),
+                          // Só o comprimento, pelo mesmo motivo do botão: o
+                          // validador roda no submit e não pode barrar quem
+                          // está tentando ENTRAR.
+                          validator: (val) => canAttemptSignIn(val ?? '')
+                              ? null
+                              : 'A senha precisa ter no mínimo '
+                                  '$kMinPasswordLength caracteres',
                           suffixIcon: IconButton(
                             icon: Icon(
                                 _obscurePassword ? Icons.visibility_off : Icons.visibility,

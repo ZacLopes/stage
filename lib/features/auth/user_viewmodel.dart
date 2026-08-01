@@ -14,6 +14,7 @@ import '../../services/notifications_service.dart';
 import '../../services/profile_events.dart';
 import '../../services/profile_snapshot_service.dart';
 import '../profile/application/profile_editor_view_model.dart';
+import 'password_rule.dart';
 import 'phone_auth_helpers.dart';
 
 class UserViewModel extends ChangeNotifier {
@@ -604,49 +605,26 @@ class UserViewModel extends ChangeNotifier {
         // canais: email, apple, google — não só email).
         await _loadUser();
       }
-    } catch (e, st) {
-      // A tela de telefone é login E cadastro na mesma porta: ela sempre chama
-      // `signUp`, e quem já tem conta depende deste fallback para entrar.
+    } catch (e) {
+      // Fallback histórico: esta tela é login E cadastro, e por muito tempo
+      // chamou só `signUp`. Quem já tinha conta dependia daqui para entrar.
+      //
+      // O caminho de produção agora é [signInOrSignUp], que tenta ENTRAR
+      // primeiro e não precisa deste desvio. Ele fica por compatibilidade —
+      // e deliberadamente SEM o ramo de senha fraca que eu havia adicionado
+      // aqui: naquele desenho, propagar o erro original fazia "senha errada
+      // em conta existente" virar "Este telefone já está cadastrado", que é
+      // uma frase sem nada para a pessoa corrigir.
       final errorMsg = e.toString().toLowerCase();
-      final jaExiste = errorMsg.contains('already registered') ||
-          errorMsg.contains('already exists');
-
-      // ⚠️ SENHA FRACA TAMBÉM PRECISA CAIR NO FALLBACK, e isto não é zelo:
-      // é o que impede um lockout quando a política de senha do servidor for
-      // apertada.
-      //
-      // O GoTrue valida a FORÇA da senha ANTES de checar se a conta existe.
-      // Então, no dia em que a política subir, quem já tem conta digita a
-      // senha CERTA e recebe `weak_password` — não "already registered". Sem
-      // esta linha, o fallback abaixo fica inalcançável e a pessoa não entra
-      // mais, nunca: o app não tem tela de "esqueci a senha", e o e-mail do
-      // cadastro por telefone é sintético (@stage.app), então nem recuperação
-      // por e-mail existe. São ~116 contas ativas nessa situação.
-      //
-      // Hoje, com a política em "mínimo 8" (que a build já exigia), este ramo
-      // não dispara. Ele existe para que ligar a política deixe de ser um
-      // ato destrutivo.
-      final senhaFraca = e is AuthWeakPasswordException;
-
-      if (jaExiste || senhaFraca) {
+      if (errorMsg.contains('already registered') ||
+          errorMsg.contains('already exists')) {
         try {
           await signIn(email: email, password: password);
-          return; // Entrou: era conta existente.
+          return;
         } catch (_) {
-          // O `signIn` falhou. Duas causas possíveis e indistinguíveis daqui:
-          // (a) a conta existe e a senha está errada; (b) a conta não existe e
-          // a senha é fraca demais para criar.
-          //
-          // Propagamos o erro ORIGINAL, que cobre (b) — o caso sem saída. Em
-          // (a) a pessoa lê "senha fraca" em vez de "senha incorreta": impreciso,
-          // mas ela redigita e resolve. No inverso, quem está criando conta
-          // leria "senha incorreta" numa conta que não existe, e não teria o
-          // que fazer.
-          //
-          // `Error.throwWithStackTrace` e não `rethrow`: dentro deste catch,
-          // `rethrow` relançaria o erro do signIn, não o original — que é o
-          // que o código antigo fazia, apesar do comentário dizer o contrário.
-          Error.throwWithStackTrace(e, st);
+          // O erro do signIn é o informativo aqui: a conta existe, então o
+          // que falhou foi a senha.
+          rethrow;
         }
       }
 
@@ -660,6 +638,78 @@ class UserViewModel extends ChangeNotifier {
          _isLoading = false;
          notifyListeners();
       }
+    }
+  }
+
+  /// Porta única da tela de telefone: ENTRA se a conta existe, CRIA se não.
+  ///
+  /// A ordem é o conserto. Antes a tela chamava só `signUp` e dependia de um
+  /// fallback no catch — desenho que produziu dois defeitos:
+  ///
+  /// 1. **Lockout mudo.** A regra forte (letra + número) governava o botão
+  ///    "Continuar". A build publicada exigia só comprimento ≥ 8 enquanto a
+  ///    tela já anunciava letra e número, então existem contas reais com
+  ///    "abcdefgh". Essas pessoas digitavam a senha CERTA, o botão ficava
+  ///    cinza e inerte, e nenhuma mensagem aparecia — o validador só roda
+  ///    atrás do botão. Sem recuperação de senha no app e com e-mail
+  ///    sintético, era lockout terminal.
+  /// 2. **Mensagem sem conserto.** Senha errada em conta existente dizia
+  ///    "Este telefone já está cadastrado" — uma frase que não indica nada
+  ///    para a pessoa corrigir.
+  ///
+  /// Tentando ENTRAR primeiro, os dois somem: quem já tem conta nunca encosta
+  /// na regra de conta nova (é o que o servidor faz — ele valida força no
+  /// cadastro, não no login), e quando o `signUp` responde "já cadastrado"
+  /// isso passa a significar, sem ambiguidade, que a senha estava errada.
+  ///
+  /// Custo: um round-trip a mais para quem é realmente novo.
+  Future<void> signInOrSignUp({
+    required String email,
+    required String password,
+    required String name,
+    required int age,
+  }) async {
+    // 1. Entrar. Quem já tem conta resolve aqui, com qualquer senha antiga.
+    try {
+      await signIn(email: email, password: password);
+      return;
+    } on AuthException catch (e) {
+      final credenciaisNaoConferem = e.code == 'invalid_credentials' ||
+          e.message.toLowerCase().contains('invalid login credentials');
+      // Rede fora, rate limit, projeto pausado: propaga. Só seguimos para o
+      // cadastro quando o servidor disse "essas credenciais não servem" — o
+      // que inclui "essa conta não existe".
+      if (!credenciaisNaoConferem) rethrow;
+    }
+
+    // 2. Não entrou: ou a conta não existe, ou a senha está errada. A regra
+    //    forte vale só para conta NOVA — e neste ponto ela é aplicável, porque
+    //    quem já tinha conta com senha fraca JÁ ENTROU no passo 1.
+    final erroDeRegra = passwordRuleError(password);
+    if (erroDeRegra != null) {
+      // A frase cobre as duas leituras porque daqui não dá para distinguir, e
+      // afirmar uma delas seria mandar a pessoa consertar a coisa errada.
+      throw NewAccountPasswordException(
+        'Não consegui entrar com essa senha. Se você está criando sua conta '
+        'agora, ela precisa ter pelo menos $kMinPasswordLength caracteres, '
+        'com uma letra e um número.',
+      );
+    }
+
+    // 3. Criar.
+    try {
+      await signUp(email: email, password: password, name: name, age: age);
+    } on AuthException catch (e) {
+      final msg = e.message.toLowerCase();
+      if (msg.contains('already registered') || msg.contains('already exists')) {
+        // A conta existe e o passo 1 já falhou com ela: a senha está errada.
+        throw const AuthException(
+          'Invalid login credentials',
+          statusCode: '400',
+          code: 'invalid_credentials',
+        );
+      }
+      rethrow;
     }
   }
 

@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../features/auth/password_rule.dart';
 import 'safe_error_text.dart';
 
 /// Por qual identificador a pessoa está tentando entrar.
@@ -68,7 +69,11 @@ class AuthErrorFormatter {
         return 'A senha precisa misturar letras e números.';
       }
       if (razoes.contains('length')) {
-        return 'A senha está curta demais. Use pelo menos 8 caracteres.';
+        // O número sai da MESMA constante que a tela valida. Cravar "8" aqui
+        // faria a frase virar mentira no dia em que o mínimo subir no painel
+        // — que é exatamente o que este ramo existe para viabilizar.
+        return 'A senha está curta demais. Use pelo menos '
+            '$kMinPasswordLength caracteres.';
       }
       // Razão nova que o servidor passou a mandar e este código ainda não
       // conhece: dizer o que é o problema já é melhor que a frase genérica.

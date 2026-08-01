@@ -53,6 +53,33 @@ void main() {
     });
   });
 
+  group('canAttemptSignIn — o predicado que NÃO pode barrar login', () {
+    test('deixa passar senha antiga sem número — era o lockout', () {
+      // A build publicada exigia só comprimento, enquanto a tela já anunciava
+      // letra+número. Existem contas reais com "abcdefgh". Se a regra forte
+      // governar o botão, essas pessoas digitam a senha CERTA e o botão fica
+      // cinza, sem mensagem nenhuma.
+      expect(canAttemptSignIn('abcdefgh'), isTrue);
+      expect(canAttemptSignIn('12345678'), isTrue);
+      // …enquanto a regra de conta NOVA continua recusando as duas.
+      expect(passwordRuleError('abcdefgh'), isNotNull);
+      expect(passwordRuleError('12345678'), isNotNull);
+    });
+
+    test('ainda barra o que é curto demais para qualquer conta', () {
+      expect(canAttemptSignIn('abc123'), isFalse);
+      expect(canAttemptSignIn(''), isFalse);
+    });
+
+    test('é mais permissivo que a regra de conta nova, nunca o contrário', () {
+      // Invariante: tudo que passa na regra forte tem que poder tentar entrar.
+      for (final senha in ['senha123', 'abcdefg1', 'josé2024', 'A1bcdefg']) {
+        expect(passwordRuleError(senha), isNull, reason: senha);
+        expect(canAttemptSignIn(senha), isTrue, reason: senha);
+      }
+    });
+  });
+
   group('a tela não pode anunciar uma regra e aplicar outra', () {
     test('o texto de ajuda cita o mesmo mínimo que a validação usa', () {
       expect(kPasswordRuleHint, contains('$kMinPasswordLength'));
@@ -74,6 +101,29 @@ void main() {
         codigo.contains("'Mínimo 8 caracteres"),
         isFalse,
         reason: 'o texto voltou a ser um literal solto na tela',
+      );
+    });
+
+    test('o botão NÃO pode depender da regra de conta nova', () {
+      // Este é o guarda do lockout. `_isFormValid` governa o botão
+      // "Continuar" e a tela também é LOGIN: se ele voltar a consultar
+      // `passwordRuleError`, quem tem senha antiga sem número fica olhando um
+      // botão cinza, sem mensagem, sem recuperação de senha e com e-mail
+      // sintético. Lockout mudo.
+      final src = File('lib/features/auth/phone_signup_screen.dart')
+          .readAsStringSync();
+      final codigo = src
+          .split('\n')
+          .where((l) => !l.trimLeft().startsWith('//'))
+          .join('\n');
+      final inicio = codigo.indexOf('bool get _isFormValid');
+      expect(inicio, greaterThan(-1));
+      final corpo = codigo.substring(inicio, codigo.indexOf('}', inicio) + 1);
+      expect(corpo, contains('canAttemptSignIn'));
+      expect(
+        corpo.contains('passwordRuleError'),
+        isFalse,
+        reason: 'o botão voltou a ser governado pela regra de conta nova',
       );
     });
   });

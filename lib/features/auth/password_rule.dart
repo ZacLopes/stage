@@ -21,6 +21,31 @@ library;
 /// Supabase desaconselha menos que 8.
 const int kMinPasswordLength = 8;
 
+/// ⚠️ A regra forte (letra + número) vale SÓ PARA CONTA NOVA. Nunca use
+/// [passwordRuleError] para decidir se a pessoa pode TENTAR ENTRAR.
+///
+/// A build publicada exigia apenas comprimento ≥ 8 enquanto a tela já
+/// anunciava letra e número (`origin/main:phone_signup_screen.dart:71` vs
+/// `:285`). Existem, portanto, contas reais com senha "abcdefgh" ou
+/// "12345678". Se a regra forte governar o botão "Continuar", essas pessoas
+/// digitam a senha CERTA, o botão fica cinza e inerte, e nenhuma mensagem
+/// aparece — não há recuperação de senha no app e o e-mail delas é sintético.
+/// É lockout mudo. Foi assim que este arquivo nasceu errado.
+///
+/// Quem já tem conta entra no passo 1 do fluxo (`signInOrSignUp`), antes de
+/// qualquer checagem de força — exatamente como o servidor faz, que valida
+/// força no cadastro e não no login.
+bool canAttemptSignIn(String password) => password.length >= kMinPasswordLength;
+
+/// Recusa de senha ao CRIAR conta. Tipada para a tela distinguir isso de
+/// "credenciais erradas" sem ler a redação da mensagem.
+class NewAccountPasswordException implements Exception {
+  final String message;
+  const NewAccountPasswordException(this.message);
+  @override
+  String toString() => message;
+}
+
 /// O que a tela ANUNCIA embaixo do campo. Deriva da mesma regra que valida.
 const String kPasswordRuleHint =
     'Mínimo $kMinPasswordLength caracteres, uma letra e um número';
