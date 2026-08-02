@@ -132,3 +132,31 @@ Deno.test('o ponto continua sendo ignorado: Node.js é nodejs', () => {
   assertEquals(flatten('Vue.js'), flatten('vuejs'))
   assertEquals(flatten('Power BI'), flatten('powerbi'))
 })
+
+Deno.test('a família informática: nível NUNCA vira sinônimo pleno', () => {
+  // O fixture deste arquivo só tinha Excel e Comunicação, e por isso ficou
+  // VERDE enquanto a migration do rename deixava "informática básica"
+  // classificada como `exact` — a classe que autoriza esconder. A auditoria
+  // das migrations pegou o que o teste não pegava. Este caso existe para o
+  // buraco não voltar.
+  const EXACT_INFO = [
+    { alias: 'informática', canonica: 'Informática' },
+    { alias: 'conhecimento em informática', canonica: 'Informática' },
+    { alias: 'habilidades em informática', canonica: 'Informática' },
+  ]
+  const owned = expandirComExact(['informática'], EXACT_INFO)
+
+  // Sinônimos plenos entram.
+  assertEquals(owned.has(flatten('Informática')), true)
+  assertEquals(owned.has(flatten('conhecimento em informática')), true)
+
+  // Nenhuma variação de NÍVEL entra — nem para baixo, nem para cima.
+  for (const nivel of [
+    'informática básica',
+    'informática intermediária',
+    'informática avançada',
+    'noções de informática',
+  ]) {
+    assertEquals(owned.has(flatten(nivel)), false, nivel)
+  }
+})

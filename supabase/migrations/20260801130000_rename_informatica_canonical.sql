@@ -25,7 +25,14 @@
 -- o `canonical_skill_id` é o mesmo, só o RÓTULO exibido muda. Afeta:
 --   - a faceta de skills da busca de candidatos do admin (rótulo);
 --   - as sugestões do typeahead do editor de skills (rótulo);
---   - nada mais — o gatilho `set_canonical_skill_id` casa por
+--   - ⚠️ **o prompt do `analyze-match`**, que lê
+--     `profile_skills → skills_catalog(canonical_name)` (index.ts:271) e ESTÁ
+--     NO AR. Para os 93 perfis com esta canônica, o texto enviado ao modelo
+--     muda de "Informática básica" para "Informática" — o que muda a análise e
+--     invalida o cache dessas pessoas, recomputado sob demanda.
+--     Eu tinha escrito aqui que era "só rótulo". Era falso: a auditoria das
+--     migrations pegou, e eu confirmei no código.
+--   - o gatilho `set_canonical_skill_id` NÃO é afetado: casa por
 --     `alias_normalized`, não pelo nome da canônica.
 --
 -- ## O que esta migration NÃO faz
@@ -49,11 +56,26 @@ where canonical_name = 'Informática básica'
 
 -- O alias literal do nome antigo continua valendo: quem escreveu
 -- "informática básica" no perfil tem que continuar casando.
+--
+-- ⚠️ `do update`, não `do nothing`. A linha JÁ EXISTE (era o nome da canônica,
+-- então virou alias dela) e estava classificada como `exact` — a classe que
+-- autoriza esconder. Com `do nothing` o INSERT não executava, a classificação
+-- ficava intacta, e o resultado era: quem escreveu só "informática" passaria a
+-- "possuir" "informática básica", e uma vaga pedindo isso sumiria da folha
+-- dela. Achado na auditoria das migrations (01/08).
+--
+-- O erro é meu e é do tipo que o teste não pega: `owned_skills.test.ts` fica
+-- verde porque o fixture dele só tem Excel e Comunicação.
+--
+-- Pela minha própria rubrica, "informática básica" carrega nível explícito
+-- contra uma canônica que (após o rename) não carrega — logo é `level`. A
+-- migration estava inconsistente consigo mesma: rebaixava "noções de
+-- informática" e deixava esta como sinônimo pleno.
 insert into public.skill_aliases (alias_normalized, canonical_skill_id, match_kind)
 select 'informática básica', sc.id, 'level'
 from public.skills_catalog sc
 where sc.canonical_name = 'Informática'
-on conflict (alias_normalized) do nothing;
+on conflict (alias_normalized) do update set match_kind = 'level';
 
 -- Com o rótulo consertado, "informática" sem nível deixa de ser `scope`
 -- (não estreita mais nada) e vira sinônimo de verdade.
