@@ -73,3 +73,66 @@ que existia por acidente deixou de existir.
 
 Reversível por UPDATE — mas o problema nunca foi a reversibilidade, e sim que
 ninguém perceberia que precisa reverter.
+
+---
+
+## `20260724120000_import_cache_cleanup_tautological.sql`
+
+**Segurada em 02/08/2026. Condição de liberação: `extract-job-skills` deployada
+lendo `profile_skills`.**
+
+### O que ela faz
+
+Acrescenta UMA cláusula ao gatilho `_cleanup_import_cache_after_saved_resume_delete`:
+apagar o cache `gamification_data.imported_resume` quando o último CV importado
+da pessoa for apagado.
+
+Não roda backfill. Não apaga nada no ato da aplicação. Só muda a regra dali para
+frente. E não toca nos 419 caches órfãos (pessoas com cache e nenhum CV importado):
+o gatilho só roda em `AFTER DELETE` de uma linha `source='imported'`, e essas
+pessoas não têm nenhuma — não existe evento para disparar.
+
+### Por que ela é necessária
+
+As duas cláusulas atuais do gatilho estão MORTAS em produção, medido em 02/08:
+
+- `is_current_source` → `0` linhas de 1.311 têm `true`
+- `v_cache_source = OLD.id::text` → **0** dos 1.096 caches têm `source_resume_id`
+  preenchido
+
+Ou seja: o gatilho existe desde `20260714130000` e **nunca disparou para ninguém**.
+É por isso que há 419 órfãos. Hoje, quem apaga o CV importado continua tendo o
+texto dele lido pelo `analyze-match`, pelo `adapt-resume-to-job` e pelo
+`extract-job-skills`. O "apagar" não apaga.
+
+### Por que não pode ir sozinha
+
+A `extract-job-skills` **versão 26, que está no ar**, resolve as skills da pessoa
+só a partir de `imported_resume.parsed.skills`, `whoIAm.derived.skills` e
+`confirmed_skills` (verificado no bundle deployado, não no working tree — a string
+`profile_skills` não aparece nele).
+
+Apagado o cache, essa function passa a devolver `in_cv: false` para TODA skill.
+A tela de confirmação de skills diz à pessoa que ela não tem nenhuma das
+competências da vaga — mesmo com o perfil relacional cheio — e o `extra_skills`
+que segue para o `adapt-resume-to-job` sai errado.
+
+Não é "ficar sem dado": é receber uma resposta **confiante e errada** sobre o
+próprio perfil, que é a classe mais difícil de detectar. Exposição medida: 677
+pessoas têm cache + CV importado; 672 delas têm perfil relacional cheio, e são
+justamente essas que receberiam a resposta errada.
+
+### Como liberar
+
+1. Deployar `extract-job-skills` a partir do repo commitado — a versão do branch
+   lê `profile_skills` e fecha a classe inteira.
+   ⚠️ Ela também lê `skill_aliases.match_kind`, então `20260801120000` precisa
+   estar aplicada ANTES do deploy (foi, em 02/08).
+2. `bash scripts/check_functions_drift.sh` verde.
+3. `git mv supabase/migrations_held/20260724120000_import_cache_cleanup_tautological.sql supabase/migrations/`
+4. `bash scripts/check_migrations_manifest.sh --update` e aplicar.
+
+### Rollback
+
+`CREATE OR REPLACE FUNCTION` da versão anterior (a de `20260714130000`). Reversível,
+mas o cache já apagado de quem deletou nesse meio-tempo não volta.
