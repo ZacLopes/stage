@@ -355,6 +355,77 @@ serve(withEdgeAnalytics('extract-job-skills', async (req) => {
       ? gamificationData.confirmed_skills.map((s: any) => String(s)).filter(Boolean)
       : []
     const confirmedCanon = new Set(confirmedSkills.map((s) => canonical(s)))
+    const userId = user.id
+
+    // ── Skills DECLARADAS no perfil (achado P2-19) ──────────────────────────
+    //
+    // Até aqui esta função só cruzava as fontes LEGADAS: `parsed.skills` do CV
+    // importado, o texto cru do PDF e a trilha. Quem cadastrou skills pelo
+    // editor do perfil não contava — então alguém marcava Excel, Power BI e
+    // Python e, cinco minutos depois, a folha "marque o que você tem mas não
+    // escreveu no CV" oferecia Excel, Power BI e Python.
+    //
+    // ⚠️ A comparação usa SÓ os aliases classificados como `exact`. A tabela
+    // `skill_aliases` foi construída para ACHAR gente (busca do admin): ela
+    // junta "excel básico" e "excel avançado" na mesma canônica de propósito.
+    // Usar isso para afirmar identidade esconderia da pessoa a chance de
+    // reivindicar um nível que ela não tem carimbado — e ela nunca saberia do
+    // que foi privada. Ver a migration 20260801120000.
+    //
+    // Failure-open deliberado: se a leitura falhar, `ownedFlat` fica vazio e a
+    // folha volta a oferecer tudo. Oferecer duas vezes é chato e visível;
+    // esconder por engano é invisível.
+    const ownedFlat = new Set<string>()
+    try {
+      const { data: profileSkills, error: skillsErr } = await supabaseCache
+        .from('profile_skills')
+        .select('name')
+        .eq('user_id', userId)
+      if (skillsErr) {
+        console.error('profile_skills read failed', skillsErr)
+      } else {
+        for (const row of profileSkills ?? []) {
+          const f = flatten(String((row as { name?: unknown }).name ?? ''))
+          if (f) ownedFlat.add(f)
+        }
+      }
+
+      if (ownedFlat.size > 0) {
+        // Expande o que a pessoa tem pelos aliases EXACT, nas duas direções:
+        // ela escreveu "exel" e a vaga pede "Excel", ou o contrário.
+        const { data: exactAliases, error: aliasErr } = await supabaseCache
+          .from('skill_aliases')
+          .select('alias_normalized, skills_catalog(canonical_name)')
+          .eq('match_kind', 'exact')
+        if (aliasErr) {
+          // Coluna ainda não aplicada em produção, ou falha de rede: seguimos
+          // com comparação literal, que já resolve o caso do achado.
+          console.error('exact aliases unavailable, literal only', aliasErr)
+        } else {
+          const porCanonica = new Map<string, string[]>()
+          for (const row of exactAliases ?? []) {
+            const r = row as {
+              alias_normalized?: unknown
+              skills_catalog?: { canonical_name?: unknown } | null
+            }
+            const alias = flatten(String(r.alias_normalized ?? ''))
+            const canon = flatten(String(r.skills_catalog?.canonical_name ?? ''))
+            if (!alias || !canon) continue
+            if (!porCanonica.has(canon)) porCanonica.set(canon, [])
+            porCanonica.get(canon)!.push(alias)
+          }
+          for (const [canon, aliases] of porCanonica) {
+            const temAlgum = canon && ownedFlat.has(canon) ||
+              aliases.some((a) => ownedFlat.has(a))
+            if (!temAlgum) continue
+            if (canon) ownedFlat.add(canon)
+            for (const a of aliases) ownedFlat.add(a)
+          }
+        }
+      }
+    } catch (e) {
+      console.error('profile skills expansion failed', e)
+    }
 
     // 4. Cache lookup (por job_id — skills da vaga são as mesmas pra qualquer user)
     const cacheCutoff = new Date(Date.now() - CACHE_TTL_DAYS * 86400_000).toISOString()
@@ -467,9 +538,10 @@ serve(withEdgeAnalytics('extract-job-skills', async (req) => {
       })
     }
 
-    // 7. Cruza com CV do user → in_cv + pre_confirmed
+    // 7. Cruza com CV E COM O PERFIL do user → in_cv + pre_confirmed
     const outSkills = extractedSkills.map((s) => {
-      const inCv = isSkillInCv(s.name, parsedSkills, rawCvFlat)
+      const inCv = isSkillInCv(s.name, parsedSkills, rawCvFlat) ||
+          ownedFlat.has(flatten(s.name))
       const preConfirmed = !inCv && confirmedCanon.has(canonical(s.name))
       return {
         name: s.name,

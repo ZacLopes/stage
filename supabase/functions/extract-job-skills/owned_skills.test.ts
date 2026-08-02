@@ -1,0 +1,106 @@
+// Regra de identidade da folha de skills extras — achado P2-19.
+//
+// A tabela `skill_aliases` foi construída para ACHAR gente (busca do admin):
+// ela junta "excel básico" e "excel avançado" na mesma canônica de propósito.
+// Este arquivo trava a distinção que o conserto depende: só a classe `exact`
+// pode autorizar o app a esconder um item da folha.
+//
+// Errar para o lado de esconder é INVISÍVEL — a pessoa perde uma linha do
+// currículo e nunca fica sabendo. Errar para o lado de oferecer é chato e
+// visível. Os casos abaixo fixam essa assimetria.
+
+import { assertEquals } from 'https://deno.land/std@0.208.0/assert/mod.ts'
+
+/** Mesma normalização do index.ts (acento fora, só alfanumérico). */
+function flatten(raw: string): string {
+  const from = 'áàâãäéèêëíìîïóòôõöúùûüçñ'
+  const to = 'aaaaaeeeeiiiiooooouuuucn'
+  let s = raw.trim().toLowerCase()
+  for (let i = 0; i < from.length; i++) s = s.replaceAll(from[i], to[i])
+  return s.replace(/[^a-z0-9]/g, '')
+}
+
+/**
+ * Reproduz a expansão do index.ts: parte do que a pessoa declarou e cresce
+ * SÓ pelos aliases `exact`.
+ */
+function expandirComExact(
+  declaradas: string[],
+  aliasesExact: Array<{ alias: string; canonica: string }>,
+): Set<string> {
+  const owned = new Set(declaradas.map(flatten).filter(Boolean))
+  const porCanonica = new Map<string, string[]>()
+  for (const { alias, canonica } of aliasesExact) {
+    const a = flatten(alias)
+    const c = flatten(canonica)
+    if (!a || !c) continue
+    if (!porCanonica.has(c)) porCanonica.set(c, [])
+    porCanonica.get(c)!.push(a)
+  }
+  for (const [canon, aliases] of porCanonica) {
+    const tem = owned.has(canon) || aliases.some((a) => owned.has(a))
+    if (!tem) continue
+    owned.add(canon)
+    for (const a of aliases) owned.add(a)
+  }
+  return owned
+}
+
+const EXACT = [
+  { alias: 'exel', canonica: 'Excel' },
+  { alias: 'ms excel', canonica: 'Excel' },
+  { alias: 'microsoft excel', canonica: 'Excel' },
+  { alias: 'boa comunicação', canonica: 'Comunicação' },
+]
+
+Deno.test('o caso do achado: declarou e a folha reoferecia', () => {
+  const owned = expandirComExact(['Excel', 'Power BI', 'Python'], EXACT)
+  assertEquals(owned.has(flatten('Excel')), true)
+  assertEquals(owned.has(flatten('Power BI')), true)
+  assertEquals(owned.has(flatten('Python')), true)
+})
+
+Deno.test('sinônimo exact casa nas duas direções', () => {
+  // Escreveu "exel", a vaga pede "Excel".
+  assertEquals(expandirComExact(['exel'], EXACT).has(flatten('Excel')), true)
+  // Escreveu "Excel", a vaga pede "ms excel".
+  assertEquals(expandirComExact(['Excel'], EXACT).has(flatten('ms excel')), true)
+})
+
+Deno.test('"boa comunicação" é a mesma reivindicação que "Comunicação"', () => {
+  const owned = expandirComExact(['boa comunicação'], EXACT)
+  assertEquals(owned.has(flatten('Comunicação')), true)
+})
+
+Deno.test('NÍVEL não entra: quem tem básico não é dono do avançado', () => {
+  // `excel avançado` é classe `level`, então NÃO está em EXACT — e por isso
+  // não pode ser alcançado por quem declarou só "Excel". Se um dia alguém
+  // mover essa linha para `exact`, este teste cai.
+  const owned = expandirComExact(['Excel'], EXACT)
+  assertEquals(owned.has(flatten('Excel avançado')), false)
+})
+
+Deno.test('COMPOSTO não entra: a segunda habilidade continua sendo oferecida', () => {
+  // Quem escreveu "boa comunicação e atendimento ao cliente" tem Comunicação
+  // carimbada; "Atendimento ao cliente" nunca entrou no perfil dela — e é
+  // exatamente o tipo de linha que a folha deveria oferecer.
+  const owned = expandirComExact(['boa comunicação e atendimento ao cliente'], EXACT)
+  assertEquals(owned.has(flatten('Atendimento ao cliente')), false)
+})
+
+Deno.test('ESCOPO não entra: "informática" não prova "informática básica"', () => {
+  const owned = expandirComExact(['informática'], EXACT)
+  assertEquals(owned.has(flatten('Informática básica')), false)
+})
+
+Deno.test('sem aliases (coluna ainda não aplicada) ainda resolve o achado', () => {
+  // Failure-open: se a leitura da classificação falhar, a comparação literal
+  // sozinha já tira o absurdo da frente da pessoa.
+  const owned = expandirComExact(['Excel', 'Python'], [])
+  assertEquals(owned.has(flatten('Excel')), true)
+  assertEquals(owned.has(flatten('exel')), false)
+})
+
+Deno.test('perfil vazio não esconde nada', () => {
+  assertEquals(expandirComExact([], EXACT).size, 0)
+})
