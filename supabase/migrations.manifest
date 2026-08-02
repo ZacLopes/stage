@@ -129,3 +129,4 @@
 20260730210228_seed_match_prompt_version_v14.sql
 20260731120000_seed_cv_import_entry_kill_switch.sql
 20260801120000_skill_alias_match_kind.sql
+20260801130000_rename_informatica_canonical.sql

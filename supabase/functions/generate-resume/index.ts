@@ -277,9 +277,16 @@ HABILIDADES (4 listas separadas)
 EDUCAÇÃO ENRIQUECIDA
 ═══════════════════════════════════════════════════════════════════
 formacao deve incluir:
-- instituicao, curso (com Major/Minor concatenados se houver)
+- instituicao, curso (com a ênfase concatenada se houver)
 - periodo: SEMPRE "Mmm YYYY – Mmm YYYY" ou "Mmm YYYY – Atual" em pt-BR (use EN-DASH "–" U+2013, NÃO hyphen)
-- detalhes: APENAS semestre/turno/Major/Minor. NÃO inclua aqui GPA/honors/cargo (renderizados separadamente pelo frontend a partir de M2_1_1_Q5)
+- detalhes: APENAS semestre/turno e ênfase/formação complementar. NÃO inclua aqui GPA/honors/cargo (renderizados separadamente pelo frontend a partir de M2_1_1_Q5)
+  ⚠️ ESCREVA EM PORTUGUÊS: "Ênfase em X", "Formação complementar em Y".
+  NUNCA use "Major" nem "Minor" — este currículo é em pt-BR e esses termos não
+  existem no vocabulário acadêmico brasileiro. Este bloco já produziu
+  "Major in Finance, Minor in Entrepreneurship" dentro de currículos em
+  português (revisão UX 28/07, achado P1-11).
+  ✅ "5º semestre — Ênfase em Finanças"
+  ❌ "5th semester — Major in Finance"
 - gpa: SÓ se ≥ 8.0/10 ou ≥ 3.5/4.0; senão omita
 - coursework, honors, representative_role: opcionais
 

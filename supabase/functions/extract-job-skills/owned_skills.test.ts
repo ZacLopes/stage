@@ -11,13 +11,17 @@
 
 import { assertEquals } from 'https://deno.land/std@0.208.0/assert/mod.ts'
 
-/** Mesma normalização do index.ts (acento fora, só alfanumérico). */
+/**
+ * Mesma chave de IDENTIDADE do index.ts. Preserva `+` e `#` de propósito — o
+ * `flatten` da busca joga fora todo não-alfanumérico e faz C, C++ e C# virarem
+ * a mesma string.
+ */
 function flatten(raw: string): string {
   const from = 'áàâãäéèêëíìîïóòôõöúùûüçñ'
   const to = 'aaaaaeeeeiiiiooooouuuucn'
   let s = raw.trim().toLowerCase()
   for (let i = 0; i < from.length; i++) s = s.replaceAll(from[i], to[i])
-  return s.replace(/[^a-z0-9]/g, '')
+  return s.replace(/[^a-z0-9+#]/g, '')
 }
 
 /**
@@ -103,4 +107,28 @@ Deno.test('sem aliases (coluna ainda não aplicada) ainda resolve o achado', () 
 
 Deno.test('perfil vazio não esconde nada', () => {
   assertEquals(expandirComExact([], EXACT).size, 0)
+})
+
+Deno.test('C, C++ e C# NÃO se confundem — são 3 habilidades do catálogo', () => {
+  // Este é o defeito que a própria correção introduziu: a chave de BUSCA
+  // (`flatten` do index.ts) descarta `+` e `#`, então as três viravam "c".
+  // Quem declarou C# passaria a "possuir" C++ e perderia a chance de
+  // reivindicá-lo — falso positivo silencioso, a classe que todo o trabalho
+  // de classificação existe para evitar.
+  const owned = expandirComExact(['C#'], [])
+  assertEquals(owned.has(flatten('C#')), true)
+  assertEquals(owned.has(flatten('C')), false)
+  assertEquals(owned.has(flatten('C++')), false)
+
+  const soC = expandirComExact(['C'], [])
+  assertEquals(soC.has(flatten('C')), true)
+  assertEquals(soC.has(flatten('C++')), false)
+})
+
+Deno.test('o ponto continua sendo ignorado: Node.js é nodejs', () => {
+  // A chave preserva `+` e `#`, mas NÃO `.` — nenhum par do catálogo se
+  // distingue só pelo ponto, e "Node.js"/"nodejs" são a mesma coisa.
+  assertEquals(flatten('Node.js'), flatten('nodejs'))
+  assertEquals(flatten('Vue.js'), flatten('vuejs'))
+  assertEquals(flatten('Power BI'), flatten('powerbi'))
 })

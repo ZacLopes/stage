@@ -105,6 +105,31 @@ const SYNONYMS: Record<string, string> = {
   'spanish': 'espanhol',
 }
 
+/**
+ * Chave de IDENTIDADE — mais estrita que [flatten].
+ *
+ * `flatten` joga fora TODO caractere não-alfanumérico, o que é certo para
+ * BUSCAR (achar "power bi" a partir de "powerbi") e catastrófico para AFIRMAR
+ * identidade: `C`, `C++` e `C#` viram os três a string "c". As três são
+ * habilidades DISTINTAS no catálogo.
+ *
+ * Sem esta função, quem declarou C# passaria a "possuir" C++ e perderia a
+ * chance de reivindicá-lo — o falso positivo silencioso que todo o trabalho de
+ * classificação de aliases existe para evitar, reintroduzido pela porta dos
+ * fundos. Achado no device-test da própria correção, em 01/08.
+ *
+ * Preserva `+` e `#` (que distinguem a família C) e descarta o resto, inclusive
+ * `.` — porque "Node.js" e "nodejs" SÃO a mesma coisa, e nenhum par do catálogo
+ * se distingue só pelo ponto.
+ */
+function identityKey(raw: string): string {
+  const from = 'áàâãäéèêëíìîïóòôõöúùûüçñ'
+  const to = 'aaaaaeeeeiiiiooooouuuucn'
+  let s = raw.trim().toLowerCase()
+  for (let i = 0; i < from.length; i++) s = s.replaceAll(from[i], to[i])
+  return s.replace(/[^a-z0-9+#]/g, '')
+}
+
 function canonical(s: string): string {
   const n = normalize(s)
   return SYNONYMS[n] ?? n
@@ -372,10 +397,10 @@ serve(withEdgeAnalytics('extract-job-skills', async (req) => {
     // reivindicar um nível que ela não tem carimbado — e ela nunca saberia do
     // que foi privada. Ver a migration 20260801120000.
     //
-    // Failure-open deliberado: se a leitura falhar, `ownedFlat` fica vazio e a
+    // Failure-open deliberado: se a leitura falhar, `ownedIdentity` fica vazio e a
     // folha volta a oferecer tudo. Oferecer duas vezes é chato e visível;
     // esconder por engano é invisível.
-    const ownedFlat = new Set<string>()
+    const ownedIdentity = new Set<string>()
     try {
       const { data: profileSkills, error: skillsErr } = await supabaseCache
         .from('profile_skills')
@@ -385,12 +410,12 @@ serve(withEdgeAnalytics('extract-job-skills', async (req) => {
         console.error('profile_skills read failed', skillsErr)
       } else {
         for (const row of profileSkills ?? []) {
-          const f = flatten(String((row as { name?: unknown }).name ?? ''))
-          if (f) ownedFlat.add(f)
+          const f = identityKey(String((row as { name?: unknown }).name ?? ''))
+          if (f) ownedIdentity.add(f)
         }
       }
 
-      if (ownedFlat.size > 0) {
+      if (ownedIdentity.size > 0) {
         // Expande o que a pessoa tem pelos aliases EXACT, nas duas direções:
         // ela escreveu "exel" e a vaga pede "Excel", ou o contrário.
         const { data: exactAliases, error: aliasErr } = await supabaseCache
@@ -408,18 +433,18 @@ serve(withEdgeAnalytics('extract-job-skills', async (req) => {
               alias_normalized?: unknown
               skills_catalog?: { canonical_name?: unknown } | null
             }
-            const alias = flatten(String(r.alias_normalized ?? ''))
-            const canon = flatten(String(r.skills_catalog?.canonical_name ?? ''))
+            const alias = identityKey(String(r.alias_normalized ?? ''))
+            const canon = identityKey(String(r.skills_catalog?.canonical_name ?? ''))
             if (!alias || !canon) continue
             if (!porCanonica.has(canon)) porCanonica.set(canon, [])
             porCanonica.get(canon)!.push(alias)
           }
           for (const [canon, aliases] of porCanonica) {
-            const temAlgum = canon && ownedFlat.has(canon) ||
-              aliases.some((a) => ownedFlat.has(a))
+            const temAlgum = canon && ownedIdentity.has(canon) ||
+              aliases.some((a) => ownedIdentity.has(a))
             if (!temAlgum) continue
-            if (canon) ownedFlat.add(canon)
-            for (const a of aliases) ownedFlat.add(a)
+            if (canon) ownedIdentity.add(canon)
+            for (const a of aliases) ownedIdentity.add(a)
           }
         }
       }
@@ -541,7 +566,7 @@ serve(withEdgeAnalytics('extract-job-skills', async (req) => {
     // 7. Cruza com CV E COM O PERFIL do user → in_cv + pre_confirmed
     const outSkills = extractedSkills.map((s) => {
       const inCv = isSkillInCv(s.name, parsedSkills, rawCvFlat) ||
-          ownedFlat.has(flatten(s.name))
+          ownedIdentity.has(identityKey(s.name))
       const preConfirmed = !inCv && confirmedCanon.has(canonical(s.name))
       return {
         name: s.name,
