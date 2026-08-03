@@ -67,6 +67,29 @@ class JobSkillsExtraction {
     );
   }
 
+  /// Chave de IDENTIDADE — espelho exato do `identityKey` de
+  /// `supabase/functions/extract-job-skills/index.ts`.
+  ///
+  /// Preserva `+` e `#` de propósito. Descartá-los faz `C`, `C++` e `C#`
+  /// colapsarem todos na string `"c"` — e as três são habilidades DISTINTAS no
+  /// catálogo. O efeito é silencioso e caro: [markingAsInCv] só faz upgrade
+  /// (`inCv: false → true`), nunca o contrário, então quem declarou C# veria
+  /// C++ marcado como "você já tem", o item sairia lockado verde da folha de
+  /// confirmação e nunca entraria no `extra_skills` que segue pro
+  /// `adapt-resume-to-job`. A pessoa perde a chance de reivindicar a skill e
+  /// não recebe erro nenhum.
+  ///
+  /// O servidor consertou essa classe em 01/08/2026 (commit e21b055, achado no
+  /// device-test); este lado tinha ficado com o flatten antigo e reintroduzia o
+  /// falso positivo mesmo com a function nova deployada, porque roda DEPOIS da
+  /// resposta do servidor. Medido em produção: 19 pessoas com skill da família
+  /// C, contra 8 de 487 vagas ativas mencionando C++/C#/.NET.
+  ///
+  /// O `.` continua sendo descartado — "Node.js" e "nodejs" SÃO a mesma coisa,
+  /// e nenhum par do catálogo se distingue só pelo ponto.
+  ///
+  /// ⚠️ Ao mexer aqui, mexa no `identityKey` do servidor junto: divergência
+  /// entre os dois lados volta a produzir exatamente este bug.
   static String _normalizeForMatch(String raw) {
     const from = 'áàâãäéèêëíìîïóòôõöúùûüçñ';
     const to = 'aaaaaeeeeiiiiooooouuuucn';
@@ -74,7 +97,7 @@ class JobSkillsExtraction {
     for (var i = 0; i < from.length; i++) {
       s = s.replaceAll(from[i], to[i]);
     }
-    return s.replaceAll(RegExp(r'[^a-z0-9]'), '');
+    return s.replaceAll(RegExp(r'[^a-z0-9+#]'), '');
   }
 
   /// Resultado vazio (usado em fallbacks silenciosos quando a extração falha).
