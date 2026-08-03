@@ -63,6 +63,8 @@
 		<string>cea0f8f3b17368c3d0283f2f2a431b73</string>
 		<key>FacebookDisplayName</key>
 		<string>Stage</string>
+		<key>ITSAppUsesNonExemptEncryption</key>
+		<false/>
 		<key>LSApplicationQueriesSchemes</key>
 		<array>
 			<string>https</string>
