@@ -95,6 +95,8 @@ List<ConversationStep> buildConversationPlan(
     if (wants(LacunaKey.workEnvironment, 'work_environment'))
       _workEnvironmentStep(),
     if (wants(LacunaKey.workStyle, 'work_style')) _workStyleStep(),
+    if (wants(LacunaKey.experienceLevel, 'experience_level'))
+      _experienceLevelStep(),
     if (wants(LacunaKey.availability, 'availability')) _availabilityStep(),
   ];
   if (steps.isEmpty) return const [];
@@ -155,6 +157,8 @@ List<ConversationStep> sectionSteps(
       return [_workEnvironmentStep()];
     case LacunaKey.workStyle:
       return [_workStyleStep()];
+    case LacunaKey.experienceLevel:
+      return [_experienceLevelStep()];
     case LacunaKey.summary:
       return const []; // gerado por IA, não perguntado
   }
@@ -270,8 +274,8 @@ const List<String> _kAreaCatalog = [
 ConversationStep _area() => ConversationStep.single(
       id: 'gap.area',
       aiMessage:
-          'Em quais áreas você quer atuar? Toque nas que combinam, busca ou '
-          'escreve a sua — escolhe até 3. É o que mais pesa pra te conectar com '
+          'Em quais áreas você quer atuar? Toque nas que combinam, busque ou '
+          'escreva a sua — escolha até 3. É o que mais pesa pra te conectar com '
           'as vagas certas.',
       input: const SuggestPickInput(
         suggestions: _kAreaSuggestions,
@@ -362,8 +366,8 @@ ConversationStep _skills(
   return ConversationStep.single(
     id: 'gap.skills',
     aiMessage:
-        'Agora suas habilidades — toque nas que você manja, busca outras ou '
-        'escreve do seu jeito. Quanto mais, mais vagas te encontram.',
+        'Agora suas habilidades — toque nas que você manja, busque outras ou '
+        'escreva do seu jeito. Quanto mais, mais vagas te encontram.',
     input: SuggestPickInput(
       suggestions: chips,
       catalog: catalog,
@@ -425,7 +429,7 @@ ConversationStep _skillsBoost(
   final msg = round == 1
       ? 'Deixa eu te ajudar a lembrar de mais algumas, com base no seu perfil… '
           '(falta$plural $remaining pra deixar forte)'
-      : 'Bora completar! Falta$plural $remaining — busca ou escreve do seu '
+      : 'Bora completar! Falta$plural $remaining — busque ou escreva do seu '
           'jeito (ferramentas, idiomas técnicos, o que você usa no dia a dia).';
   return ConversationStep.single(
     id: 'gap.skills.more.$round',
@@ -803,9 +807,9 @@ ConversationStep _experienceGate() => ConversationStep(
       id: 'exp.gate',
       aiMessages: const [
         'Agora a parte que mais conta pras empresas: suas experiências.',
-        'O que você já fez? Toca em tudo que rolou — vale estágio, voluntariado, '
+        'O que você já fez? Toque em tudo que rolou — vale estágio, voluntariado, '
             'monitoria, atlética, freela, empresa da família… Pode marcar vários '
-            '(2 estágios? toca duas vezes).',
+            '(2 estágios? toque duas vezes).',
       ],
       input: const ExperienceTypeInput(types: _kExperienceTypes),
       expand: (a) => _experienceQueueFrom(a, 0),
@@ -1223,6 +1227,41 @@ ConversationStep _companyStageStep() => ConversationStep.single(
             subtitle: 'Quero explorar as opções'),
       ]),
       acknowledgement: 'Boa! Isso ajuda a te achar a cultura certa.',
+    );
+
+/// Senioridade — `profile_job_preferences.experience_level`.
+///
+/// Revisão UX 28/07, achado P1-8: o campo existia, o editor existia (Perfil →
+/// Objetivos), e ninguém preenchia porque nada nunca perguntava. O onboarding
+/// pergunta "Em que momento você está agora?", mas aquilo é situação de
+/// ESTUDO e vai pra `profile_education` — ler "Não definido" aqui depois de ter
+/// respondido lá fazia parecer que o app tinha perdido a resposta.
+///
+/// Fica na trilha, não no onboarding: são 12 etapas e alongar o funil de
+/// ativação por um campo Tier 3 custa mais do que rende.
+///
+/// Os rótulos espelham `preferences_tab.dart` — a mesma pergunta em duas
+/// superfícies não pode ter duas escalas.
+ConversationStep _experienceLevelStep() => ConversationStep.single(
+      id: 'gap.experience_level',
+      aiMessage: 'E de experiência de trabalho, onde você se coloca hoje?',
+      input: const ChoiceInput(options: [
+        StepOption(
+            id: 'entry',
+            label: 'Começando agora',
+            subtitle: 'Primeiro estágio ou primeira vaga'),
+        StepOption(
+            id: 'mid',
+            label: 'Já tenho alguma experiência',
+            subtitle: 'Já estagiei ou trabalhei antes'),
+        StepOption(
+            id: 'senior',
+            label: 'Experiente / sênior',
+            subtitle: 'Anos de carreira nas costas'),
+      ]),
+      acknowledgement:
+          'Anotado! Assim eu não te mostro vaga que pede o que você ainda '
+          'não tem — nem vaga aquém do que você já fez.',
     );
 
 ConversationStep _workEnvironmentStep() => ConversationStep.single(

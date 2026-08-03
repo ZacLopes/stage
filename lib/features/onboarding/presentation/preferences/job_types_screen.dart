@@ -9,6 +9,7 @@ import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'onboarding_complete_screen.dart';
 import '../../../../core/theme/theme.dart';
+import '../widgets/onboarding_multi_check.dart';
 
 // Audiência entry-level. Ordem: do mais comum (Estágio, alunos ativos) pro
 // menos comum (Temporário). Taxonomia alinhada com job_preferences_screen.
@@ -109,16 +110,16 @@ Widget _selectableTile(String label, String sub, IconData icon, bool isSelected,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: isSelected ? AppColors.brandCyan.withValues(alpha: 0.08) : Colors.white,
+          color: isSelected ? AppColors.primarySoft : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? AppColors.brandCyan : AppColors.border,
+            color: isSelected ? AppColors.primary : AppColors.border,
             width: isSelected ? 1.5 : 1,
           ),
         ),
         child: Row(
           children: [
-            Icon(icon, color: isSelected ? AppColors.brandCyan : AppColors.textTertiary, size: 22),
+            Icon(icon, color: isSelected ? AppColors.primary : AppColors.textTertiary, size: 22),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -129,7 +130,7 @@ Widget _selectableTile(String label, String sub, IconData icon, bool isSelected,
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
-                      color: isSelected ? AppColors.brandCyan : Colors.black87,
+                      color: isSelected ? AppColors.primary : AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -138,7 +139,7 @@ Widget _selectableTile(String label, String sub, IconData icon, bool isSelected,
               ),
             ),
             const SizedBox(width: 12),
-            _Checkbox(selected: isSelected),
+            OnboardingMultiCheck(selected: isSelected),
           ],
         ),
       ),
@@ -146,25 +147,3 @@ Widget _selectableTile(String label, String sub, IconData icon, bool isSelected,
   );
 }
 
-class _Checkbox extends StatelessWidget {
-  final bool selected;
-  const _Checkbox({required this.selected});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 22, height: 22,
-      decoration: BoxDecoration(
-        color: selected ? AppColors.brandCyan : Colors.white,
-        border: Border.all(
-          color: selected ? AppColors.brandCyan : AppColors.borderStrong,
-          width: 1.5,
-        ),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: selected
-          ? const Icon(Icons.check_rounded, color: Colors.white, size: 16)
-          : null,
-    );
-  }
-}

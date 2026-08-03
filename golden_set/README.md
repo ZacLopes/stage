@@ -1,5 +1,18 @@
 # Golden Set — extract-profile
 
+> ⚠️ **Estado real (28/07/2026): este corpus está VAZIO.** `cvs/`,
+> `ground_truth/` e `outputs/` não têm um único arquivo, e nenhum script ou job
+> de CI invoca os scripts daqui. Rodar isto hoje sai com sucesso **porque não há
+> nada para rodar** — "golden set limpo" não distingue "passou" de "vazio".
+> Tratar como dívida em aberto, não como proteção existente.
+>
+> 🔗 **A R5 fala do pipeline `adapt`, que é outro.** A bateria do adapt existe,
+> está populada e roda em CI: [`adapt/`](adapt/README.md) —
+> `bash scripts/run_golden_set_adapt.sh`.
+>
+> Este arquivo descreve a bateria do **extract-profile** (PDF → perfil), que
+> ainda precisa ser construída. O texto abaixo é o desenho pretendido.
+
 Conjunto regulador de qualidade do extrator de currículos. Cada vez que o
 prompt de `extract-profile` muda (`PROFILE_SYSTEM_PROMPT`) ou o schema é
 ajustado (`PROFILE_JSON_SCHEMA`), rode o golden set e veja se a qualidade

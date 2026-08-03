@@ -11,6 +11,7 @@ import '../../utils/onboarding_input_decoration.dart';
 import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'last_name_screen.dart';
+import '../../utils/name_validation.dart';
 
 class FirstNameScreen extends StatefulWidget {
   const FirstNameScreen({super.key});
@@ -41,7 +42,11 @@ class _FirstNameScreenState extends State<FirstNameScreen> {
   Future<void> _continue() async {
     if (_saving) return;
     final value = _ctrl.text.trim();
-    if (value.isEmpty) return;
+    // MESMO gate do botão. Antes era `isEmpty`, e `onSubmitted` chama este
+    // método DIRETO — então a tecla de retorno do teclado salvava um nome de
+    // uma letra com o botão "Continuar" desabilitado ao lado. O nome vai pro
+    // cabeçalho do currículo que a pessoa manda pra vaga.
+    if (!isValidOnboardingName(value)) return;
     AnalyticsService.shared.track('onboarding_masking_question_answered',
         props: {'question': 'first_name'});
 
@@ -70,7 +75,7 @@ class _FirstNameScreenState extends State<FirstNameScreen> {
       title: 'Qual seu primeiro nome?',
       progress: 0.19,
       continueLabel: _saving ? 'Salvando…' : 'Continuar',
-      onContinue: (_ctrl.text.trim().isEmpty || _saving) ? null : _continue,
+      onContinue: (!isValidOnboardingName(_ctrl.text) || _saving) ? null : _continue,
       child: TextField(
         controller: _ctrl,
         autofocus: true,

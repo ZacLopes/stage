@@ -154,21 +154,24 @@ class _FirstSaveCelebrationState extends State<_FirstSaveCelebration>
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Spacer(flex: 2),
-              _buildHeart(),
-              const SizedBox(height: 32),
-              _buildExplanationCard(),
-              const SizedBox(height: 22),
-              _buildCta(),
-              const SizedBox(height: 10),
-              _buildContinueButton(),
-              const Spacer(flex: 3),
-            ],
+        // Card mais alto (CTAs agora dentro dele) + texto ampliado cabem porque
+        // rola; centraliza quando sobra espaço.
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: (constraints.maxHeight - 32).clamp(0.0, double.infinity),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildHeart(),
+                  const SizedBox(height: 32),
+                  _buildExplanationCard(),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -246,7 +249,7 @@ class _FirstSaveCelebrationState extends State<_FirstSaveCelebration>
         );
       },
       child: Container(
-        padding: const EdgeInsets.fromLTRB(24, 22, 24, 22),
+        padding: const EdgeInsets.fromLTRB(24, 22, 24, 14),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(22),
@@ -308,6 +311,13 @@ class _FirstSaveCelebrationState extends State<_FirstSaveCelebration>
                 ),
               ],
             ),
+            // Os CTAs moram DENTRO do card (revisão UX 28/07, achado P3-45):
+            // soltos sobre o scrim eles encostavam no conteúdo escurecido da
+            // vaga de trás e o "Continuar" era texto branco sobre cinza.
+            const SizedBox(height: 20),
+            _buildCta(),
+            const SizedBox(height: 4),
+            _buildContinueButton(),
           ],
         ),
       ),
@@ -374,10 +384,10 @@ class _FirstSaveCelebrationState extends State<_FirstSaveCelebration>
         style: TextButton.styleFrom(
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         ),
-        child: Text(
+        child: const Text(
           'Continuar vendo vagas',
           style: TextStyle(
-            color: Colors.white.withOpacity(0.85),
+            color: _textSecondary,
             fontSize: 14,
             fontWeight: FontWeight.w700,
           ),

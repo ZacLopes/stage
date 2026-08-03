@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
+import '../../auth/user_viewmodel.dart';
 import '../../../services/ai_service.dart';
 import '../../../services/analytics_service.dart';
 import '../models/job.dart';
@@ -62,8 +64,22 @@ class _SkillsConfirmationSheetState extends State<SkillsConfirmationSheet> {
 
   Future<void> _load() async {
     try {
-      final result = await _ai.extractJobSkills(widget.job.id);
+      final raw = await _ai.extractJobSkills(widget.job.id);
       if (!mounted) return;
+
+      // O flag `in_cv` vem de `extract-job-skills`, que só cruza as fontes
+      // LEGADAS — skills gravadas em `profile_skills` não contam. Efeito na
+      // tela: alguém cadastrava Excel, Power BI e Python e, cinco minutos
+      // depois, a folha perguntava "marque o que você tem mas não escreveu no
+      // CV" oferecendo Excel, Power BI e Python.
+      // Revisão UX 28/07, achado P2-19 (D2 no backlog).
+      //
+      // Aqui reforçamos no cliente com o que o app JÁ sabe do perfil. A
+      // causa-raiz continua no servidor; isto tira o absurdo da frente da
+      // pessoa sem esperar aquele deploy.
+      final result = raw.markingAsInCv(
+        context.read<UserViewModel>().profileSkillNames,
+      );
 
       Analytics.shared.skillsConfirmationOpened(
         jobId: widget.job.id,

@@ -1,0 +1,18 @@
+{
+  "id": "adv-012-language-inventada",
+  "adversarial": true,
+  "categoria": "anti-invenção / idiomas",
+  "porque": "Idioma inventado é testável na hora da entrevista — o dano cai inteiro no candidato.",
+  "adicionado_em": "2026-07-28",
+  "input": {
+    "skills": ["Excel"],
+    "languages": [{ "name": "Português", "proficiency": "Nativo" }]
+  },
+  "candidate": {
+    "languages": [
+      { "name": "Português", "proficiency": "Nativo" },
+      { "name": "Espanhol", "proficiency": "Avançado" }
+    ]
+  },
+  "espera": { "resultado": "rejeita", "campo": "languages", "mensagem_contem": "language inventada" }
+}

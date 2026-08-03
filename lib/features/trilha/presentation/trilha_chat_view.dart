@@ -546,7 +546,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
         ? 'Fora das suas áreas. Para incluir essa busca, ajuste em '
             'Perfil → Objetivos.'
         : (item.hasResume
-            ? 'Toca numa vaga pra ver ou salvar 👇'
+            ? 'Toque numa vaga pra ver ou salvar 👇'
             : 'Complete seu perfil pra eu calcular o match 👇');
     return Container(
       // Alinha com o texto das bolhas da IA: avatar (34) + gap (AppSpacing.sm).
@@ -875,7 +875,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
                 style: AppTextStyles.bodySm
                     .copyWith(color: AppColors.textTertiary))
           else ...[
-            Text('Toca no que você quer preencher agora 👇',
+            Text('Toque no que você quer preencher agora 👇',
                 style: AppTextStyles.bodySm
                     .copyWith(color: AppColors.textTertiary)),
             const SizedBox(height: AppSpacing.sm),
@@ -1650,7 +1650,7 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
                     color: AppColors.onPrimary, size: 15),
                 const SizedBox(width: 6),
                 Flexible(
-                  child: Text('Toca no ✦ pra ver tudo que eu faço',
+                  child: Text('Toque no ✦ pra ver tudo que eu faço',
                       style: AppTextStyles.labelMd.copyWith(
                           color: AppColors.onPrimary,
                           fontWeight: FontWeight.w600)),
@@ -1861,7 +1861,7 @@ class _CapabilitiesSheetState extends State<_CapabilitiesSheet>
                 letterSpacing: -0.3,
               )),
           const SizedBox(height: 4),
-          Text('Sou seu copiloto de carreira — toca no que precisar',
+          Text('Sou seu copiloto de carreira — toque no que precisar',
               textAlign: TextAlign.center,
               style: AppTextStyles.bodyMd
                   .copyWith(color: Colors.white.withValues(alpha: 0.92))),

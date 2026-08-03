@@ -571,6 +571,36 @@ class AnalyticsService {
   Future<void> signUpCompleted({required String method}) =>
       track(evAuthSignupCompleted, props: {'method': method});
 
+  /// Par que faltava de [authSignupStarted]. A constante existia desde sempre
+  /// em `analytics_events.dart` e NUNCA tinha emissor — catálogo morto, que a
+  /// R7 proíbe. Sem ela, apertar a política de senha no servidor seria mexer
+  /// no funil de entrada às cegas: um cadastro que passa a falhar não aparece
+  /// em painel nenhum, só na queda de contas criadas semanas depois.
+  ///
+  /// [errorCode] vem de `authFailureCode` — rótulo fechado, nunca a mensagem
+  /// do servidor (muda entre versões, tem cardinalidade alta e pode carregar
+  /// dado de quem tentou entrar).
+  Future<void> authSignupFailed({
+    required String method,
+    required String errorCode,
+  }) =>
+      track(evAuthSignupFailed, props: {
+        'method': method,
+        'error_code': errorCode,
+      });
+
+  /// Falha ao ENTRAR (não ao criar). Separado de [authSignupFailed] de
+  /// propósito: na tela de telefone, que é login e cadastro na mesma porta,
+  /// misturar os dois tornaria a métrica de cadastro ilegível.
+  Future<void> authLoginFailed({
+    required String method,
+    required String errorCode,
+  }) =>
+      track(evAuthLoginFailed, props: {
+        'method': method,
+        'error_code': errorCode,
+      });
+
   Future<void> loginCompleted({required String method}) =>
       track(evAuthLoginSucceeded, props: {'method': method});
 
@@ -823,8 +853,17 @@ class AnalyticsService {
   }
 
   // ── CV / Resume ─────────────────────────────────────────────────────
-  /// Upload de CV iniciado no onboarding (file picker confirmado).
-  Future<void> cvImportStarted() => track(evOnboardingCvUploadStarted);
+  /// Upload de CV iniciado (file picker confirmado).
+  ///
+  /// [source] diz de QUAL porta o import partiu. Sem ele os 4 call sites
+  /// emitiam o mesmo evento indistinguível, e não havia como responder "a
+  /// porta nova foi usada?" — a única medição possível seria uma query
+  /// point-in-time no banco, que atrasa o sinal. Opcional para não tocar os
+  /// call sites existentes (R6).
+  Future<void> cvImportStarted({String? source}) => track(
+        evOnboardingCvUploadStarted,
+        props: source == null ? null : {'source': source},
+      );
 
   /// Upload de CV concluído. `extractedChars` indica quanto texto foi
   /// extraído do PDF antes do parse-cv estruturado (B.7) entrar.

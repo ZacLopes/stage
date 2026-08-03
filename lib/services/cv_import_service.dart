@@ -103,11 +103,15 @@ class CvImportService {
   /// [triggerExtraction] false ⇒ NÃO dispara a extração em background (o
   /// chamador roda [extractProfile] à parte — usado no fluxo de conflito, que
   /// precisa do profile_data em mãos pra diffar) e devolve os `pdfBytes`.
+  /// [analyticsSource] identifica a PORTA de onde o import partiu
+  /// ('profile_resumes', 'onboarding'…). Opcional: os call sites antigos
+  /// seguem emitindo sem a prop.
   static Future<CvImportResult> pickAndImport(
     BuildContext context, {
     bool triggerExtraction = true,
+    String? analyticsSource,
   }) async {
-    Analytics.shared.cvImportStarted();
+    Analytics.shared.cvImportStarted(source: analyticsSource);
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,

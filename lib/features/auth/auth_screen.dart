@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -12,6 +13,8 @@ import '../splash/splash_screen.dart' show AuthGate;
 import 'phone_signup_screen.dart';
 import 'user_viewmodel.dart';
 import '../../core/widgets/pii_mask.dart';
+import '../../core/constants/stage_legal_links.dart';
+import '../../core/utils/open_legal_link.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -210,6 +213,22 @@ class _AuthScreenState extends State<AuthScreen>
                   ),
                   child: Column(
                     children: [
+                      // O aviso legal existia SÓ na tela de telefone. Quem
+                      // criava conta por Google ou Apple — dois dos três
+                      // caminhos — nunca via referência a Termos ou
+                      // Privacidade (revisão UX 28/07, achado P2-15).
+                      //
+                      // Fica ANTES dos botões, não depois: embaixo, quem toca
+                      // em Google/Apple sem rolar não chega a ver o aviso do
+                      // que está aceitando. "Ao continuar, você concorda" só
+                      // significa alguma coisa se vier antes do continuar.
+                      _LegalNotice(
+                        onTerms: () => openLegalLink(StageLegalLinks.termsUrl),
+                        onPrivacy: () =>
+                            openLegalLink(StageLegalLinks.privacyUrl),
+                      ),
+                      const SizedBox(height: 20),
+
                       // Google — logo oficial colorida (4 cores) via SVG
                       _SocialButton(
                         leadingWidget: SvgPicture.asset(
@@ -231,7 +250,7 @@ class _AuthScreenState extends State<AuthScreen>
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   backgroundColor: AppColors.error,
-                                  content: Text(AuthErrorFormatter.format(e)),
+                                  content: Text(AuthErrorFormatter.format(e, identifier: AuthIdentifier.social)),
                                 ),
                               );
                             }
@@ -257,7 +276,7 @@ class _AuthScreenState extends State<AuthScreen>
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   backgroundColor: AppColors.error,
-                                  content: Text(AuthErrorFormatter.format(e)),
+                                  content: Text(AuthErrorFormatter.format(e, identifier: AuthIdentifier.social)),
                                 ),
                               );
                             }
@@ -294,7 +313,7 @@ class _AuthScreenState extends State<AuthScreen>
                         borderColor: AppColors.brandBlue,
                         onPressed: _navigateToPhoneSignup,
                       ),
-                      
+
                     ],
                   ),
                 ),
@@ -380,3 +399,58 @@ class _SocialButton extends StatelessWidget {
   }
 }
 
+
+/// Aviso legal dos três caminhos de cadastro (Google, Apple, telefone).
+///
+/// Antes existia só dentro da tela de telefone — e, mesmo lá, como TextSpan
+/// sem `recognizer`: parecia link e não abria nada.
+class _LegalNotice extends StatefulWidget {
+  final VoidCallback onTerms;
+  final VoidCallback onPrivacy;
+  const _LegalNotice({required this.onTerms, required this.onPrivacy});
+
+  @override
+  State<_LegalNotice> createState() => _LegalNoticeState();
+}
+
+class _LegalNoticeState extends State<_LegalNotice> {
+  late final TapGestureRecognizer _terms =
+      TapGestureRecognizer()..onTap = widget.onTerms;
+  late final TapGestureRecognizer _privacy =
+      TapGestureRecognizer()..onTap = widget.onPrivacy;
+
+  @override
+  void dispose() {
+    _terms.dispose();
+    _privacy.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const link = TextStyle(
+      color: AppColors.brandBlue,
+      fontWeight: FontWeight.w600,
+      decoration: TextDecoration.underline,
+    );
+    return RichText(
+      textAlign: TextAlign.center,
+      text: TextSpan(
+        style: const TextStyle(
+          fontFamily: 'Inter',
+          color: AppColors.textTertiary,
+          fontSize: 12,
+          height: 1.4,
+        ),
+        children: [
+          const TextSpan(text: 'Ao continuar, você concorda com os '),
+          TextSpan(text: 'Termos de Uso', style: link, recognizer: _terms),
+          const TextSpan(text: ' e a '),
+          TextSpan(
+              text: 'Política de Privacidade', style: link, recognizer: _privacy),
+          const TextSpan(text: '.'),
+        ],
+      ),
+    );
+  }
+}

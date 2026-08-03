@@ -9,16 +9,21 @@
 // O telefone real fica salvo em user_metadata.phone + em profile_personal
 // (via fluxo de onboarding). O email sintético nunca é exibido pro usuário.
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../../core/constants/stage_legal_links.dart';
+import '../../core/utils/open_legal_link.dart';
 import '../../core/analytics/screen_tracking.dart';
 import '../../core/theme/theme.dart';
 import '../../core/utils/auth_error_formatter.dart';
 import '../../core/utils/brazil_phone_formatter.dart';
+import '../../core/widgets/country_code_field.dart';
 import '../../core/widgets/pii_mask.dart';
 import '../../services/analytics_service.dart';
 import '../splash/splash_screen.dart' show AuthGate;
+import 'password_rule.dart';
 import 'phone_auth_helpers.dart';
 import 'user_viewmodel.dart';
 
@@ -37,17 +42,13 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
   final _formKey = GlobalKey<FormState>();
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
-  // DDI editável — default '55' (Brasil), mas user pode digitar qualquer
-  // código (ex: '1', '351', '44'). O prefixo '+' é renderizado fixo pelo
-  // InputDecoration.prefixText, então o controller só guarda os dígitos.
-  final _countryController = TextEditingController(text: '55');
+  /// DDI selecionado. Antes era caixa de texto livre; virou o MESMO seletor
+  /// com bandeira que o onboarding usa duas telas depois (revisão UX 28/07,
+  /// achado P3-42) — ver `CountryCodeField`.
+  String _countryCode = '+55';
 
   bool _obscurePassword = true;
   String? _errorMessage;
-
-  /// Código completo (com '+') usado pra autenticação e pra detectar se
-  /// o user é BR (e ativar a máscara de telefone brasileira).
-  String get _countryCode => '+${_countryController.text}';
 
   @override
   void initState() {
@@ -59,16 +60,31 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
   void dispose() {
     _phoneController.dispose();
     _passwordController.dispose();
-    _countryController.dispose();
+    _termsTap.dispose();
+    _privacyTap.dispose();
     super.dispose();
   }
+
+  /// Recognizers dos links legais. Precisam ser campos (não criados no build)
+  /// pra poderem ser liberados no dispose.
+  late final TapGestureRecognizer _termsTap = TapGestureRecognizer()
+    ..onTap = () => openLegalLink(StageLegalLinks.termsUrl);
+  late final TapGestureRecognizer _privacyTap = TapGestureRecognizer()
+    ..onTap = () => openLegalLink(StageLegalLinks.privacyUrl);
 
   int get _phoneDigitsCount =>
       _phoneController.text.replaceAll(RegExp(r'\D'), '').length;
 
+  /// Habilita o botão.
+  ///
+  /// ⚠️ Esta tela é LOGIN **e** cadastro. A regra usada aqui não pode ser mais
+  /// estrita do que a que criou as contas existentes, ou quem tem senha
+  /// antiga fica olhando um botão cinza, sem mensagem — o validador só roda
+  /// atrás do botão, e não há recuperação de senha no app. Hoje `password_rule`
+  /// é só comprimento, igual ao servidor e igual à build publicada.
   bool get _isFormValid {
     return _phoneDigitsCount >= 8 &&
-        _passwordController.text.length >= 8;
+        passwordRuleError(_passwordController.text) == null;
   }
 
   Future<void> _handleSignup() async {
@@ -89,11 +105,13 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
       // ignore: unawaited_futures
       Analytics.shared.authSignupStarted(method: 'phone');
 
-      await vm.signUp(
+      // Entra se a conta existe, cria se não. Ver `signInOrSignUp` — a ordem
+      // é o que impede o lockout de quem tem senha antiga sem número.
+      await vm.signInOrSignUp(
         email: syntheticEmail,
         password: _passwordController.text,
         // Nome real coletado depois (first_name + last_name nas masking
-        // questions). Placeholder vazio aqui — UserViewModel.signUp aceita.
+        // questions). Placeholder vazio aqui.
         name: '',
         age: 18,
       );
@@ -109,7 +127,7 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
         // Banner inline com animação cobre a comunicação do erro. SnackBar
         // sobreposto criava duplicação visual (2 mensagens iguais ao mesmo
         // tempo), removido.
-        setState(() => _errorMessage = AuthErrorFormatter.format(e));
+        setState(() => _errorMessage = AuthErrorFormatter.format(e, identifier: AuthIdentifier.phone));
       }
     }
   }
@@ -171,32 +189,10 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                         Row(
                           children: [
                             SizedBox(
-                              width: 110,
-                              // DDI editável — qualquer código numérico. Prefix
-                              // '+' renderizado fixo pelo InputDecoration (não
-                              // entra no controller). Quando muda pra/de '+55',
-                              // limpa o número porque a máscara BR muda.
-                              child: TextFormField(
-                                controller: _countryController,
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontFamily: 'Inter',
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly,
-                                  LengthLimitingTextInputFormatter(4),
-                                ],
+                              width: 130,
+                              child: CountryCodeField(
+                                value: _countryCode,
                                 decoration: InputDecoration(
-                                  prefixText: '+',
-                                  prefixStyle: const TextStyle(
-                                    fontFamily: 'Inter',
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.textPrimary,
-                                  ),
                                   labelText: 'DDI',
                                   labelStyle: const TextStyle(
                                     fontFamily: 'Inter',
@@ -225,10 +221,9 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                                         color: AppColors.brandBlue, width: 2),
                                   ),
                                 ),
-                                validator: (v) => (v == null || v.isEmpty)
-                                    ? 'DDI'
-                                    : null,
-                                onChanged: (_) => setState(() {
+                                onChanged: (v) => setState(() {
+                                  _errorMessage = null;
+                                  _countryCode = v;
                                   // Limpa o número quando o DDI muda — máscara
                                   // BR só vale pra +55, e outros países podem
                                   // ter formatos incompatíveis com o que já
@@ -251,7 +246,12 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                                         LengthLimitingTextInputFormatter(15),
                                       ],
                                 textInputAction: TextInputAction.next,
-                                onChanged: (_) => setState(() {}),
+                                // Limpa o banner igual ao campo de senha: a
+                                // mensagem acusa o TELEFONE, então deixá-la na
+                                // tela enquanto a pessoa redigita o número faz
+                                // parecer que nada mudou.
+                                onChanged: (_) =>
+                                    setState(() => _errorMessage = null),
                                 validator: (_) => _phoneDigitsCount >= 8
                                     ? null
                                     : 'Insira um telefone válido',
@@ -268,10 +268,14 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                           icon: Icons.lock_outline,
                           obscureText: _obscurePassword,
                           textInputAction: TextInputAction.done,
-                          onChanged: (_) => setState(() {}),
-                          validator: (val) => val != null && val.length >= 8
-                              ? null
-                              : 'A senha precisa ter no mínimo 8 caracteres',
+                          // Limpa o banner de erro assim que a pessoa começa a
+                          // corrigir. Antes ele só sumia no próximo toque em
+                          // "Continuar" — ela editava a senha com a mensagem de
+                          // falha ainda na tela, o que faz parecer que nada
+                          // mudou. O comentário do AnimatedSwitcher abaixo já
+                          // afirmava que isso acontecia; não acontecia.
+                          onChanged: (_) => setState(() => _errorMessage = null),
+                          validator: (val) => passwordRuleError(val ?? ''),
                           suffixIcon: IconButton(
                             icon: Icon(
                                 _obscurePassword ? Icons.visibility_off : Icons.visibility,
@@ -281,8 +285,11 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                         ),
                         Padding(
                           padding: const EdgeInsets.only(top: 8, left: 12),
+                          // Deriva da MESMA regra que valida. Eram duas
+                          // strings independentes: o validador checava uma
+                          // coisa e o texto anunciava outra.
                           child: Text(
-                            'Mínimo 8 caracteres, uma letra e um número',
+                            kPasswordRuleHint,
                             style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: AppColors.textDisabled),
                           ),
                         ),
@@ -392,24 +399,29 @@ class _PhoneSignupScreenState extends State<PhoneSignupScreen>
                         fontSize: 12,
                         height: 1.4,
                       ),
-                      children: const [
-                        TextSpan(text: 'Ao continuar, você concorda com os '),
+                      // Estes dois eram TextSpan SEM `recognizer`: azuis,
+                      // negrito, com toda a cara de link — e não abriam nada.
+                      children: [
+                        const TextSpan(
+                            text: 'Ao continuar, você concorda com os '),
                         TextSpan(
                           text: 'Termos de Uso',
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: AppColors.brandBlue,
                             fontWeight: FontWeight.w600,
                           ),
+                          recognizer: _termsTap,
                         ),
-                        TextSpan(text: ' e '),
+                        const TextSpan(text: ' e '),
                         TextSpan(
                           text: 'Política de Privacidade',
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: AppColors.brandBlue,
                             fontWeight: FontWeight.w600,
                           ),
+                          recognizer: _privacyTap,
                         ),
-                        TextSpan(text: '.'),
+                        const TextSpan(text: '.'),
                       ],
                     ),
                   ),

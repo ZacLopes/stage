@@ -559,11 +559,12 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
       // direção). User já entendeu o contexto do app aqui, então o opt-in
       // rate tende a ser maior do que se pedisse logo na entrada do home.
       // SDK é internamente idempotente (não re-prompta se já foi decidido).
-      if (!_attRequested) {
-        _attRequested = true;
-        // ignore: unawaited_futures
-        FacebookEventsService.shared.requestAttIfNeeded();
-      }
+      // Só dispara AQUI quando a celebração de primeira vaga NÃO vai aparecer.
+      // Nas duas juntas, o diálogo de sistema do ATT subia por cima do sheet
+      // no mesmo frame (achado P2-24): a pessoa via um pedido de rastreamento
+      // sobre uma comemoração que ainda não tinha lido. Quando há celebração,
+      // o pedido espera ela fechar — ver `_maybeShowFirstSaveCelebration`.
+      if (action != 'liked') _requestAttOnce();
     }
 
     // Atualiza posição interna e dispara IA pras próximas vagas (buffer ahead)
@@ -626,12 +627,27 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
 
   /// Mostra overlay celebratório APENAS na primeira vez que o usuário salva
   /// uma vaga. Flag persistida em SharedPreferences por user_id.
+  /// Pede o ATT no máximo uma vez por sessão. O SDK já é idempotente entre
+  /// sessões (não re-prompta depois de decidido); o guard aqui é só pra não
+  /// enfileirar dois pedidos no mesmo ciclo.
+  void _requestAttOnce() {
+    if (_attRequested) return;
+    _attRequested = true;
+    // ignore: unawaited_futures
+    FacebookEventsService.shared.requestAttIfNeeded();
+  }
+
   Future<void> _maybeShowFirstSaveCelebration() async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
     final prefs = await SharedPreferences.getInstance();
     final key = 'first_save_celebrated_$userId';
-    if (prefs.getBool(key) == true) return;
+    if (prefs.getBool(key) == true) {
+      // Já celebrou noutra ocasião: este swipe é um "liked" comum, então o
+      // pedido de ATT que ficou represado sai agora.
+      _requestAttOnce();
+      return;
+    }
     if (!mounted) return;
 
     // Marca como visto ANTES de abrir o overlay — evita race condition se
@@ -650,6 +666,11 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         context.read<HomeViewModel>().requestTabChange(1);
       },
     );
+
+    // Só agora: a pessoa já leu a comemoração e a fechou. Um pedido de
+    // rastreamento por cima dela seria decidido no susto — e essa decisão é
+    // permanente do lado do sistema.
+    _requestAttOnce();
   }
 
   Future<void> _pressButton(String key, VoidCallback action) async {
@@ -1489,8 +1510,15 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Undo
-          _buildActionButton(
+          // Undo — esmaecido e inerte quando não há swipe a desfazer (é o
+          // estado do PRIMEIRO card, que todo mundo vê ao abrir o app).
+          // Antes ele tinha aparência ativa e não produzia reação nenhuma.
+          // Revisão UX 28/07, achado P3-38.
+          Opacity(
+            opacity: context.watch<JobsViewModel>().canUndo ? 1.0 : 0.4,
+            child: IgnorePointer(
+              ignoring: !context.watch<JobsViewModel>().canUndo,
+              child: _buildActionButton(
             key: 'undo',
             icon: Icons.undo_rounded,
             size: 50,
@@ -1505,6 +1533,8 @@ class _JobsSwipeScreenState extends State<JobsSwipeScreen>
                 _swiperController.undo();
               } catch (_) {}
             },
+              ),
+            ),
           ),
 
           // Reject

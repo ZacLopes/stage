@@ -20,6 +20,7 @@ import '../../utils/onboarding_input_decoration.dart';
 import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import '../preferences/desired_titles_screen.dart';
+import '../../../../core/widgets/inputs/step_slider_edge_label.dart';
 
 const _kBorderColor = AppColors.border;
 const _kLabelColor = AppColors.textTertiary;
@@ -781,13 +782,13 @@ class _MomentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(12),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
         curve: Curves.easeOut,
         decoration: BoxDecoration(
           color: selected ? AppColors.primarySoft : Colors.white,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: selected ? _kAccent : _kBorderColor,
             width: selected ? 1.5 : 1,
@@ -935,8 +936,13 @@ class _StepSliderBlock extends StatelessWidget {
           children: [
             Row(
               children: [
+                // Só o NÚMERO nas pontas: a unidade fica na bolha do valor.
+                // Antes as pontas usavam o mesmo `labelBuilder` da bolha e, no
+                // valor inicial (1) — que é o que toda pessoa vê ao chegar —
+                // a tela mostrava "1º semestre … 1º semestre … 12º semestre".
+                // Lia-se como defeito. Revisão UX 28/07, achado P3-36.
                 Text(
-                  labelBuilder(min),
+                  stepSliderEdgeLabel(min),
                   style: const TextStyle(
                     color: _kLabelColor,
                     fontSize: 12,
@@ -964,7 +970,7 @@ class _StepSliderBlock extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  labelBuilder(max),
+                  stepSliderEdgeLabel(max),
                   style: const TextStyle(
                     color: _kLabelColor,
                     fontSize: 12,

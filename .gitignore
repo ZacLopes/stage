@@ -53,5 +53,12 @@ admin_dashboard/vite.config.js
 admin_dashboard/vite.config.d.ts
 
 
-# Add this line to .gitignore
-.env
+# O .env é ASSET do bundle (pubspec `assets:`) e viaja dentro do IPA.
+# `.env` sozinho não cobria backups/variantes (.env.bak, .env.local, .env.prod),
+# que ficariam untracked e commitáveis por engano — foi assim que um backup de
+# rotação de chave quase entrou no repo em 02/08/2026.
+.env*
+!.env.example
+
+# Evidências de revisão de UX (screenshots) — pesadas, ficam locais
+revisao-ux-*-evidencias/

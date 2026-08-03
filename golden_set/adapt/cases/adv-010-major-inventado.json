@@ -1,0 +1,22 @@
+{
+  "id": "adv-010-major-inventado",
+  "adversarial": true,
+  "categoria": "anti-invenção / educação",
+  "porque": "Enfeitar a formação com uma habilitação que não existe é fraude acadêmica — e é verificável pela empresa.",
+  "adicionado_em": "2026-07-28",
+  "input": {
+    "skills": ["Excel"],
+    "education": [
+      { "id": "edu-1", "degree": "Graduação em Engenharia de Produção", "institution": "USP",
+        "period": "2022 - 2026", "location": "São Paulo, SP",
+        "majors": ["Engenharia de Produção"], "minors": [], "activities": [], "gpa": "" }
+    ]
+  },
+  "candidate": {
+    "education": [
+      { "institution": "USP", "degree": "Graduação em Engenharia de Produção", "period": "2022 - 2026", "location": "São Paulo, SP",
+        "majors": ["Engenharia de Produção", "Finanças"], "minors": [], "activities": [], "gpa": "" }
+    ]
+  },
+  "espera": { "resultado": "rejeita", "mensagem_contem": "major" }
+}

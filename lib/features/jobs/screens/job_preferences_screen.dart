@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../core/analytics/screen_tracking.dart';
 import '../../../core/constants/job_areas.dart';
+import '../utils/filter_selection_subtitle.dart';
 import '../jobs_viewmodel.dart';
 import '../../auth/auth_session.dart';
 import '../models/user_preferences.dart';
@@ -250,32 +251,45 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
                 _buildSection(
                   icon: Icons.work_outline_rounded,
                   title: 'Áreas de interesse',
-                  subtitle: '${_selectedAreas.length}/$_maxAreas selecionadas',
+                  // P3-39: as quatro seções respondem à mesma pergunta e
+                  // respondiam em três formatos diferentes. Agora todas usam
+                  // `filterSelectionSubtitle`.
+                  subtitle: filterSelectionSubtitle(
+                    selected: _selectedAreas.length,
+                    max: _maxAreas,
+                    emptyLabel: 'Todas as áreas',
+                  ),
                   child: _buildAreaChips(),
                 ),
                 const SizedBox(height: 16),
                 _buildSection(
                   icon: Icons.location_on_outlined,
                   title: 'Localização',
-                  subtitle: '${_selectedLocations.length}/$_maxLocations • Remoto sempre passa',
+                  subtitle:
+                      '${filterSelectionSubtitle(selected: _selectedLocations.length, max: _maxLocations, emptyLabel: 'Qualquer cidade')}'
+                      ' • Remoto sempre passa',
                   child: _buildLocationChips(),
                 ),
                 const SizedBox(height: 16),
                 _buildSection(
                   icon: Icons.home_work_outlined,
                   title: 'Modelo de trabalho',
-                  subtitle: _selectedWorkModels.isEmpty
-                      ? 'Todos os modelos'
-                      : '${_selectedWorkModels.length} selecionado(s)',
+                  subtitle: filterSelectionSubtitle(
+                    selected: _selectedWorkModels.length,
+                    max: _workModels.length,
+                    emptyLabel: 'Todos os modelos',
+                  ),
                   child: _buildPairChips(_workModels, _selectedWorkModels, _toggleWorkModel),
                 ),
                 const SizedBox(height: 16),
                 _buildSection(
                   icon: Icons.assignment_ind_outlined,
                   title: 'Tipo de vaga',
-                  subtitle: _selectedJobTypes.isEmpty
-                      ? 'Todos os tipos'
-                      : '${_selectedJobTypes.length} selecionado(s)',
+                  subtitle: filterSelectionSubtitle(
+                    selected: _selectedJobTypes.length,
+                    max: _jobTypes.length,
+                    emptyLabel: 'Todos os tipos',
+                  ),
                   child: _buildPairChips(_jobTypes, _selectedJobTypes, _toggleJobType),
                 ),
                 const SizedBox(height: 16),
@@ -563,11 +577,11 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
                 child: const Icon(Icons.auto_awesome_rounded, size: 18, color: _indigo),
               ),
               const SizedBox(width: 10),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'Match score mínimo',
                       style: TextStyle(
                         fontSize: 15,
@@ -576,10 +590,16 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
                         letterSpacing: -0.2,
                       ),
                     ),
-                    SizedBox(height: 2),
+                    const SizedBox(height: 2),
+                    // Descrevia o efeito como se estivesse SEMPRE ligado,
+                    // inclusive com o controle em "Qualquer" — a frase era
+                    // falsa no estado padrão. Agora acompanha o estado.
+                    // Revisão UX 28/07, achado P3-39.
                     Text(
-                      'Só mostra vagas com afinidade alta com você',
-                      style: TextStyle(
+                      hasValue
+                          ? 'Escondendo vagas abaixo de $_minMatchScore%'
+                          : 'Mostrando todas — arraste pra exigir mais afinidade',
+                      style: const TextStyle(
                         fontSize: 12,
                         color: _textMuted,
                         fontWeight: FontWeight.w500,
@@ -627,7 +647,7 @@ class _JobPreferencesScreenState extends State<JobPreferencesScreen>
                   Padding(
                     padding: const EdgeInsets.only(bottom: 4, left: 2),
                     child: Text(
-                      '/100',
+                      '%',
                       style: TextStyle(
                         color: _textMuted,
                         fontSize: 13,

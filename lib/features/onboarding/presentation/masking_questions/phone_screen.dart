@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../auth/auth_session.dart';
 import '../../../../core/utils/brazil_phone_formatter.dart';
+import '../../../../core/widgets/country_code_field.dart';
 import '../../../../services/analytics_service.dart';
 import '../../../auth/phone_auth_helpers.dart';
 import '../../../profile/application/profile_editor_view_model.dart';
@@ -106,23 +107,12 @@ class _PhoneScreenState extends State<PhoneScreen> {
         children: [
           SizedBox(
             width: 124,
-            child: DropdownButtonFormField<String>(
-              isExpanded: true,
-              initialValue: _code,
-              decoration: const InputDecoration(
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
-                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 18),
-              ),
-              items: const [
-                DropdownMenuItem(value: '+55', child: Text('🇧🇷 +55', overflow: TextOverflow.ellipsis)),
-                DropdownMenuItem(value: '+1', child: Text('🇺🇸 +1', overflow: TextOverflow.ellipsis)),
-                DropdownMenuItem(value: '+351', child: Text('🇵🇹 +351', overflow: TextOverflow.ellipsis)),
-                DropdownMenuItem(value: '+44', child: Text('🇬🇧 +44', overflow: TextOverflow.ellipsis)),
-              ],
+            child: CountryCodeField(
+              value: _code,
               onChanged: (v) => setState(() {
-                _code = v ?? '+55';
+                _code = v;
+                // Máscara BR só vale pra +55 — trocar o país invalida o que já
+                // estava digitado.
                 _ctrl.clear();
               }),
             ),

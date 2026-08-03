@@ -1,0 +1,9 @@
+{
+  "id": "ok-002-summary-frase-de-busca",
+  "categoria": "anti-invenção / summary",
+  "porque": "Sem experiência, dizer que BUSCA experiência é legítimo — é o que um CV de estudante deve dizer. Se isto rejeitar, a checagem 8 está cega ao contexto e trava o público-alvo do produto.",
+  "adicionado_em": "2026-07-28",
+  "input": { "skills": ["Excel", "Power BI", "SQL"] },
+  "candidate": { "summary": "Estudante de Engenharia de Produção buscando experiência em Suprimentos. Primeira experiência na área." },
+  "espera": { "resultado": "aceita" }
+}

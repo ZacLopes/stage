@@ -26,6 +26,12 @@ class OnboardingScaffold extends StatelessWidget {
   final Color continueColor;
   /// Se fornecido, substitui o footer padrão (botão Continuar + skipButton).
   /// Útil quando a tela precisa de dois CTAs ou layout custom no rodapé.
+  ///
+  /// ⚠️ O PADDING É POR CONTA DO CHAMADOR. O footer padrão embrulha em
+  /// `EdgeInsets.fromLTRB(20, 8, 20, 20)`; quem passa `customFooter` precisa
+  /// repetir isso. Já custou um botão colado nas bordas na tela "Perfil
+  /// criado!" (revisão UX 28/07) — a `location_screen` acertava, a
+  /// `onboarding_complete_screen` esquecia.
   final Widget? customFooter;
 
   const OnboardingScaffold({

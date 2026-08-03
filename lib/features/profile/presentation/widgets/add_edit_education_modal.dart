@@ -7,6 +7,7 @@ import '../../../gamification/widgets/month_year_picker_sheet.dart';
 import '../../domain/entities/entities.dart';
 import 'institution_typeahead_field.dart';
 import '../../../../core/theme/theme.dart';
+import '../../../../core/widgets/inputs/step_slider_edge_label.dart';
 
 const _degrees = [
   'Técnico',
@@ -925,7 +926,7 @@ class _StepSliderField extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      labelBuilder(min),
+                      stepSliderEdgeLabel(min),
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
@@ -953,7 +954,7 @@ class _StepSliderField extends StatelessWidget {
                   ),
                   Expanded(
                     child: Text(
-                      labelBuilder(max),
+                      stepSliderEdgeLabel(max),
                       textAlign: TextAlign.right,
                       style: TextStyle(
                         fontSize: 13,

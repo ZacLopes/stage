@@ -16,12 +16,15 @@ import '../../services/feature_flags_service.dart';
 import '../settings/settings_screen.dart';
 import 'resume_detail_screen.dart';
 import 'presentation/widgets/imported_source_card.dart';
+import 'presentation/widgets/library_import_entry.dart';
 import 'presentation/widgets/personal_info_form.dart';
 import 'presentation/widgets/preferences_tab.dart';
 import 'presentation/widgets/profile_section_list.dart';
 import '../../data/models/models.dart';
 import '../../core/widgets/pii_mask.dart';
 import '../../core/theme/theme.dart';
+import '../../core/utils/resume_title.dart';
+import '../resume/data/template_thumbnail_asset.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -67,6 +70,33 @@ List<SavedResume> filterLibraryResumes(
     return true;
   }).toList();
 }
+
+/// A porta de importar CV aparece em Perfil → Currículos?
+///
+/// Existe porque, no código de hoje, quem tem perfil preenchido ficou SEM
+/// nenhum caminho para subir um currículo. Três coisas se somaram: o card de
+/// import saiu da 3ª aba (que virou o Assistente); o clipe 📎 do chat só
+/// renderiza em `ChatPhase.gate`, e o gate só acontece com o perfil totalmente
+/// vazio (`trilha_chat_controller.dart:866-869`); e o substituto em
+/// Perfil → Dados está atrás de `trilha_assist_v1`, que está OFF em produção
+/// (`imported_source_card.dart:177`). Medido: 1.550 pessoas com perfil
+/// preenchido — 681 que já importaram e 869 que nunca conseguiram importar
+/// nem uma vez.
+///
+/// **`!assistEnabled`**: a porta se aposenta sozinha no dia em que o
+/// Assistente ligar. Aí quem passa a oferecer "Substituir" é o card "Fonte
+/// importada" em Dados, que tem a revisão de conflitos. Uma casa por vez —
+/// dois botões de import na mesma navegação é o defeito seguinte.
+///
+/// **`!killSwitchOn`**: [FeatureFlagKeys.cvImportEntryDisabled] é flag
+/// NEGATIVA de propósito. Ver o comentário dela em `feature_flags_service.dart`:
+/// aqui o estado "desligado" é a própria regressão, então o default sem rede
+/// tem que ser MOSTRAR.
+bool shouldShowLibraryImportEntry({
+  required bool assistEnabled,
+  required bool killSwitchOn,
+}) =>
+    !assistEnabled && !killSwitchOn;
 
 const Map<SavedResumeSource, _SourceMeta> _kSourceMeta = {
   SavedResumeSource.manual: _SourceMeta(
@@ -349,6 +379,48 @@ class _ResumesTabState extends State<_ResumesTab> {
           Supabase.instance.client.auth.currentUser?.id,
         );
 
+    final killSwitchOn = FeatureFlagsService.instance
+        .isGloballyEnabled(FeatureFlagKeys.cvImportEntryDisabled);
+    final showImport = shouldShowLibraryImportEntry(
+      assistEnabled: assistEnabled,
+      killSwitchOn: killSwitchOn,
+    );
+
+    // ⚠️ A PORTA DE IMPORT FICA FORA DO `Consumer<ProfileViewModel>`, E ISSO
+    // NÃO É ESTILO — é o que faz ela funcionar.
+    //
+    // O builder do Consumer troca a subárvore inteira por um spinner quando
+    // `viewModel.isLoading`. E o próprio import liga esse `isLoading`:
+    // `saveResume` chama `loadSavedResumes()`, que faz
+    // `_isLoading = true; notifyListeners()` ANTES do await de rede. Com o
+    // botão lá dentro, o `_ImportCvButtonState` sofre dispose no meio do fluxo
+    // que ele mesmo disparou — e aí `context.mounted` em
+    // `cv_import_service.dart:184` vira false: o `imported_resume.raw_text`
+    // NUNCA é gravado (o campo que o analyze-match lê), o
+    // `ProfileEvents.notifyChanged()` não roda, e a snackbar não aparece.
+    //
+    // O sintoma seria cruel: o arquivo APARECE na lista (o insert já commitou)
+    // e o perfil fica intacto (o import é fill-empty por contrato), então tudo
+    // parece certo — enquanto o match continua pontuando o currículo velho.
+    // Na 2.4.0 isso nunca acontecia porque o botão vivia em `resume_tab.dart`,
+    // arquivo sem nenhum `Consumer<ProfileViewModel>`.
+    //
+    // `_ResumesTabState.build` só observa o HomeViewModel, que não é
+    // notificado durante o import — o Element do botão sobrevive ao spinner.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (showImport)
+          LibraryImportEntry(
+            onImported: (id) =>
+                context.read<HomeViewModel>().requestProfileHighlight(id),
+          ),
+        Expanded(child: _buildLibrary(highlightId, assistEnabled)),
+      ],
+    );
+  }
+
+  Widget _buildLibrary(String? highlightId, bool assistEnabled) {
     return Consumer<ProfileViewModel>(
       builder: (context, viewModel, child) {
         if (viewModel.isLoading) {
@@ -786,6 +858,9 @@ class _InfoTabState extends State<_InfoTab> {
                 const SizedBox(height: 12),
                 const ProfileSectionList(
                   showLowConfidenceBadges: false,
+                  // Atende o deep-link "falta X no seu perfil" (ex.: o gate de
+                  // habilidades do adapt): rola até a seção e abre o editor.
+                  consumeSectionRequest: true,
                 ),
                 // F5.2: card "Fonte importada" — auto-oculto com a flag OFF ou
                 // sem CV importado (traz sua própria margem quando renderiza).
@@ -1126,35 +1201,16 @@ class _ResumeCardState extends State<_ResumeCard>
                 color: AppColors.surfaceVariant,
                 child: Stack(
                   children: [
-                    Container(
-                      width: double.infinity,
-                      height: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.border!),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(width: 40, height: 6, decoration: BoxDecoration(color: AppColors.borderStrong, borderRadius: BorderRadius.circular(2))),
-                          const SizedBox(height: 8),
-                          Container(width: double.infinity, height: 4, decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2))),
-                          const SizedBox(height: 4),
-                          Container(width: double.infinity, height: 4, decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2))),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Container(width: 12, height: 12, decoration: BoxDecoration(color: AppColors.border, shape: BoxShape.circle)),
-                              const SizedBox(width: 4),
-                              Expanded(child: Container(height: 4, decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2)))),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Container(width: 60, height: 4, decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2))),
-                        ],
-                      ),
+                    // Revisão UX 28/07, achado P2-29: aqui havia um esqueleto
+                    // cinza — barra escura em cima, barras claras embaixo —
+                    // desenhado IGUAL em todo card. É o desenho universal de
+                    // "carregando", e repetido em todos fazia a biblioteca
+                    // inteira parecer travada num loading eterno. As
+                    // miniaturas reais dos 5 modelos já existiam; faltava só
+                    // o card usá-las.
+                    _ResumeThumbnail(
+                      assetPath:
+                          templateThumbnailAsset(widget.resume.templateId),
                     ),
                     Positioned(
                       top: 4,
@@ -1253,8 +1309,11 @@ class _ResumeCardState extends State<_ResumeCard>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.resume.title,
-                    maxLines: 1,
+                    // Tira o prefixo constante "CV adaptado - " e deixa 2
+                    // linhas: sem isso, todos os CVs por vaga apareciam como
+                    // "CV adaptado - Est…" e viravam itens indistinguíveis.
+                    displayResumeTitle(widget.resume.title),
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontFamily: 'Inter',
                       fontWeight: FontWeight.bold,
@@ -1286,6 +1345,54 @@ class _ResumeCardState extends State<_ResumeCard>
           ),
         );
       },
+    );
+  }
+}
+
+/// Miniatura do card de currículo.
+///
+/// Com `assetPath`, mostra a imagem real do modelo aplicado. Sem ela (CVs
+/// anteriores a 26/05/2026 e PDFs importados, que não têm `template_id`),
+/// desenha uma FOLHA — genérica, mas estática e sem cara de carregamento.
+/// Revisão UX 28/07, achado P2-29.
+class _ResumeThumbnail extends StatelessWidget {
+  final String? assetPath;
+  const _ResumeThumbnail({required this.assetPath});
+
+  @override
+  Widget build(BuildContext context) {
+    final path = assetPath;
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: path == null
+          ? Center(
+              child: Icon(
+                Icons.description_outlined,
+                size: 34,
+                color: AppColors.textDisabled,
+              ),
+            )
+          : Image.asset(
+              path,
+              fit: BoxFit.cover,
+              alignment: Alignment.topCenter,
+              // Se o PNG sumir do bundle, a folha genérica é melhor que o
+              // ícone de imagem quebrada do Flutter.
+              errorBuilder: (_, __, ___) => Center(
+                child: Icon(
+                  Icons.description_outlined,
+                  size: 34,
+                  color: AppColors.textDisabled,
+                ),
+              ),
+            ),
     );
   }
 }

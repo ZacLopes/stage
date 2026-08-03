@@ -54,14 +54,30 @@ SELECT vault.create_secret(
 ## 4. Deploy das Edge Functions
 
 ```bash
-supabase functions deploy sync-jobs-apify --no-verify-jwt
-supabase functions deploy sync-jobs-ats   --no-verify-jwt
+supabase functions deploy sync-jobs-apify
+supabase functions deploy sync-jobs-ats
+supabase functions deploy sync-jobs-brazil
 ```
 
-`--no-verify-jwt` é necessário porque a auth é feita por header `x-cron-secret`
-(o que o pg_cron usa) ou `Authorization: Bearer <service_role>` (que a função
-valida internamente). O Supabase, sem `--no-verify-jwt`, exige um JWT de
-usuário autenticado no header — o que não é o caso aqui.
+> ⚠️ **NÃO use `--no-verify-jwt` aqui.** Esta seção mandava usar, e a instrução
+> ficou obsoleta e perigosa. Corrigido em 30/07/2026.
+>
+> **O que mudou:** as três functions rodam hoje com `verify_jwt = true` em
+> produção (confirmado em `list_edge_functions`), e o pg_cron manda
+> `Authorization: Bearer <anon_key>` — que é um JWT válido e passa no gateway.
+> A premissa do texto antigo ("não há JWT no header") deixou de valer.
+>
+> **Por que é perigoso e não só desatualizado:** o gateway do Supabase é a
+> ÚNICA barreira real. A checagem interna `isAuthorized()`
+> (`_shared/jobs.ts`) aceita **qualquer** `Bearer <algo>` — ela não valida o
+> conteúdo do token. Deployar com `--no-verify-jwt` desliga o gateway e
+> rebaixa as três functions de sync para invocação praticamente pública:
+> qualquer pessoa com a URL e um header `Authorization: Bearer x` dispara um
+> sync.
+>
+> Se um dia o cron voltar a chamar sem JWT, o conserto é fortalecer o
+> `isAuthorized()` (comparar o `x-cron-secret` do Vault em tempo constante),
+> **não** desligar o gateway.
 
 ## 5. Aplicar o cron schedule
 

@@ -117,7 +117,7 @@ class _ImportConflictCardState extends State<ImportConflictCard> {
         children: [
           Text('Do seu CV', style: AppTextStyles.overline),
           const SizedBox(height: 2),
-          Text('Escolhe o que trazer pro seu perfil 👇',
+          Text('Escolha o que trazer pro seu perfil 👇',
               style: AppTextStyles.bodySm
                   .copyWith(color: AppColors.textTertiary)),
           // Falha dura na última tentativa (rollback global): nada foi aplicado
@@ -129,7 +129,7 @@ class _ImportConflictCardState extends State<ImportConflictCard> {
                   size: 15, color: AppColors.error),
               const SizedBox(width: 6),
               Flexible(
-                  child: Text('Não consegui aplicar agora. Tenta de novo.',
+                  child: Text('Não consegui aplicar agora. Tente de novo.',
                       style: AppTextStyles.bodySm
                           .copyWith(color: AppColors.error))),
             ]),

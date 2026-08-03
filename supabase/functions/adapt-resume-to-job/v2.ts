@@ -96,6 +96,8 @@ import { captureEvent, trackAIGeneration } from '../_shared/posthog.ts'
 // v17-v2: injeta `language` no resume_data output (fix mistura PT/EN no PDF).
 // v16-v2: prompt v2 baseline com preservação de Languages/Tools/Education
 // detalhada (gpa, majors, minors, activities, linkedin, streetAddress).
+import { experienceClaimMessage, findUnsupportedExperienceClaims } from './experience_claim.ts'
+
 export const PROMPT_VERSION_V2 = 'v27-v2'
 export const MODEL_V2_DRAFT = 'gpt-4o-mini'
 export const MODEL_V2_REFINE = 'gpt-4o'
@@ -1770,6 +1772,41 @@ export function validateAdaptationV2(
       )
     }
   }
+
+  // 8. Summary — não pode ALEGAR experiência profissional que o perfil não tem.
+  assertSummaryDoesNotClaimExperience(input, r)
+}
+
+/**
+ * Revisão UX 28/07 (P0). Com `input.experiences` VAZIO, o modelo devolveu:
+ *
+ *   "Estudante de Engenharia de Produção COM EXPERIÊNCIA EM elaboração de
+ *    relatórios e cotações com fornecedores."
+ *
+ * As duas coisas vieram de checkboxes de `extra_skills` — a folha pergunta o que
+ * a pessoa SABE ("Marque o que você tem mas não escreveu no CV"), não onde ela
+ * já trabalhou. O rodapé da tela promete "Nenhuma informação foi inventada" e o
+ * texto vai para o PDF que o recrutador lê.
+ *
+ * As checagens 1–7 cobrem LISTAS (skills, tools, experiences, majors…); a prosa
+ * do `summary` passava livre. Aqui fechamos só o caso inequívoco: zero
+ * experiências no input + afirmação de experiência no output.
+ *
+ * Frases de BUSCA continuam passando ("buscando experiência em Suprimentos",
+ * "primeira experiência", "sem experiência prévia") — são legítimas e são
+ * exatamente o que um CV de estudante deve dizer.
+ */
+function assertSummaryDoesNotClaimExperience(input: InputResumeV2, r: any): void {
+  const claims = findUnsupportedExperienceClaims(
+    input.experiences.length,
+    r?.summary,
+    Array.isArray(r?.experiences) ? r.experiences.length : 0,
+  )
+  if (claims.length === 0) return
+  throw new ValidationErrorV2(
+    claims[0].field,
+    experienceClaimMessage(claims[0], input.experiences.length),
+  )
 }
 
 // ────────────────────────────────────────────────────────────────────────────

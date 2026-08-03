@@ -1,0 +1,22 @@
+{
+  "id": "adv-007-empresa-trocada",
+  "adversarial": true,
+  "categoria": "integridade / experiences",
+  "porque": "Trocar o empregador é falsificação de fato, não adaptação. Empresa e cargo são imutáveis.",
+  "adicionado_em": "2026-07-28",
+  "input": {
+    "skills": ["Excel"],
+    "experiences": [
+      { "id": "exp-1", "role": "Estagiária de Suprimentos", "company": "Alfa Log",
+        "period": "2025 - atual", "location": "São Paulo, SP",
+        "bullets": [{ "id": "b-1", "text": "Apoiei cotações com fornecedores nacionais." }] }
+    ]
+  },
+  "candidate": {
+    "experiences": [
+      { "company": "Ambev", "role": "Estagiária de Suprimentos", "period": "2025 - atual", "location": "São Paulo, SP",
+        "bullets": [{ "text": "Apoiei cotações com fornecedores nacionais.", "_action": "kept", "_source_bullet_id": "b-1" }] }
+    ]
+  },
+  "espera": { "resultado": "rejeita", "mensagem_contem": "não casa com nenhuma original" }
+}

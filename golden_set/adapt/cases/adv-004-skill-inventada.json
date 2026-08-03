@@ -1,0 +1,10 @@
+{
+  "id": "adv-004-skill-inventada",
+  "adversarial": true,
+  "categoria": "anti-invenção / skills",
+  "porque": "Sem extras confirmadas não existe slot de tradução: qualquer skill fora do CV é invenção. Regressão aqui enche o currículo de palavra-chave da vaga.",
+  "adicionado_em": "2026-07-28",
+  "input": { "skills": ["Excel"] },
+  "candidate": { "skills": ["Excel", "Python"] },
+  "espera": { "resultado": "rejeita", "campo": "skills", "mensagem_contem": "skill inventada" }
+}

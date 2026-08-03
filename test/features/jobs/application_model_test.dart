@@ -171,4 +171,47 @@ void main() {
       expect(ApplicationType.externalConfirmed.userEditableStatus, isTrue);
     });
   });
+
+  group('initialOptions — conjunto de ENTRADA da adição manual (P2-20)', () {
+    test('cobre todo status alcançável pelo chip, menos os de evento', () {
+      // O menu do card é DERIVADO de canTransition; a entrada era uma lista
+      // literal noutro arquivo. Duas fontes divergem — foi o que aconteceu.
+      final alcancaveisPeloChip = ApplicationStatus.values
+          .where((to) => canTransition(ApplicationType.manual, ApplicationStatus.submitted, to))
+          .toSet();
+      final entrada = ApplicationStatus.initialOptions.toSet();
+
+      for (final s in alcancaveisPeloChip) {
+        expect(entrada.contains(s), isTrue,
+            reason: '$s é alcançável pelo chip mas não pode ser escolhido na entrada');
+      }
+    });
+
+    test('inclui withdrawn — registrar candidatura antiga que a pessoa retirou', () {
+      expect(ApplicationStatus.initialOptions, contains(ApplicationStatus.withdrawn));
+    });
+
+    test('exclui expired — é evento do prazo, não escolha de quem registra', () {
+      expect(ApplicationStatus.initialOptions, isNot(contains(ApplicationStatus.expired)));
+    });
+
+    test('criar como Aprovada congela o card — por isso a tela avisa', () {
+      // Espelha o banco: `_application_transition_allowed('user','manual',
+      // 'hired', *)` devolve false para TUDO. O conserto não é alargar isto
+      // (seria mentir sobre o servidor), é avisar antes do toque.
+      for (final to in ApplicationStatus.values) {
+        if (to == ApplicationStatus.hired) continue;
+        expect(canTransition(ApplicationType.manual, ApplicationStatus.hired, to), isFalse,
+            reason: 'hired → $to não pode ser oferecido: o banco recusa');
+      }
+      expect(ApplicationStatus.hired.isTerminal, isTrue);
+    });
+
+    test('withdrawn NÃO congela — dá pra reabrir como Enviada', () {
+      expect(
+        canTransition(ApplicationType.manual, ApplicationStatus.withdrawn, ApplicationStatus.submitted),
+        isTrue,
+      );
+    });
+  });
 }

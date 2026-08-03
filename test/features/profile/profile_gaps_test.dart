@@ -102,6 +102,10 @@ void main() {
         hasCompanyStage: true,
         hasWorkEnvironment: true,
         hasWorkStyle: true,
+        // P1-8: senioridade virou lacuna Tier 3. Um fixture que diz
+        // "tudo preenchido" precisa incluí-la, senão deixa de significar
+        // o que o nome promete.
+        hasExperienceLevel: true,
       );
       expect(full.completionPercent, 100);
       expect(full.missing, isEmpty);

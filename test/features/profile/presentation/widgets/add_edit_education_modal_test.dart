@@ -35,7 +35,14 @@ void main() {
       expect(_richTextContaining('Tipo de diploma'), findsOneWidget);
       expect(_richTextContaining('Cursos principais'), findsOneWidget);
       expect(_richTextContaining('Semestre atual'), findsOneWidget);
+      // Achado P3-36: as PONTAS do slider mostram número cru, a BOLHA mostra o
+      // rótulo. Antes as três usavam o mesmo `labelBuilder` e, no valor
+      // inicial, a tela lia "1º semestre … 1º semestre … 12º semestre".
       expect(find.text('6º semestre'), findsOneWidget);
+      expect(find.text('1'), findsOneWidget, reason: 'ponta esquerda = número cru');
+      expect(find.text('12'), findsOneWidget, reason: 'ponta direita = número cru');
+      expect(find.text('1º semestre'), findsNothing, reason: 'ponta não repete o rótulo');
+      expect(find.text('12º semestre'), findsNothing);
       expect(_richTextContaining('Ano da escola'), findsNothing);
       expect(_richTextContaining('Previsão de conclusão'), findsOneWidget);
       expect(

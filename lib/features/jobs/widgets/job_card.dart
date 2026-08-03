@@ -96,8 +96,31 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
   static const Color _accent = AppColors.brandCyan; // AppColors.brandCyan
   static const Color _accentDark = AppColors.brandBlue; // AppColors.brandBlue
 
+  /// Teto de escala de fonte DENTRO do card (revisão UX 28/07, P1-10).
+  ///
+  /// O card tem geometria determinística por exigência do CardSwiper (ele
+  /// aplica RenderTransform e não tolera altura variável — ver o comentário do
+  /// ClipRect no corpo). Com a fonte de acessibilidade do sistema no talo, o
+  /// header de 110pt estourava, o nome da empresa colidia com o anel de match
+  /// e o bloco do topo comia todo o `Expanded`, fazendo a DESCRIÇÃO DA VAGA
+  /// sumir por completo — na tela central do app.
+  ///
+  /// Limitar aqui mantém o card legível e íntegro; quem precisa do corpo em
+  /// tamanho real toca no card e lê o detalhe, que é rolável e honra a escala
+  /// do sistema inteira. O card é resumo, o detalhe é leitura.
+  static const double _kMaxCardTextScale = 1.3;
+
   @override
   Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final clamped = mq.textScaler.clamp(maxScaleFactor: _kMaxCardTextScale);
+    return MediaQuery(
+      data: mq.copyWith(textScaler: clamped),
+      child: _buildCard(),
+    );
+  }
+
+  Widget _buildCard() {
     return FadeTransition(
       opacity: _fadeIn,
       child: Container(
@@ -307,8 +330,15 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
   }
 
   Widget _buildPremiumHeader() {
-    return Container(
-      height: 110,
+    // Era `height: 110` fixo. Mesmo com a escala de fonte limitada, o bloco
+    // selo + empresa + "Publicada hoje" passava alguns pixels e a última linha
+    // era cortada. `minHeight` mantém o visual idêntico no tamanho normal e
+    // deixa o header crescer só o necessário — o Stack se dimensiona pelo
+    // filho não-posicionado (o Padding > Row), e o corpo cede exatamente o que
+    // o header pediu, em vez de a linha sumir.
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 110),
+      child: Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [_accent.withOpacity(0.92), _accentDark.withOpacity(0.95)],
@@ -463,28 +493,49 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
                                     color: Colors.white,
                                   ),
                                 ),
-                                Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      // T2.4 — banda em vez de número
-                                      // (Alta ≥70 / Média 40-69 / Baixa <40).
-                                      matchBandFor(_score).label,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w900,
-                                      ),
+                                // O anel tem 60×60 fixos e o traço come ~8px de
+                                // cada lado, então sobram ~44px úteis. Com a
+                                // fonte de acessibilidade do sistema (mesmo
+                                // já clampada em `_kMaxCardTextScale`),
+                                // "Médio" a 12pt w900 mede ~45px e VAZAVA por
+                                // cima do traço do anel — device-test de
+                                // 31/07, resíduo do achado P1-10.
+                                //
+                                // `scaleDown` só encolhe quando não cabe: em
+                                // fonte normal nada muda, e nenhum rótulo de
+                                // banda pode estourar de novo, hoje ou quando
+                                // alguém acrescentar uma palavra mais longa.
+                                // Padding interno mantém a folga do traço.
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          // T2.4 — banda em vez de número
+                                          // (Alta ≥70 / Média 40-69 / Baixa <40).
+                                          matchBandFor(_score).label,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                        Text(
+                                          'match',
+                                          style: TextStyle(
+                                            color: Colors.white.withOpacity(0.8),
+                                            fontSize: 8,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    Text(
-                                      'match',
-                                      style: TextStyle(
-                                        color: Colors.white.withOpacity(0.8),
-                                        fontSize: 8,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
+                                  ),
                                 ),
                               ],
                             ),
@@ -495,6 +546,7 @@ class _JobCardState extends State<JobCard> with SingleTickerProviderStateMixin {
             ),
           ),
         ],
+      ),
       ),
     );
   }

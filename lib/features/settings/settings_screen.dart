@@ -27,6 +27,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/theme/theme.dart';
+import '../../core/constants/stage_legal_links.dart';
+import '../../core/utils/open_legal_link.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -244,16 +246,25 @@ class _SettingsScreenState extends State<SettingsScreen>
                     ],
                   ),
                 ),
-                // Trocar senha só faz sentido pra users com auth email+senha
-                // (identity provider 'email'). Esconde pra:
-                //  - Apple/Google OAuth users (~88% da base, sem
-                //    encrypted_password em auth.users)
-                //  - Phone signup users (synthetic email + senha random,
-                //    eles entram via OTP)
-                // Pra esses, `signInWithPassword` falharia e a UX seria
-                // confusa ("senha atual incorreta" pra alguém que nunca teve).
-                if (userVM.hasPasswordAuth &&
-                    !PhoneAuthHelpers.isSyntheticEmail(user?.email)) ...[
+                // Trocar senha só faz sentido pra quem TEM senha — ou seja,
+                // não para os ~88% que entram por Apple/Google e nunca
+                // digitaram uma (sem `encrypted_password` em auth.users).
+                //
+                // ⚠️ O filtro de e-mail sintético foi REMOVIDO. Ele escondia a
+                // tela exatamente de quem mais precisa dela: as ~116 contas do
+                // cadastro por telefone. A justificativa antiga (que está
+                // escrita aqui embaixo no histórico do git) dizia que essas
+                // contas têm "senha random" e "entram via OTP" — as duas coisas
+                // são FALSAS. A pessoa digita a própria senha na tela de
+                // cadastro, e OTP não existe: o Twilio nunca foi configurado,
+                // por isso o e-mail é sintético.
+                //
+                // Sem esta tela elas não têm NENHUMA forma de trocar a senha: o
+                // app não tem "esqueci minha senha" (nenhuma tela, em lugar
+                // nenhum) e um e-mail de recuperação iria para @stage.app, que
+                // não é caixa postal real. É a única porta de saída para quem
+                // for barrado quando a política de senha do servidor subir.
+                if (userVM.hasPasswordAuth) ...[
                   const Divider(height: 1),
                   _SettingsTile(
                     icon: Icons.lock_outline,
@@ -473,6 +484,26 @@ class _SettingsScreenState extends State<SettingsScreen>
                       ? null
                       : () => _showGrantConsentModal(context, userVM),
                 ),
+                const Divider(height: 1),
+                // Depois do cadastro não havia NENHUM caminho pra reler o que
+                // se aceitou: a política só era alcançável entrando na tela de
+                // consentimento de IA, que por sua vez exigia responder pra
+                // sair. Revisão UX 28/07, achado P2-15.
+                _SettingsTile(
+                  icon: Icons.description_outlined,
+                  title: 'Termos de Uso',
+                  subtitle: 'Abre no navegador',
+                  iconColor: AppColors.textTertiary,
+                  onTap: () => openLegalLink(StageLegalLinks.termsUrl),
+                ),
+                const Divider(height: 1),
+                _SettingsTile(
+                  icon: Icons.privacy_tip_outlined,
+                  title: 'Política de Privacidade',
+                  subtitle: 'Abre no navegador',
+                  iconColor: AppColors.textTertiary,
+                  onTap: () => openLegalLink(StageLegalLinks.privacyUrl),
+                ),
               ],
             ),
           ),
@@ -680,6 +711,8 @@ class _SettingsScreenState extends State<SettingsScreen>
       context: context,
       barrierDismissible: false,
       pageBuilder: (dialogContext, _, _) => AIConsentModal(
+        // Aberta por consulta: dá pra sair sem declarar nada.
+        onDismiss: () => Navigator.pop(dialogContext),
         onAccept: () async {
           try {
             await userVM.updateAIConsent(true);

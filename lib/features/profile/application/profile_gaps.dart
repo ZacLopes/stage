@@ -42,6 +42,17 @@ enum LacunaKey {
   companyStage,
   workEnvironment,
   workStyle,
+  /// Senioridade (entry/mid/senior) — `profile_job_preferences.experience_level`.
+  ///
+  /// Revisão UX 28/07, achado P1-8. O onboarding pergunta "Em que momento você
+  /// está agora?", mas isso é SITUAÇÃO DE ESTUDO e vai pra `profile_education`.
+  /// Senioridade nunca foi perguntada em lugar nenhum: o único jeito de
+  /// preencher era achar Perfil → Objetivos → "Nível de experiência" por
+  /// conta própria.
+  ///
+  /// Não é inferível de "estou na faculdade": situação de estudo não é
+  /// senioridade, e inferir fabricaria dado para um filtro comercial.
+  experienceLevel,
 }
 
 /// Skills mínimas pra um perfil contar como "tem habilidades" — abaixo disso o
@@ -142,6 +153,7 @@ ProfileGaps analyzeProfileGaps({
   bool hasCompanyStage = false,
   bool hasWorkEnvironment = false,
   bool hasWorkStyle = false,
+  bool hasExperienceLevel = false,
 }) {
   final list = <Lacuna>[
     // Tier 1 — filtros duros, ordem do mais barato (clique) ao mais "rico".
@@ -263,6 +275,12 @@ ProfileGaps analyzeProfileGaps({
       label: 'Interesses',
       filled: hasInterests,
     ),
+    Lacuna(
+      key: LacunaKey.experienceLevel,
+      tier: LacunaTier.tier3,
+      label: 'Nível de experiência',
+      filled: hasExperienceLevel,
+    ),
   ];
   return ProfileGaps(list);
 }
@@ -308,5 +326,6 @@ ProfileGaps profileGapsFromData({
     hasCompanyStage: prefs?.companyStage?.trim().isNotEmpty ?? false,
     hasWorkEnvironment: prefs?.workEnvironment?.trim().isNotEmpty ?? false,
     hasWorkStyle: prefs?.workStyle?.trim().isNotEmpty ?? false,
+    hasExperienceLevel: prefs?.experienceLevel.isNotEmpty ?? false,
   );
 }

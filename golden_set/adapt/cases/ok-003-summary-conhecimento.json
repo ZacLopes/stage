@@ -1,0 +1,9 @@
+{
+  "id": "ok-003-summary-conhecimento",
+  "categoria": "anti-invenção / summary",
+  "porque": "É a saída CORRETA para perfil sem experiência: falar de conhecimento e formação. Tem de passar.",
+  "adicionado_em": "2026-07-28",
+  "input": { "skills": ["Excel", "Power BI", "SQL"] },
+  "candidate": { "summary": "Estudante de Engenharia de Produção com conhecimento em Power BI e Excel, além de familiaridade com elaboração de relatórios." },
+  "espera": { "resultado": "aceita" }
+}

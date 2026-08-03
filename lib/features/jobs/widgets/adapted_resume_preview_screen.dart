@@ -67,31 +67,31 @@ const List<_AdaptedTemplateOption> _kAdaptedTemplates = [
   _AdaptedTemplateOption(
     id: 'harvard_ats',
     label: 'Harvard ATS',
-    description: 'Clássico, ideal pra IB/Consulting/Corporate',
+    description: 'Clássico e sóbrio. Vai bem em qualquer área.',
     thumbnail: 'assets/images/templates/harvard_ats.png',
   ),
   _AdaptedTemplateOption(
     id: 'jakes_resume',
     label: "Jake's Resume",
-    description: 'Tech/dev, FAANG-friendly',
+    description: 'Enxuto e técnico. Bom pra tecnologia e engenharia.',
     thumbnail: 'assets/images/templates/jakes_resume.png',
   ),
   _AdaptedTemplateOption(
     id: 'forte_foundation',
     label: 'Forte Foundation',
-    description: 'Banking/MBA, conservador',
+    description: 'Formal e conservador. Bancos, consultorias e afins.',
     thumbnail: 'assets/images/templates/forte_foundation.png',
   ),
   _AdaptedTemplateOption(
     id: 'one_page_compact',
     label: 'One-Page Compact',
-    description: 'Estudante early-career, sans-serif moderno',
+    description: 'Uma página garantida. Bom pra quem está começando.',
     thumbnail: 'assets/images/templates/one_page_compact.png',
   ),
   _AdaptedTemplateOption(
     id: 'cobalt_modern',
     label: 'Cobalt Modern',
-    description: '2 colunas com sidebar, sans-serif moderno, accent azul cobalt',
+    description: 'Duas colunas, com destaque azul. Visual mais moderno.',
     thumbnail: 'assets/images/templates/cobalt_modern.png',
   ),
 ];
@@ -401,7 +401,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
       context: context,
       barrierDismissible: true,
       barrierColor: Colors.black.withOpacity(0.55),
-      builder: (ctx) => _SavedConfirmationDialog(jobTitle: widget.job.title),
+      builder: (ctx) => SavedConfirmationDialog(jobTitle: widget.job.title),
     );
   }
 
@@ -480,8 +480,38 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
         );
       }
 
-      // Compartilha o PDF via share sheet nativo. Mesmo se o save falhar,
-      // o usuário ainda recebe o arquivo.
+      // ORDEM IMPORTA (revisão UX 28/07, achado P2-24).
+      //
+      // Antes o share sheet nativo subia PRIMEIRO e o diálogo "CV salvo! …
+      // ficou em Perfil → Currículos" abria POR BAIXO dele: `sharePdf`
+      // resolve quando a folha é APRESENTADA, não quando é fechada. A
+      // confirmação ficava cortada no meio da frase e a pessoa não descobria
+      // onde o arquivo tinha ido parar.
+      //
+      // Agora: primeiro conta o que aconteceu (salvou ou não), depois oferece
+      // compartilhar. O share continua acontecendo mesmo se o save falhar —
+      // o arquivo é da pessoa de qualquer jeito.
+      if (savedToLibrary) {
+        // F8: confirmação animada. Feedback explícito de que o CV ficou
+        // salvo na biblioteca (substitui o antigo banner persistente).
+        await _showSavedConfirmation();
+      } else {
+        // Save falhou: user recebe o PDF mas não terá o CV na biblioteca —
+        // precisa saber pra não esperar achar depois.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'PDF gerado, mas não consegui guardar uma cópia em Currículos.',
+            ),
+            backgroundColor: Colors.orange.shade700,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
+      if (!mounted) return;
+
+      // Compartilha o PDF via share sheet nativo.
       // D1: saía `curriculo__1eee2f.pdf` (underscore duplo) quando o nome era
       // vazio. `build` junta só os pedaços não-vazios — e nunca deriva de
       // e-mail, senão os 109 usuários de login por telefone teriam o próprio
@@ -504,31 +534,6 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
       JobSwipeContext.shared.markAdapted(widget.job.id);
       // ignore: unawaited_futures
       PendingAdaptedCvTracker.shared.clear();
-      if (!mounted) return;
-
-      // Se save falhou, mostra toast informativo. User recebeu o PDF mas
-      // não terá o CV na biblioteca — precisa saber pra não esperar achar
-      // depois.
-      if (!savedToLibrary) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'PDF gerado, mas não consegui guardar uma cópia em Currículos.',
-            ),
-            backgroundColor: Colors.orange.shade700,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 6),
-          ),
-        );
-        // ignore: unawaited_futures
-        Navigator.of(context).pop(true);
-        return;
-      }
-
-      // F8: confirmação animada antes do pop. Dá feedback explícito
-      // que o CV ficou salvo permanente na biblioteca (sinal que
-      // substitui o antigo banner persistente).
-      await _showSavedConfirmation();
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
@@ -1796,7 +1801,11 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
             child: ElevatedButton(
               onPressed: _isExporting ? null : _approveAndDownload,
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.brandCyan,
+                // Primário do app é o azul Stage; este era o único CTA
+                // principal em ciano (D4 no backlog / achado P3-33). O ciano
+                // segue sendo cor de MARCA (selo "Editado", ícones), não de
+                // ação.
+                backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
@@ -1844,16 +1853,19 @@ enum _ViewMode { adapted, original }
 ///   3. Textos fade-in.
 ///   4. CTAs aparecem por último.
 /// Auto-close em 4s caso o usuário não interaja.
-class _SavedConfirmationDialog extends StatefulWidget {
+/// Confirmação pós-save do CV adaptado. Público só para o teste de widget que
+/// trava o achado P3-44 (texto sem ancestral `Material` ganha o duplo
+/// sublinhado amarelo do Flutter).
+class SavedConfirmationDialog extends StatefulWidget {
   final String jobTitle;
-  const _SavedConfirmationDialog({required this.jobTitle});
+  const SavedConfirmationDialog({super.key, required this.jobTitle});
 
   @override
-  State<_SavedConfirmationDialog> createState() =>
-      _SavedConfirmationDialogState();
+  State<SavedConfirmationDialog> createState() =>
+      SavedConfirmationDialogState();
 }
 
-class _SavedConfirmationDialogState extends State<_SavedConfirmationDialog>
+class SavedConfirmationDialogState extends State<SavedConfirmationDialog>
     with TickerProviderStateMixin {
   late final AnimationController _cardCtrl;
   late final AnimationController _checkCtrl;
@@ -1911,102 +1923,111 @@ class _SavedConfirmationDialogState extends State<_SavedConfirmationDialog>
             scale: 0.85 + 0.15 * _cardScale.value,
             child: Opacity(
               opacity: _cardCtrl.value.clamp(0.0, 1.0),
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 32),
-                padding: const EdgeInsets.fromLTRB(24, 32, 24, 20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(28),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.12),
-                      blurRadius: 32,
-                      offset: const Offset(0, 16),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Transform.scale(
-                      scale: _checkScale.value,
-                      child: Container(
-                        width: 72,
-                        height: 72,
-                        decoration: const BoxDecoration(
-                          color: AppColors.success, // emerald (mesmo do brand adapted)
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Color(0x4010B981),
-                              blurRadius: 24,
-                              spreadRadius: 4,
+              // `showDialog` entrega o builder direto no overlay: sem um
+              // `Material` acima, o Flutter marca TODO texto com o duplo
+              // sublinhado amarelo de diagnóstico — que cortava os
+              // descendentes (g, p, ç) das palavras (revisão UX 28/07,
+              // achado P3-44). O card já pinta o próprio fundo e sombra,
+              // então o Material entra só como ancestral transparente.
+              child: Material(
+                type: MaterialType.transparency,
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 32),
+                  padding: const EdgeInsets.fromLTRB(24, 32, 24, 20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(28),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.12),
+                        blurRadius: 32,
+                        offset: const Offset(0, 16),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Transform.scale(
+                        scale: _checkScale.value,
+                        child: Container(
+                          width: 72,
+                          height: 72,
+                          decoration: const BoxDecoration(
+                            color: AppColors.success, // emerald (mesmo do brand adapted)
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Color(0x4010B981),
+                                blurRadius: 24,
+                                spreadRadius: 4,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.check_rounded,
+                            color: Colors.white,
+                            size: 42,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Opacity(
+                        opacity: _textOpacity.value,
+                        child: Column(
+                          children: [
+                            const Text(
+                              'CV salvo!',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.textPrimary,
+                                letterSpacing: -0.4,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Sua versão adaptada para ${widget.jobTitle.length > 38 ? '${widget.jobTitle.substring(0, 35)}…' : widget.jobTitle} ficou em Perfil → Currículos.',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: AppColors.textTertiary,
+                                height: 1.45,
+                              ),
                             ),
                           ],
                         ),
-                        child: const Icon(
-                          Icons.check_rounded,
-                          color: Colors.white,
-                          size: 42,
-                        ),
                       ),
-                    ),
-                    const SizedBox(height: 20),
-                    Opacity(
-                      opacity: _textOpacity.value,
-                      child: Column(
-                        children: [
-                          const Text(
-                            'CV salvo!',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w900,
-                              color: AppColors.textPrimary,
-                              letterSpacing: -0.4,
+                      const SizedBox(height: 24),
+                      Opacity(
+                        opacity: _textOpacity.value,
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              elevation: 0,
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Sua versão adaptada para ${widget.jobTitle.length > 38 ? '${widget.jobTitle.substring(0, 35)}…' : widget.jobTitle} ficou em Perfil → Currículos.',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppColors.textTertiary,
-                              height: 1.45,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Opacity(
-                      opacity: _textOpacity.value,
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.brandCyan,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            elevation: 0,
-                          ),
-                          child: const Text(
-                            'Entendi',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -0.2,
+                            child: const Text(
+                              'Entendi',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.2,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

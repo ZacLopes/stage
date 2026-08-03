@@ -8,6 +8,7 @@ import '../../data/supabase_repository.dart';
 import '../../services/ai_service.dart';
 import '../../data/models/models.dart';
 import '../../data/local_storage_repository.dart';
+import 'data/legacy_education_details.dart';
 import 'services/resume_renderer.dart';
 
 class ToolWithLevel {
@@ -1837,7 +1838,12 @@ class ResumeViewModel extends ChangeNotifier {
           degree: e.course,
           institution: e.institution,
           period: e.period,
-          details: e.details,
+          // P1-11: este caminho NÃO passa pelo ProfileResumeMapper, que já
+          // escreve "Ênfase em"/"Formação complementar em". Ele repassa o
+          // `detalhes` cru do conteúdo em cache, gerado por um prompt que
+          // pedia "Major/Minor" mesmo em PT — e a troca de template
+          // re-emitia o inglês toda vez.
+          details: sanitizeLegacyEducationDetails(e.details, language: _language),
           gpa: isFirst
               ? (useAi ? e.gpa : (academicHighlights['gpa'] ?? ''))
               : '',

@@ -20,10 +20,12 @@ void main() {
       expect(matchBandFor(0), MatchBand.baixa);
       expect(matchBandFor(39), MatchBand.baixa);
     });
-    test('labels pt-BR', () {
-      expect(MatchBand.alta.label, 'Alta');
-      expect(MatchBand.media.label, 'Média');
-      expect(MatchBand.baixa.label, 'Baixa');
+    test('labels pt-BR — MASCULINO, porque vão em cima de "match"', () {
+      // Revisão UX 28/07, achado P2-13: o anel do card escreve o rótulo
+      // acima da palavra "match" e lia "Alta match".
+      expect(MatchBand.alta.label, 'Alto');
+      expect(MatchBand.media.label, 'Médio');
+      expect(MatchBand.baixa.label, 'Baixo');
     });
   });
 

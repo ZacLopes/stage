@@ -5,6 +5,8 @@ import 'package:flutter_html/flutter_html.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/job.dart';
+import '../utils/job_content_sanitizer.dart';
+import '../utils/match_band.dart';
 import '../utils/match_score.dart';
 import '../jobs_viewmodel.dart';
 import '../../auth/user_viewmodel.dart';
@@ -215,7 +217,13 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
                             // About Company
                             if (widget.job.aboutCompany.isNotEmpty) ...[
                               _buildSection(
-                                title: 'Sobre a ${widget.job.companyName}',
+                                // Cabeçalho fixo: interpolar o nome produzia
+                                // concordância errada em boa parte do
+                                // catálogo ("Sobre a Estágio M. Dias Branco",
+                                // "Sobre a Itaú"). O nome da empresa já
+                                // aparece no topo da sheet.
+                                // Revisão UX 28/07, achado P2-18.
+                                title: 'Sobre a empresa',
                                 icon: Icons.business_rounded,
                                 color: AppColors.textTertiary,
                                 child: _buildJobHtml(
@@ -568,24 +576,13 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
     if (_hideScore) return _buildNoProfileCard();
 
     final score = _score;
-    // #2: faixas alinhadas ao match_band.dart (70/40) + balde HONESTO pra
-    // score baixo/zero — antes tudo <70 caía em "Match razoável — vale
-    // tentar!", o que era enganoso pra match baixo.
-    String matchLabel;
-    String matchDescription;
-    if (score >= 85) {
-      matchLabel = 'Excelente match';
-      matchDescription = 'Seu perfil atende muito bem aos requisitos desta vaga.';
-    } else if (score >= 70) {
-      matchLabel = 'Bom match';
-      matchDescription = 'Você tem um bom alinhamento com o perfil buscado.';
-    } else if (score >= 40) {
-      matchLabel = 'Match parcial';
-      matchDescription = 'Algumas coisas batem; veja os pontos abaixo.';
-    } else {
-      matchLabel = 'Match baixo';
-      matchDescription = 'Esta vaga foge bastante do seu perfil.';
-    }
+    // P2-13: a escada e o vocabulário agora moram em match_band.dart, com os
+    // MESMOS limiares do anel do card. Antes esta função tinha a própria
+    // ladeira de ifs e o próprio vocabulário: a mesma vaga de score 75 era
+    // "Alta" no card e "Bom match" aqui.
+    final copy = matchDetailCopy(score);
+    final matchLabel = copy.label;
+    final matchDescription = copy.description;
 
     return AnimatedBuilder(
       animation: _slideAnim,
@@ -1041,14 +1038,15 @@ class _JobDetailsSheetState extends State<JobDetailsSheet>
     s = s.replaceAll(RegExp(r"""\s+data-[a-z\-]+\s*=\s*'[^']*'""", caseSensitive: false), '');
     s = s.replaceAll(RegExp(r'''\s+on[a-z]+\s*=\s*"[^"]*"''', caseSensitive: false), '');
 
-    // 3+ <br> seguidos viram 2 (preserva separação intencional sem buraco).
-    s = s.replaceAll(RegExp(r'(\s*<br\s*/?>\s*){3,}', caseSensitive: false), '<br><br>');
-
-    // <p></p> e <span></span> vazios — colapsa.
-    s = s.replaceAll(RegExp(r'<p>\s*</p>', caseSensitive: false), '');
+    // <span></span> vazio — colapsa.
     s = s.replaceAll(RegExp(r'<span>\s*</span>', caseSensitive: false), '');
 
-    return s.trim();
+    // P2-17: a regra antiga era "3+ <br> viram 2" e "<p></p> some", e nenhuma
+    // das duas pegava o que o ATS realmente manda. O editor de texto do
+    // recrutador produz <p>&nbsp;</p>, <p><span>&nbsp;</span></p> e <p><br></p>
+    // — parágrafos COM conteúdo, invisíveis, cada um ocupando altura de linha
+    // mais margem. Seis seguidos são um buraco de tela inteira.
+    return collapseEmptyHtmlBlocks(s);
   }
 
   Widget _buildJobHtml({required String html, required String fallbackPlain}) {

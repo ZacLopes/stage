@@ -14,6 +14,8 @@ import '../../services/notifications_service.dart';
 import '../../services/profile_events.dart';
 import '../../services/profile_snapshot_service.dart';
 import '../profile/application/profile_editor_view_model.dart';
+import 'auth_failure_code.dart';
+import 'password_rule.dart';
 import 'phone_auth_helpers.dart';
 
 class UserViewModel extends ChangeNotifier {
@@ -130,6 +132,10 @@ class UserViewModel extends ChangeNotifier {
   /// Quantas skills o perfil tem. Alimenta o gate da adaptação (F6) — ver
   /// `features/jobs/utils/adapt_gate.dart`.
   int _skillCount = 0;
+  /// Nomes das skills já declaradas no perfil. Usado pra não reoferecer,
+  /// na folha de extras da adaptação, o que a pessoa acabou de cadastrar
+  /// (revisão UX 28/07, achado P2-19).
+  List<String> _profileSkillNames = const [];
 
   /// False quando a última carga do snapshot teve falha parcial — aí
   /// [_skillCount] pode ser 0 por erro de consulta, não por ausência real.
@@ -192,6 +198,7 @@ class UserViewModel extends ChangeNotifier {
   /// e esperar 15s pra ela falhar com `profile_incomplete`).
   bool get canAdaptCv => _canAdaptCv;
   int get skillCount => _skillCount;
+  List<String> get profileSkillNames => _profileSkillNames;
   bool get skillCountIsReliable => _skillCountIsReliable;
 
   /// Re-checa se o user tem dados nas tabelas `profile_*` e notifica
@@ -215,6 +222,7 @@ class UserViewModel extends ChangeNotifier {
       _hasProfileData = false;
       _canAdaptCv = false;
       _skillCount = 0;
+      _profileSkillNames = const [];
       _skillCountIsReliable = false;
       return;
     }
@@ -225,6 +233,7 @@ class UserViewModel extends ChangeNotifier {
       // F6: o gate da adaptação passou a exigir skills (Bloqueador C) — o
       // validador anti-invenção rejeita determinado quando a entrada é vazia.
       _skillCount = snapshot.skills.length;
+      _profileSkillNames = snapshot.skills.map((e) => e.name).toList();
       // Uma consulta que falhou vira lista vazia — não confunda com "tem 0".
       _skillCountIsReliable = !snapshot.partialFailure;
     } catch (_) {
@@ -232,6 +241,7 @@ class UserViewModel extends ChangeNotifier {
       _hasProfileData = false;
       _canAdaptCv = false;
       _skillCount = 0;
+      _profileSkillNames = const [];
       _skillCountIsReliable = false;
     }
   }
@@ -572,6 +582,16 @@ class UserViewModel extends ChangeNotifier {
     String? course,
     String? semester,
     String? university,
+    /// Quando false, "já cadastrado" sobe CRU em vez de virar uma tentativa de
+    /// login aqui dentro.
+    ///
+    /// Existe porque [signInOrSignUp] já tentou entrar no passo 1: refazer o
+    /// login aqui é redundante E destrutivo para a telemetria — o fallback
+    /// relança o erro do signIn (`invalid_credentials`), então quem chamou
+    /// nunca descobre que a conta EXISTIA e contabiliza uma falha de LOGIN
+    /// como falha de CADASTRO. Medido ao vivo em 01/08: um `auth_signup_failed`
+    /// com `error_code=invalid_credentials` que deveria ser `auth_login_failed`.
+    bool fallbackToSignIn = true,
   }) async {
     _isLoading = true;
     notifyListeners();
@@ -597,20 +617,29 @@ class UserViewModel extends ChangeNotifier {
         await _loadUser();
       }
     } catch (e) {
-      // Check if error is "User already registered"
+      // Fallback histórico: esta tela é login E cadastro, e por muito tempo
+      // chamou só `signUp`. Quem já tinha conta dependia daqui para entrar.
+      //
+      // O caminho de produção agora é [signInOrSignUp], que tenta ENTRAR
+      // primeiro e não precisa deste desvio. Ele fica por compatibilidade —
+      // e deliberadamente SEM o ramo de senha fraca que eu havia adicionado
+      // aqui: naquele desenho, propagar o erro original fazia "senha errada
+      // em conta existente" virar "Este telefone já está cadastrado", que é
+      // uma frase sem nada para a pessoa corrigir.
       final errorMsg = e.toString().toLowerCase();
-      if (errorMsg.contains('already registered') || errorMsg.contains('already exists')) {
-        print('⚠️ User already exists, attempting to sign in instead...');
+      if (fallbackToSignIn &&
+          (errorMsg.contains('already registered') ||
+              errorMsg.contains('already exists'))) {
         try {
           await signIn(email: email, password: password);
-          return; // Exit success if sign in works
-        } catch (signInError) {
-           print('Sign in after sign up failed: $signInError');
-           // Rethrow original error if fallback fails
-           rethrow; 
+          return;
+        } catch (_) {
+          // O erro do signIn é o informativo aqui: a conta existe, então o
+          // que falhou foi a senha.
+          rethrow;
         }
       }
-      
+
       print('Error signing up: $e');
       rethrow;
     } finally {
@@ -621,6 +650,108 @@ class UserViewModel extends ChangeNotifier {
          _isLoading = false;
          notifyListeners();
       }
+    }
+  }
+
+  /// Porta única da tela de telefone: ENTRA se a conta existe, CRIA se não.
+  ///
+  /// A ordem é o conserto. Antes a tela chamava só `signUp` e dependia de um
+  /// fallback no catch — desenho que produziu dois defeitos:
+  ///
+  /// 1. **Lockout mudo.** Uma regra de composição (letra + número) chegou a
+  ///    governar o botão "Continuar" enquanto a build publicada exigia só
+  ///    comprimento — existem contas reais com "abcdefgh". Essas pessoas
+  ///    digitavam a senha CERTA e viam um botão cinza, sem mensagem. A regra
+  ///    foi removida (ver `password_rule.dart`), mas a ordem daqui é o que
+  ///    torna SEGURO apertar a política no servidor um dia: quem já tem conta
+  ///    entra antes de qualquer checagem de força.
+  /// 2. **Mensagem sem conserto.** Senha errada em conta existente dizia
+  ///    "Este telefone já está cadastrado" — uma frase que não indica nada
+  ///    para a pessoa corrigir.
+  ///
+  /// Tentando ENTRAR primeiro, os dois somem: quem já tem conta nunca encosta
+  /// na regra de conta nova (é o que o servidor faz — ele valida força no
+  /// cadastro, não no login), e quando o `signUp` responde "já cadastrado"
+  /// isso passa a significar, sem ambiguidade, que a senha estava errada.
+  ///
+  /// Custo: um round-trip a mais para quem é realmente novo.
+  Future<void> signInOrSignUp({
+    required String email,
+    required String password,
+    required String name,
+    required int age,
+  }) async {
+    // 1. Entrar. Quem já tem conta resolve aqui, com qualquer senha antiga.
+    try {
+      await signIn(email: email, password: password);
+      return;
+    } on AuthException catch (e) {
+      final credenciaisNaoConferem = e.code == 'invalid_credentials' ||
+          e.message.toLowerCase().contains('invalid login credentials');
+      // Rede fora, rate limit, projeto pausado: propaga. Só seguimos para o
+      // cadastro quando o servidor disse "essas credenciais não servem" — o
+      // que inclui "essa conta não existe".
+      if (!credenciaisNaoConferem) {
+        // Rede, rate limit, projeto pausado: a pessoa não entrou e não é
+        // credencial. Sem isto, some do painel.
+        // ignore: unawaited_futures
+        Analytics.shared.authLoginFailed(
+          method: 'phone',
+          errorCode: authFailureCode(e),
+        );
+        rethrow;
+      }
+    }
+
+    // 2. Criar. Não há checagem de regra aqui de propósito: a regra do app é
+    //    a MESMA do servidor (só comprimento, ≥ 8), e o botão já a aplicou.
+    //    Se um dia o servidor ficar mais estrito, a recusa chega dele —
+    //    tipada, com o motivo — e é traduzida em `AuthErrorFormatter`.
+    try {
+      await signUp(
+        email: email,
+        password: password,
+        name: name,
+        age: age,
+        // Passo 1 já tentou entrar. Sem isto, o "já cadastrado" seria comido
+        // pelo fallback e chegaria aqui como erro de login — e o ramo abaixo,
+        // que distingue cadastro de login, nunca dispararia.
+        fallbackToSignIn: false,
+      );
+    } on AuthException catch (e) {
+      final msg = e.message.toLowerCase();
+      if (msg.contains('already registered') || msg.contains('already exists')) {
+        // A conta existe e o passo 1 já falhou com ela: a senha está errada.
+        // Isso é falha de LOGIN, não de cadastro — contabilizar como cadastro
+        // tornaria a métrica de signup ilegível justamente nesta tela, que é
+        // as duas coisas.
+        // ignore: unawaited_futures
+        Analytics.shared.authLoginFailed(
+          method: 'phone',
+          errorCode: 'invalid_credentials',
+        );
+        throw const AuthException(
+          'Invalid login credentials',
+          statusCode: '400',
+          code: 'invalid_credentials',
+        );
+      }
+      // Aqui o cadastro falhou de verdade. É este o sinal que faltava para
+      // apertar a política de senha do servidor sem voar às cegas.
+      // ignore: unawaited_futures
+      Analytics.shared.authSignupFailed(
+        method: 'phone',
+        errorCode: authFailureCode(e),
+      );
+      rethrow;
+    } catch (e) {
+      // Rede, timeout, qualquer coisa fora do AuthException.
+      // ignore: unawaited_futures
+      Analytics.shared.authSignupFailed(
+        method: 'phone',
+        errorCode: authFailureCode(e),
+      );
+      rethrow;
     }
   }
 
@@ -699,6 +830,14 @@ class UserViewModel extends ChangeNotifier {
         },
       );
     } catch (e) {
+      // O Google não emitia NADA ao falhar — nem `started` (que é emitido na
+      // tela, em `authSignupMethodChosen`), nem falha. Uma quebra no OAuth
+      // aparecia só na ausência de contas novas.
+      // ignore: unawaited_futures
+      Analytics.shared.authSignupFailed(
+        method: provider.name,
+        errorCode: authFailureCode(e),
+      );
       print('Error signing in with OAuth ($provider): $e');
       rethrow;
     } finally {
@@ -829,6 +968,15 @@ class UserViewModel extends ChangeNotifier {
       }
       // ignore: unawaited_futures
       Analytics.shared.appleSigninFailed(code: code);
+      // Este método emite `authSignupStarted(method: 'apple')` lá em cima e
+      // nunca emitia o par de falha — o funil signup do Apple ficava com
+      // "iniciou" sem "falhou". Cancelamento NÃO conta: a pessoa desistiu,
+      // não deu erro, e contabilizar como falha inflaria a métrica que existe
+      // para detectar quebra.
+      if (!isCancelled) {
+        // ignore: unawaited_futures
+        Analytics.shared.authSignupFailed(method: 'apple', errorCode: code);
+      }
       print('Error signing in with Apple natively: $e');
       if (!isCancelled) rethrow;
     } finally {
@@ -946,7 +1094,6 @@ class UserViewModel extends ChangeNotifier {
     int? age,
     String? phone,
     String? email,
-    String? password,
     Map<String, dynamic>? gamificationData,
   }) async {
     if (_user == null) return;
@@ -963,9 +1110,15 @@ class UserViewModel extends ChangeNotifier {
       // velho. Sintoma: depois de salvar o ProfileSetup, a tela volta pro
       // Step 0 porque `needsProfileSetup` vira true de novo via _user stale.
       // Age já vai pro DB via `UserProfile.toMap()` no passo 2.
-      if (email != null || password != null) {
-        final attributes = UserAttributes(email: email, password: password);
-        await _supabase.auth.updateUser(attributes);
+      // ⚠️ O parâmetro `password` FOI REMOVIDO daqui. Era um terceiro caminho
+      // de escrita de senha, sem nenhuma validação de força e sem exigir a
+      // senha atual — o próprio código reconhecia o risco num comentário
+      // logo abaixo, em `changePassword`. Estava morto (o único chamador,
+      // `cv_import_service.dart:199`, só passa `gamificationData`), mas
+      // aberto: bastava alguém usar. Trocar senha passa por `changePassword`,
+      // que reautentica e valida.
+      if (email != null) {
+        await _supabase.auth.updateUser(UserAttributes(email: email));
       }
 
       // 2. Update Profile Table (Name, Age, Phone, Course, Semester, etc.)
@@ -1162,7 +1315,15 @@ class UserViewModel extends ChangeNotifier {
     } on AuthException catch (e) {
       final msg = e.message.toLowerCase();
       // ignore: unawaited_futures
-      if (msg.contains('weak') || msg.contains('too short')) {
+      // Casa pelo TIPO/código, não pela redação. A checagem antiga era
+      // `msg.contains('weak') || msg.contains('too short')` — e a mensagem do
+      // servidor para senha sem letra ou sem número não contém nenhuma das
+      // duas. Ela escaparia daqui, cairia no rethrow, e a tela mostraria a
+      // exceção crua em inglês.
+      if (e is AuthWeakPasswordException ||
+          e.code == 'weak_password' ||
+          msg.contains('weak') ||
+          msg.contains('too short')) {
         Analytics.shared.passwordChangeFailed(reason: 'weak');
         throw const PasswordChangeException('weak_password');
       }

@@ -19,6 +19,8 @@ import {
   trackAIGeneration,
   trackEdgeFunctionInvoked,
 } from '../_shared/posthog.ts'
+import { reconcileRemoteReasons, normalizeWorkMode } from './reasons.ts'
+import type { MatchReason } from './reasons.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -26,7 +28,7 @@ const corsHeaders = {
 }
 
 const MODEL = 'gpt-4o-mini'
-const PROMPT_VERSION = 'v13' // bump quando alterar SYSTEM_PROMPT (invalida cache); v11 = salário removido; v12 = skills técnicas vs soft (taxonomia P5, 2026-06-17); v13 = bônus de cargo desejado (+8, 2026-06-30)
+const PROMPT_VERSION = 'v14' // bump quando alterar SYSTEM_PROMPT ou a DERIVAÇÃO do score (invalida cache); v11 = salário removido; v12 = skills técnicas vs soft; v13 = bônus de cargo desejado (+8); v14 = vaga remota deixa de perder ponto por cidade (P1-5, 2026-07-29)
 const CACHE_TTL_DAYS = 30
 // Subido de 100 → 300 em 2026-05-26 porque PROMPT_VERSION bumps em sequência
 // (v5→v9) invalidaram cache de todos os jobs visíveis no app, forçando
@@ -36,12 +38,6 @@ const CACHE_TTL_DAYS = 30
 const RATE_LIMIT_PER_DAY = 300
 const OPENAI_TIMEOUT_MS = 8000
 
-interface MatchReason {
-  label: string
-  matched: boolean
-  weight: number
-  detail?: string
-}
 
 interface MatchPayload {
   score: number
@@ -162,23 +158,6 @@ async function pickPrefsForHash(
  * Retorna o mesmo shape que `user_preferences` pra não mudar o resto
  * da edge function.
  */
-/**
- * Normaliza work_mode do schema relacional (EN: `remote`/`hybrid`/`in_person`)
- * pro vocabulário que `jobs.work_model` usa (PT: `remoto`/`hibrido`/`presencial`).
- * Sem isso, a IA tentava casar "in_person" com "presencial" textualmente e
- * marcava matched=false mesmo o user tendo presencial nas prefs.
- *
- * Valores legacy (PT) passam intactos — `user_preferences.work_models`
- * sempre foi PT.
- */
-function normalizeWorkMode(s: string): string {
-  switch (s) {
-    case 'remote': return 'remoto'
-    case 'hybrid': return 'hibrido'
-    case 'in_person': return 'presencial'
-    default: return s // já PT ou desconhecido — passa intacto
-  }
-}
 
 async function loadPrefs(client: any, userId: string): Promise<any> {
   try {
@@ -680,7 +659,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<{
   }
 }
 
-function parseAndValidate(raw: string): MatchPayload {
+function parseAndValidate(raw: string, job?: any, prefs?: any): MatchPayload {
   // Strip ```json``` fences se existirem
   let text = raw.trim()
   if (text.startsWith('```json')) text = text.slice(7)
@@ -701,12 +680,18 @@ function parseAndValidate(raw: string): MatchPayload {
   const keptReasons = cargoReason
     ? [...baseReasons.slice(0, 5), cargoReason]
     : baseReasons.slice(0, 6)
-  const reasons: MatchReason[] = keptReasons.map((r: any) => ({
+  const parsedReasons: MatchReason[] = keptReasons.map((r: any) => ({
     label: String(r?.label ?? ''),
     matched: r?.matched === true,
     weight: Number.isFinite(Number(r?.weight)) ? Number(r.weight) : 0,
     detail: r?.detail ? String(r.detail).slice(0, 200) : undefined,
   }))
+
+  // Correção determinística ANTES de derivar o score: razão e score precisam
+  // contar a mesma história (há inclusive um alerta de divergência abaixo).
+  const reasons = job
+    ? reconcileRemoteReasons(parsedReasons, job, prefs)
+    : parsedReasons
 
   // Detecta o "Cenário C" canônico (1 reason com label "Sem perfil") — o
   // prompt manda retornar score=50 explicitamente nesse caso, então
@@ -745,6 +730,7 @@ function parseAndValidate(raw: string): MatchPayload {
   return { score: clampedScore, reasons, divergence }
 }
 
+
 // ────────────────────────────────────────────────────────────────────────────
 // Main handler
 // ────────────────────────────────────────────────────────────────────────────
@@ -757,6 +743,29 @@ serve(async (req) => {
   // B.7 do plano v2 — timer pra trackEdgeFunctionInvoked emitido no
   // success path e no catch outer.
   const fnStart = Date.now()
+
+  // Antes, das 6 saídas de erro só DUAS emitiam telemetria (sucesso e catch
+  // outer). Como o catch outer só classifica timeout vs internal, o painel era
+  // fisicamente incapaz de mostrar qualquer outra falha — e "100% dos erros
+  // são timeout" virava conclusão circular. O 429 é o caso que mais doía:
+  // usuário batendo no teto diário de análises não aparecia em lugar nenhum.
+  const failWith = (
+    errorCode: string,
+    status: number,
+    body: Record<string, unknown>,
+    distinctId = `edge_function:analyze-match`,
+  ) => {
+    trackEdgeFunctionInvoked({
+      functionName: 'analyze-match',
+      distinctId,
+      durationMs: Date.now() - fnStart,
+      status: 'error',
+      errorCode,
+      extra: { http_status: status },
+    }).catch(() => {})
+    return jsonResponse(body, status)
+  }
+
   try {
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -766,13 +775,13 @@ serve(async (req) => {
 
     // 1. Auth
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
-    if (authError || !user) return jsonResponse({ error: 'Unauthorized' }, 401)
+    if (authError || !user) return failWith('unauthorized', 401, { error: 'Unauthorized' })
 
     // 2. Parse input
     const body = await req.json().catch(() => ({}))
     const jobId: string | undefined = body?.job_id
     if (!jobId || typeof jobId !== 'string') {
-      return jsonResponse({ error: 'job_id required' }, 400)
+      return failWith('bad_request', 400, { error: 'job_id required' }, user.id)
     }
 
     // 3. Rate limit (cache hits NÃO contam — só calls de IA reais)
@@ -786,7 +795,12 @@ serve(async (req) => {
       .gte('created_at', today.toISOString())
 
     if (rlCount && rlCount >= RATE_LIMIT_PER_DAY) {
-      return jsonResponse({ error: `Rate limit exceeded. Maximum ${RATE_LIMIT_PER_DAY} match analyses per day.` }, 429)
+      return failWith(
+        'rate_limited',
+        429,
+        { error: `Rate limit exceeded. Maximum ${RATE_LIMIT_PER_DAY} match analyses per day.` },
+        user.id,
+      )
     }
 
     // 4. Fetch em paralelo: job, profile (legacy), prefs unificadas, profile_*
@@ -801,7 +815,7 @@ serve(async (req) => {
       buildProfileText(supabaseClient, user.id),
     ])
 
-    if (jobR.error || !jobR.data) return jsonResponse({ error: 'job_not_found' }, 404)
+    if (jobR.error || !jobR.data) return failWith('job_not_found', 404, { error: 'job_not_found' }, user.id)
     const job = jobR.data
     const gamificationData = profileR.data?.gamification_data ?? {}
 
@@ -845,9 +859,28 @@ serve(async (req) => {
           scenario: 'cache',
         },
       }).catch(() => {})
+      // O caminho de cache devolvia `reasons` CRU — a reconciliação só rodava
+      // na geração (§ parseAndValidate). Resultado: uma análise gravada antes
+      // da correção seguia servindo a penalidade falsa de vaga remota, de
+      // graça, por até 30 dias.
+      //
+      // Re-derivar o score junto NÃO é opcional: reconciliar as razões e
+      // devolver o score antigo faria razão e score contarem histórias
+      // diferentes — a mesma classe de bug que a derivação server-side existe
+      // para matar.
+      const cachedReasons = Array.isArray(cachedRow.reasons) ? cachedRow.reasons : []
+      const fixedReasons = job ? reconcileRemoteReasons(cachedReasons, job, prefs) : cachedReasons
+      const reasonsChanged = fixedReasons !== cachedReasons
+      const fixedScore = reasonsChanged
+        ? Math.max(0, Math.min(100, Math.round(
+          fixedReasons.filter((r: MatchReason) => r.matched)
+            .reduce((s: number, r: MatchReason) => s + Math.max(0, r.weight), 0),
+        )))
+        : cachedRow.score
+
       return jsonResponse({
-        score: cachedRow.score,
-        reasons: cachedRow.reasons,
+        score: fixedScore,
+        reasons: fixedReasons,
         cached: true,
         model_used: cachedRow.model_used,
       })
@@ -934,10 +967,15 @@ serve(async (req) => {
 
     let payload: MatchPayload
     try {
-      payload = parseAndValidate(ai.content)
+      payload = parseAndValidate(ai.content, job, prefs)
     } catch (e) {
       console.error('Failed to parse AI output:', ai.content)
-      return jsonResponse({ error: 'ai_response_invalid', detail: (e as Error).message }, 502)
+      return failWith(
+        'ai_response_invalid',
+        502,
+        { error: 'ai_response_invalid', detail: (e as Error).message },
+        user.id,
+      )
     }
 
     // 7. Persist cache (upsert) + log

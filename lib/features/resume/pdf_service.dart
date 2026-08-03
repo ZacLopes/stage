@@ -9,6 +9,7 @@ import '../../core/utils/contact_email.dart';
 import '../../data/models/models.dart';
 import 'resume_viewmodel.dart';
 import '../../core/utils/resume_filename.dart';
+import '../../core/utils/brazil_phone_formatter.dart';
 
 /// Tier de renderização do Harvard MCS. Cada tier define um conjunto
 /// específico de CSS (font-size, line-height, margins) e content
@@ -1062,7 +1063,7 @@ ${_buildHarvardCssForTier(tier)}
     final name = (resume.fullName.isNotEmpty ? resume.fullName : (user?.name ?? '')).trim();
 
     final contactParts = <String>[];
-    if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(resume.phone));
+    if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(BrazilPhoneFormatter.formatForDocument(resume.phone)));
     if (resume.email.isNotEmpty) contactParts.add(_escapeHtml(resume.email));
     if (resume.linkedin.isNotEmpty) {
       contactParts.add(_cleanLinkedinForDisplay(resume.linkedin));
@@ -1196,9 +1197,13 @@ ${_buildHarvardCssForTier(tier)}
     if (resume.interests.isNotEmpty) {
       skillsParts.add('<div class="skline"><b>${_l10n('interests', lang)}:</b> ${_escapeHtml(resume.interests.join(', '))}</div>');
     }
+    // O cabeçalho da seção usava a MESMA chave do primeiro bloco interno, e o
+    // resultado no PDF era o rótulo duas vezes seguidas ("habilidades técnicas"
+    // / "HABILIDADES TÉCNICAS"). `skills_section` é o guarda-chuva que o
+    // template Harvard já usava. Revisão UX 28/07, achado P2-26.
     final skillsHtml = skillsParts.isEmpty
         ? ''
-        : section(_l10n('technical_skills', lang)) + skillsParts.join();
+        : section(_l10n('skills_section', lang)) + skillsParts.join();
 
     return '''<!DOCTYPE html>
 <html lang="${lang == 'en' ? 'en' : 'pt-BR'}">
@@ -1282,7 +1287,7 @@ ${_buildTierOverrideCss(tier)}
 
     final contactParts = <String>[];
     if (resume.location.isNotEmpty) contactParts.add(_escapeHtml(resume.location));
-    if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(resume.phone));
+    if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(BrazilPhoneFormatter.formatForDocument(resume.phone)));
     if (resume.email.isNotEmpty) contactParts.add(_escapeHtml(resume.email));
     if (resume.linkedin.isNotEmpty) {
       contactParts.add(_cleanLinkedinForDisplay(resume.linkedin));
@@ -1546,7 +1551,7 @@ ${_buildTierOverrideCss(tier)}
 
     final contactParts = <String>[];
     if (resume.email.isNotEmpty) contactParts.add(_escapeHtml(resume.email));
-    if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(resume.phone));
+    if (resume.phone.isNotEmpty) contactParts.add(_escapeHtml(BrazilPhoneFormatter.formatForDocument(resume.phone)));
     if (resume.linkedin.isNotEmpty) {
       contactParts.add(_cleanLinkedinForDisplay(resume.linkedin));
     }
@@ -1674,9 +1679,11 @@ ${_buildTierOverrideCss(tier)}
       final pills = resume.interests.map((i) => '<span class="pill">${_escapeHtml(i)}</span>').join();
       skillBlocks.add('<div class="skblock"><span class="sklabel">${_l10n('interests', lang)}</span><div class="skpills">$pills</div></div>');
     }
+    // Mesmo defeito do template acima: rótulo repetido no cabeçalho e no
+    // primeiro bloco. Revisão UX 28/07, achado P2-26.
     final skillsHtml = skillBlocks.isEmpty
         ? ''
-        : section(_l10n('technical_skills', lang)) + skillBlocks.join();
+        : section(_l10n('skills_section', lang)) + skillBlocks.join();
 
     return '''<!DOCTYPE html>
 <html lang="${lang == 'en' ? 'en' : 'pt-BR'}">
@@ -1763,7 +1770,7 @@ ${_buildTierOverrideCss(tier)}
     // Sem icons/emojis — só os valores em texto limpo, ATS-friendly.
     final contactItems = <String>[];
     if (resume.phone.isNotEmpty) {
-      contactItems.add('<div class="ct">${_escapeHtml(resume.phone)}</div>');
+      contactItems.add('<div class="ct">${_escapeHtml(BrazilPhoneFormatter.formatForDocument(resume.phone))}</div>');
     }
     if (resume.email.isNotEmpty) {
       contactItems.add('<div class="ct">${_wrappableEmail(resume.email)}</div>');
@@ -2051,7 +2058,7 @@ ${_buildCobaltTierExtraCss(tier)}
     if (resume.phone.trim().isNotEmpty) {
       primaryParts.add(
         '${_l10n('mobile', resume.language)}: '
-        '${_escapeHtml(resume.phone.trim())}',
+        '${_escapeHtml(BrazilPhoneFormatter.formatForDocument(resume.phone))}',
       );
     }
     if (resume.email.trim().isNotEmpty) {

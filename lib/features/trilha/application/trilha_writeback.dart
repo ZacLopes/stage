@@ -154,6 +154,9 @@ class TrilhaWriteback {
       case 'gap.work_style':
         await _saveCulturalFit(workStyle: _ids(answer));
         break;
+      case 'gap.experience_level':
+        await _saveExperienceLevel(_ids(answer));
+        break;
       default:
         break; // 'intro' e desconhecidos
     }
@@ -400,6 +403,29 @@ class TrilhaWriteback {
       workEnvironment: we,
       workStyle: ws,
     ));
+  }
+
+  // ── Senioridade → profile_job_preferences.experience_level ──────────────
+  //
+  // Revisão UX 28/07, achado P1-8. A coluna e o editor (Perfil → Objetivos)
+  // já existiam; faltava alguém PERGUNTAR. Grava lista de um item porque a
+  // coluna é array e o editor da aba Objetivos também salva assim — duas
+  // superfícies escrevendo formatos diferentes no mesmo campo seria a próxima
+  // versão do mesmo defeito.
+  //
+  // Os ids ('entry'/'mid'/'senior') são os mesmos que `JobPreferences`
+  // serializa; um id fora dessa lista é descartado em vez de gravado, porque
+  // valor desconhecido em campo de filtro tira a pessoa do funil em silêncio.
+  Future<void> _saveExperienceLevel(List<String> ids) async {
+    const validos = {'entry', 'mid', 'senior'};
+    final id = ids.isEmpty ? '' : ids.first.trim();
+    if (!validos.contains(id)) return;
+    final nivel = ExperienceLevel.values.firstWhere((e) => e.name == id);
+    final existing =
+        await _repo.getJobPreferences(userId) ?? JobPreferences(userId: userId);
+    await _repo.upsertJobPreferences(
+      existing.copyWith(experienceLevel: [nivel]),
+    );
   }
 
   // ── Habilidades → profile_skills (merge ADITIVO server-side, Gate 3.0C) ──

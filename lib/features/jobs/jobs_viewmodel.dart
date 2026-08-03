@@ -200,6 +200,12 @@ class JobsViewModel extends ChangeNotifier {
   // Stack of swiped jobs (mais recente no fim) pra suportar undo
   final List<Job> _undoStack = [];
 
+  /// Há swipe a desfazer? O botão de desfazer do feed ficava com aparência
+  /// ATIVA no primeiro card, quando não há nada a desfazer: tocar não
+  /// produzia nenhuma reação visível e lia-se como botão quebrado.
+  /// Revisão UX 28/07, achado P3-38.
+  bool get canUndo => _undoStack.isNotEmpty;
+
   // Liked jobs (aba "Curtidas") — populado on-demand
   List<LikedJob> _likedJobs = [];
   bool _likedJobsLoading = false;

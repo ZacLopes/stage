@@ -138,7 +138,14 @@ class _PreferencesTabState extends State<PreferencesTab> {
           const SizedBox(height: 10),
           _PrefCard(
             icon: Icons.trending_up_rounded,
-            title: 'Momento de carreira',
+            // Revisão UX 28/07: chamava-se "Momento de carreira" e colidia com
+            // a pergunta do ONBOARDING ("Em que momento você está agora?"),
+            // que é sobre SITUAÇÃO DE ESTUDO e é salva em profile_education.
+            // A pessoa respondia lá, lia "Não definido" aqui e concluía que o
+            // app perdeu a resposta. São campos diferentes: este é senioridade
+            // (entry/mid/senior) e nunca foi perguntado no onboarding — o
+            // estado vazio está certo, o NOME é que enganava.
+            title: 'Nível de experiência',
             emptyHint: 'Não definido',
             chips: (prefsVm.prefs?.experienceLevel ?? const [])
                 .map((l) => _experienceLevelLabels[l] ?? '')
@@ -522,7 +529,7 @@ class _AreasSheetState extends State<_AreasSheet> {
   Widget build(BuildContext context) {
     return _SheetShell(
       title: 'Áreas desejadas',
-      subtitle: 'Toca pra escolher onde você quer atuar.',
+      subtitle: 'Toque pra escolher onde você quer atuar.',
       action: _saveButton(
         enabled: _isDirty,
         loading: _saving,
@@ -1631,7 +1638,7 @@ void _snack(BuildContext context, String message) {
 }
 
 // =============================================================================
-// Fase 3 — Cargo desejado, Momento de carreira (senioridade) e Fit cultural.
+// Fase 3 — Cargo desejado, Nível de experiência (senioridade) e Fit cultural.
 // Rótulos espelham conversation_plan.dart (a trilha coleta as mesmas opções).
 // =============================================================================
 
@@ -1735,7 +1742,7 @@ class _DesiredPositionSheetState extends State<_DesiredPositionSheet> {
   }
 }
 
-// ── Momento de carreira / senioridade (escolha única) ────────────────────────
+// ── Nível de experiência / senioridade (escolha única) ────────────────────────
 class _ExperienceLevelSheet extends StatefulWidget {
   const _ExperienceLevelSheet();
   @override
@@ -1767,7 +1774,7 @@ class _ExperienceLevelSheetState extends State<_ExperienceLevelSheet> {
           );
       if (!mounted) return;
       Navigator.pop(context);
-      _snack(context, 'Momento de carreira atualizado');
+      _snack(context, 'Nível de experiência atualizado');
     } catch (_) {
       if (mounted) setState(() => _saving = false);
     }
@@ -1776,8 +1783,8 @@ class _ExperienceLevelSheetState extends State<_ExperienceLevelSheet> {
   @override
   Widget build(BuildContext context) {
     return _SheetShell(
-      title: 'Momento de carreira',
-      subtitle: 'Onde você está hoje. Toque de novo pra desmarcar.',
+      title: 'Nível de experiência',
+      subtitle: 'Quanta experiência de trabalho você já tem. Toque de novo pra desmarcar.',
       action: _saveButton(enabled: _isDirty, loading: _saving, onPressed: _save),
       child: Column(
         children: ExperienceLevel.values.map((lvl) {

@@ -46,18 +46,16 @@ class AIService {
     return _parseMatchResult(data);
   }
 
-  /// Versão de prompt do match que o cliente lê do cache (`match_analyses`).
-  /// Tem que bater com `PROMPT_VERSION` em `analyze-match/index.ts` —
-  /// descasamento vira cache miss no cliente, evitando que scores de regras
-  /// antigas apareçam até a IA recomputar.
+  /// Versão usada quando a leitura do `app_config` FALHA (rede/RLS).
   ///
-  /// O valor REAL em uso vem de `app_config.match_prompt_version` (hoje 'v10'),
-  /// lido 1x por sessão em [_resolveMatchPromptVersion]. Trocar esse valor no
-  /// banco é o "botão de rollback" instantâneo, sem precisar de release.
+  /// ⚠️ NÃO é "o valor de hoje". Prod está em v14; v4 não tem nenhuma linha
+  /// dentro do TTL, então na prática esta constante faz o cliente ver ZERO
+  /// cache e cair no score determinístico pela sessão inteira. É a direção
+  /// SEGURA — melhor calcular localmente do que exibir análise de uma versão
+  /// que o servidor não sabe mais produzir.
   ///
-  /// Este const é só o FALLBACK conservador pra quando o `app_config` não pode
-  /// ser lido (rede/RLS): 'v4' = comportamento idêntico ao de hoje (lê o cache
-  /// v4 que já existe, sem disparar recomputo em massa).
+  /// Não aponte isto para a versão ativa: pinaria o cliente numa versão do
+  /// build e mataria o rollback por `app_config`.
   static const String _matchPromptVersionFallback = 'v4';
 
   /// Cache em memória da versão lida do `app_config` (1 leitura por sessão).
@@ -104,11 +102,18 @@ class AIService {
 
     try {
       final promptVersion = await _resolveMatchPromptVersion();
+      // O servidor descarta cache com mais de 30 dias
+      // (`analyze-match`, CACHE_TTL_DAYS); o cliente lia a tabela DIRETO, sem
+      // corte de data, e exibia análise que o servidor já consideraria
+      // vencida — indefinidamente. Mesma família do achado P1-5: a correção do
+      // texto degradaria em silêncio no 31º dia sem esta linha.
+      final cutoff = DateTime.now().toUtc().subtract(const Duration(days: 30));
       final rows = await _client
           .from('match_analyses')
           .select('job_id, score, reasons')
           .eq('user_id', userId)
           .eq('prompt_version', promptVersion)
+          .gte('computed_at', cutoff.toIso8601String())
           .inFilter('job_id', jobIds);
 
       final out = <String, MatchResult>{};

@@ -1,0 +1,150 @@
+// Rede para `reconcileRemoteReasons` (revisão UX 28/07/2026).
+//
+// O fixture do primeiro teste é uma linha REAL de `match_analyses` em produção,
+// da conta de teste criada durante a revisão — vaga remota (Eusébio, CE) que o
+// modelo penalizou por cidade, contradizendo o "Remoto sempre passa" que a
+// própria folha de filtros anuncia.
+//
+// Rodar:
+//   deno test --no-check --import-map=supabase/functions/import_map.json \
+//     supabase/functions/analyze-match/reasons.test.ts
+
+import { assertEquals } from 'https://deno.land/std@0.208.0/assert/mod.ts'
+import { reconcileRemoteReasons, type MatchReason } from './reasons.ts'
+
+const VAGA_REMOTA = { id: 'job-1', work_model: 'remoto' }
+const ACEITA_REMOTO = { work_models: ['remoto', 'hibrido', 'presencial'] }
+
+/** Linha real de produção (user de teste, vaga remota da M. Dias Branco). */
+const REASONS_REAIS: MatchReason[] = [
+  { label: 'Área', matched: true, weight: 30, detail: 'Operações bate exatamente com seu interesse declarado.' },
+  { label: 'Tipo', matched: true, weight: 20, detail: 'Estágio é o tipo que você procura.' },
+  { label: 'Localização', matched: false, weight: 0, detail: 'Eusébio, CE não está entre suas cidades preferidas.' },
+  { label: 'Modelo', matched: true, weight: 15, detail: 'Remoto bate com sua preferência.' },
+  { label: 'Skills', matched: true, weight: 10, detail: 'Excel e Power BI estão entre suas skills e os requisitos da vaga.' },
+]
+
+const somaMatched = (rs: MatchReason[]) =>
+  rs.filter((r) => r.matched).reduce((s, r) => s + Math.max(0, r.weight), 0)
+
+Deno.test('linha real de prod: vaga remota deixa de perder ponto por cidade', () => {
+  const out = reconcileRemoteReasons(REASONS_REAIS, VAGA_REMOTA, ACEITA_REMOTO)
+
+  // MUDANÇA DELIBERADA (29/07). Antes a linha era REMOVIDA e o score ficava em
+  // 75 — a penalidade só tinha ficado invisível, e a vaga remota continuava
+  // tetando 15 pontos abaixo da mesma vaga na cidade da pessoa. Agora a
+  // dimensão conta como acerto, que é o "Esperado" literal do achado P1-5.
+  // 75 → 90. Se alguém "consertar" este número de volta, desfez a decisão.
+  assertEquals(out.map((r) => r.label), ['Área', 'Tipo', 'Localização', 'Modelo', 'Skills'])
+  const loc = out.find((r) => r.label === 'Localização')!
+  assertEquals(loc.matched, true)
+  assertEquals(loc.weight, 15)
+  assertEquals(loc.detail, 'Vaga remota — de onde você mora não pesa aqui.')
+  assertEquals(somaMatched(REASONS_REAIS), 75)
+  assertEquals(somaMatched(out), 90)
+})
+
+Deno.test('Modelo com weight 0 da IA recebe o peso cheio, não herda o zero', () => {
+  // A IA costuma mandar weight 0 quando considera a dimensão falha. Herdar isso
+  // consertava o texto e deixava o ponto para trás — era metade do defeito.
+  const rs: MatchReason[] = [
+    { label: 'Modelo', matched: false, weight: 0, detail: 'Você prefere remoto, mas a vaga é remoto.' },
+  ]
+  const out = reconcileRemoteReasons(rs, VAGA_REMOTA, ACEITA_REMOTO)
+  assertEquals(out[0].weight, 15)
+  assertEquals(somaMatched(out), 30) // Modelo 15 + Localização 15 inserida
+})
+
+Deno.test('Localização ausente é inserida (duas vagas remotas pontuam igual)', () => {
+  // 2.343 de 3.132 análises remotas trazem a linha; sem inserir, a mesma vaga
+  // pontuaria diferente só porque o modelo emitiu a dimensão numa e não noutra.
+  const semLocalizacao: MatchReason[] = [
+    { label: 'Área', matched: true, weight: 30, detail: 'bate.' },
+  ]
+  const out = reconcileRemoteReasons(semLocalizacao, VAGA_REMOTA, ACEITA_REMOTO)
+  assertEquals(out.map((r) => r.label), ['Área', 'Localização'])
+  assertEquals(somaMatched(out), 45)
+})
+
+Deno.test('rótulo sem acento ou em caixa alta não escapa da reconciliação', () => {
+  const rs: MatchReason[] = [
+    { label: 'LOCALIZACAO ', matched: false, weight: 0, detail: 'Eusébio, CE não está entre suas cidades.' },
+  ]
+  const out = reconcileRemoteReasons(rs, VAGA_REMOTA, ACEITA_REMOTO)
+  assertEquals(out.length, 1, 'não pode duplicar a dimensão')
+  assertEquals(out[0].matched, true)
+  assertEquals(somaMatched(out), 15)
+})
+
+Deno.test('corrige a frase que se contradiz ("prefere remoto, mas a vaga é remoto")', () => {
+  const contraditorio: MatchReason[] = [
+    { label: 'Modelo', matched: false, weight: 15, detail: 'Você prefere remoto, mas a vaga é remoto.' },
+  ]
+  const out = reconcileRemoteReasons(contraditorio, VAGA_REMOTA, ACEITA_REMOTO)
+  assertEquals(out[0].matched, true)
+  assertEquals(out[0].detail, 'Remoto, que é como você prefere trabalhar.')
+})
+
+Deno.test('NÃO inventa acerto: quem não aceita remoto mantém o Modelo como falha', () => {
+  const soPresencial = { work_models: ['presencial'] }
+  const rs: MatchReason[] = [
+    { label: 'Modelo', matched: false, weight: 15, detail: 'Você prefere presencial, mas a vaga é remota.' },
+  ]
+  const out = reconcileRemoteReasons(rs, VAGA_REMOTA, soPresencial)
+  assertEquals(out[0].matched, false)
+  assertEquals(out[0].detail, 'Você prefere presencial, mas a vaga é remota.')
+})
+
+Deno.test('vaga NÃO remota: Localização é preservada, só o Modelo reconcilia', () => {
+  // A dispensa de Localização é EXCLUSIVA de vaga remota — em presencial e
+  // híbrida a cidade pesa de verdade e não pode ser perdoada.
+  const presencial = { id: 'job-2', work_model: 'presencial' }
+  const rs: MatchReason[] = [
+    { label: 'Localização', matched: false, weight: 0, detail: 'São Paulo não está entre suas cidades.' },
+    { label: 'Modelo', matched: false, weight: 15, detail: 'Você prefere presencial, mas a vaga é presencial.' },
+  ]
+  const out = reconcileRemoteReasons(rs, presencial, ACEITA_REMOTO)
+  assertEquals(out[0], rs[0], 'Localização não podia ser tocada em vaga presencial')
+  assertEquals(out[1].matched, true)
+  assertEquals(out.length, 2, 'não insere Localização fora de vaga remota')
+})
+
+Deno.test('vaga HÍBRIDA: a mesma contradição do achado, noutro modelo', () => {
+  // Visto ao vivo em 30/07 verificando o flip: "Você prefere remoto ou híbrido,
+  // mas a vaga é híbrida" — a pessoa prefere híbrido, a vaga É híbrida, e isso
+  // contava como falha. Corrigir só o remoto teria deixado este vivo.
+  const hibrida = { id: 'job-3', work_model: 'hibrido' }
+  const rs: MatchReason[] = [
+    { label: 'Modelo', matched: false, weight: 0, detail: 'Você prefere remoto ou híbrido, mas a vaga é híbrida.' },
+  ]
+  const out = reconcileRemoteReasons(rs, hibrida, ACEITA_REMOTO)
+  assertEquals(out[0].matched, true)
+  assertEquals(out[0].weight, 15)
+  assertEquals(out[0].detail, 'Híbrido, que é como você prefere trabalhar.')
+})
+
+Deno.test('modelo que a pessoa NÃO aceita continua sendo falha', () => {
+  const soRemoto = { work_models: ['remoto'] }
+  const presencial = { id: 'job-4', work_model: 'presencial' }
+  const rs: MatchReason[] = [
+    { label: 'Modelo', matched: false, weight: 15, detail: 'Você prefere remoto, mas a vaga é presencial.' },
+  ]
+  assertEquals(reconcileRemoteReasons(rs, presencial, soRemoto), rs)
+})
+
+Deno.test('Localização que BATEU é preservada mesmo em vaga remota (não reduz score)', () => {
+  const rs: MatchReason[] = [
+    { label: 'Localização', matched: true, weight: 15, detail: 'A vaga é na sua cidade.' },
+  ]
+  const out = reconcileRemoteReasons(rs, VAGA_REMOTA, ACEITA_REMOTO)
+  assertEquals(out.length, 1)
+  assertEquals(somaMatched(out), 15)
+})
+
+Deno.test('work_mode em EN (schema relacional) é normalizado antes de comparar', () => {
+  const rs: MatchReason[] = [
+    { label: 'Modelo', matched: false, weight: 15, detail: 'Você prefere remoto, mas a vaga é remoto.' },
+  ]
+  const out = reconcileRemoteReasons(rs, VAGA_REMOTA, { work_models: ['remote'] })
+  assertEquals(out[0].matched, true)
+})

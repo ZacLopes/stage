@@ -295,7 +295,7 @@ class _ListEditorCardState extends State<ListEditorCard> {
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
-            'Toca no ✕ pra tirar, ou adiciona novas embaixo.',
+            'Toque no ✕ pra tirar, ou adicione novas embaixo.',
             style: AppTextStyles.bodySm.copyWith(color: AppColors.textTertiary),
           ),
           const SizedBox(height: AppSpacing.sm),

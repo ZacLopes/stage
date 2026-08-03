@@ -101,7 +101,7 @@ class _PendingUploadBannerState extends State<PendingUploadBanner> {
       if (!mounted) return;
       AppSnackBar.error(
         context,
-        'Não consegui salvar. Tenta de novo daqui a pouco.',
+        'Não consegui salvar. Tente de novo daqui a pouco.',
       );
       _refresh(); // recarrega contador de tentativas
       setState(() => _retrying = false);

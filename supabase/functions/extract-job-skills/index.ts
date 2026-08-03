@@ -105,6 +105,31 @@ const SYNONYMS: Record<string, string> = {
   'spanish': 'espanhol',
 }
 
+/**
+ * Chave de IDENTIDADE — mais estrita que [flatten].
+ *
+ * `flatten` joga fora TODO caractere não-alfanumérico, o que é certo para
+ * BUSCAR (achar "power bi" a partir de "powerbi") e catastrófico para AFIRMAR
+ * identidade: `C`, `C++` e `C#` viram os três a string "c". As três são
+ * habilidades DISTINTAS no catálogo.
+ *
+ * Sem esta função, quem declarou C# passaria a "possuir" C++ e perderia a
+ * chance de reivindicá-lo — o falso positivo silencioso que todo o trabalho de
+ * classificação de aliases existe para evitar, reintroduzido pela porta dos
+ * fundos. Achado no device-test da própria correção, em 01/08.
+ *
+ * Preserva `+` e `#` (que distinguem a família C) e descarta o resto, inclusive
+ * `.` — porque "Node.js" e "nodejs" SÃO a mesma coisa, e nenhum par do catálogo
+ * se distingue só pelo ponto.
+ */
+function identityKey(raw: string): string {
+  const from = 'áàâãäéèêëíìîïóòôõöúùûüçñ'
+  const to = 'aaaaaeeeeiiiiooooouuuucn'
+  let s = raw.trim().toLowerCase()
+  for (let i = 0; i < from.length; i++) s = s.replaceAll(from[i], to[i])
+  return s.replace(/[^a-z0-9+#]/g, '')
+}
+
 function canonical(s: string): string {
   const n = normalize(s)
   return SYNONYMS[n] ?? n
@@ -289,6 +314,26 @@ serve(withEdgeAnalytics('extract-job-skills', async (req) => {
       { global: { headers: { Authorization: req.headers.get('Authorization')! } } },
     )
 
+    // Cliente de SERVICE_ROLE só para o cache por vaga.
+    //
+    // `jobs_skill_extraction` nasceu (20260516000000) com RLS ligada e ZERO
+    // policies, e o comentário da migration diz a intenção: "acesso só via Edge
+    // Function (service_role)". Só que a function sempre usou o cliente do
+    // USUÁRIO (`authenticated`), então o SELECT nunca achava nada e o upsert
+    // falhava calado — o `.error` não era checado.
+    //
+    // Medido em 30/07: 0 linhas na tabela contra 276 extrações reais. O cache
+    // nunca funcionou desde maio, e cada abertura de vaga pagava uma chamada
+    // à OpenAI de novo.
+    //
+    // Service_role e não policy nova: a tabela é POR VAGA, não por usuário.
+    // Dar escrita ao `authenticated` deixaria qualquer um envenenar o cache de
+    // qualquer vaga.
+    const supabaseCache = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    )
+
     // 1. Auth
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
     if (authError || !user) return jsonResponse({ error: 'Unauthorized' }, 401)
@@ -335,10 +380,81 @@ serve(withEdgeAnalytics('extract-job-skills', async (req) => {
       ? gamificationData.confirmed_skills.map((s: any) => String(s)).filter(Boolean)
       : []
     const confirmedCanon = new Set(confirmedSkills.map((s) => canonical(s)))
+    const userId = user.id
+
+    // ── Skills DECLARADAS no perfil (achado P2-19) ──────────────────────────
+    //
+    // Até aqui esta função só cruzava as fontes LEGADAS: `parsed.skills` do CV
+    // importado, o texto cru do PDF e a trilha. Quem cadastrou skills pelo
+    // editor do perfil não contava — então alguém marcava Excel, Power BI e
+    // Python e, cinco minutos depois, a folha "marque o que você tem mas não
+    // escreveu no CV" oferecia Excel, Power BI e Python.
+    //
+    // ⚠️ A comparação usa SÓ os aliases classificados como `exact`. A tabela
+    // `skill_aliases` foi construída para ACHAR gente (busca do admin): ela
+    // junta "excel básico" e "excel avançado" na mesma canônica de propósito.
+    // Usar isso para afirmar identidade esconderia da pessoa a chance de
+    // reivindicar um nível que ela não tem carimbado — e ela nunca saberia do
+    // que foi privada. Ver a migration 20260801120000.
+    //
+    // Failure-open deliberado: se a leitura falhar, `ownedIdentity` fica vazio e a
+    // folha volta a oferecer tudo. Oferecer duas vezes é chato e visível;
+    // esconder por engano é invisível.
+    const ownedIdentity = new Set<string>()
+    try {
+      const { data: profileSkills, error: skillsErr } = await supabaseCache
+        .from('profile_skills')
+        .select('name')
+        .eq('user_id', userId)
+      if (skillsErr) {
+        console.error('profile_skills read failed', skillsErr)
+      } else {
+        for (const row of profileSkills ?? []) {
+          const f = identityKey(String((row as { name?: unknown }).name ?? ''))
+          if (f) ownedIdentity.add(f)
+        }
+      }
+
+      if (ownedIdentity.size > 0) {
+        // Expande o que a pessoa tem pelos aliases EXACT, nas duas direções:
+        // ela escreveu "exel" e a vaga pede "Excel", ou o contrário.
+        const { data: exactAliases, error: aliasErr } = await supabaseCache
+          .from('skill_aliases')
+          .select('alias_normalized, skills_catalog(canonical_name)')
+          .eq('match_kind', 'exact')
+        if (aliasErr) {
+          // Coluna ainda não aplicada em produção, ou falha de rede: seguimos
+          // com comparação literal, que já resolve o caso do achado.
+          console.error('exact aliases unavailable, literal only', aliasErr)
+        } else {
+          const porCanonica = new Map<string, string[]>()
+          for (const row of exactAliases ?? []) {
+            const r = row as {
+              alias_normalized?: unknown
+              skills_catalog?: { canonical_name?: unknown } | null
+            }
+            const alias = identityKey(String(r.alias_normalized ?? ''))
+            const canon = identityKey(String(r.skills_catalog?.canonical_name ?? ''))
+            if (!alias || !canon) continue
+            if (!porCanonica.has(canon)) porCanonica.set(canon, [])
+            porCanonica.get(canon)!.push(alias)
+          }
+          for (const [canon, aliases] of porCanonica) {
+            const temAlgum = canon && ownedIdentity.has(canon) ||
+              aliases.some((a) => ownedIdentity.has(a))
+            if (!temAlgum) continue
+            if (canon) ownedIdentity.add(canon)
+            for (const a of aliases) ownedIdentity.add(a)
+          }
+        }
+      }
+    } catch (e) {
+      console.error('profile skills expansion failed', e)
+    }
 
     // 4. Cache lookup (por job_id — skills da vaga são as mesmas pra qualquer user)
     const cacheCutoff = new Date(Date.now() - CACHE_TTL_DAYS * 86400_000).toISOString()
-    const { data: cachedRow } = await supabaseClient
+    const { data: cachedRow } = await supabaseCache
       .from('jobs_skill_extraction')
       .select('skills, computed_at, prompt_version')
       .eq('job_id', jobId)
@@ -426,13 +542,19 @@ serve(withEdgeAnalytics('extract-job-skills', async (req) => {
       extractedSkills = deduped
 
       // 6. Upsert cache + log
-      await supabaseClient.from('jobs_skill_extraction').upsert({
-        job_id: jobId,
-        skills: extractedSkills,
-        prompt_version: PROMPT_VERSION,
-        model_used: MODEL,
-        computed_at: new Date().toISOString(),
-      }, { onConflict: 'job_id' })
+      const { error: cacheErr } = await supabaseCache
+        .from('jobs_skill_extraction').upsert({
+          job_id: jobId,
+          skills: extractedSkills,
+          prompt_version: PROMPT_VERSION,
+          model_used: MODEL,
+          computed_at: new Date().toISOString(),
+        }, { onConflict: 'job_id' })
+      // Falha de cache não quebra a resposta, mas PRECISA aparecer: engolir o
+      // erro foi o que deixou 276 extrações pagas sem nenhum reaproveitamento.
+      if (cacheErr) {
+        console.error(`[extract-job-skills] cache write failed job=${jobId}: ${cacheErr.message}`)
+      }
 
       await supabaseClient.from('ai_generation_logs').insert({
         user_id: user.id,
@@ -441,9 +563,10 @@ serve(withEdgeAnalytics('extract-job-skills', async (req) => {
       })
     }
 
-    // 7. Cruza com CV do user → in_cv + pre_confirmed
+    // 7. Cruza com CV E COM O PERFIL do user → in_cv + pre_confirmed
     const outSkills = extractedSkills.map((s) => {
-      const inCv = isSkillInCv(s.name, parsedSkills, rawCvFlat)
+      const inCv = isSkillInCv(s.name, parsedSkills, rawCvFlat) ||
+          ownedIdentity.has(identityKey(s.name))
       const preConfirmed = !inCv && confirmedCanon.has(canonical(s.name))
       return {
         name: s.name,

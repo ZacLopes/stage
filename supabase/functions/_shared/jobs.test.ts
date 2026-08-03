@@ -5,7 +5,7 @@
 // Casos vêm da medição em prod: 17/36 das vagas "Tecnologia" ativas não
 // tinham token tech no título (classificadas pela descrição ruidosa).
 import { assertEquals } from "https://deno.land/std@0.168.0/testing/asserts.ts";
-import { inferArea } from "./jobs.ts";
+import { cleanCompanyName, inferArea } from "./jobs.ts";
 
 // ── Pelo TÍTULO: os suspeitos saem de Tecnologia ───────────────────────────
 Deno.test("título: esterilização → Saúde (não Tecnologia)", () => {
@@ -100,4 +100,56 @@ Deno.test("regressão: 'Eficiência Operacional' → Operações (não Vendas)",
     inferArea("ESTAGIARIO NIVEL SUPERIOR - Eficiência Operacional", null),
     "Operações",
   );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// cleanCompanyName — gêmeo de Job.cleanCompanyName (Dart)
+//
+// ⚠️ ESTA TABELA É O CONTRATO. Ela existe IDÊNTICA em
+// test/features/jobs/job_text_normalization_test.dart. Mudou aqui, muda lá —
+// duas implementações de uma regra só divergem quando a tabela não é a mesma.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CASOS_NOME_EMPRESA: Array<[string, string]> = [
+  // limpa o prefixo de tipo de vaga
+  ["Estágio M. Dias Branco", "M. Dias Branco"],
+  ["ESTÁGIO KEMPETRO", "KEMPETRO"],
+  ["Programa de Estágio - Santa Casa BH", "Santa Casa BH"],
+  ["Programa de Estágio Anbima 2026", "Anbima"],
+  ["Programa de Trainee SLC Agrícola", "SLC Agrícola"],
+  ["Programa de Trainees - BLB Auditores e Consultores", "BLB Auditores e Consultores"],
+  ["Banco de Talentos — Acme", "Acme"],
+  // o que o prefixo deixava para trás (medido em prod, 30/07)
+  ["Estágio | Pif Paf Alimentos", "Pif Paf Alimentos"],
+  ["Programa de Estágio 2026 - Grupo Solví", "Grupo Solví"],
+  ["Programa de Estágio da PUCPR", "PUCPR"],
+  ["Programa de Estágio do CEPEL", "CEPEL"],
+  // NÃO mexe: marca legítima, nome comum, conectivo sem prefixo
+  ["Programa UTalent", "Programa UTalent"],
+  ["Nubank", "Nubank"],
+  ["Vagas.com", "Vagas.com"],
+  ["Estagiário Digital Ltda", "Estagiário Digital Ltda"],
+  ["Banco do Brasil", "Banco do Brasil"],
+  ["2026 Ventures", "2026 Ventures"],
+  ["de Souza Consultoria", "de Souza Consultoria"],
+  // guard: sobrou pouco demais → devolve o cru
+  ["Estágio", "Estágio"],
+  ["Programa de Estágio", "Programa de Estágio"],
+  // bordas
+  ["", ""],
+  ["   ", ""],
+  ["  Acme  ", "Acme"],
+];
+
+for (const [entrada, esperado] of CASOS_NOME_EMPRESA) {
+  Deno.test(`cleanCompanyName: "${entrada}" → "${esperado}"`, () => {
+    assertEquals(cleanCompanyName(entrada), esperado);
+  });
+}
+
+Deno.test("cleanCompanyName é idempotente (limpar o já limpo não muda)", () => {
+  for (const [entrada] of CASOS_NOME_EMPRESA) {
+    const umaVez = cleanCompanyName(entrada);
+    assertEquals(cleanCompanyName(umaVez), umaVez, `não idempotente em "${entrada}"`);
+  }
 });

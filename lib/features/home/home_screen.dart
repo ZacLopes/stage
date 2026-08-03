@@ -126,8 +126,8 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
         title: 'Aba Vagas',
         description:
             'Aqui você descobre vagas e estágios. Deslize → pra salvar, ← pra '
-            'pular. O número no canto do card é o match com seu perfil — '
-            'quanto mais alto, mais combina.',
+            'pular. O selo no canto do card diz o quanto a vaga combina com '
+            'seu perfil: Alta, Média ou Baixa. Toque na vaga pra ver por quê.',
         targetKey: TutorialKeys.jobsTab,
         onEnter: () => goTo(HomeTabs.jobs),
       ),
@@ -144,7 +144,7 @@ class _HomeScreenState extends State<HomeScreen> with ScreenTrackingMixin {
       TutorialStep(
         title: 'Acompanhe suas vagas',
         description:
-            'Suas vagas salvas ficam aqui. Marque "aplicada" quando se '
+            'Suas vagas salvas ficam aqui. Use "Marcar como enviada" quando se '
             'candidatar pra acompanhar o status.',
         targetKey: TutorialKeys.savedTab,
         onEnter: () => goTo(HomeTabs.saved),

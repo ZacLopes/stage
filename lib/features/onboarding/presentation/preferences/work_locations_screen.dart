@@ -31,6 +31,7 @@ import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
 import 'work_mode_screen.dart';
 import '../../../../core/theme/theme.dart';
+import '../../domain/location_key.dart';
 
 const _kBorderColor = AppColors.border;
 const _kLabelColor = AppColors.textTertiary;
@@ -75,6 +76,10 @@ class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
           (l.city?.toLowerCase() ?? '') == homeCity.toLowerCase() &&
           (l.state ?? '') == homeState);
       if (!alreadyInList) {
+        // P2-23 (2ª metade): o card precisa DIZER que foi o app que o pôs
+        // ali. Sem isso a pessoa via uma cidade que não digitou e não tinha
+        // como saber de onde veio — nem que podia tirar.
+        _seededHomeKey = locationKey(homeCity, homeState);
         _locations.add(OtherLocation(
           id: '',
           // user_id é re-carimbado pelo repo no insert (replaceOtherLocations);
@@ -87,6 +92,11 @@ class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
       }
     }
   }
+
+  /// Chave (cidade+uf) da cidade que ESTE código semeou a partir do perfil.
+  /// Null quando a pessoa chegou aqui sem cidade de residência salva, ou
+  /// quando ela mesma já tinha adicionado essa cidade antes.
+  String? _seededHomeKey;
 
   Future<void> _addLocation() async {
     final result = await Navigator.of(context).push<_CitySelection>(
@@ -163,16 +173,28 @@ class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
   Widget build(BuildContext context) {
     return OnboardingScaffold(
       title: 'Onde você quer trabalhar?',
-      subtitle: 'Adicione cidades específicas — ou pule se topa qualquer lugar.',
+      subtitle:
+          'Adicione cidades específicas — ou toque em "Aceito qualquer lugar".',
       progress: 0.78,
       continueLabel: _saving ? 'Salvando…' : 'Continuar',
       onContinue: (_locations.isEmpty || _saving) ? null : _continue,
-      skipButton: (_locations.isNotEmpty || _saving)
+      // O botão só aparecia com a lista VAZIA — e o app já adiciona a cidade
+      // de residência automaticamente, então na prática ninguém via a saída
+      // que o subtítulo prometia ("ou pule"). Pra "pular" era preciso primeiro
+      // deletar uma cidade que a pessoa não tinha colocado, o que não é óbvio.
+      // Consequência: todo mundo saía do onboarding com um filtro geográfico
+      // que não escolheu, encolhendo o próprio feed em silêncio.
+      //
+      // `_skip` grava lista vazia (`replaceOtherLocations([])`), que é
+      // exatamente "aceito qualquer lugar" — então oferecer sempre é correto,
+      // e o rótulo agora diz o que a ação faz.
+      // Revisão UX 28/07, achado P2-23.
+      skipButton: _saving
           ? null
           : TextButton(
               onPressed: _skip,
               style: TextButton.styleFrom(foregroundColor: _kLabelColor),
-              child: const Text('Pular etapa'),
+              child: const Text('Aceito qualquer lugar'),
             ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -181,6 +203,8 @@ class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
                 padding: const EdgeInsets.only(bottom: 10),
                 child: _LocationCard(
                   location: loc,
+                  fromProfile:
+                      locationKey(loc.city, loc.state) == _seededHomeKey,
                   onRemove: () => _removeLocation(loc),
                 ),
               )),
@@ -193,9 +217,17 @@ class _WorkLocationsScreenState extends State<WorkLocationsScreen> {
 
 class _LocationCard extends StatelessWidget {
   final OtherLocation location;
+
+  /// True quando foi o APP que colocou esta cidade na lista, a partir da
+  /// residência informada duas telas antes — não a pessoa.
+  final bool fromProfile;
   final VoidCallback onRemove;
 
-  const _LocationCard({required this.location, required this.onRemove});
+  const _LocationCard({
+    required this.location,
+    required this.onRemove,
+    this.fromProfile = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -223,6 +255,20 @@ class _LocationCard extends StatelessWidget {
                   Text(
                     [state, country].where((s) => s.isNotEmpty).join(', '),
                     style: const TextStyle(fontSize: 14, color: _kLabelColor),
+                  ),
+                ],
+                // Revisão UX 28/07, achado P2-23: dado que o app inferiu tem
+                // que se apresentar como tal. Quem não quiser trabalhar onde
+                // mora precisa entender o que está apagando.
+                if (fromProfile) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Onde você mora — remova se não quiser trabalhar aqui',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: _kLabelColor,
+                      fontStyle: FontStyle.italic,
+                    ),
                   ),
                 ],
               ],

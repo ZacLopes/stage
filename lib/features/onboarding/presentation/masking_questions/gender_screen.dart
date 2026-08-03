@@ -1,7 +1,6 @@
 // GenderScreen — pergunta gênero.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:provider/provider.dart';
 import '../../../auth/auth_session.dart';
 import '../../../../services/analytics_service.dart';
@@ -9,8 +8,8 @@ import '../../../profile/application/profile_editor_view_model.dart';
 import '../../../profile/domain/entities/entities.dart';
 import '../../utils/save_with_retry.dart';
 import '../onboarding_scaffold.dart';
+import '../widgets/onboarding_choice_tile.dart';
 import 'age_range_screen.dart';
-import '../../../../core/theme/theme.dart';
 
 const _options = <(Gender, String)>[
   (Gender.male, 'Masculino'),
@@ -69,40 +68,12 @@ class _GenderScreenState extends State<GenderScreen> {
         children: _options.map((tuple) {
           final value = tuple.$1;
           final label = tuple.$2;
-          final isSelected = _selected == value;
           return Padding(
             padding: const EdgeInsets.only(bottom: 10),
-            child: InkWell(
-              onTap: () {
-                HapticFeedback.selectionClick();
-                setState(() => _selected = value);
-              },
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                decoration: BoxDecoration(
-                  color: isSelected ? AppColors.brandCyan.withValues(alpha: 0.08) : Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: isSelected ? AppColors.brandCyan : AppColors.border,
-                    width: isSelected ? 1.5 : 1,
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        label,
-                        style: TextStyle(
-                          fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                          color: isSelected ? AppColors.brandCyan : Colors.black87,
-                        ),
-                      ),
-                    ),
-                    if (isSelected) const Icon(Icons.check_circle, color: AppColors.brandCyan),
-                  ],
-                ),
-              ),
+            child: OnboardingChoiceTile(
+              label: label,
+              selected: _selected == value,
+              onTap: () => setState(() => _selected = value),
             ),
           );
         }).toList(),

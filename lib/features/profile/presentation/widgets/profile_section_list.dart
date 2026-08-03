@@ -11,14 +11,15 @@ import '../../application/profile_editor_view_model.dart';
 import '../../domain/award_editor_reconciliation.dart';
 import '../../domain/entities/entities.dart';
 import '../../domain/optional_sections_visibility.dart';
-import '../../domain/skill_name_normalizer.dart';
 import '../../../resume/data/profile_resume_mapper.dart';
+import '../../../home/home_viewmodel.dart';
 import 'add_edit_certification_modal.dart';
 import 'add_edit_experience_modal.dart';
 import 'add_edit_education_modal.dart';
 import 'add_edit_language_modal.dart';
 import 'add_edit_project_modal.dart';
 import 'edit_list_modal.dart';
+import 'skills_editor.dart';
 import '../../../../core/theme/theme.dart';
 
 const _kBorderColor = AppColors.border;
@@ -37,10 +38,16 @@ class ProfileSectionList extends StatefulWidget {
   /// Se false, esconde atrás de "Adicionar outras seções".
   final bool showOptionalSections;
 
+  /// Se true, atende `HomeViewModel.pendingProfileSectionKey` — rola até a
+  /// seção pedida, expande e abre o editor dela. Só a aba Perfil liga isto; a
+  /// revisão pós-import (onboarding) não deve abrir modal sozinha.
+  final bool consumeSectionRequest;
+
   const ProfileSectionList({
     super.key,
     this.showLowConfidenceBadges = false,
     this.showOptionalSections = false,
+    this.consumeSectionRequest = false,
   });
 
   @override
@@ -62,6 +69,70 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
   /// final combina isto com o pedido do call site e com o conteúdo existente —
   /// ver [optionalSectionsVisible].
   bool _userOpened = false;
+
+  /// Âncoras para `Scrollable.ensureVisible` no deep-link de seção.
+  final Map<String, GlobalKey> _sectionKeys = {};
+
+  /// Guarda contra reentrada: o pedido é consumido uma vez só, mesmo que o
+  /// build rode de novo antes do `clearProfileSection` propagar.
+  bool _handlingSectionRequest = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.consumeSectionRequest) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOpenRequestedSection());
+    }
+  }
+
+  /// Rola até a seção pedida, expande e abre o editor dela.
+  ///
+  /// Sem isto, `requestProfileSubTab(0)` deixava a pessoa no TOPO de Dados e a
+  /// seção pedida ficava abaixo da dobra — o CTA "Adicionar habilidades ao
+  /// perfil" prometia um destino que não entregava.
+  Future<void> _maybeOpenRequestedSection() async {
+    if (!mounted || _handlingSectionRequest) return;
+    final home = context.read<HomeViewModel>();
+    final key = home.pendingProfileSectionKey;
+    if (key == null) return;
+
+    _handlingSectionRequest = true;
+    home.clearProfileSection();
+
+    if (_expanded.containsKey(key)) {
+      setState(() => _expanded[key] = true);
+    }
+
+    // Espera o frame da expansão pra âncora já existir na árvore.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) {
+      _handlingSectionRequest = false;
+      return;
+    }
+
+    final anchor = _sectionKeys[key]?.currentContext;
+    if (anchor != null) {
+      await Scrollable.ensureVisible(
+        anchor,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+        alignment: 0.1,
+      );
+    }
+    if (!mounted) {
+      _handlingSectionRequest = false;
+      return;
+    }
+
+    final vm = context.read<ProfileEditorViewModel>();
+    switch (key) {
+      case 'skills':
+        _openSkillsEditor(vm);
+      case 'interests':
+        _openInterestsEditor(vm);
+    }
+    _handlingSectionRequest = false;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -142,7 +213,14 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
           (e.confidence != null && e.confidence! < 0.7);
       final subtitle = ProfileResumeMapper.formatEducationQualification(e);
       final details = <_DetailLine>[
-        if (_educationStatusDetail(e) != null)
+        // O `period` do card já imprime "Em andamento" quando o curso está em
+        // curso sem data de fim (`Education.formattedPeriodAt`), então a linha
+        // "Situação: Faculdade em andamento" logo abaixo dizia a mesma coisa
+        // duas vezes. Mantida nos demais estados (concluída, pausada), onde o
+        // período mostra datas e não a situação.
+        // Revisão UX 28/07, achado P3-43.
+        if (_educationStatusDetail(e) != null &&
+            !(e.educationStatus == 'studying' && e.endDate == null))
           _DetailLine(label: 'Situação', value: _educationStatusDetail(e)!),
         if (e.currentSemester != null)
           _DetailLine(
@@ -157,9 +235,14 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
             value: '${e.currentSchoolYear}º ano',
           ),
         if (e.educationStatus == 'studying' && e.endDate == null)
+          // Revisão UX 28/07, achado P3-43. "Não informada" anunciava uma
+          // lacuna e parava aí: é um dado que recrutador de estágio pede
+          // (trainee e estágio filtram por ano de formatura), e a frase não
+          // dizia que dava pra preencher. O card inteiro já abre o editor,
+          // que tem o campo — só faltava o texto convidar.
           const _DetailLine(
             label: 'Previsão de conclusão',
-            value: 'Não informada',
+            value: 'Toque para informar',
           ),
         if (e.majors.length > 1)
           _DetailLine(
@@ -211,25 +294,36 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
         .toList(),
   );
 
+  /// Editor de habilidades. Extraído do `onEdit` porque o deep-link de seção
+  /// (gate de skills do adapt) precisa abrir exatamente o mesmo modal — e
+  /// desde o achado P1-3 a sheet de adaptação abre esse mesmo editor por cima
+  /// dela, sem sair da vaga. A configuração mora em `showSkillsEditor`.
+  void _openSkillsEditor(ProfileEditorViewModel vm) {
+    showSkillsEditor(
+      context,
+      initialSkills: vm.skills.map((s) => s.name).toList(),
+      suggestions: vm.skillSuggestions,
+      onSave: vm.replaceSkills,
+    );
+  }
+
+  void _openInterestsEditor(ProfileEditorViewModel vm) {
+    EditListModal.show(
+      context: context,
+      title: 'Editar Interesses',
+      inputLabel: 'Interesse',
+      initialItems: vm.interests.map((i) => i.name).toList(),
+      onSave: vm.replaceInterests,
+    );
+  }
+
   Widget _sectionSkills(ProfileEditorViewModel vm) {
     final names = vm.skills.map((s) => s.name).toList();
     return _sectionShell(
       key: 'skills',
       title: 'Habilidades',
       count: names.length,
-      onEdit: () => EditListModal.show(
-        context: context,
-        title: 'Editar habilidades',
-        inputLabel: 'Habilidade',
-        initialItems: names,
-        suggestions: vm.skillSuggestions,
-        guidanceText:
-            'Priorize de 6 a 12 habilidades que você realmente usa e que são '
-            'relevantes para as vagas que busca.',
-        recommendedMinItems: kRecommendedMinProfileSkills,
-        maxItems: kMaxProfileSkills,
-        onSave: vm.replaceSkills,
-      ),
+      onEdit: () => _openSkillsEditor(vm),
       children: names.isEmpty ? const [] : [_ChipList(items: names)],
     );
   }
@@ -268,13 +362,7 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
       key: 'interests',
       title: 'Interesses',
       count: names.length,
-      onEdit: () => EditListModal.show(
-        context: context,
-        title: 'Editar Interesses',
-        inputLabel: 'Interesse',
-        initialItems: names,
-        onSave: vm.replaceInterests,
-      ),
+      onEdit: () => _openInterestsEditor(vm),
       children: names.isEmpty ? const [] : [_ChipList(items: names)],
     );
   }
@@ -558,7 +646,9 @@ class _ProfileSectionListState extends State<ProfileSectionList> {
     required List<Widget> children,
   }) {
     final isExpanded = _expanded[key] ?? false;
+    final anchor = _sectionKeys.putIfAbsent(key, () => GlobalKey());
     return Padding(
+      key: anchor,
       padding: const EdgeInsets.only(bottom: 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -686,10 +776,24 @@ class _SectionHeader extends StatelessWidget {
             ),
           ),
         ),
+        // Seção que ADICIONA um item por vez: "+" sempre — é o que a ação faz,
+        // com a lista cheia ou vazia.
         if (onAdd != null)
           _SquareIconButton(icon: Icons.add_rounded, onTap: onAdd!)
+        // Seção que edita a LISTA inteira (`EditListModal`): lápis só faz
+        // sentido quando há o que editar. Vazia, a ação é adicionar — e o
+        // ícone precisa dizer isso.
+        //
+        // Antes a divisão era puramente técnica (tipo de editor), então
+        // "Habilidades (0)" mostrava lápis ao lado de "Idiomas (0)" com "+",
+        // e o lápis aparecia onde não havia nada pra editar — confuso
+        // justamente pra quem foi mandado ali adicionar habilidades.
+        // Revisão UX 28/07, achado P3-34 (D6 no backlog).
         else if (onEdit != null)
-          _SquareIconButton(icon: Icons.edit_outlined, onTap: onEdit!),
+          _SquareIconButton(
+            icon: count == 0 ? Icons.add_rounded : Icons.edit_outlined,
+            onTap: onEdit!,
+          ),
       ],
     );
   }

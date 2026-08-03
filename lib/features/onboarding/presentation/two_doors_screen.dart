@@ -196,7 +196,16 @@ class _TwoDoorsScreenState extends State<TwoDoorsScreen> {
         tooltip: 'Sair',
         onPressed: _confirmExit,
       ),
-      onContinue: null, // sem botão fixo — escolha é via tap nos cards
+      // Sem botão fixo — a escolha é via tap nos cards.
+      //
+      // `onContinue: null` NÃO basta: o contrato do scaffold é "null desabilita
+      // o botão" (as outras telas contam com isso pra travar o Continuar até a
+      // pergunta ser respondida), então o botão continuava desenhado, cinza e
+      // inerte. Como esta é a PRIMEIRA tela depois do cadastro e "Continuar" é
+      // o alvo mais óbvio dela, tocar ali e não ver reação nenhuma passava a
+      // impressão de app quebrado no primeiro segundo de uso.
+      // `customFooter` vazio remove o rodapé de vez. Revisão UX 28/07, P1-9.
+      customFooter: const SizedBox.shrink(),
       child: Column(
         children: [
           _doorCard(

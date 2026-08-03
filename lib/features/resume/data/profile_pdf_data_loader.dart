@@ -22,6 +22,7 @@ import '../../../data/models/models.dart';
 import '../../profile/domain/entities/entities.dart';
 import '../resume_viewmodel.dart' show ResumeData, ExperienceItem;
 import 'profile_resume_mapper.dart';
+import '../../../core/utils/brazil_phone_formatter.dart';
 
 class ProfilePdfData {
   final PersonalInfo personal;
@@ -260,12 +261,10 @@ class ProfilePdfData {
     // dígitos) ou (DD) XXXX-XXXX (fixo, 10 dígitos). Sem '+55' no display
     // — o CV é brasileiro, o prefixo é redundante e ocupa espaço.
     if ((c == '+55' || c.isEmpty) && (digits.length == 10 || digits.length == 11)) {
-      final ddd = digits.substring(0, 2);
-      final rest = digits.substring(2);
-      if (rest.length == 9) {
-        return '($ddd) ${rest.substring(0, 5)}-${rest.substring(5)}';
-      }
-      return '($ddd) ${rest.substring(0, 4)}-${rest.substring(4)}';
+      // Delegado: este ramo era o ÚNICO lugar do app que agrupava fixo
+      // corretamente, enquanto `formatForDocument` errava. Consolidado lá
+      // (achado P2-25) — três formatadores viraram um.
+      return BrazilPhoneFormatter.formatForDocument(digits);
     }
 
     // Outros países: mantém formato cc + número como veio (sem assumir

@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/theme.dart';
+import '../../../core/constants/stage_legal_links.dart';
+import '../../../core/utils/open_legal_link.dart';
 
 class AIConsentModal extends StatefulWidget {
   final VoidCallback onAccept;
   final VoidCallback onCancel;
 
+  /// Fecha SEM registrar decisão. Passe só quando a tela for aberta pra
+  /// consulta (Configurações). Nulo nos gates, onde responder é obrigatório.
+  final VoidCallback? onDismiss;
+
   const AIConsentModal({
     super.key,
     required this.onAccept,
     required this.onCancel,
+    this.onDismiss,
   });
 
   @override
@@ -19,26 +25,17 @@ class AIConsentModal extends StatefulWidget {
 class _AIConsentModalState extends State<AIConsentModal> {
   bool _isCheckboxMarked = false;
 
-  Future<void> _launchOpenAIPrivacy() async {
-    final url = Uri.parse('https://openai.com/policies/privacy-policy');
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url);
-    }
-  }
+  // As três URLs viviam hardcoded AQUI, e este arquivo é a origem que o
+  // `StageLegalLinks` foi criado pra centralizar — a de privacidade
+  // continuava duplicada, e quebrada (`/privacy` é 404). Também abriam sem
+  // `LaunchMode.externalApplication`, então um documento pra ler com calma
+  // podia ficar preso num webview. Achado P2-15.
+  Future<void> _launchOpenAIPrivacy() =>
+      openLegalLink(StageLegalLinks.openAiPrivacyUrl);
 
-  Future<void> _launchAppPrivacy() async {
-    final url = Uri.parse('https://stageapp.lovable.app/privacy');
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url);
-    }
-  }
+  Future<void> _launchAppPrivacy() => openLegalLink(StageLegalLinks.privacyUrl);
 
-  Future<void> _launchSupport() async {
-    final url = Uri.parse('https://stageapp.lovable.app');
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url);
-    }
-  }
+  Future<void> _launchSupport() => openLegalLink(StageLegalLinks.supportUrl);
 
   @override
   Widget build(BuildContext context) {
@@ -50,6 +47,25 @@ class _AIConsentModalState extends State<AIConsentModal> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Saída neutra, só quando a tela é aberta pra CONSULTA (o call
+              // site de Configurações). Sem isto, quem entrava só pra ler o
+              // que é enviado à OpenAI era obrigado a emitir uma declaração de
+              // vontade — aceitar ou recusar — pra conseguir sair: não havia
+              // botão de voltar nem swipe-back (o dialog usa
+              // barrierDismissible:false). Revisão UX 28/07, achado P2-16.
+              //
+              // Nos call sites de GATE (antes de gerar com IA) o parâmetro fica
+              // nulo e a decisão continua obrigatória, como deve ser.
+              if (widget.onDismiss != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: IconButton(
+                    icon: const Icon(Icons.close_rounded,
+                        color: AppColors.textSecondary),
+                    tooltip: 'Fechar',
+                    onPressed: widget.onDismiss,
+                  ),
+                ),
               const SizedBox(height: 20),
               Text(
                 'Uso de Inteligência Artificial',

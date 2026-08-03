@@ -43,6 +43,63 @@ class JobSkillsExtraction {
     );
   }
 
+  /// Reclassifica como "já tenho" as skills que batem com [ownedNames].
+  ///
+  /// `in_cv` chega do servidor cruzando só as fontes LEGADAS; o que está em
+  /// `profile_skills` não conta. Sem isto, a folha reoferecia à pessoa
+  /// exatamente as habilidades que ela tinha acabado de cadastrar.
+  /// Revisão UX 28/07, achado P2-19 (D2).
+  ///
+  /// Comparação normalizada (minúsculas, sem acento e sem pontuação) pra
+  /// "Power BI", "power bi" e "Power-BI" contarem como a mesma coisa.
+  JobSkillsExtraction markingAsInCv(Iterable<String> ownedNames) {
+    final owned = ownedNames.map(_normalizeForMatch).where((s) => s.isNotEmpty).toSet();
+    if (owned.isEmpty) return this;
+    final updated = skills
+        .map((s) => s.inCv || !owned.contains(_normalizeForMatch(s.name))
+            ? s
+            : s.asInCv())
+        .toList();
+    return JobSkillsExtraction(
+      skills: updated,
+      total: total,
+      inCvCount: updated.where((s) => s.inCv).length,
+    );
+  }
+
+  /// Chave de IDENTIDADE — espelho exato do `identityKey` de
+  /// `supabase/functions/extract-job-skills/index.ts`.
+  ///
+  /// Preserva `+` e `#` de propósito. Descartá-los faz `C`, `C++` e `C#`
+  /// colapsarem todos na string `"c"` — e as três são habilidades DISTINTAS no
+  /// catálogo. O efeito é silencioso e caro: [markingAsInCv] só faz upgrade
+  /// (`inCv: false → true`), nunca o contrário, então quem declarou C# veria
+  /// C++ marcado como "você já tem", o item sairia lockado verde da folha de
+  /// confirmação e nunca entraria no `extra_skills` que segue pro
+  /// `adapt-resume-to-job`. A pessoa perde a chance de reivindicar a skill e
+  /// não recebe erro nenhum.
+  ///
+  /// O servidor consertou essa classe em 01/08/2026 (commit e21b055, achado no
+  /// device-test); este lado tinha ficado com o flatten antigo e reintroduzia o
+  /// falso positivo mesmo com a function nova deployada, porque roda DEPOIS da
+  /// resposta do servidor. Medido em produção: 19 pessoas com skill da família
+  /// C, contra 8 de 487 vagas ativas mencionando C++/C#/.NET.
+  ///
+  /// O `.` continua sendo descartado — "Node.js" e "nodejs" SÃO a mesma coisa,
+  /// e nenhum par do catálogo se distingue só pelo ponto.
+  ///
+  /// ⚠️ Ao mexer aqui, mexa no `identityKey` do servidor junto: divergência
+  /// entre os dois lados volta a produzir exatamente este bug.
+  static String _normalizeForMatch(String raw) {
+    const from = 'áàâãäéèêëíìîïóòôõöúùûüçñ';
+    const to = 'aaaaaeeeeiiiiooooouuuucn';
+    var s = raw.trim().toLowerCase();
+    for (var i = 0; i < from.length; i++) {
+      s = s.replaceAll(from[i], to[i]);
+    }
+    return s.replaceAll(RegExp(r'[^a-z0-9+#]'), '');
+  }
+
   /// Resultado vazio (usado em fallbacks silenciosos quando a extração falha).
   static const JobSkillsExtraction empty =
       JobSkillsExtraction(skills: [], total: 0, inCvCount: 0);
@@ -65,6 +122,15 @@ class JobSkill {
   /// 'description' (mencionada na descrição livre). Não é mostrado na UI
   /// hoje, mas é útil pra debug/analytics.
   final String source;
+
+  /// Cópia marcada como já presente no perfil. Ver
+  /// [JobSkillsExtraction.markingAsInCv].
+  JobSkill asInCv() => JobSkill(
+        name: name,
+        inCv: true,
+        preConfirmed: preConfirmed,
+        source: source,
+      );
 
   const JobSkill({
     required this.name,

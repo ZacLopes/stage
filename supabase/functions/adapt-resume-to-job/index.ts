@@ -32,6 +32,8 @@ import {
 // Decisão v1/v2 acontece em handleAdaptV2 via feature flag + presença do
 // perfil. Quando retorna null, fall through pro código v1 abaixo.
 import { handleAdaptV2 } from './v2.ts'
+import { experienceClaimMessage, findUnsupportedExperienceClaims } from './experience_claim.ts'
+import { cleanCompanyName } from '../_shared/jobs.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1652,6 +1654,26 @@ function validateAdaptation(input: InputResume, parsed: any, job?: JobContext): 
       )
     }
   }
+  // O sentido INVERSO — perfil vazio recebendo experiência — não era checado em
+  // lugar nenhum deste caminho, e a auditoria de 29/07 mediu que foi por AQUI
+  // que saíram os currículos com cargo inventado (o v2 já barrava pela
+  // checagem 2). O v1 roda quando a flag não pega o usuário ou quando
+  // `loadProfileV2` devolve null — ou seja, justamente o perfil magro, que é a
+  // população do defeito.
+  const invented = findUnsupportedExperienceClaims(
+    Array.isArray(input.experiences) ? input.experiences.length : 0,
+    r.summary,
+    Array.isArray(r.experiences) ? r.experiences.length : 0,
+  )
+  if (invented.length > 0) {
+    throw new ValidationError(
+      invented[0].field,
+      experienceClaimMessage(
+        invented[0],
+        Array.isArray(input.experiences) ? input.experiences.length : 0,
+      ),
+    )
+  }
   if (Array.isArray(input.education) && input.education.length > 0) {
     if (!Array.isArray(r.education) || r.education.length === 0) {
       throw new ValidationError(
@@ -2500,7 +2522,12 @@ serve(async (req) => {
     const jobRow = jobR.data
     const job: JobContext = {
       title: String(jobRow.title ?? ''),
-      company: String(jobRow.companies?.name ?? ''),
+      // Limpo aqui também: as linhas gravadas ANTES do conserto no ingest
+      // seguem sujas no banco, e este objeto alimenta o prompt do v1 E do v2
+      // (`Empresa: ${job.company}`). Sem isto, o modelo que escreve o CV
+      // adaptado continua lendo "Estágio M. Dias Branco". Limpar o já limpo é
+      // no-op por construção — há teste de idempotência.
+      company: cleanCompanyName(String(jobRow.companies?.name ?? '')),
       area: String(jobRow.area ?? ''),
       jobType: String(jobRow.job_type ?? ''),
       workModel: String(jobRow.work_model ?? ''),

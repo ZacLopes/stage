@@ -1,4 +1,5 @@
 import 'company.dart';
+import '../utils/job_content_sanitizer.dart';
 
 class Job {
   final String id;
@@ -103,7 +104,8 @@ class Job {
       company = Company.fromJson(Map<String, dynamic>.from(json['companies']));
     }
 
-    final String companyName = company?.name ?? json['company_name'] ?? '';
+    final String companyName =
+        cleanCompanyName(company?.name ?? json['company_name'] ?? '');
     final String companyLogoUrl = company?.logoUrl ?? '';
     final String aboutCompany = company?.description ?? '';
     final String aboutCompanyHtmlRaw = company?.descriptionHtml ?? '';
@@ -163,11 +165,22 @@ class Job {
     // usando as preferências do usuário e dados do gamificationData.
     const matchScore = 0;
 
-    // Parse requirements and benefits arrays (strip HTML defensively)
-    final requirements =
-        _parseStringList(json['requirements']).map(_stripHtml).where((s) => s.isNotEmpty).toList();
-    final benefits =
-        _parseStringList(json['benefits']).map(_stripHtml).where((s) => s.isNotEmpty).toList();
+    // Parse requirements and benefits arrays (strip HTML defensively).
+    // `_stripListItemMarker` tira o marcador que veio do ATS — a UI desenha
+    // o próprio ✓/número e os dois juntos viravam "✓ - item" / "✓ • item".
+    // `isClosingPleasantry` tira a despedida que o ATS empilha no MESMO array
+    // — "Desejamos uma ótima seleção para você!" saía numerado junto com os
+    // requisitos de verdade (P2-17).
+    final requirements = _parseStringList(json['requirements'])
+        .map(_stripHtml)
+        .map(_stripListItemMarker)
+        .where((s) => s.isNotEmpty && !isClosingPleasantry(s))
+        .toList();
+    final benefits = _parseStringList(json['benefits'])
+        .map(_stripHtml)
+        .map(_stripListItemMarker)
+        .where((s) => s.isNotEmpty && !isClosingPleasantry(s))
+        .toList();
 
     // description: texto plano (já vem stripped do backend) — usado em
     //   JobCard preview, match_score e analytics.
@@ -252,6 +265,80 @@ class Job {
 
   /// Remove tags HTML, decodifica entidades comuns e normaliza whitespace.
   /// Quebras virais entre parágrafos viram \n\n, <br> vira \n, demais tags somem.
+  /// Tira do nome da empresa o prefixo de TIPO DE VAGA que alguns ATSs
+  /// carimbam nele.
+  ///
+  /// Medido em prod (28/07): 19 de 600 vagas ativas. O efeito na tela era
+  /// "ESTÁGIO / Estágio M. Dias Bran…" — o selo de tipo e o nome dizendo a
+  /// mesma coisa, com o nome truncado por causa do prefixo.
+  /// Revisão UX 28/07, achado P2-18.
+  ///
+  /// Conservador de propósito: só remove prefixos ancorados no início e
+  /// devolve o original se o resultado ficar vazio ou curto demais. Marcas que
+  /// legitimamente começam com "Programa" (ex.: "Programa UTalent") NÃO casam
+  /// com `programa de …` e passam intactas.
+  static String cleanCompanyName(String raw) {
+    var s = raw.trim();
+    if (s.isEmpty) return s;
+
+    const patterns = [
+      r'^programa\s+de\s+(est[áa]gio|trainees?|talentos)\b[\s\-–—:]*',
+      r'^banco\s+de\s+talentos\b[\s\-–—:]*',
+      r'^(est[áa]gio|vagas?)\s+(?=\S)',
+    ];
+    var removeuPrefixo = false;
+    for (final p in patterns) {
+      final antes = s;
+      s = s.replaceFirst(RegExp(p, caseSensitive: false), '').trim();
+      if (s != antes) removeuPrefixo = true;
+    }
+    // Ano solto no fim ("… Anbima 2026") é do processo, não da empresa.
+    s = s.replaceFirst(RegExp(r'[\s\-–—]*\b20\d{2}\b\s*$'), '').trim();
+
+    // Faxina do que o prefixo deixou para trás. SÓ quando um prefixo saiu —
+    // senão estropiaria nome legítimo ("de Souza Consultoria" viraria "Souza
+    // Consultoria", "- Acme" perderia um traço que é do nome).
+    //
+    // Medido em prod (30/07), a versão sem esta etapa devolvia:
+    //   "Estágio | Pif Paf Alimentos"           → "| Pif Paf Alimentos"
+    //   "Programa de Estágio 2026 - Grupo Solví" → "2026 - Grupo Solví"
+    //   "Programa de Estágio da PUCPR"           → "da PUCPR"
+    if (removeuPrefixo) {
+      // Ano no INÍCIO: o corte acima é ancorado em `$` e não pega este caso.
+      s = s.replaceFirst(RegExp(r'^[\s\-–—|:/]*\b20\d{2}\b'), '').trim();
+      // Separador órfão que ligava o prefixo ao nome.
+      s = s.replaceFirst(RegExp(r'^[\s\-–—|:/•]+'), '').trim();
+      // Conectivo que sobrou de "Programa de Estágio DA PUCPR".
+      s = s.replaceFirst(RegExp(r'^(d[aeo]s?)\s+', caseSensitive: false), '').trim();
+    }
+
+    // Sobrou pouco demais? O prefixo provavelmente ERA o nome. Volta ao cru.
+    if (s.length < 2) return raw.trim();
+    return s;
+  }
+
+  /// Tira o marcador de lista que o próprio ATS já trazia no texto.
+  ///
+  /// A UI do detalhe desenha um ✓ (benefícios) ou um número (requisitos) na
+  /// frente de cada item. Quando o texto de origem já vinha com o seu — hífen
+  /// digitado à mão pelo recrutador, ou o `• ` que `_stripHtml` gera a partir
+  /// de `<li>` — o resultado na tela era "✓ - Lembre-se que…" e
+  /// "✓ • Plano de Saúde;". Revisão UX 28/07, achado P2-17.
+  ///
+  /// Também remove o `;` final, herdado de listas escritas como uma frase só.
+  static String _stripListItemMarker(String input) {
+    var s = input.trim();
+    // Pode haver mais de um marcador empilhado ("- • item").
+    // Limite de 3 voltas: defesa contra entrada patológica.
+    for (var i = 0; i < 3; i++) {
+      final next = s.replaceFirst(RegExp(r'^\s*[-–—•*·]+\s*'), '').trimLeft();
+      if (next == s) break;
+      s = next;
+    }
+    s = s.replaceFirst(RegExp(r'\s*;\s*$'), '');
+    return s.trim();
+  }
+
   static String _stripHtml(String input) {
     if (input.isEmpty) return input;
     // Otimização: se não tem nenhuma tag nem entidade, retorna direto.

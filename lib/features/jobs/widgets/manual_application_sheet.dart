@@ -28,13 +28,6 @@ Future<ManualApplicationInput?> showManualApplicationSheet(BuildContext context)
   );
 }
 
-/// Status iniciais oferecidos (subset razoável; o resto move-se pelo chip).
-const _kInitialStatuses = <ApplicationStatus>[
-  ApplicationStatus.submitted,
-  ApplicationStatus.inReview,
-  ApplicationStatus.interview,
-  ApplicationStatus.offer,
-];
 
 class _ManualApplicationSheet extends StatefulWidget {
   const _ManualApplicationSheet();
@@ -86,7 +79,13 @@ class _ManualApplicationSheetState extends State<_ManualApplicationSheet> {
         20,
         20 + MediaQuery.of(context).viewInsets.bottom,
       ),
-      child: Column(
+      // Rolável: com 7 status (antes 4) o conteúdo passa a altura disponível
+      // em tela pequena / teclado aberto — e um `Column` fixo estourava
+      // (`RenderFlex overflowed by 7.0 pixels`, pego pelo widget test ao
+      // ampliar a lista). `mainAxisSize.min` mantém o sheet do tamanho do
+      // conteúdo quando ele cabe.
+      child: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -112,7 +111,7 @@ class _ManualApplicationSheetState extends State<_ManualApplicationSheet> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Pra acompanhar o que aconteceu fora da Stage.',
+            'Pra acompanhar o que aconteceu fora do Stage.',
             style: TextStyle(
                 fontFamily: 'Inter', fontSize: 13, color: AppColors.textSecondary),
           ),
@@ -141,7 +140,7 @@ class _ManualApplicationSheetState extends State<_ManualApplicationSheet> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              for (final s in _kInitialStatuses)
+              for (final s in ApplicationStatus.initialOptions)
                 ChoiceChip(
                   label: Text(s.label),
                   selected: _status == s,
@@ -149,6 +148,22 @@ class _ManualApplicationSheetState extends State<_ManualApplicationSheet> {
                 ),
             ],
           ),
+          // "Aprovada" é FINAL no banco: `hired` não transiciona para nada
+          // (verificado em `_application_transition_allowed`). Sem este aviso,
+          // um toque errado congelava o card — o chip ficava vazio e não havia
+          // como corrigir. Achado P2-20, parte que a correção anterior criou.
+          if (_status.isTerminal) ...[
+            const SizedBox(height: 8),
+            Text(
+              '"${_status.label}" encerra o acompanhamento — depois não dá pra '
+              'mudar o status desta candidatura.',
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                color: AppColors.textTertiary,
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
@@ -166,6 +181,7 @@ class _ManualApplicationSheetState extends State<_ManualApplicationSheet> {
             ),
           ),
         ],
+        ),
       ),
     );
   }

@@ -892,7 +892,7 @@ class TrilhaChatController extends ChangeNotifier {
     _notify();
     const msg2 =
         'Eu construo seu perfil, acho vagas com a sua cara e mostro o que você '
-        'pode fortalecer. Toca numa 👇';
+        'pode fortalecer. Toque numa 👇';
     await Future.delayed(_typingFor(msg2));
     if (_disposed) return;
     typing = false;
@@ -1233,7 +1233,7 @@ class TrilhaChatController extends ChangeNotifier {
     if (_disposed) return;
     if (submitResult == ConversationSubmitResult.writeFailed) {
       thread.add(
-        AiMsgItem('Não consegui salvar essa resposta agora 😕 Tenta de novo.'),
+        AiMsgItem('Não consegui salvar essa resposta agora 😕 Tente de novo.'),
       );
       inputVisible = conv.current != null;
       _notify();
@@ -1398,7 +1398,14 @@ class TrilhaChatController extends ChangeNotifier {
       return;
     }
     // Mês/ano e typeahead (cidade/instituição) precisam do widget.
-    _pushAi('Pra essa aqui, toca numa das opções acima 🙂');
+    //
+    // Dois defeitos aqui, os mesmos do achado P1-4 que já foram corrigidos no
+    // ramo de baixa confiança e sobreviveram NESTE: a mensagem digitada era
+    // engolida (o campo esvaziava, o teclado baixava e nada aparecia — o botão
+    // parecia morto) e o texto mandava tocar "acima" enquanto o widget
+    // renderiza ABAIXO, no lugar do teclado.
+    thread.add(UserMsgItem(t));
+    _pushAi('Essa aqui eu preciso que você preencha no seletor logo abaixo 👇');
   }
 
   // ── Assistente: roteia a mensagem por intenção e executa a ferramenta ──────
@@ -1454,10 +1461,10 @@ class TrilhaChatController extends ChangeNotifier {
       if (step != null) {
         inputVisible = true;
         _pushAi(
-          'Não peguei bem 🤔 Toca numa opção aí em cima, ou tenta de outro jeito.',
+          'Não peguei bem 🤔 Toque numa opção aqui embaixo 👇 ou tente de outro jeito.',
         );
       } else {
-        _pushAi('Não consegui agora 🤔 Tenta de novo daqui a pouco.');
+        _pushAi('Não consegui agora 🤔 Tente de novo daqui a pouco.');
       }
       _notify();
       return;
@@ -1638,7 +1645,7 @@ class TrilhaChatController extends ChangeNotifier {
       if (_disposed) return;
       typing = false;
       _replyAndKeepStep(
-        'Não consegui puxar as vagas agora 🤔 Tenta de novo daqui a pouco.',
+        'Não consegui puxar as vagas agora 🤔 Tente de novo daqui a pouco.',
         step,
       );
       return;
@@ -1803,7 +1810,7 @@ class TrilhaChatController extends ChangeNotifier {
           item.status = AssistEditStatus.applied;
         case AssistExportOutcome.failed:
           // Mantém o botão pra tentar de novo.
-          item.resultMessage = 'Deu um erro ao gerar o PDF 😕 Tenta de novo.';
+          item.resultMessage = 'Deu um erro ao gerar o PDF 😕 Tente de novo.';
       }
       _notify();
       return;
@@ -1859,7 +1866,7 @@ class TrilhaChatController extends ChangeNotifier {
       case AssistImportOutcome.cancelled:
         // Cancelou o seletor → volta o botão (pode escolher outro arquivo).
         item.resultMessage =
-            'Beleza! Toca de novo quando quiser escolher o PDF.';
+            'Beleza! Toque de novo quando quiser escolher o PDF.';
       case AssistImportOutcome.failed:
         item.resultMessage =
             res.message ??
@@ -1914,7 +1921,7 @@ class TrilhaChatController extends ChangeNotifier {
         );
       } else {
         _pushAi(
-          'Não consegui tirar essa vaga das salvas agora 🤔 Tenta de novo.',
+          'Não consegui tirar essa vaga das salvas agora 🤔 Tente de novo.',
         );
       }
       _notify();
@@ -1937,7 +1944,7 @@ class TrilhaChatController extends ChangeNotifier {
         props: {'action': 'save_job', 'via': 'jobs_card'},
       );
     } else {
-      _pushAi('Não consegui salvar essa vaga agora 🤔 Tenta de novo.');
+      _pushAi('Não consegui salvar essa vaga agora 🤔 Tente de novo.');
     }
     _notify();
   }
@@ -1957,7 +1964,7 @@ class TrilhaChatController extends ChangeNotifier {
   Future<void> fillGapFromCard(String section) async {
     if (section.isEmpty) return;
     final ok = await _injectSection(section, 'Boa, bora preencher! 👇');
-    if (!ok) _pushAi('Toca na seção lá em cima 👆 pra preencher.');
+    if (!ok) _pushAi('Toque na seção lá em cima 👆 pra preencher.');
   }
 
   /// `show_gaps` / `show_profile_summary`: card estruturado (barra de completude
@@ -2008,7 +2015,7 @@ class TrilhaChatController extends ChangeNotifier {
     if (input is GuidedTextInput) {
       final text = (turn.args['text'] as String?)?.trim() ?? '';
       if (text.isEmpty) {
-        _replyAndKeepStep('Manda o texto que eu anoto 🙂', step);
+        _replyAndKeepStep('Mande o texto que eu anoto 🙂', step);
         return;
       }
       await _doSubmit(StepAnswer.text(step.id, text));
@@ -2022,7 +2029,7 @@ class TrilhaChatController extends ChangeNotifier {
       final matched = input.options.where((o) => ids.contains(o.id)).toList();
       if (matched.isEmpty) {
         _replyAndKeepStep(
-          'Não tenho certeza 🤔 Toca numa opção aí em cima.',
+          'Não tenho certeza 🤔 Toque numa opção aqui embaixo 👇',
           step,
         );
         return;
@@ -2032,7 +2039,7 @@ class TrilhaChatController extends ChangeNotifier {
       return;
     }
     // Mês/ano e typeahead precisam do widget.
-    _replyAndKeepStep('Pra essa aqui, toca na opção acima 🙂', step);
+    _replyAndKeepStep('Pra essa aqui, toque na opção aqui embaixo 👇', step);
   }
 
   /// `start_section`: injeta os passos reais da seção no fio (o app fornece via
@@ -3430,7 +3437,7 @@ class TrilhaChatController extends ChangeNotifier {
         section,
         reply.isEmpty ? 'Você ainda não tem $noun — bora adicionar? 👇' : reply,
       );
-      if (!ok) _pushAi('Bora adicionar seus $noun? Me conta um.');
+      if (!ok) _pushAi('Bora adicionar seus $noun? Me conte um.');
       return;
     }
     // Sugestões (só skills, pela área) — best-effort, tira as que já tem.
@@ -4589,8 +4596,13 @@ class TrilhaChatController extends ChangeNotifier {
     final lowConf = r == null || r.confidence == 'low';
     if (matched.isEmpty || lowConf) {
       inputVisible = true; // mantém o widget pra tocar
+      // Não engolir a mensagem: sem o eco, a pessoa digita, o texto some e só
+      // sobra "não entendi" — parece que o envio falhou. No caminho de SUCESSO
+      // o `AnsweredItem` já mostra o que foi entendido, então o eco fica só
+      // aqui, onde não há nenhum outro vestígio do que ela escreveu.
+      thread.add(UserMsgItem(text));
       _pushAi(
-        'Não tenho certeza do que você quis dizer 🤔 Toca numa opção aí em cima.',
+        'Não tenho certeza do que você quis dizer 🤔 Toque numa opção aqui embaixo 👇',
       );
       return;
     }

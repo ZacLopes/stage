@@ -30,31 +30,31 @@ const List<_LibraryTemplateOption> _kLibraryTemplates = [
   _LibraryTemplateOption(
     id: 'harvard_ats',
     label: 'Harvard ATS',
-    description: 'Clássico, ideal pra IB/Consulting/Corporate',
+    description: 'Clássico e sóbrio. Vai bem em qualquer área.',
     thumbnail: 'assets/images/templates/harvard_ats.png',
   ),
   _LibraryTemplateOption(
     id: 'jakes_resume',
     label: "Jake's Resume",
-    description: 'Tech/dev, FAANG-friendly',
+    description: 'Enxuto e técnico. Bom pra tecnologia e engenharia.',
     thumbnail: 'assets/images/templates/jakes_resume.png',
   ),
   _LibraryTemplateOption(
     id: 'forte_foundation',
     label: 'Forte Foundation',
-    description: 'Banking/MBA, conservador',
+    description: 'Formal e conservador. Bancos, consultorias e afins.',
     thumbnail: 'assets/images/templates/forte_foundation.png',
   ),
   _LibraryTemplateOption(
     id: 'one_page_compact',
     label: 'One-Page Compact',
-    description: 'Estudante early-career, sans-serif moderno',
+    description: 'Uma página garantida. Bom pra quem está começando.',
     thumbnail: 'assets/images/templates/one_page_compact.png',
   ),
   _LibraryTemplateOption(
     id: 'cobalt_modern',
     label: 'Cobalt Modern',
-    description: '2 colunas com sidebar, sans-serif moderno, accent azul cobalt',
+    description: 'Duas colunas, com destaque azul. Visual mais moderno.',
     thumbnail: 'assets/images/templates/cobalt_modern.png',
   ),
 ];

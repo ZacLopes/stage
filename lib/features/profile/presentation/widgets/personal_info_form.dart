@@ -12,6 +12,7 @@ import '../../../../core/utils/brazil_phone_formatter.dart';
 import '../../../../core/utils/contact_email.dart';
 import '../../domain/entities/entities.dart';
 import '../../../../core/theme/theme.dart';
+import '../../../../core/widgets/country_code_field.dart';
 
 class PersonalInfoForm extends StatefulWidget {
   final PersonalInfo? initial;
@@ -43,15 +44,14 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
   late final TextEditingController _linkedin;
   late final TextEditingController _website;
   late final TextEditingController _availability;
-  // DDI editável — guarda só os dígitos; o '+' é renderizado fixo via
-  // prefixText. Default '55' (Brasil), mas user pode digitar qualquer código.
-  late final TextEditingController _phoneCountryCodeCtrl;
+  /// DDI selecionado, com '+'. Era caixa de texto livre — o TERCEIRO controle
+  /// diferente para o mesmo dado, depois do cadastro e da tela de telefone do
+  /// onboarding (achado P3-42). Este form vive em Perfil › Dados E dentro do
+  /// onboarding, na porta "Usar meu CV", então a incoerência aparecia no meio
+  /// do próprio wizard.
+  late String _phoneCountryCode;
   DateTime? _parsedDob;
   String? _dobError;
-
-  /// Código completo (com '+') usado pra salvar e pra detectar BR (e ativar
-  /// a máscara de telefone brasileira).
-  String get _phoneCountryCode => '+${_phoneCountryCodeCtrl.text.trim()}';
 
   @override
   void initState() {
@@ -72,9 +72,9 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
     _linkedin = TextEditingController(text: i?.linkedinUrl ?? '');
     _website = TextEditingController(text: i?.website ?? '');
     _availability = TextEditingController(text: i?.availability ?? '');
-    _phoneCountryCodeCtrl = TextEditingController(
-      text: initialCountry.replaceAll('+', ''),
-    );
+    _phoneCountryCode = initialCountry.startsWith('+')
+        ? initialCountry
+        : '+${initialCountry.replaceAll('+', '')}';
 
     _parsedDob = i?.dateOfBirth;
     _dateOfBirth = TextEditingController(
@@ -227,7 +227,6 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
     _linkedin.dispose();
     _website.dispose();
     _availability.dispose();
-    _phoneCountryCodeCtrl.dispose();
     super.dispose();
   }
 
@@ -297,22 +296,17 @@ class _PersonalInfoFormState extends State<PersonalInfoForm> {
         Row(
           children: [
             SizedBox(
-              width: 104,
-              child: TextField(
-                controller: _phoneCountryCodeCtrl,
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.center,
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(4),
-                ],
-                decoration: _decoration('DDI').copyWith(
-                  prefixText: '+',
-                ),
-                onChanged: (_) {
-                  // Limpa o número quando o DDI muda — a máscara BR só vale
-                  // pra +55 e formatos de outros países podem conflitar.
-                  setState(() => _phoneNumber.clear());
+              width: 128,
+              child: CountryCodeField(
+                value: _phoneCountryCode,
+                decoration: _decoration('DDI'),
+                onChanged: (v) {
+                  setState(() {
+                    _phoneCountryCode = v;
+                    // Limpa o número quando o DDI muda — a máscara BR só vale
+                    // pra +55 e formatos de outros países podem conflitar.
+                    _phoneNumber.clear();
+                  });
                   _emitChange();
                 },
               ),
