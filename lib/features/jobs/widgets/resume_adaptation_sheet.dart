@@ -264,7 +264,8 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
       _animateScoreUpgrade(result);
       Analytics.shared.cvAdaptationSucceeded(
         jobId: widget.job.id,
-        changesCount: result.changes.length,
+        // Conta só o que de fato mudou — ver AdaptedResume.meaningfulChanges.
+        changesCount: result.meaningfulChanges.length,
         scoreBefore: result.matchScoreBefore,
         scoreAfter: result.matchScoreAfter,
         cached: result.cached,
@@ -806,7 +807,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
           _buildExtraSkillsBadge(adapted.extraSkillsUsed),
           const SizedBox(height: 14),
         ],
-        if (adapted.changes.isNotEmpty) ...[
+        if (adapted.meaningfulChanges.isNotEmpty) ...[
           Padding(
             padding: const EdgeInsets.only(left: 4, bottom: 10),
             child: Row(
@@ -814,7 +815,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
                 const Icon(Icons.tune_rounded, size: 16, color: _textSecondary),
                 const SizedBox(width: 6),
                 Text(
-                  '${adapted.changes.length} ajuste${adapted.changes.length > 1 ? "s" : ""} aplicado${adapted.changes.length > 1 ? "s" : ""}',
+                  '${adapted.meaningfulChanges.length} ajuste${adapted.meaningfulChanges.length > 1 ? "s" : ""} aplicado${adapted.meaningfulChanges.length > 1 ? "s" : ""}',
                   style: const TextStyle(
                     fontSize: 13,
                     color: _textSecondary,
@@ -825,7 +826,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
               ],
             ),
           ),
-          ...adapted.changes
+          ...adapted.meaningfulChanges
               .map((c) => Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: _ChangeCard(change: c),
@@ -1100,7 +1101,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
     // sumário do zero, então a saída sempre tem conteúdo — ver `adapt_outcome.dart`.
     final profileVM = context.read<ProfileEditorViewModel>();
     final outcome = classifyAdaptOutcome(
-      changeCount: adapted.changes.length,
+      changeCount: adapted.meaningfulChanges.length,
       hasRewritableContent: profileHasRewritableContent(
         experienceCount: profileVM.experiences.length,
         projectCount: profileVM.projects.length,

@@ -179,7 +179,7 @@ class _AdaptedResumePreviewScreenState extends State<AdaptedResumePreviewScreen>
     // funil adapt→apply. adapt_diff_shown não tinha emissor no app.
     Analytics.shared.adaptDiffShown(
       jobId: widget.job.id,
-      bulletsChangedCount: widget.adapted.changes.length,
+      bulletsChangedCount: widget.adapted.meaningfulChanges.length,
       additionsCount: widget.adapted.extraSkillsUsed.length,
     );
   }

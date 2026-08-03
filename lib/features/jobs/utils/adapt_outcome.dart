@@ -36,6 +36,33 @@
 /// para a candidatura confiando que o currículo está adequado.
 library;
 
+/// Uma "mudança" cujo antes e depois são iguais não é mudança.
+///
+/// ## Por que precisa existir (medido em 02/08/2026)
+///
+/// O modelo emite entradas que documentam **não-mudanças**, com justificativas
+/// que denunciam sozinhas: *"Preservado conforme solicitado"*, *"Não há idiomas
+/// listados no input"*, *"A experiência não possui bullets para serem
+/// adaptados"*. Um caso real trazia `field: "skills"`, razão *"Reordenei as
+/// skills para destacar a mais relevante"* — sobre uma lista de UM item, onde
+/// reordenar é impossível.
+///
+/// Em produção: **14 de 129 ajustes reportados (10,9%) eram no-op**, em 5 de 31
+/// currículos adaptados. E **12 desses 14 (86%) estavam em respostas que
+/// bateram no teto de 6** — o prompt diz "Changes: máximo 6" e o modelo parece
+/// ler como meta, completando a cota quando não tem 6 mudanças reais. (Bater no
+/// teto não é causa suficiente: 10 dos 13 resultados com 6 ajustes estão
+/// limpos. Amostra pequena — 31 CVs —, então é ordem de grandeza.)
+///
+/// Nada filtrava: o `JSON_SCHEMA_V2` exige `before` e `after`, mas não exige
+/// que difiram, e `parsed.changes` ia direto do modelo para o cliente. O
+/// cabeçalho então dizia "6 ajustes aplicados" quando 1 ajuste fora aplicado.
+///
+/// O filtro vive no CLIENTE de propósito, além do servidor: alcança os
+/// currículos que já estão em `adapted_resumes` com no-ops gravados.
+bool isNoOpChange({required String before, required String after}) =>
+    before.trim() == after.trim();
+
 /// Desfecho de uma adaptação, do ponto de vista do que dizer à pessoa.
 enum AdaptOutcome {
   /// A IA aplicou pelo menos um ajuste. Mostra o diff.
