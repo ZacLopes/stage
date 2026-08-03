@@ -128,3 +128,5 @@
 20260731120000_seed_cv_import_entry_kill_switch.sql
 20260801120000_skill_alias_match_kind.sql
 20260801130000_rename_informatica_canonical.sql
+20260802120000_app_feature_flags_public_read.sql
+20260802130000_revoke_anon_security_definer.sql
