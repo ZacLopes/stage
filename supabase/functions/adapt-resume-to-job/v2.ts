@@ -98,7 +98,11 @@ import { captureEvent, trackAIGeneration } from '../_shared/posthog.ts'
 // detalhada (gpa, majors, minors, activities, linkedin, streetAddress).
 import { experienceClaimMessage, findUnsupportedExperienceClaims } from './experience_claim.ts'
 
-export const PROMPT_VERSION_V2 = 'v27-v2'
+// v28-v2 (02/08/2026): "Changes: máximo 6" virou teto explícito com proibição
+// de registrar não-mudanças — o modelo vinha completando a cota com entradas
+// cujo before == after. Bump obriga recomputo do cache (R5), que aqui é o
+// efeito desejado: os 31 currículos já adaptados regeneram sem o inflado.
+export const PROMPT_VERSION_V2 = 'v28-v2'
 export const MODEL_V2_DRAFT = 'gpt-4o-mini'
 export const MODEL_V2_REFINE = 'gpt-4o'
 
@@ -684,7 +688,12 @@ REGRAS DE _action:
 LIMITES:
 - Bullets por experience: NUNCA mais que o número original. Pode ter MENOS (omitir bullets fracos).
 - Skills: máximo 12.
-- Changes: máximo 6.
+- Changes: liste APENAS mudanças REAIS, no máximo 6. Este é um TETO, não uma meta:
+  se você mudou só uma coisa, liste UMA. NUNCA registre algo que ficou igual —
+  'before' e 'after' idênticos não é mudança, e justificativa do tipo "preservado
+  conforme solicitado", "não há X no input" ou "não possui bullets para adaptar"
+  descreve uma NÃO-mudança e não deve virar entrada. Zero mudanças é resposta
+  válida e honesta.
 
 OUTPUT JSON ESTRITO conforme schema. Bullets na MESMA LÍNGUA do input (ver instrução de OUTPUT LANGUAGE no user prompt), método Harvard (verbo ação + impacto/contexto).`
 
@@ -2091,6 +2100,32 @@ export async function handleAdaptV2(opts: HandleAdaptV2Opts): Promise<AdaptRespo
   const realMatchScore = (matchR.data?.score as number | undefined) ?? null
   const matchBefore = realMatchScore
   const matchAfter = realMatchScore
+
+  // 6.9. Descarta "mudanças" que não mudaram nada.
+  //
+  // O modelo documenta NÃO-mudanças como mudanças, e as próprias justificativas
+  // denunciam: "Preservado conforme solicitado", "Não há idiomas listados no
+  // input", "A experiência não possui bullets para serem adaptados". Um caso
+  // real trazia field=skills com razão "Reordenei as skills para destacar a
+  // mais relevante" sobre uma lista de UM item, onde reordenar é impossível.
+  //
+  // Medido em 02/08/2026: 14 de 129 ajustes reportados (10,9%) eram no-op, em
+  // 5 de 31 currículos — e 12 dos 14 estavam em respostas que bateram no teto
+  // de 6, o que sugere que o "máximo 6" do prompt vinha sendo lido como meta.
+  // O cliente anunciava "6 ajustes aplicados" tendo aplicado 1.
+  //
+  // Filtra ANTES do upsert de propósito: o que for gravado em `adapted_resumes`
+  // já vai limpo, então o cache não perpetua o inflado. (O cliente também
+  // filtra, para os registros gravados antes desta correção.)
+  const rawChangeCount = parsed.changes?.length ?? 0
+  parsed.changes = (parsed.changes ?? []).filter(
+    (c) => (c.before ?? '').trim() !== (c.after ?? '').trim(),
+  )
+  const droppedChanges = rawChangeCount - parsed.changes.length
+  if (droppedChanges > 0) {
+    console.log(`[adapt-v2] no-op descartadas: ${droppedChanges}/${rawChangeCount} ` +
+      `user=${userId} job=${jobId}`)
+  }
 
   // 7. Persist cache
   const upsertR = await supabaseAdmin.from('adapted_resumes').upsert(

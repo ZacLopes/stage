@@ -15,6 +15,8 @@ import '../../profile/application/profile_editor_view_model.dart';
 import '../../profile/presentation/widgets/skills_editor.dart';
 import '../utils/adaptation_error_copy.dart';
 import '../utils/adapt_gate.dart';
+import '../utils/adapt_outcome.dart';
+import '../../home/home_viewmodel.dart';
 import 'package:printing/printing.dart';
 import '../../resume/services/resume_renderer.dart';
 import '../../resume/resume_viewmodel.dart';
@@ -262,7 +264,8 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
       _animateScoreUpgrade(result);
       Analytics.shared.cvAdaptationSucceeded(
         jobId: widget.job.id,
-        changesCount: result.changes.length,
+        // Conta só o que de fato mudou — ver AdaptedResume.meaningfulChanges.
+        changesCount: result.meaningfulChanges.length,
         scoreBefore: result.matchScoreBefore,
         scoreAfter: result.matchScoreAfter,
         cached: result.cached,
@@ -804,7 +807,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
           _buildExtraSkillsBadge(adapted.extraSkillsUsed),
           const SizedBox(height: 14),
         ],
-        if (adapted.changes.isNotEmpty) ...[
+        if (adapted.meaningfulChanges.isNotEmpty) ...[
           Padding(
             padding: const EdgeInsets.only(left: 4, bottom: 10),
             child: Row(
@@ -812,7 +815,7 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
                 const Icon(Icons.tune_rounded, size: 16, color: _textSecondary),
                 const SizedBox(width: 6),
                 Text(
-                  '${adapted.changes.length} ajuste${adapted.changes.length > 1 ? "s" : ""} aplicado${adapted.changes.length > 1 ? "s" : ""}',
+                  '${adapted.meaningfulChanges.length} ajuste${adapted.meaningfulChanges.length > 1 ? "s" : ""} aplicado${adapted.meaningfulChanges.length > 1 ? "s" : ""}',
                   style: const TextStyle(
                     fontSize: 13,
                     color: _textSecondary,
@@ -823,13 +826,13 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
               ],
             ),
           ),
-          ...adapted.changes
+          ...adapted.meaningfulChanges
               .map((c) => Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: _ChangeCard(change: c),
                   )),
         ] else
-          _buildNoChangesCard(),
+          _buildNoChangesCard(adapted),
         const SizedBox(height: 8),
         _buildPrivacyNote(),
       ],
@@ -1088,7 +1091,24 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
     );
   }
 
-  Widget _buildNoChangesCard() {
+  /// Zero mudanças tem duas causas opostas — ver `adapt_outcome.dart`.
+  ///
+  /// Antes de 02/08 este card dizia "já está bem alinhado" nos dois casos, e
+  /// afirmava isso a 106 pessoas cujo currículo não tinha uma linha de
+  /// experiência ou projeto para adaptar.
+  Widget _buildNoChangesCard(AdaptedResume adapted) {
+    // Lê o PERFIL (entrada), não `adapted.resumeData` (saída). A IA escreve o
+    // sumário do zero, então a saída sempre tem conteúdo — ver `adapt_outcome.dart`.
+    final profileVM = context.read<ProfileEditorViewModel>();
+    final outcome = classifyAdaptOutcome(
+      changeCount: adapted.meaningfulChanges.length,
+      hasRewritableContent: profileHasRewritableContent(
+        experienceCount: profileVM.experiences.length,
+        projectCount: profileVM.projects.length,
+      ),
+    );
+    final isNothingToAdapt = outcome == AdaptOutcome.nothingToAdapt;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1096,32 +1116,72 @@ class _ResumeAdaptationSheetState extends State<ResumeAdaptationSheet>
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: _border),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: _emerald.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(Icons.check_rounded, color: _emerald),
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: isNothingToAdapt
+                      ? AppColors.primary.withOpacity(0.10)
+                      : _emerald.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                // Ícone acompanha a semântica: check verde só quando há de fato
+                // algo a comemorar. Um check num currículo vazio é a própria
+                // mentira, em forma de ícone.
+                child: Icon(
+                  isNothingToAdapt
+                      ? Icons.lightbulb_outline_rounded
+                      : Icons.check_rounded,
+                  color: isNothingToAdapt ? AppColors.primary : _emerald,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  adaptOutcomeTitle(outcome),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: _textPrimary,
+                    fontWeight: FontWeight.w600,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          const Expanded(
-            child: Text(
-              'Seu currículo já está bem alinhado com essa vaga. Nenhum ajuste necessário.',
-              style: TextStyle(
-                fontSize: 13,
-                color: _textPrimary,
-                fontWeight: FontWeight.w600,
-                height: 1.4,
+          if (adaptOutcomeWantsProfileCta(outcome)) ...[
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: _openAssistantToFillProfile,
+              icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+              label: const Text('Completar meu perfil'),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                minimumSize: const Size.fromHeight(44),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
+  }
+
+  /// Fecha a folha e leva para o Assistente, que é onde a pessoa preenche
+  /// experiência e projeto. Sem isto a mensagem honesta viraria um beco sem
+  /// saída: diz o que falta e não oferece caminho.
+  ///
+  /// Sem evento próprio de propósito: reusar `adapt_intent_clicked` (que
+  /// significa "clicou para adaptar") mediria outra coisa com o mesmo nome e
+  /// sujaria o funil adapt→apply. Evento novo exige constante + emissor no
+  /// mesmo PR (R7) — fica como follow-up se a frequência importar.
+  void _openAssistantToFillProfile() {
+    Navigator.of(context).pop();
+    context.read<HomeViewModel>().requestTabChange(HomeTabs.resume);
   }
 
   Widget _buildPrivacyNote() {

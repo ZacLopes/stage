@@ -7,6 +7,7 @@ import '../../../data/models/models.dart'
         ResumeProject;
 import '../../resume/resume_viewmodel.dart'
     show ResumeData, ExperienceItem, EducationItem, ToolWithLevel;
+import '../utils/adapt_outcome.dart' show isNoOpChange;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers de detecção de redundância em education.activities
@@ -142,6 +143,19 @@ class AdaptedResume {
   /// Dados efetivos para gerar o PDF — versão editada se existe, senão a
   /// adaptada pela IA. Use sempre que for renderizar/exportar.
   ResumeData get effectiveResumeData => userEditedResumeData ?? resumeData;
+
+  /// [changes] sem as entradas cujo antes e depois são iguais.
+  ///
+  /// **Use SEMPRE esta, nunca `changes` cru, para contar ou exibir.** O modelo
+  /// documenta não-mudanças como mudanças ("Preservado conforme solicitado"),
+  /// e o cru fazia a tela anunciar "6 ajustes aplicados" tendo aplicado 1.
+  /// Ver `utils/adapt_outcome.dart` para a medição.
+  ///
+  /// `changes` continua exposto porque é o payload fiel do servidor — útil
+  /// para debug e para comparar com o que foi gravado em `adapted_resumes`.
+  List<ResumeChange> get meaningfulChanges => changes
+      .where((c) => !isNoOpChange(before: c.before, after: c.after))
+      .toList();
 
   /// True se o usuário editou pelo menos um campo na preview.
   bool get hasUserEdits => userEditedResumeData != null;
