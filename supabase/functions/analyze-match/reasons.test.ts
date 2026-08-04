@@ -10,7 +10,12 @@
 //     supabase/functions/analyze-match/reasons.test.ts
 
 import { assertEquals } from 'https://deno.land/std@0.208.0/assert/mod.ts'
-import { reconcileRemoteReasons, type MatchReason } from './reasons.ts'
+import {
+  isScenarioC,
+  reconcileRemoteReasons,
+  reconcileSkillsReason,
+  type MatchReason,
+} from './reasons.ts'
 
 const VAGA_REMOTA = { id: 'job-1', work_model: 'remoto' }
 const ACEITA_REMOTO = { work_models: ['remoto', 'hibrido', 'presencial'] }
@@ -147,4 +152,252 @@ Deno.test('work_mode em EN (schema relacional) é normalizado antes de comparar'
   ]
   const out = reconcileRemoteReasons(rs, VAGA_REMOTA, { work_models: ['remote'] })
   assertEquals(out[0].matched, true)
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+// Skills — achado A4 do relatório de UX de 03/08/2026
+//
+// Os fixtures NÃO são inventados: as frases abaixo são os `detail` reais da
+// dimensão Skills em `match_analyses`, com a contagem medida em 04/08/2026, e
+// os perfis são os dois usuários identificados na sessão do relatório.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** Usuária do A3 — 6 linhas reais em `profile_skills` (user fd768ecc…). */
+const SKILLS_A3 = ['Power BI', 'SQL', 'Python', 'Excel Avancado', 'Estatistica', 'Gestao de Processos']
+/** Usuário do A4 — 5 linhas reais (user c287ea53…). */
+const SKILLS_A4 = ['Excel', 'Power BI', 'C#', 'Marketing Digital', 'Databricks']
+
+/**
+ * Família (A): NEGA que a pessoa tenha declarado skills. É o defeito — falso
+ * para quem tem skills. Contagem real em produção ao lado.
+ */
+const NEGA_EXISTENCIA: string[] = [
+  'Você não declarou skills específicas para comparar.', // 11.086
+  'Você não declarou skills para comparação.', //             1.710
+  'Você não possui skills específicas para comparação.', //      667
+  'Você não possui skills específicas para comparar.', //        360
+  'Você não declarou skills específicas para comparação.', //    276
+  'Você não possui skills específicas para comparar com a vaga.', //      148
+  'Você não possui skills específicas para comparação com a vaga.', //    125
+  // Achadas só na varredura da CAUDA — a regra antiga (por verbo) deixava passar.
+  'Você não possui skills técnicas para comparar.', //            52
+  'Não há skills específicas para comparar.', //                  64
+  'Você não possui skills técnicas para comparação.', //          31
+  'Você não possui skills declaradas para comparação.', //        29
+  'Você não declarou habilidades específicas para comparação.', // 33
+  'Você não tem skills específicas para comparar com a vaga.', //   9
+  'Não há skills específicas no seu perfil para comparar.', //      2
+  'Você não possui skills em inglês para comparação.', //           1
+]
+
+/**
+ * Família (B): diz que as skills NÃO BATERAM. É VERDADE para quem tem skills e
+ * NÃO pode ser reescrita — a de "Excel" é inclusive a melhor frase do conjunto,
+ * porque nomeia a skill.
+ */
+const NAO_BATEU: string[] = [
+  'Nenhuma skill declarada bate com os requisitos da vaga.', //          956
+  'Você não possui skills que correspondem aos requisitos da vaga.', //  947
+  'Nenhuma skill sua aparece nos requisitos da vaga.', //                717
+  'Você não possui skills relacionadas aos requisitos da vaga.', //      599
+  'Você não possui skills que batem com os requisitos da vaga.', //      529
+  'Nenhuma das suas skills aparece nos requisitos da vaga.', //          519
+  'Nenhuma skill do seu perfil aparece nos requisitos da vaga.', //      462
+  'Você não possui as skills exigidas para a vaga.', //                  354
+  'Você não possui skills que atendem aos requisitos da vaga.', //       315
+  'Você não possui skills que correspondam aos requisitos da vaga.', //  250
+  'Nenhuma skill sua aparece nos requisitos desta vaga.', //             248
+  'Você não possui skills relacionadas à vaga.', //                      237
+  'Você não possui skills que se aplicam a esta vaga.', //               191
+  'Nenhuma das suas skills aparece nos requisitos desta vaga.', //       190
+  'Você não possui as skills técnicas exigidas para a vaga.', //         141
+  'Excel não aparece nos requisitos desta vaga.', //                     141
+  'Nenhuma skill declarada aparece nos requisitos da vaga.', //          117
+  // Estas a regra ANTIGA (por verbo) reescrevia por engano — são comparação.
+  'Você não declarou skills que batem com os requisitos da vaga.', //     47
+  'Você não possui skills específicas para a vaga.', //                   67
+  'Você não possui skills específicas para esta vaga.', //                47
+  'Nenhuma skill se aplica aos requisitos da vaga.', //                   93
+  'Você não possui skills relacionadas a Engenharia Civil.', //           57
+  'Nenhuma skill da vaga aparece no seu perfil.', //                      90
+  'Atendimento ao cliente não aparece nos requisitos desta vaga.', //     90
+  // Grupo em que quem não tem skills é a VAGA, não a pessoa — reescrever
+  // culparia o candidato por um anúncio mal escrito. ~73 linhas somadas.
+  'Não há requisitos de skills para comparar.', //                        45
+  'Não há skills específicas na vaga para comparar.', //                  22
+  'Não há skills na vaga para comparar.', //                               6
+  'Não há skills relevantes na vaga para comparar.', //                    5
+  'Não há skills específicas na vaga para comparação.', //                 2
+  'Não há skills na vaga para comparação.', //                             2
+  'Nenhuma skill foi exigida na vaga para comparação.', //                 1
+  'Nenhuma skill da vaga foi especificada para comparação.', //            1
+  'Não há skills requeridas na vaga para comparar.', //                    1
+  // Grupo que só a guarda de "menção a skill" segura: o `detail` fala de
+  // REQUISITO ou nomeia a skill sem usar a palavra "skill". Reais em produção.
+  'Não há requisitos específicos para comparar.', //                      23
+  'Não há requisitos técnicos para comparar.', //                          4
+  'Pacote Office básico não é suficiente para comparação.', //             1
+  'Pacote Office não é suficiente para comparar com os requisitos da vaga.', // 1
+]
+
+const comSkills = (detail: string, matched = false, weight = 0): MatchReason[] => [
+  { label: 'Área', matched: true, weight: 30, detail: 'Tecnologia bate com seu interesse.' },
+  { label: 'Tipo', matched: true, weight: 20, detail: 'Estágio é o tipo que você procura.' },
+  { label: 'Skills', matched, weight, detail },
+]
+
+Deno.test('A4: TODAS as frases que negam existência (12 variantes reais) são corrigidas', () => {
+  for (const frase of NEGA_EXISTENCIA) {
+    const out = reconcileSkillsReason(comSkills(frase), SKILLS_A4)
+    const skills = out.find((r) => r.label === 'Skills')!
+    assertEquals(
+      skills.detail !== frase,
+      true,
+      `frase não corrigida: "${frase}"`,
+    )
+    assertEquals(
+      skills.detail,
+      'Você declarou Excel, Power BI e C# e mais 2 — não encontrei essas skills nos requisitos desta vaga.',
+    )
+  }
+})
+
+Deno.test('A4: as 25 frases de "não bateu" são PRESERVADAS (são verdade)', () => {
+  // Reescrever estas destruiria informação correta. A de "Excel não aparece nos
+  // requisitos desta vaga" é a MELHOR frase do conjunto — nomeia a skill.
+  for (const frase of NAO_BATEU) {
+    const entrada = comSkills(frase)
+    const out = reconcileSkillsReason(entrada, SKILLS_A4)
+    assertEquals(out, entrada, `frase indevidamente reescrita: "${frase}"`)
+    assertEquals(out === entrada, true, 'tem que devolver a MESMA referência')
+  }
+})
+
+Deno.test('A4: o SCORE não muda — matched e weight são preservados', () => {
+  // A correção é de TEXTO. Se algum dia ela mexer no score, este teste cai.
+  const somaMatchedLocal = (rs: MatchReason[]) =>
+    rs.filter((r) => r.matched).reduce((s, r) => s + Math.max(0, r.weight), 0)
+  for (const frase of NEGA_EXISTENCIA) {
+    const entrada = comSkills(frase, false, 0)
+    const out = reconcileSkillsReason(entrada, SKILLS_A3)
+    assertEquals(somaMatchedLocal(out), somaMatchedLocal(entrada))
+    assertEquals(somaMatchedLocal(out), 50)
+    const skills = out.find((r) => r.label === 'Skills')!
+    assertEquals(skills.matched, false)
+    assertEquals(skills.weight, 0)
+  }
+})
+
+Deno.test('A4: quem NÃO declarou skills continua lendo a verdade', () => {
+  // A frase só é mentira pra quem tem skills. Pra quem não tem, ela é correta e
+  // não pode ser trocada por "Você declarou  — ...".
+  const entrada = comSkills('Você não declarou skills específicas para comparar.')
+  assertEquals(reconcileSkillsReason(entrada, []), entrada)
+  assertEquals(reconcileSkillsReason(entrada, ['', '   ']), entrada, 'nome vazio não conta como skill')
+})
+
+Deno.test('A4: matched=true nunca é tocado (reescrever acerto só pioraria)', () => {
+  const entrada = comSkills('Você não declarou skills específicas para comparar.', true, 10)
+  assertEquals(reconcileSkillsReason(entrada, SKILLS_A4), entrada)
+})
+
+Deno.test('A4: dimensão AUSENTE é inserida com weight 0 (é como o eixo "sumiu" no A3)', () => {
+  const semSkills: MatchReason[] = [
+    { label: 'Área', matched: true, weight: 30, detail: 'bate.' },
+    { label: 'Tipo', matched: true, weight: 20, detail: 'bate.' },
+  ]
+  const out = reconcileSkillsReason(semSkills, SKILLS_A3)
+  assertEquals(out.map((r) => r.label), ['Área', 'Tipo', 'Skills'])
+  const inserida = out[2]
+  assertEquals(inserida.matched, false)
+  assertEquals(inserida.weight, 0, 'inserir não pode dar nem tirar ponto')
+  assertEquals(
+    inserida.detail,
+    'Você declarou Power BI, SQL e Python e mais 3 — não encontrei essas skills nos requisitos desta vaga.',
+  )
+})
+
+Deno.test('A4: inserção para quem não tem skills vira convite, não acusação', () => {
+  const semSkills: MatchReason[] = [{ label: 'Área', matched: true, weight: 30, detail: 'bate.' }]
+  const out = reconcileSkillsReason(semSkills, [])
+  assertEquals(out[1].detail, 'Adicione suas habilidades pra eu comparar com o que a vaga pede.')
+  assertEquals(out[1].weight, 0)
+})
+
+Deno.test('A4: variações de rótulo não escapam (Skills/Ferramentas, Habilidades, caixa)', () => {
+  // "Skills/Ferramentas" existe em produção (1 ocorrência) e escaparia de um
+  // casamento por string exata — a mesma classe de furo que `canonical` fechou
+  // para Localização.
+  for (const label of ['Skills', 'SKILLS ', 'Skills/Ferramentas', 'Habilidades', 'habilidades']) {
+    const entrada: MatchReason[] = [
+      { label, matched: false, weight: 0, detail: 'Você não declarou skills específicas para comparar.' },
+    ]
+    const out = reconcileSkillsReason(entrada, SKILLS_A4)
+    assertEquals(out.length, 1, `duplicou a dimensão para o rótulo "${label}"`)
+    assertEquals(out[0].label, label, 'o rótulo original é preservado')
+    assertEquals(out[0].detail?.startsWith('Você declarou'), true, `rótulo "${label}" escapou`)
+  }
+})
+
+Deno.test('A4: singular quando é uma skill só', () => {
+  const out = reconcileSkillsReason(
+    comSkills('Você não declarou skills específicas para comparar.'),
+    ['Excel'],
+  )
+  assertEquals(
+    out.find((r) => r.label === 'Skills')!.detail,
+    'Você declarou Excel — não encontrei essa skill nos requisitos desta vaga.',
+  )
+})
+
+Deno.test('A4: nome de skill absurdamente longo não estoura o cartão', () => {
+  const gigante = Array.from({ length: 3 }, (_, i) => `${'x'.repeat(90)}${i}`)
+  const out = reconcileSkillsReason(
+    comSkills('Você não declarou skills específicas para comparar.'),
+    gigante,
+  )
+  const detail = out.find((r) => r.label === 'Skills')!.detail!
+  assertEquals(detail.length <= 200, true, `detail com ${detail.length} chars`)
+  assertEquals(detail, 'Suas skills declaradas não aparecem nos requisitos desta vaga.')
+})
+
+Deno.test('A4: sem mudança, devolve a MESMA referência (cache não re-deriva score)', () => {
+  // O caminho de cache do index.ts recalcula o score sempre que o array troca.
+  // Preservar a referência é o que garante "correção sem efeito colateral".
+  const entrada = comSkills('Excel não aparece nos requisitos desta vaga.')
+  assertEquals(reconcileSkillsReason(entrada, SKILLS_A4) === entrada, true)
+  assertEquals(reconcileSkillsReason([], SKILLS_A4).length, 0, 'array vazio não ganha dimensão')
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+// Cenário C — a linha de score 50 que o caminho de cache zerava
+// ────────────────────────────────────────────────────────────────────────────
+
+const CENARIO_C: MatchReason[] = [
+  {
+    label: 'Sem perfil',
+    matched: false,
+    weight: 0,
+    detail: 'Defina seus objetivos ou complete seu perfil para ter um match mais preciso.',
+  },
+]
+
+Deno.test('Cenário C é reconhecido', () => {
+  assertEquals(isScenarioC(CENARIO_C), true)
+  assertEquals(isScenarioC(comSkills('x')), false)
+  assertEquals(isScenarioC([{ label: 'Sem perfil', matched: true, weight: 0 }]), false)
+})
+
+Deno.test('Cenário C: NENHUM reconciliador encosta (senão o cache serve 0 no lugar de 50)', () => {
+  // Medido em 04/08/2026: 872 linhas de Cenário C em `match_analyses` são de
+  // usuários que HOJE têm work_models — passam pelo `aceitaEsteModelo` e caíam
+  // no laço. Vaga remota era o pior caso: inseria Localização matched=true e o
+  // cache devolvia 15.
+  assertEquals(reconcileRemoteReasons(CENARIO_C, VAGA_REMOTA, ACEITA_REMOTO), CENARIO_C)
+  assertEquals(
+    reconcileRemoteReasons(CENARIO_C, VAGA_REMOTA, ACEITA_REMOTO) === CENARIO_C,
+    true,
+    'tem que ser a MESMA referência, senão o index.ts re-deriva o score',
+  )
+  assertEquals(reconcileSkillsReason(CENARIO_C, SKILLS_A3) === CENARIO_C, true)
 })

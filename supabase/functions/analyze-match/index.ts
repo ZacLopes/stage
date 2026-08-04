@@ -19,7 +19,7 @@ import {
   trackAIGeneration,
   trackEdgeFunctionInvoked,
 } from '../_shared/posthog.ts'
-import { reconcileRemoteReasons, normalizeWorkMode } from './reasons.ts'
+import { reconcileRemoteReasons, reconcileSkillsReason, normalizeWorkMode } from './reasons.ts'
 import type { MatchReason } from './reasons.ts'
 
 const corsHeaders = {
@@ -250,8 +250,17 @@ async function loadPrefs(client: any, userId: string): Promise<any> {
  *
  * Falhas individuais caem pra string vazia em vez de propagar — a função
  * é best-effort e o cenário fallback é o legacy.
+ *
+ * Devolve TAMBÉM a lista crua de skills declaradas (achado A4, 03/08/2026): a
+ * reconciliação determinística de `reasons.ts` precisa saber se a pessoa tem
+ * skills pra decidir se a frase "você não declarou skills" é mentira. Sai daqui
+ * porque a consulta a `profile_skills` já é feita — abrir uma segunda query só
+ * pra contar seria latência de graça.
  */
-async function buildProfileText(client: any, userId: string): Promise<string> {
+async function buildProfileText(
+  client: any,
+  userId: string,
+): Promise<{ text: string; skills: string[] }> {
   try {
     const [
       personalR,
@@ -287,6 +296,10 @@ async function buildProfileText(client: any, userId: string): Promise<string> {
     // (hard+tool) e comportamentais (soft) saem ROTULADAS e separadas, pra IA
     // casar requisito técnico só contra as técnicas. Skill sem canônica (cauda)
     // entra em "outras" pra não perder o sinal de overlap com o CV.
+    // Nomes como a PESSOA declarou (`profile_skills.name`), não a canônica: é o
+    // que ela vê no editor e vai reconhecer no cartão. Cai pra canônica só se o
+    // nome cru vier vazio. Alimenta `reconcileSkillsReason` (achado A4).
+    const declaredSkills: string[] = []
     {
       const technical = new Set<string>()
       const soft = new Set<string>()
@@ -294,6 +307,8 @@ async function buildProfileText(client: any, userId: string): Promise<string> {
       for (const s of (skillsR.data ?? [])) {
         const cat = s?.skills_catalog?.category
         const canon = s?.skills_catalog?.canonical_name
+        const shown = String(s?.name ?? canon ?? '').trim()
+        if (shown && !declaredSkills.includes(shown)) declaredSkills.push(shown)
         if (canon && (cat === 'hard' || cat === 'tool')) technical.add(String(canon))
         else if (canon && cat === 'soft') soft.add(String(canon))
         else if (canon && cat === 'language') technical.add(String(canon))
@@ -348,10 +363,10 @@ async function buildProfileText(client: any, userId: string): Promise<string> {
       if (c?.name) lines.push(String(c.name))
     }
 
-    return lines.join('\n')
+    return { text: lines.join('\n'), skills: declaredSkills }
   } catch (e) {
     console.error('buildProfileText failed (fallback to empty):', (e as Error).message)
-    return ''
+    return { text: '', skills: [] }
   }
 }
 
@@ -659,7 +674,12 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<{
   }
 }
 
-function parseAndValidate(raw: string, job?: any, prefs?: any): MatchPayload {
+function parseAndValidate(
+  raw: string,
+  job?: any,
+  prefs?: any,
+  declaredSkills: string[] = [],
+): MatchPayload {
   // Strip ```json``` fences se existirem
   let text = raw.trim()
   if (text.startsWith('```json')) text = text.slice(7)
@@ -689,9 +709,12 @@ function parseAndValidate(raw: string, job?: any, prefs?: any): MatchPayload {
 
   // Correção determinística ANTES de derivar o score: razão e score precisam
   // contar a mesma história (há inclusive um alerta de divergência abaixo).
-  const reasons = job
+  const workModeFixed = job
     ? reconcileRemoteReasons(parsedReasons, job, prefs)
     : parsedReasons
+  // A4: tira a negação falsa de skills. NÃO mexe em matched/weight, então o
+  // score derivado logo abaixo é idêntico com e sem esta linha.
+  const reasons = reconcileSkillsReason(workModeFixed, declaredSkills)
 
   // Detecta o "Cenário C" canônico (1 reason com label "Sem perfil") — o
   // prompt manda retornar score=50 explicitamente nesse caso, então
@@ -808,12 +831,16 @@ serve(async (req) => {
     // `profile_desired_titles` + `profile_other_locations` E faz fallback
     // pro `user_preferences` legacy. Sem isso, mudanças via aba Perfil →
     // Preferências (que escreve no relacional) ficam invisíveis pro match.
-    const [jobR, profileR, prefs, profileText] = await Promise.all([
+    const [jobR, profileR, prefs, profileSnapshot] = await Promise.all([
       supabaseClient.from('jobs').select('*').eq('id', jobId).maybeSingle(),
       supabaseClient.from('user_profiles').select('gamification_data').eq('id', user.id).maybeSingle(),
       loadPrefs(supabaseClient, user.id),
       buildProfileText(supabaseClient, user.id),
     ])
+    // `text` segue sendo o pseudo-texto de sempre (hash de cache, bypass do
+    // Cenário C, prompt); `skills` é novo e só alimenta a reconciliação do A4.
+    const profileText = profileSnapshot.text
+    const declaredSkills = profileSnapshot.skills
 
     if (jobR.error || !jobR.data) return failWith('job_not_found', 404, { error: 'job_not_found' }, user.id)
     const job = jobR.data
@@ -869,7 +896,12 @@ serve(async (req) => {
       // diferentes — a mesma classe de bug que a derivação server-side existe
       // para matar.
       const cachedReasons = Array.isArray(cachedRow.reasons) ? cachedRow.reasons : []
-      const fixedReasons = job ? reconcileRemoteReasons(cachedReasons, job, prefs) : cachedReasons
+      const workModeFixed = job ? reconcileRemoteReasons(cachedReasons, job, prefs) : cachedReasons
+      // A4: a mesma correção do caminho de geração roda aqui — é o que faz as
+      // ~14 mil linhas JÁ GRAVADAS pararem de mentir sem precisar de bump de
+      // PROMPT_VERSION (que invalidaria o cache inteiro e, pior, derrubaria o
+      // cliente no motor determinístico enquanto `app_config` não acompanhasse).
+      const fixedReasons = reconcileSkillsReason(workModeFixed, declaredSkills)
       const reasonsChanged = fixedReasons !== cachedReasons
       const fixedScore = reasonsChanged
         ? Math.max(0, Math.min(100, Math.round(
@@ -967,7 +999,7 @@ serve(async (req) => {
 
     let payload: MatchPayload
     try {
-      payload = parseAndValidate(ai.content, job, prefs)
+      payload = parseAndValidate(ai.content, job, prefs, declaredSkills)
     } catch (e) {
       console.error('Failed to parse AI output:', ai.content)
       return failWith(
