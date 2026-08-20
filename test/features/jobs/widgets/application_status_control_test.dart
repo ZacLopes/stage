@@ -4,9 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:career_gamification/features/jobs/models/application.dart';
 import 'package:career_gamification/features/jobs/widgets/application_status_control.dart';
 
-/// FASE 3 T3.1 (R3): chip/menu de status da aba Candidaturas. Mostra o status
-/// atual em pt-BR e, ao tocar, oferece as transições válidas; seleção chama o
-/// callback. Sem opções → chip estático (sem menu).
+/// Chip/seletor de status da aba Candidaturas. Mostra o status atual em pt-BR
+/// e, ao tocar, oferece as transições válidas; seleção chama o callback. Sem
+/// opções, permanece um indicador estático.
 void main() {
   Future<void> pump(
     WidgetTester tester, {
@@ -39,30 +39,34 @@ void main() {
     expect(find.text('Enviada'), findsOneWidget);
   });
 
-  testWidgets('toca → menu com transições válidas → onSelected', (tester) async {
+  testWidgets('toca → menu com transições válidas → onSelected', (
+    tester,
+  ) async {
     ApplicationStatus? picked;
     await pump(
       tester,
       status: ApplicationStatus.submitted,
-      options: const [
-        ApplicationStatus.inReview,
-        ApplicationStatus.interview,
-      ],
+      options: const [ApplicationStatus.inReview, ApplicationStatus.interview],
       onSelected: (s) => picked = s,
     );
 
-    await tester.tap(find.byType(ApplicationStatusControl));
+    await tester.tap(find.byKey(const ValueKey('application-status-trigger')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Em análise'), findsOneWidget);
-    expect(find.text('Entrevista'), findsOneWidget);
+    expect(find.text('Atualizar etapa'), findsOneWidget);
+    expect(find.text('Está em análise'), findsOneWidget);
+    expect(find.text('A empresa está avaliando seu perfil.'), findsOneWidget);
+    expect(find.text('Entrevista agendada'), findsOneWidget);
 
-    await tester.tap(find.text('Em análise'));
+    await tester.tap(find.text('Está em análise'));
     await tester.pumpAndSettle();
     expect(picked, ApplicationStatus.inReview);
+    expect(find.text('Atualizar etapa'), findsNothing);
   });
 
-  testWidgets('sem opções → chip estático (sem PopupMenuButton)', (tester) async {
+  testWidgets('sem opções → chip estático (sem gatilho)', (
+    tester,
+  ) async {
     await pump(
       tester,
       status: ApplicationStatus.hired,
@@ -72,6 +76,9 @@ void main() {
     // Rótulos concordam com A CANDIDATURA (feminino), não com o candidato —
     // `hired` virou "Aprovada". Revisão UX 28/07, achado P2-21.
     expect(find.text('Aprovada'), findsOneWidget);
-    expect(find.byType(PopupMenuButton<ApplicationStatus>), findsNothing);
+    expect(
+      find.byKey(const ValueKey('application-status-trigger')),
+      findsNothing,
+    );
   });
 }
