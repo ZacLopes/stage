@@ -44,6 +44,25 @@ function canonical(label: string): string {
 }
 
 /**
+ * Cenário C canônico: a única razão é "Sem perfil". O prompt manda score 50
+ * FIXO nesse caso e o `index.ts` respeita isso explicitamente
+ * (§ parseAndValidate, `isScenarioC`). Nenhum reconciliador pode encostar:
+ * o caminho de CACHE re-deriva o score a partir das reasons sempre que elas
+ * mudam, então inserir ou alterar uma linha aqui devolve 0 (ou 15, se entrar a
+ * Localização de vaga remota) no lugar de 50.
+ *
+ * Não é hipótese: medido em 04/08/2026, **872 linhas de Cenário C** em
+ * `match_analyses` são de usuários que HOJE têm `work_models` preenchido — ou
+ * seja, passam pelo `aceitaEsteModelo` e entram no laço. O early-return de
+ * quem não tem prefs mascarava isso.
+ */
+export function isScenarioC(reasons: MatchReason[]): boolean {
+  return reasons.length === 1 &&
+    canonical(reasons[0]?.label ?? '') === 'sem perfil' &&
+    reasons[0]?.matched !== true
+}
+
+/**
  * Normaliza work_mode do schema relacional (EN: `remote`/`hybrid`/`in_person`)
  * pro vocabulário que `jobs.work_model` usa (PT: `remoto`/`hibrido`/`presencial`).
  * Sem isso, a IA tentava casar "in_person" com "presencial" textualmente e
@@ -108,6 +127,9 @@ export function reconcileRemoteReasons(
   // deno-lint-ignore no-explicit-any
   prefs: any,
 ): MatchReason[] {
+  // Cenário C não se reconcilia — ver `isScenarioC`.
+  if (isScenarioC(reasons)) return reasons
+
   const jobModel = normalizeWorkMode(String(job?.work_model ?? '').trim().toLowerCase())
   if (!jobModel) return reasons
 
@@ -175,5 +197,176 @@ export function reconcileRemoteReasons(
         `model=${jobModel} before=${reasons.length} after=${out.length}`,
     )
   }
+  return out
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Skills — achado A4 do relatório de UX de 03/08/2026
+// ────────────────────────────────────────────────────────────────────────────
+
+/** A dimensão é a de habilidades? Cobre "Skills", "Skills/Ferramentas", "Habilidades". */
+function isSkillsLabel(label: string): boolean {
+  const c = canonical(label)
+  return c.includes('skill') || c.includes('habilidade')
+}
+
+/**
+ * A frase NEGA QUE A PESSOA TENHA DECLARADO skills — em oposição a dizer que as
+ * skills dela não bateram com a vaga?
+ *
+ * A distinção é o coração desta correção e foi tirada da produção, não do
+ * palpite. Medindo os `detail` da dimensão Skills em `match_analyses`
+ * (04/08/2026) aparecem duas famílias:
+ *
+ *  (A) NEGA A EXISTÊNCIA — é o defeito. ~14,4 mil ocorrências, sendo 11.086 de
+ *      "Você não declarou skills específicas para comparar." Essa frase é
+ *      cópia LITERAL do few-shot do próprio system prompt
+ *      (`index.ts`, Exemplo 1); o modelo repete o exemplo em vez de olhar o
+ *      candidato. Para quem tem skills gravadas, é simplesmente falso.
+ *
+ *  (B) DIZ QUE NÃO BATEU — é VERDADE e não pode ser tocado:
+ *      "Nenhuma skill sua aparece nos requisitos da vaga." (717)
+ *      "Você não possui skills que correspondem aos requisitos da vaga." (947)
+ *      "Excel não aparece nos requisitos desta vaga." (141)
+ *      Reescrever essas destruiria informação correta — e a de Excel é
+ *      justamente a MELHOR das frases, porque nomeia a skill.
+ *
+ * Por isso o teste não é "matched=false" nem o verbo da frase — é a CLÁUSULA DE
+ * FINALIDADE. Quem diz "para comparar" / "para comparação" está dizendo que não
+ * há O QUE comparar (existência). Quem cita "requisitos", "batem",
+ * "correspondem", "aparece", "exigidas" está comparando de fato (família B).
+ *
+ * A primeira versão desta função usava o verbo ("não declarou" ⇒ nega
+ * existência) e a varredura da CAUDA em produção derrubou a regra nos dois
+ * sentidos — motivo de ela estar escrita assim e não do jeito óbvio:
+ *   - falso POSITIVO: "Você não declarou skills que batem com os requisitos da
+ *     vaga." (47 linhas) é comparação, não negação de existência;
+ *   - falso NEGATIVO: "Você não possui skills técnicas para comparar." (52) e
+ *     "Não há skills específicas para comparar." (64) negam existência sem usar
+ *     nenhum dos verbos que a regra antiga procurava.
+ *
+ * As DUAS exclusões existem pelo mesmo motivo: há frases em que quem não tem
+ * skills é a VAGA, não a pessoa — e reescrevê-las culparia o candidato por um
+ * anúncio mal escrito. Varridas em produção:
+ *   - "requisito": "Não há requisitos de skills para comparar." (45 linhas)
+ *   - "na vaga" / "da vaga": "Não há skills específicas na vaga para comparar."
+ *     (22), "Não há skills na vaga para comparar." (6), "Nenhuma skill foi
+ *     exigida na vaga para comparação." (1) e irmãs — ~28 linhas no total.
+ * Nenhuma frase legítima da família (A) casa essas exclusões: as que citam a
+ * vaga do lado do candidato usam "COM a vaga" ("...para comparar com a vaga."),
+ * que não colide.
+ */
+function negaTerSkills(detail: string): boolean {
+  const d = canonical(detail)
+  if (!d.includes('skill') && !d.includes('habilidade')) return false
+  // A ausência é atribuída à VAGA, não à pessoa — não é o defeito do A4.
+  if (d.includes('requisito') || d.includes('na vaga') || d.includes('da vaga')) return false
+  return d.includes('para comparar') || d.includes('para comparacao')
+}
+
+/** Lista em português: "A", "A e B", "A, B e C". */
+function listaPt(itens: string[]): string {
+  if (itens.length <= 1) return itens[0] ?? ''
+  return `${itens.slice(0, -1).join(', ')} e ${itens[itens.length - 1]}`
+}
+
+/**
+ * Texto factual que substitui a negação falsa. Nomeia o que a pessoa DE FATO
+ * declarou e mantém o veredito do modelo (não bateu) — não afirmamos match que
+ * não foi avaliado, só paramos de negar a existência do dado.
+ *
+ * Teto de 3 nomes + "e mais N": `index.ts` corta `detail` em 200 chars na
+ * entrada, e uma lista longa viraria parede de texto no cartão.
+ */
+function detalheSkillsDeclaradas(skills: string[]): string {
+  const mostra = skills.slice(0, 3)
+  const resto = skills.length - mostra.length
+  const lista = resto > 0 ? `${listaPt(mostra)} e mais ${resto}` : listaPt(mostra)
+  const plural = skills.length > 1 || resto > 0
+  const texto = plural
+    ? `Você declarou ${lista} — não encontrei essas skills nos requisitos desta vaga.`
+    : `Você declarou ${lista} — não encontrei essa skill nos requisitos desta vaga.`
+  // Cinto de segurança: nome de skill é texto livre do usuário e pode ser longo.
+  return texto.length <= 200 ? texto : `Suas skills declaradas não aparecem nos requisitos desta vaga.`
+}
+
+/**
+ * Correção determinística da dimensão SKILLS (achado A4, relatório de UX
+ * 03/08/2026).
+ *
+ * O defeito: o cartão de match diz "Você não declarou skills específicas para
+ * comparar" para quem declarou. Medido em 04/08/2026: **6.450 análises** com
+ * essa família de frase pertencem a usuários que TÊM linhas em `profile_skills`
+ * — 442 pessoas distintas. Só na v14, 37,6% das negações são falsas. E é
+ * intermitente: duas análises do mesmo usuário separadas por 37 ms se
+ * contradizem, o que descarta "consertar o prompt" como garantia.
+ *
+ * Mesma doutrina de `reconcileRemoteReasons`: a IA propõe, o código
+ * determinístico valida.
+ *
+ * Regras:
+ *  - O SCORE NÃO MUDA. `matched` e `weight` são preservados como vieram; só o
+ *    texto é reescrito. Não estamos afirmando que as skills batem — estamos
+ *    parando de afirmar que elas não existem.
+ *  - Só reescreve quando a pessoa TEM skills declaradas E a frase é da família
+ *    que nega existência (ver `negaTerSkills`). Quem não declarou nada continua
+ *    lendo a verdade.
+ *  - `matched=true` nunca é tocado: reescrever um acerto só poderia piorar.
+ *  - Dimensão AUSENTE é inserida com weight 0 (invariante: o eixo sempre
+ *    existe). Sem isso o cliente simplesmente não desenha a linha — que é
+ *    exatamente como o eixo "sumiu" no achado A3.
+ *  - Cenário C não é tocado (ver `isScenarioC`).
+ *
+ * Devolve a MESMA referência quando nada muda: o caminho de cache do
+ * `index.ts` re-deriva o score sempre que o array troca, então preservar a
+ * referência é o que garante "correção sem efeito colateral".
+ */
+export function reconcileSkillsReason(
+  reasons: MatchReason[],
+  declaredSkills: string[],
+): MatchReason[] {
+  if (!Array.isArray(reasons) || reasons.length === 0) return reasons
+  if (isScenarioC(reasons)) return reasons
+
+  const skills = (declaredSkills ?? [])
+    .map((s) => String(s ?? '').trim())
+    .filter((s) => s.length > 0)
+
+  let touched = false
+  let sawSkills = false
+  const out: MatchReason[] = []
+
+  for (const r of reasons) {
+    if (!isSkillsLabel(r.label)) {
+      out.push(r)
+      continue
+    }
+    sawSkills = true
+    if (r.matched || skills.length === 0 || !negaTerSkills(r.detail ?? '')) {
+      out.push(r)
+      continue
+    }
+    touched = true
+    out.push({ ...r, detail: detalheSkillsDeclaradas(skills) })
+  }
+
+  if (!sawSkills) {
+    touched = true
+    out.push({
+      label: 'Skills',
+      matched: false,
+      weight: 0,
+      detail: skills.length > 0
+        ? detalheSkillsDeclaradas(skills)
+        : 'Adicione suas habilidades pra eu comparar com o que a vaga pede.',
+    })
+  }
+
+  if (!touched) return reasons
+
+  console.log(
+    `[analyze-match] skills reason reconciled declared=${skills.length} ` +
+      `inserted=${!sawSkills} before=${reasons.length} after=${out.length}`,
+  )
   return out
 }
