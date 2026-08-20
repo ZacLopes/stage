@@ -477,7 +477,30 @@ Future<Map<String, dynamic>> buildAssistContext(
         snapshot: snapshot, prefs: prefs, desiredTitles: desired);
     return {
       'completion_percent': gaps.completionPercent,
-      'missing': [for (final l in gaps.missing) l.label],
+      // ⚠️ A CHAVE importa tanto quanto os valores. Isto ia como `missing`, e
+      // o modelo lia "missing: Nível de experiência" como uma AFIRMAÇÃO sobre
+      // a pessoa. Medido no simulador em 20/08/2026, numa conta com DUAS
+      // experiências cadastradas (Ambev e USP) — que vão neste mesmo payload,
+      // em `experiences` e `experiences_count`:
+      //
+      //   pergunta: "curriculo sem experiencia, e agora?"
+      //   resposta: "Seu currículo tá legal, mas falta um pouco de
+      //              experiência e algumas informações importantes."
+      //
+      // Ela tem experiência. O modelo não inventou — parafraseou o rótulo de
+      // um campo em branco. E o problema é da CLASSE inteira, não só deste
+      // campo: `missing: Conquistas` vira "você não tem conquistas",
+      // `missing: Projetos` vira "você não tem projetos".
+      //
+      // `unanswered_profile_questions` diz o que estas strings realmente são:
+      // perguntas que ela ainda não respondeu — não carências dela. O servidor
+      // (`trilha-assistant`) só serializa o JSON no bloco DADOS e NÃO cita
+      // nenhuma destas chaves pelo nome, então renomear aqui é seguro e não
+      // exige deploy de função (verificado: zero ocorrências de 'missing' nas
+      // edge functions).
+      'unanswered_profile_questions': [
+        for (final l in gaps.missing) l.label,
+      ],
       'areas': desired.map((d) => d.title).toList(),
       'desired_position': prefs?.desiredPosition,
       'skills_count': snapshot.skills.length,
