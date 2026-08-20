@@ -53,6 +53,40 @@ class CvImportResult {
 
 /// Resultado do [CvImportService.pickCvBytes] (fluxo de revisão): bytes do PDF
 /// já validado como CV, sem tocar biblioteca/perfil. `cancelled` = usuário
+/// Traduz a falha do import para uma frase que o estudante entende.
+///
+/// Existe por causa de um caso específico e nada raro: o trigger
+/// `zzz_mark_latest_legacy_source` rejeita o import do motor legado com
+/// `legacy_import_blocked_by_canonical_source` quando a conta já tem uma fonte
+/// canônica (criada pelo Assistente). Antes disso, a pessoa via uma tarja
+/// vermelha escrita `Falha inesperada: PostgrestException(message:
+/// legacy_import_blocked_by_canonical_source, code: 55000...)` — texto de
+/// máquina numa tela de aluno.
+///
+/// A porta da biblioteca já encaminha para o motor do Assistente quando ele
+/// está ligado (`library_import_entry.dart`), então este caminho virou o
+/// cinto de segurança: builds antigas, corrida de flag, ou a flag caindo por
+/// falta de rede no cold start.
+String describeCvImportFailure(Object error) {
+  final texto = error.toString();
+
+  if (texto.contains('legacy_import_blocked_by_canonical_source')) {
+    return 'Seu currículo já está no Stage por outro caminho. Abra o '
+        'Assistente para substituí-lo — lá você confere o que muda antes de '
+        'aplicar.';
+  }
+  if (texto.contains('saved_resume_owner_mismatch')) {
+    return 'Não consegui salvar neste perfil. Saia e entre de novo na sua '
+        'conta.';
+  }
+  if (texto.contains('SocketException') ||
+      texto.contains('TimeoutException') ||
+      texto.contains('Failed host lookup')) {
+    return 'Sem conexão para enviar o arquivo. Tente de novo?';
+  }
+  return 'Não consegui importar esse arquivo agora. Tente de novo?';
+}
+
 /// fechou o picker; `success:false` com `errorMessage` = arquivo inválido/não-CV.
 class CvPickResult {
   final bool success;
@@ -252,7 +286,7 @@ class CvImportService {
       );
     } catch (e) {
       Analytics.shared.cvImportFailed(reason: e.toString().split('\n').first);
-      return CvImportResult.error('Falha inesperada: $e');
+      return CvImportResult.error(describeCvImportFailure(e));
     }
   }
 

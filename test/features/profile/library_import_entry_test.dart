@@ -15,33 +15,34 @@ import 'package:career_gamification/features/resume/widgets/import_cv_button.dar
 /// conseguiram subir nem o primeiro. Medido em produção em 31/07/2026.
 void main() {
   group('shouldShowLibraryImportEntry — tabela-verdade', () {
-    test('Assistente OFF e sem kill switch → MOSTRA (o caso de hoje)', () {
-      expect(
-        shouldShowLibraryImportEntry(assistEnabled: false, killSwitchOn: false),
-        isTrue,
-      );
+    test('sem kill switch → MOSTRA', () {
+      expect(shouldShowLibraryImportEntry(killSwitchOn: false), isTrue);
     });
 
     test('kill switch ligado → esconde', () {
-      expect(
-        shouldShowLibraryImportEntry(assistEnabled: false, killSwitchOn: true),
-        isFalse,
-      );
+      expect(shouldShowLibraryImportEntry(killSwitchOn: true), isFalse);
     });
 
-    test('Assistente ON → esconde, porque a casa passa a ser outra', () {
-      // Com o Assistente ligado, quem oferece "Substituir" é o card "Fonte
-      // importada" em Perfil → Dados, que tem a revisão de conflitos. Dois
-      // botões de import na mesma navegação seria o defeito seguinte.
-      expect(
-        shouldShowLibraryImportEntry(assistEnabled: true, killSwitchOn: false),
-        isFalse,
-      );
-      expect(
-        shouldShowLibraryImportEntry(assistEnabled: true, killSwitchOn: true),
-        isFalse,
-      );
-    });
+    test(
+      'REGRESSÃO: a porta NÃO depende mais do Assistente (decisão de 20/08/2026)',
+      () {
+        // O desenho anterior escondia esta porta quando `trilha_assist_v1`
+        // ligasse, porque a revisão de conflitos passaria a morar no card
+        // "Fonte importada" em Perfil → Dados. O fundador decidiu o contrário:
+        // quer import pelas DUAS portas (aba Currículos e conversa da trilha).
+        //
+        // O medo original era legítimo, mas mirava o alvo errado: o defeito
+        // não é ter duas portas, é ter dois MOTORES — o legado bate no trigger
+        // `zzz_mark_latest_legacy_source` assim que existe fonte canônica.
+        // Isso está resolvido em `library_import_entry.dart`, que com o
+        // Assistente ligado aciona o motor do Assistente.
+        //
+        // Este teste é o guardião da decisão: se alguém reintroduzir a
+        // dependência, a assinatura muda e ele para de compilar.
+        expect(shouldShowLibraryImportEntry(killSwitchOn: false), isTrue);
+        expect(shouldShowLibraryImportEntry(killSwitchOn: true), isFalse);
+      },
+    );
   });
 
   group('LibraryImportEntry — renderiza de verdade', () {
@@ -140,8 +141,21 @@ void main() {
           ? codigo.substring(inicio)
           : codigo.substring(inicio, depois);
 
-      expect(corpo, contains('Consumer<ProfileViewModel>'),
-          reason: 'o recorte não pegou o método certo');
+      // Sentinela do recorte: confirma que pegamos o método certo, e não uma
+      // fatia vazia que faria a asserção seguinte passar por acidente.
+      //
+      // 20/08/2026: era `contains('Consumer<ProfileViewModel>')`. O método
+      // passou a usar `Selector`, que satisfaz a invariante MELHOR que o
+      // Consumer — ele não troca a subárvore inteira quando `isLoading` muda,
+      // que é justamente o mecanismo que desmontava a porta. Aceitar os dois
+      // mantém a sentinela sem congelar a implementação: o que este bloco
+      // protege é a porta ficar FORA do builder, não qual widget reconstrói.
+      expect(
+        corpo.contains('Selector<ProfileViewModel') ||
+            corpo.contains('Consumer<ProfileViewModel>'),
+        isTrue,
+        reason: 'o recorte não pegou o método certo',
+      );
       expect(
         corpo.contains('LibraryImportEntry('),
         isFalse,

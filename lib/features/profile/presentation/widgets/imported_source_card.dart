@@ -108,7 +108,10 @@ class _ImportedSourceCardState extends State<ImportedSourceCard> {
   bool get _flagOn {
     final uid = context.read<UserViewModel>().user?.id ??
         Supabase.instance.client.auth.currentUser?.id;
-    return FeatureFlagsService.instance.isTrilhaAssistEnabledForUser(uid);
+    // 20/08/2026: era `isTrilhaAssistEnabledForUser`. Separado para que ligar
+    // o Assistente não faça este card aparecer — o fundador decidiu que o CV
+    // importado continua morando na aba Currículos.
+    return FeatureFlagsService.instance.isImportedSourceHomeEnabledForUser(uid);
   }
 
   void _view(SavedResume source) {

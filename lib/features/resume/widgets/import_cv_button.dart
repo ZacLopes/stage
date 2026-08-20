@@ -39,12 +39,29 @@ class ImportCvButton extends StatefulWidget {
   /// como sempre saiu.
   final String? analyticsSource;
 
+  /// Troca o MOTOR sem trocar o botão.
+  ///
+  /// Existe por causa do trigger `zzz_mark_latest_legacy_source`: uma vez que a
+  /// pessoa importa pelo Assistente (que cria uma fonte canônica), o motor
+  /// legado — `CvImportService.pickAndImport`, que este botão usa por padrão —
+  /// passa a ser REJEITADO pelo banco com
+  /// `legacy_import_blocked_by_canonical_source`, para sempre, naquela conta.
+  ///
+  /// Dois botões de import não são o problema; dois MOTORES são. Com o
+  /// Assistente ligado, `LibraryImportEntry` passa este override para
+  /// encaminhar ao cartão de import do Assistente — mesmo motor, outra porta.
+  ///
+  /// Quando não-nulo, `onImported` não é chamado: quem conclui o import é o
+  /// Assistente, e é ele quem avisa a biblioteca.
+  final VoidCallback? onTapOverride;
+
   const ImportCvButton({
     super.key,
     this.onImported,
     this.variant = ImportCvVariant.primary,
     this.label = 'Importar CV em PDF',
     this.analyticsSource,
+    this.onTapOverride,
   });
 
   @override
@@ -59,6 +76,15 @@ class _ImportCvButtonState extends State<ImportCvButton> {
   Future<void> _onTap() async {
     if (_busy) return;
     HapticFeedback.lightImpact();
+
+    // Motor do Assistente: só encaminha. Não liga `_busy` porque quem mostra
+    // progresso daqui pra frente é o cartão na conversa, não este botão.
+    final override = widget.onTapOverride;
+    if (override != null) {
+      override();
+      return;
+    }
+
     setState(() => _busy = true);
 
     final result = await CvImportService.pickAndImport(

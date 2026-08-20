@@ -21,6 +21,7 @@ import 'presentation/widgets/personal_info_form.dart';
 import 'presentation/widgets/preferences_tab.dart';
 import 'presentation/widgets/profile_section_list.dart';
 import '../../data/models/models.dart';
+import 'presentation/resume_library_view.dart';
 import '../../core/widgets/pii_mask.dart';
 import '../../core/theme/theme.dart';
 import '../../core/utils/resume_title.dart';
@@ -83,20 +84,26 @@ List<SavedResume> filterLibraryResumes(
 /// preenchido — 681 que já importaram e 869 que nunca conseguiram importar
 /// nem uma vez.
 ///
-/// **`!assistEnabled`**: a porta se aposenta sozinha no dia em que o
-/// Assistente ligar. Aí quem passa a oferecer "Substituir" é o card "Fonte
-/// importada" em Dados, que tem a revisão de conflitos. Uma casa por vez —
-/// dois botões de import na mesma navegação é o defeito seguinte.
+/// **A dependência de `assistEnabled` saiu em 20/08/2026 — decisão do fundador,
+/// e NÃO reverta sem falar com ele.** O desenho anterior aposentava esta porta
+/// quando o Assistente ligasse, porque a revisão de conflitos passaria a morar
+/// no card "Fonte importada" em Dados. O fundador quer as duas portas: import
+/// pela aba Currículos E pela conversa da trilha.
+///
+/// O medo original — "dois botões de import na mesma navegação é o defeito
+/// seguinte" — era legítimo, mas o defeito não é ter duas PORTAS: é ter dois
+/// MOTORES. O motor legado insere direto e o trigger
+/// `zzz_mark_latest_legacy_source` o rejeita com
+/// `legacy_import_blocked_by_canonical_source` assim que existe uma fonte
+/// canônica (a que o Assistente cria). Resolvido em `library_import_entry.dart`:
+/// com o Assistente ligado, esta porta aciona o motor DO ASSISTENTE. Uma porta
+/// a mais, motor nenhum a mais.
 ///
 /// **`!killSwitchOn`**: [FeatureFlagKeys.cvImportEntryDisabled] é flag
 /// NEGATIVA de propósito. Ver o comentário dela em `feature_flags_service.dart`:
 /// aqui o estado "desligado" é a própria regressão, então o default sem rede
 /// tem que ser MOSTRAR.
-bool shouldShowLibraryImportEntry({
-  required bool assistEnabled,
-  required bool killSwitchOn,
-}) =>
-    !assistEnabled && !killSwitchOn;
+bool shouldShowLibraryImportEntry({required bool killSwitchOn}) => !killSwitchOn;
 
 const Map<SavedResumeSource, _SourceMeta> _kSourceMeta = {
   SavedResumeSource.manual: _SourceMeta(
@@ -319,7 +326,11 @@ class _ResumesTabState extends State<_ResumesTab> {
   /// com a flag do Assistente (mesma flag/userId do resto do IA/Perfil).
   List<SavedResume> _libraryResumes(ProfileViewModel vm) => filterLibraryResumes(
         vm.savedResumes,
-        outputsOnly: FeatureFlagsService.instance.isTrilhaAssistEnabledForUser(
+        // 20/08/2026: era `isTrilhaAssistEnabledForUser`. Separado para que
+        // ligar o Assistente NÃO esconda os 756 CVs importados da aba.
+        // A flag nova nasce e permanece OFF por decisão do fundador.
+        outputsOnly: FeatureFlagsService.instance
+            .isImportedSourceHomeEnabledForUser(
           Supabase.instance.client.auth.currentUser?.id,
         ),
       );
@@ -381,10 +392,7 @@ class _ResumesTabState extends State<_ResumesTab> {
 
     final killSwitchOn = FeatureFlagsService.instance
         .isGloballyEnabled(FeatureFlagKeys.cvImportEntryDisabled);
-    final showImport = shouldShowLibraryImportEntry(
-      assistEnabled: assistEnabled,
-      killSwitchOn: killSwitchOn,
-    );
+    final showImport = shouldShowLibraryImportEntry(killSwitchOn: killSwitchOn);
 
     // ⚠️ A PORTA DE IMPORT FICA FORA DO `Consumer<ProfileViewModel>`, E ISSO
     // NÃO É ESTILO — é o que faz ela funcionar.
@@ -420,7 +428,33 @@ class _ResumesTabState extends State<_ResumesTab> {
     );
   }
 
+  /// Biblioteca de currículos — ficha do "currículo em uso" + alternativas.
+  ///
+  /// `Selector` e NÃO `Consumer`: o builder do Consumer trocava a subárvore
+  /// inteira por um spinner quando `isLoading`, e é o próprio import que liga
+  /// esse flag (ver o aviso longo em `build`). Aqui a lista só reconstrói
+  /// quando os dados mudam, e o loading vira estado interno da view.
   Widget _buildLibrary(String? highlightId, bool assistEnabled) {
+    return Selector<ProfileViewModel, ({List<SavedResume> itens, bool loading})>(
+      selector: (_, vm) => (itens: _libraryResumes(vm), loading: vm.isLoading),
+      builder: (context, s, __) => RefreshIndicator(
+        onRefresh: () => context.read<ProfileViewModel>().loadSavedResumes(),
+        child: ResumeLibraryView(
+          resumes: s.itens,
+          isLoading: s.loading,
+          importEntry: assistEnabled
+              ? const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: GeneralResumeCard(),
+                )
+              : null,
+        ),
+      ),
+    );
+  }
+
+  // ignore: unused_element
+  Widget _buildLibraryLegacy(String? highlightId, bool assistEnabled) {
     return Consumer<ProfileViewModel>(
       builder: (context, viewModel, child) {
         if (viewModel.isLoading) {
