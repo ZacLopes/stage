@@ -3290,6 +3290,26 @@ void main() {
       await c.submitFreeText('o que falta no meu perfil?');
       final card = c.thread.whereType<GapsCardItem>().single;
       expect(card.completionPercent, 60);
+
+      // No MÁXIMO um card de lacunas vivo no fio (20/08/2026).
+      //
+      // Medido no simulador: o card tem ~700px e era anexado a cada
+      // `show_gaps`/`show_profile_summary` — intenções que pegam largo. Em
+      // cinco trocas a pessoa rolava por cinco cards IDÊNTICOS pra reencontrar
+      // o texto da conversa, e lia "você ainda não está pronta" cinco vezes
+      // sem ter perguntado. Pedir de novo REPÕE o card no fim do fio (que é
+      // onde ela está olhando), não empilha.
+      await c.submitFreeText('mostra de novo o que falta');
+      expect(
+        c.thread.whereType<GapsCardItem>().length,
+        1,
+        reason: 'o card anterior tem que sair quando o novo entra',
+      );
+      expect(
+        c.thread.last,
+        isA<GapsCardItem>(),
+        reason: 'e o que sobra fica no fim, onde ela está lendo',
+      );
       expect(card.rows.length, 2);
       expect(card.rows.first.label, 'Experiência');
       expect(

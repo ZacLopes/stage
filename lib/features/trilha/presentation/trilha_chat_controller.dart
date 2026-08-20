@@ -2028,6 +2028,18 @@ class TrilhaChatController extends ChangeNotifier {
     }
     if (_disposed) return;
     if (reply.isNotEmpty) _pushAi(reply);
+    // No máximo UM card de lacunas vivo no fio.
+    //
+    // Medido no simulador em 20/08/2026: o card tem ~700px de altura e era
+    // anexado a cada `show_gaps`/`show_profile_summary` — intenções que pegam
+    // largo. Em cinco trocas a pessoa rolava por cinco cards IDÊNTICOS pra
+    // reencontrar o texto da conversa, que é o produto. E lia "você ainda não
+    // está pronta" cinco vezes sem ter perguntado.
+    //
+    // Remover o anterior mantém a informação sempre à mão (ele reaparece no
+    // fim do fio, que é onde ela está olhando) e devolve a tela à conversa.
+    // Mesmo idioma que os chips de partida já usam (`removeWhere`).
+    thread.removeWhere((it) => it is GapsCardItem);
     thread.add(
       GapsCardItem(completionPercent: g.completionPercent, rows: g.missing),
     );
