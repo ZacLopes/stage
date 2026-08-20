@@ -96,6 +96,38 @@ class FeatureFlagsService {
         isEnabledForUser(FeatureFlagKeys.trilhaAssistV1, userId);
   }
 
+  /// Persistir o currículo geral ao exportar (source='general').
+  ///
+  /// Separada de [trilhaAssistV1] em 20/08/2026 por decisão do fundador: ele
+  /// quer o Assistente E o salvar-ao-exportar, mas NÃO quer as outras três
+  /// consequências que estavam amarradas na mesma leitura (ver
+  /// [FeatureFlagKeys.importedSourceHomeV1]).
+  ///
+  /// ANINHADA de propósito: com o Assistente OFF o card "Currículo geral" nem
+  /// é montado, então salvar a versão gravaria linha + PDF que NINGUÉM
+  /// consegue ver (a biblioteca esconde 'general' sempre, por regra fixa).
+  /// O aninhamento vive aqui, em código, pra não depender de disciplina
+  /// operacional na tabela.
+  bool isGeneralResumeSaveEnabledForUser(String? userId) =>
+      isTrilhaAssistEnabledForUser(userId) &&
+      isEnabledForUser(FeatureFlagKeys.resumeSaveOnExportV1, userId);
+
+  /// Mudar o currículo importado de casa: some da aba Currículos e passa a
+  /// viver no card "Fonte importada" em Perfil → Dados.
+  ///
+  /// As duas metades vivem na MESMA flag de propósito. Meia mudança tem
+  /// consequência real: só a primeira metade faria 696 pessoas (medido em
+  /// prod, 20/08/2026) perderem qualquer tela que alcance o CV importado —
+  /// 47 delas com mais de um arquivo. Chave separada pra cada metade é o
+  /// defeito seguinte.
+  ///
+  /// Nasce OFF e o fundador decidiu em 20/08 mantê-la OFF: os importados
+  /// ficam onde estão. Existe pra que essa decisão seja reversível por banco,
+  /// sem build.
+  bool isImportedSourceHomeEnabledForUser(String? userId) =>
+      isTrilhaAssistEnabledForUser(userId) &&
+      isEnabledForUser(FeatureFlagKeys.importedSourceHomeV1, userId);
+
   /// Versão sem rollout — true se a flag está globalmente ligada.
   /// Use só em context onde rollout percentual não faz sentido (ex: feature
   /// que ou tá pronta ou não tá, sem teste A/B). Para o caso v1/v2 do
@@ -192,6 +224,22 @@ class FeatureFlagKeys {
   /// hoje: resposta ao passo aberto). Kill-switch independente; rollout
   /// 10→50→100. Seed na migration 20260717120000.
   static const String trilhaAssistV1 = 'trilha_assist_v1';
+
+  /// Salvar o currículo geral ao exportar. ANINHADA em [trilhaAssistV1] —
+  /// leia por `isGeneralResumeSaveEnabledForUser`, nunca direto, senão o
+  /// aninhamento se perde. Default OFF. Seed em
+  /// `20260820120000_seed_split_trilha_assist_flags.sql`.
+  ///
+  /// Contexto: até 20/08/2026 isto vivia colado em [trilhaAssistV1], e o
+  /// resultado medido foi ZERO linhas `source='general'` na base inteira —
+  /// o app gera o PDF, compartilha, e não guarda cópia nenhuma.
+  static const String resumeSaveOnExportV1 = 'resume_save_on_export_v1';
+
+  /// Move o CV importado da aba Currículos para o card "Fonte importada" em
+  /// Perfil → Dados. ANINHADA em [trilhaAssistV1] — leia por
+  /// `isImportedSourceHomeEnabledForUser`. Default OFF **e assim decidido**
+  /// pelo fundador em 20/08/2026: os importados ficam na aba Currículos.
+  static const String importedSourceHomeV1 = 'imported_source_home_v1';
 
   /// ⚠️ **Flag NEGATIVA** — a única do repo. `enabled=true` + 100% ESCONDE a
   /// porta de importar CV em Perfil → Currículos; ausente/false a MOSTRA.
