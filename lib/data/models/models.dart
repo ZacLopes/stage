@@ -817,6 +817,14 @@ class SavedResume {
   /// True quando esta é a fonte importada ATUAL do usuário (no máximo uma).
   final bool isCurrentSource;
 
+  /// True na linha `imported` LEGADA que preencheu o perfil (protocolo antigo,
+  /// anterior ao `is_current_source`). É o único sinal de procedência vivo hoje:
+  /// `is_current_source` está false em 1.319/1.319 linhas de produção porque o
+  /// CHECK exige `extraction_status='ready'`, que nunca foi gravado. A
+  /// biblioteca usa isto pra dizer "alimentou seu perfil" e como desempate do
+  /// currículo em uso — ver `resolveActiveResume`.
+  final bool isLatestLegacySource;
+
   /// Token de idempotência do import (fluxo novo). Null em legado/outros.
   final String? clientImportId;
 
@@ -831,6 +839,7 @@ class SavedResume {
     this.originalFilename,
     this.extractionStatus,
     this.isCurrentSource = false,
+    this.isLatestLegacySource = false,
     this.clientImportId,
   });
 
@@ -861,6 +870,8 @@ class SavedResume {
       originalFilename: map['original_filename'] as String?,
       extractionStatus: map['extraction_status'] as String?,
       isCurrentSource: (map['is_current_source'] as bool?) ?? false,
+      isLatestLegacySource:
+          (map['is_latest_legacy_source'] as bool?) ?? false,
       clientImportId: map['client_import_id']?.toString(),
     );
   }
@@ -883,6 +894,7 @@ class SavedResume {
       originalFilename: originalFilename,
       extractionStatus: extractionStatus,
       isCurrentSource: isCurrentSource,
+      isLatestLegacySource: isLatestLegacySource,
       clientImportId: clientImportId,
     );
   }

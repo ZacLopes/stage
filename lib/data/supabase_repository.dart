@@ -911,20 +911,37 @@ class SupabaseRepository {
       );
 
       // 2. Save record to table and return the inserted row
-      final inserted = await _client
-          .from('saved_resumes')
-          .insert({
-            'user_id': userId,
-            'title': title,
-            'file_path': storagePath,
-            'source': source.dbValue,
-            if (resumeData != null) 'resume_data': resumeData,
-            if (templateId != null) 'template_id': templateId,
-          })
-          .select()
-          .single();
+      //
+      // ⚠️ Storage e Postgres NÃO compartilham transação. Se o insert falhar
+      // depois do upload, o PDF fica órfão no bucket — pago, invisível, e sem
+      // ninguém a quem pertencer. Isso não é hipotético: o trigger
+      // `zzz_mark_latest_legacy_source` REJEITA este insert (com
+      // `legacy_import_blocked_by_canonical_source`) sempre que a conta já tem
+      // uma fonte canônica criada pelo Assistente. Sem a limpeza abaixo, cada
+      // tentativa dessas deixava mais um arquivo para trás.
+      try {
+        final inserted = await _client
+            .from('saved_resumes')
+            .insert({
+              'user_id': userId,
+              'title': title,
+              'file_path': storagePath,
+              'source': source.dbValue,
+              if (resumeData != null) 'resume_data': resumeData,
+              if (templateId != null) 'template_id': templateId,
+            })
+            .select()
+            .single();
 
-      return SavedResume.fromMap(inserted);
+        return SavedResume.fromMap(inserted);
+      } catch (_) {
+        // Best-effort: a falha da limpeza não pode mascarar o erro original,
+        // que é o que o chamador precisa ver para dar a mensagem certa.
+        try {
+          await _client.storage.from('resumes').remove([storagePath]);
+        } catch (_) {}
+        rethrow;
+      }
     } catch (e) {
       print('Error saving resume: $e');
       rethrow;

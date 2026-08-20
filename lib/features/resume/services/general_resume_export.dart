@@ -218,8 +218,12 @@ class GeneralResumeExport {
     // F4.3: com a flag ON, o export também persiste uma versão. Flag OFF
     // (rollback) → não instancia writer nem salva (comportamento idêntico ao
     // histórico). A falha do save nunca quebra o share.
-    final saveEnabled =
-        FeatureFlagsService.instance.isTrilhaAssistEnabledForUser(uid);
+    // 20/08/2026: era `isTrilhaAssistEnabledForUser`, e o resultado medido foi
+    // ZERO linhas `source='general'` na base inteira — o app gerava o PDF,
+    // compartilhava e não guardava cópia. Agora tem chave própria (aninhada
+    // no Assistente), pra poder ligar sem arrastar as outras consequências.
+    final saveEnabled = FeatureFlagsService.instance
+        .isGeneralResumeSaveEnabledForUser(uid);
     final writer = saveEnabled
         ? (versionWriter ?? GeneralResumeVersionWriter.production())
         : null;

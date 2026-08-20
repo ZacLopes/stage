@@ -130,3 +130,4 @@
 20260801130000_rename_informatica_canonical.sql
 20260802120000_app_feature_flags_public_read.sql
 20260802130000_revoke_anon_security_definer.sql
+20260820120000_seed_split_trilha_assist_flags.sql
