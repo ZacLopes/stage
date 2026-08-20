@@ -3443,7 +3443,24 @@ void main() {
       addTearDown(c.dispose);
       await c.start();
       final starter = c.thread.whereType<StarterChipsItem>().single;
-      expect(starter.chips.any((chip) => chip.id == 'import'), isFalse);
+      // 20/08/2026 — esta asserção era `isFalse` e foi INVERTIDA a pedido do
+      // fundador. Não havia decisão documentada por trás dela: entrou junto
+      // com o commit original da feature (41ab981), sem comentário, e o view
+      // já tinha o ícone de `id: 'import'` esperando (`_starterChipIcon`).
+      //
+      // O motivo de existir: com o Assistente ligado o gate some, e com ele o
+      // clipe 📎 — que só renderiza em `ChatPhase.gate`. Sem este chip, quem
+      // chega com o perfil vazio E um CV pronto só encontra o import se
+      // adivinhar e digitar. É justamente a pessoa com mais a ganhar.
+      //
+      // A ação é `importCv` (direta), não `message`: determinística, sem
+      // chamada de IA para classificar o que o toque já disse, e usando o
+      // mesmo `pushCvImportCard()` da porta em Perfil → Currículos.
+      expect(starter.chips.any((chip) => chip.id == 'import'), isTrue);
+      expect(
+        starter.chips.singleWhere((chip) => chip.id == 'import').action,
+        StarterChipAction.importCv,
+      );
       expect(
         starter.chips.singleWhere((chip) => chip.id == 'zero').hero,
         isTrue,

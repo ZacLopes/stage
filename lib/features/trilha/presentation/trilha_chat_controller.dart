@@ -421,6 +421,14 @@ enum StarterChipAction {
 
   /// "Montar do zero" → entra na coleta guiada.
   startZero,
+
+  /// "Importar meu currículo" → empurra o cartão de import DIRETO.
+  ///
+  /// Ação direta, e não uma `message` pra IA classificar, por três razões:
+  /// é determinística (classificação de intenção erra), é de graça (não gasta
+  /// chamada de OpenAI pra descobrir algo que o toque já disse), e usa o MESMO
+  /// `pushCvImportCard()` que a porta da aba Currículos usa — um motor só.
+  importCv,
 }
 
 /// Um chip de partida (empty-state do assistente): id + rótulo curto + ação. O
@@ -915,6 +923,11 @@ class TrilhaChatController extends ChangeNotifier {
       action: StarterChipAction.startZero,
     ),
     StarterChip(
+      id: 'import',
+      label: 'Já tenho currículo pronto',
+      action: StarterChipAction.importCv,
+    ),
+    StarterChip(
       id: 'jobs',
       label: 'Tem vaga de marketing?',
       message: 'tem vaga de marketing?',
@@ -954,6 +967,11 @@ class TrilhaChatController extends ChangeNotifier {
       message: 'quero adicionar uma experiência',
     ),
     StarterChip(
+      id: 'import',
+      label: 'Importar meu currículo',
+      action: StarterChipAction.importCv,
+    ),
+    StarterChip(
       id: 'capabilities',
       label: 'Tudo que eu faço',
       message: 'o que você consegue fazer?',
@@ -981,6 +999,8 @@ class TrilhaChatController extends ChangeNotifier {
     _notify();
     if (chip.action == StarterChipAction.startZero) {
       await _enterConverse();
+    } else if (chip.action == StarterChipAction.importCv) {
+      pushCvImportCard();
     } else {
       await submitFreeText(chip.message);
     }
@@ -1390,6 +1410,20 @@ class TrilhaChatController extends ChangeNotifier {
   Future<void> _routeToStep(ConversationStep step, String t) async {
     final input = step.input;
     if (input is GuidedTextInput) {
+      // DEFEITO ATIVO consertado em 20/08/2026 (independe do Assistente):
+      // qualquer texto virava a resposta do passo, sem nenhuma checagem. Se a
+      // tela perguntava "Qual o nome da empresa?" e a pessoa digitava "como
+      // faço um currículo sem experiência?", o perfil dela ficava com
+      // empresa = "como faço um currículo sem experiência?". Literalmente.
+      if (_looksLikeQuestionNotAnswer(t)) {
+        thread.add(UserMsgItem(t));
+        _pushAi(
+          'Essa eu ainda não sei responder por aqui — nesta conversa eu só '
+          'consigo anotar a resposta da pergunta que está na tela. Se não '
+          'souber agora, é só deixar pra depois.',
+        );
+        return;
+      }
       await _doSubmit(StepAnswer.text(step.id, t));
       return;
     }
@@ -4480,6 +4514,40 @@ class TrilhaChatController extends ChangeNotifier {
     r'\b(skill|habilidade|experi[eê]ncia|resumo|bullet|cidade|cargo|[aá]rea|idioma|projeto|forma[cç][aã]o|linkedin|certifica|pr[eê]mio|disponibilidade|interesse|perfil|curr[ií]culo|vagas?(?![a-zà-ú])|exportar?(?![a-zà-ú])|importar?(?![a-zà-ú])|pdf(?![a-zà-ú]))',
     caseSensitive: false,
   );
+  /// "Isto é uma pergunta, não a resposta do passo aberto?"
+  ///
+  /// DELIBERADAMENTE MAIS ESTREITO que [_looksLikeCommand], e a diferença
+  /// importa: aquele casa `_sectionWords` — 'certifica', 'experiência',
+  /// 'cargo', 'idioma', 'cidade' — que são **respostas legítimas** em vários
+  /// passos. Reusá-lo aqui bloquearia quem está respondendo certo, trocando um
+  /// defeito de dado sujo por um defeito de dado perdido, que é pior.
+  ///
+  /// Só bloqueia sinais que praticamente nunca são resposta de um passo de
+  /// texto (nome de empresa, cargo, instituição):
+  ///   • termina em '?';
+  ///   • abre com pedido de ajuda explícito;
+  ///   • é uma desistência ("não sei") — gravar isso como nome de empresa é
+  ///     exatamente o tipo de lixo que o match depois pontua a sério.
+  ///
+  /// Falso positivo aqui custa uma frase a mais para a pessoa; falso negativo
+  /// custa um campo sujo no perfil que ninguém revisa. O viés é assumido.
+  /// ⚠️ O fecho é `(?![a-zà-ÿ])` e NÃO `\b`: o `\b` do Dart é ASCII-only,
+  /// então entre 'é' (não-\w) e o espaço seguinte (não-\w) não existe
+  /// fronteira — "o que é bullet point" e "Sei lá" escapavam do detector.
+  static final RegExp _questionOpeners = RegExp(
+    r"^\s*(como\s+(fa[cç]o|que|eu)|o\s+que\s+(é|e|significa)|me\s+ajuda"
+    r"|pode\s+me\s+ajudar|preciso\s+de\s+ajuda|tem\s+como|e\s+se\s+eu"
+    r"|n[aã]o\s+sei|nao\s+sei|sei\s+l[aá])(?![a-zà-ÿ])",
+    caseSensitive: false,
+  );
+
+  bool _looksLikeQuestionNotAnswer(String t) {
+    final s = t.trim();
+    if (s.isEmpty) return false;
+    if (s.endsWith('?')) return true;
+    return _questionOpeners.hasMatch(s);
+  }
+
   bool _looksLikeCommand(String t) {
     final s = t.trim();
     if (s.endsWith('?')) return true;
