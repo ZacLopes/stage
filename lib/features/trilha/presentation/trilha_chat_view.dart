@@ -48,6 +48,17 @@ class TrilhaChatView extends StatefulWidget {
 class _TrilhaChatViewState extends State<TrilhaChatView>
     with WidgetsBindingObserver {
   final ScrollController _scroll = ScrollController();
+
+  /// Altura da viewport no último `_syncScroll`.
+  ///
+  /// Existe por causa do card "Fortalecer perfil": expandi-lo ENCOLHE a área
+  /// da conversa (é irmão dela numa Column), o que faz `maxScrollExtent`
+  /// crescer na mesma medida. O guard de distância abaixo media isso DEPOIS da
+  /// mudança, via ~150px de folga, passava pelo `distance > 160` e puxava o
+  /// fio pro fim — empurrando a saudação pra fora da tela. Medido no simulador
+  /// em 20/08/2026: expandir o stepper numa conversa nova escondia a primeira
+  /// bolha, que é justamente onde o app explica o que faz.
+  double? _lastViewportExtent;
   final TextEditingController _text = TextEditingController();
 
   /// FocusNode ESTÁVEL da barra de digitar. Sem ele, o TextField usa um node
@@ -169,6 +180,16 @@ class _TrilhaChatViewState extends State<TrilhaChatView>
           _c.thread.last is ImportConflictItem) {
         return;
       }
+      // Redimensionamento NÃO é conteúdo novo. Quando só a viewport mudou
+      // (teclado, header colapsável, card "Fortalecer perfil" expandindo), a
+      // posição de leitura da pessoa é para ser preservada — ela não pediu
+      // pra ir pro fim.
+      final viewport = _scroll.position.viewportDimension;
+      final viewportChanged =
+          _lastViewportExtent != null && (_lastViewportExtent! - viewport).abs() > 1;
+      _lastViewportExtent = viewport;
+      if (!grew && viewportChanged) return;
+
       final target = _scroll.position.maxScrollExtent;
       final distance = target - _scroll.offset;
       // Só puxa pro fim quando CHEGOU mensagem nova, OU o user já está colado no
