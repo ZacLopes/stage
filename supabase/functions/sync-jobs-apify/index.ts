@@ -32,6 +32,7 @@ import {
   isCompanyNameBlacklisted,
   isTitleBlacklisted,
   jsonResponse,
+  markExpiredJobsInactive,
   markStaleJobsInactive,
   safeJson,
   stripHtml,
@@ -393,7 +394,10 @@ serve(async (req: Request) => {
     else inserted++;
   }
 
-  const stale = await markStaleJobsInactive(supabase, SOURCE_NAME, 48);
+  // Gupy tem prazo em 100% das linhas, então aqui o par importa de verdade:
+  // o silêncio deixa de matar vaga viva, e o prazo passa a ser quem desliga.
+  const stale = (await markStaleJobsInactive(supabase, SOURCE_NAME, 48)) +
+    (await markExpiredJobsInactive(supabase, SOURCE_NAME));
 
   const durationMs = Date.now() - startedAt;
 
