@@ -24,6 +24,7 @@ import {
   corsHeaders,
   isAuthorized,
   jsonResponse,
+  markExpiredJobsInactive,
   markStaleJobsInactive,
   safeJson,
 } from "../_shared/jobs.ts";
@@ -116,7 +117,11 @@ serve(withEdgeAnalytics('sync-jobs-ats', async (req: Request) => {
   // pra não desativar vagas só porque a próxima run vai pegá-las.
   const markedStale: Record<string, number> = {};
   for (const name of sourceNamesSynced) {
+    // Silêncio (respeitando prazo) + prazo vencido. Greenhouse e InHire não
+    // trazem `deadline`, então o segundo é no-op nelas — está aqui para o dia
+    // em que um adapter novo trouxer prazo.
     markedStale[name] = await markStaleJobsInactive(supabase, name, 48);
+    markedStale[name] += await markExpiredJobsInactive(supabase, name);
   }
 
   // Emite 1 evento POR ATS (greenhouse, lever, ...) pra o dashboard fazer

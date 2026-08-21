@@ -40,6 +40,7 @@ import {
   isTalentPoolDescription,
   isTitleBlacklisted,
   jsonResponse,
+  markExpiredJobsInactive,
   markStaleJobsInactive,
   normalizeForDedup,
   parseSalary,
@@ -351,7 +352,8 @@ serve(withEdgeAnalytics('sync-jobs-brazil', async (req: Request) => {
     }
   }
 
-  const stale = await markStaleJobsInactive(supabase, "brz_%", 48);
+  const stale = (await markStaleJobsInactive(supabase, "brz_%", 48)) +
+    (await markExpiredJobsInactive(supabase, "brz_%"));
 
   const durationMs = Date.now() - startedAt;
 

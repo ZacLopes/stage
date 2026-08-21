@@ -653,22 +653,110 @@ export function inferWorkModel(location: string | null | undefined): string {
  *
  * @param source string exata ou pattern SQL LIKE (com `%`)
  */
+/// Teto de idade: acima disso, prazo do empregador não protege mais.
+///
+/// Existe porque prazo é dado declarado e há lixo: medimos vagas da Gupy com
+/// `deadline` em 2030. Sem teto, uma linha dessas ficaria viva para sempre.
+/// 90 dias cobre o catálogo real — das 2.377 desligadas com prazo futuro em
+/// 21/08/2026, só 53 tinham sido publicadas há mais de 90 dias.
+export const STALE_MAX_AGE_DAYS = 90;
+
+/// A vaga morre por SILÊNCIO do robô, ou o prazo do empregador a protege?
+///
+/// Pura e exportada porque é a regra do produto, e a query abaixo é só a
+/// tradução dela para filtro do PostgREST. Se mudar uma, mude a outra — o
+/// teste `jobs.test.ts` trava as duas contra os mesmos casos.
+export function silenceShouldDeactivate(
+  job: { deadline: string | null; published_at: string | null },
+  nowMs: number,
+  maxAgeDays: number = STALE_MAX_AGE_DAYS,
+): boolean {
+  // Sem prazo declarado, silêncio é o único sinal que temos.
+  if (!job.deadline) return true;
+  // Prazo vencido: morreu de velha, não de silêncio.
+  if (Date.parse(job.deadline) <= nowMs) return true;
+  // Prazo de pé, mas a vaga é antiga demais pra confiar nele.
+  if (!job.published_at) return true;
+  return Date.parse(job.published_at) < nowMs - maxAgeDays * 86_400_000;
+}
+
+/// Desliga vagas que o robô parou de ver — MAS respeitando o prazo de inscrição.
+///
+/// 🚨 O bug que isto conserta (medido em 21/08/2026, em produção):
+///
+/// `last_seen_at` NÃO significa "a vaga está aberta". Significa "a vaga
+/// apareceu na amostra que puxamos". Gupy e InfoJobs são varridos com um teto
+/// (`maxResults`) e ordenados pelas mais novas, então uma vaga VIVA sai da
+/// amostra conforme vagas novas entram — e a regra antiga a matava em 48h.
+///
+/// Medição: peguei 200 vagas da Gupy que desligamos nos últimos 30 dias e
+/// cruzei com a lista que a Gupy publica hoje. **123 (61,5%) continuavam
+/// abertas.** Havia vagas desligadas em agosto com prazo de inscrição até
+/// dezembro.
+///
+/// Greenhouse e InHire NÃO têm esse problema: os adapters buscam a lista
+/// COMPLETA de cada tenant, então ausência é prova de fechamento. Como essas
+/// duas fontes não trazem `deadline` (0 de 199 linhas ativas), o guard abaixo
+/// é no-op para elas e o comportamento de 48h fica idêntico. A correção é
+/// cirúrgica de propósito: só afeta quem tem prazo declarado.
 export async function markStaleJobsInactive(
   supabase: SupabaseClient,
   source: string,
   cutoffHours: number,
+  maxAgeDays: number = STALE_MAX_AGE_DAYS,
 ): Promise<number> {
-  const cutoff = new Date(Date.now() - cutoffHours * 60 * 60 * 1000).toISOString();
+  const now = Date.now();
+  const cutoff = new Date(now - cutoffHours * 60 * 60 * 1000).toISOString();
+  const nowIso = new Date(now).toISOString();
+  const ageFloor = new Date(now - maxAgeDays * 86_400_000).toISOString();
+
   const query = supabase
     .from("jobs")
     .update({ is_active: false }, { count: "exact" })
     .eq("is_active", true)
-    .lt("last_seen_at", cutoff);
+    .lt("last_seen_at", cutoff)
+    // Tradução de `silenceShouldDeactivate`. `published_at.is.null` está aqui
+    // porque no PostgREST `col.lt.x` é FALSO quando a coluna é NULL — sem esta
+    // cláusula, uma vaga com prazo futuro e sem data de publicação ficaria
+    // protegida para sempre.
+    .or(
+      `deadline.is.null,deadline.lte.${nowIso},` +
+        `published_at.is.null,published_at.lt.${ageFloor}`,
+    );
 
   const filtered = source.includes("%") ? query.like("source", source) : query.eq("source", source);
   const { error, count } = await filtered;
   if (error) {
     console.error(`markStaleJobsInactive(${source}) failed:`, error.message);
+    return 0;
+  }
+  return count ?? 0;
+}
+
+/// Desliga vagas cujo prazo de inscrição já venceu, independente de silêncio.
+///
+/// É a outra metade do par: com o guard acima, prazo passa a SEGURAR a vaga
+/// viva — então alguém precisa desligá-la quando o prazo cai. Sem isto, uma
+/// vaga com prazo futuro ficaria ativa até o robô parar de vê-la E o prazo
+/// vencer, o que pode nunca coincidir.
+///
+/// No-op para fontes sem `deadline` (Greenhouse, InHire, InfoJobs).
+export async function markExpiredJobsInactive(
+  supabase: SupabaseClient,
+  source: string,
+): Promise<number> {
+  const nowIso = new Date().toISOString();
+  const query = supabase
+    .from("jobs")
+    .update({ is_active: false }, { count: "exact" })
+    .eq("is_active", true)
+    .not("deadline", "is", null)
+    .lte("deadline", nowIso);
+
+  const filtered = source.includes("%") ? query.like("source", source) : query.eq("source", source);
+  const { error, count } = await filtered;
+  if (error) {
+    console.error(`markExpiredJobsInactive(${source}) failed:`, error.message);
     return 0;
   }
   return count ?? 0;
